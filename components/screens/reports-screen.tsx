@@ -14,11 +14,12 @@ import type { ReportRange, Sale } from "@/lib/types";
 
 type ReportsScreenProps = {
   sales: Sale[];
+  openSale: (saleId: string) => void;
   voidSale: (saleId: string) => void;
   refundSale: (saleId: string) => void;
 };
 
-export function ReportsScreen({ sales, voidSale, refundSale }: ReportsScreenProps) {
+export function ReportsScreen({ sales, openSale, voidSale, refundSale }: ReportsScreenProps) {
   const [range, setRange] = useState<ReportRange>("today");
   const visibleSales = useMemo(() => sales.filter((sale) => isInsideRange(sale.createdAt, range)), [sales, range]);
   const metrics = computeMetrics(visibleSales);
@@ -86,6 +87,7 @@ export function ReportsScreen({ sales, voidSale, refundSale }: ReportsScreenProp
               sale={sale}
               canVoid={canVoid}
               canRefund={canRefund}
+              openSale={openSale}
               voidSale={voidSale}
               refundSale={refundSale}
             />

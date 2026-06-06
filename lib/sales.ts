@@ -10,13 +10,29 @@ export function saleGrossCents(sale: Sale) {
   return sale.lines.reduce((total, line) => total + line.unitPriceCents * line.quantity, 0);
 }
 
+export function saleCostCents(sale: Sale) {
+  return sale.lines.reduce((total, line) => total + (line.unitCostCents ?? 0) * line.quantity, 0);
+}
+
+export function saleHasUnknownCost(sale: Sale) {
+  return sale.lines.some((line) => line.unitCostCents == null);
+}
+
 export function saleNetCents(sale: Sale) {
   const value = Math.max(0, saleGrossCents(sale) - sale.saleDiscountCents);
   return sale.refundOfSaleId ? -value : value;
 }
 
+export function saleProfitCents(sale: Sale) {
+  return Math.max(0, saleGrossCents(sale) - sale.saleDiscountCents) - saleCostCents(sale);
+}
+
 export function saleTotal(sale: Sale) {
   return formatBs(saleNetCents(sale), true);
+}
+
+export function hasRefundForSale(sales: Sale[], saleId: string) {
+  return sales.some((sale) => sale.refundOfSaleId === saleId);
 }
 
 export function computeMetrics(sales: Sale[]) {

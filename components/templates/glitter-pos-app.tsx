@@ -8,6 +8,7 @@ import { PaymentScreen } from "@/components/screens/payment-screen";
 import { ProductEditor } from "@/components/screens/product-editor";
 import { ProductsScreen } from "@/components/screens/products-screen";
 import { ReportsScreen } from "@/components/screens/reports-screen";
+import { SaleDetailScreen } from "@/components/screens/sale-detail-screen";
 import { SellScreen } from "@/components/screens/sell-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { paymentLabels, saleTotal } from "@/lib/sales";
@@ -39,6 +40,7 @@ export function GlitterPosApp() {
   const [query, setQuery] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const activeProducts = products.filter((product) => !product.archivedAt);
@@ -54,6 +56,7 @@ export function GlitterPosApp() {
   );
   const cartSubtotal = cartDetails.reduce((total, line) => total + line.product.priceCents * line.quantity, 0);
   const cartCount = cartDetails.reduce((total, line) => total + line.quantity, 0);
+  const selectedSale = selectedSaleId ? (sales.find((sale) => sale.id === selectedSaleId) ?? null) : null;
 
   function showToast(text: string, tone: ToastMessage["tone"] = "success") {
     const message = { id: `${Date.now()}`, text, tone };
@@ -95,6 +98,11 @@ export function GlitterPosApp() {
     }
   }
 
+  function openSaleDetail(saleId: string) {
+    setSelectedSaleId(saleId);
+    setView("saleDetail");
+  }
+
   const content = {
     sell: (
       <SellScreen
@@ -115,6 +123,7 @@ export function GlitterPosApp() {
     reports: (
       <ReportsScreen
         sales={sales}
+        openSale={openSaleDetail}
         voidSale={(saleId) => {
           voidSale(saleId);
           showToast("Venta anulada", "info");
@@ -177,6 +186,23 @@ export function GlitterPosApp() {
           archiveProduct(productId);
           showToast("Producto archivado", "info");
           setView("products");
+        }}
+      />
+    ),
+    saleDetail: (
+      <SaleDetailScreen
+        sale={selectedSale}
+        sales={sales}
+        back={() => setView("reports")}
+        voidSale={(saleId) => {
+          voidSale(saleId);
+          showToast("Venta anulada", "info");
+          setView("reports");
+        }}
+        refundSale={(saleId) => {
+          refundSale(saleId);
+          showToast("Reembolso registrado", "info");
+          setView("reports");
         }}
       />
     ),
