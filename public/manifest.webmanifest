@@ -1,0 +1,11 @@
+{
+  "name": "Glitter POS",
+  "short_name": "Glitter POS",
+  "description": "POS offline-first para vendedores de ferias y convenciones.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fbfafc",
+  "theme_color": "#6822E2",
+  "orientation": "portrait",
+  "icons": []
+}
