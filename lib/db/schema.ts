@@ -84,6 +84,9 @@ export const products = pgTable(
   (table) => [
     index("products_tenant_id_idx").on(table.tenantId),
     index("products_tenant_archived_idx").on(table.tenantId, table.archivedAt),
+    // Target for the tenant-scoped composite FK on sale_lines.product_id.
+    // (id) is already unique as the PK; this pair makes the composite FK legal.
+    unique("products_id_tenant_id_unique").on(table.id, table.tenantId),
   ]
 );
 
@@ -142,9 +145,13 @@ export const saleLines = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "restrict" }),
-    productId: uuid("product_id").references(() => products.id, {
-      onDelete: "set null",
-    }),
+    // FK to products is composite (product_id, tenant_id) — declared in the
+    // table config below so a line cannot reference a product in another
+    // tenant. ON DELETE RESTRICT (not SET NULL) because tenant_id is NOT NULL
+    // and cannot be half-nulled; products are soft-deleted via archived_at in
+    // practice, and sales/sale_lines are append-only, so a real product delete
+    // with referencing lines never happens.
+    productId: uuid("product_id"),
     productName: text("product_name").notNull(),
     category: text("category").notNull(),
     quantity: integer("quantity").notNull(),
@@ -164,6 +171,11 @@ export const saleLines = pgTable(
       name: "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk",
       columns: [table.saleId, table.tenantId],
       foreignColumns: [sales.id, sales.tenantId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "sale_lines_product_id_tenant_id_products_id_tenant_id_fk",
+      columns: [table.productId, table.tenantId],
+      foreignColumns: [products.id, products.tenantId],
     }).onDelete("restrict"),
   ]
 );
