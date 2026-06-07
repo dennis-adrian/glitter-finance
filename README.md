@@ -15,10 +15,117 @@ This repository currently implements the Stage A product slice from the PRD:
 
 ```bash
 npm install
+npm run db:start
+npm run db:reset
+npm run db:seed:buckets
 npm run dev
 ```
 
 Then open `http://localhost:3000`.
+
+`npm run db:reset` loads `supabase/seed.sql`, which creates a reusable
+development account:
+
+- Email: `demo@glitter-pos.local`
+- Password: `glitter-demo`
+
+The seeded account includes a demo tenant, active and archived products, a few
+product images from `supabase/product-images/seed`, recent sales, a voided sale,
+and a refunded sale for report/history testing.
+
+## Environment
+
+Copy `.env.example` to `.env.local` and fill in:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SECRET_KEY`
+- `DATABASE_URL`
+
+`DATABASE_URL` should point at the Supabase Transaction Pooler (port `6543`). The runtime Drizzle client in `lib/db/index.ts` is configured with `prepare: false` to be compatible with it.
+
+## Cloud environments
+
+Two Supabase cloud projects back this app:
+
+- **`glitter-finance-staging`** — free plan. Used for branch testing, schema experiments, and QA validation. Safe to wipe.
+- **`glitter-finance`** — Pro plan ($25/mo). Production. Migrations land here only after they pass on staging.
+
+Only one project can be linked to the local checkout at a time. A developer relinks via the Supabase CLI when switching contexts:
+
+```bash
+# Working on a branch — point at staging:
+supabase link --project-ref <staging-project-ref>
+npm run db:push       # applies pending migrations to glitter-finance-staging
+
+# Ready to deploy — point at prod:
+supabase link --project-ref <prod-project-ref>
+npm run db:push       # applies the same migrations to glitter-finance
+```
+
+After relinking, update `.env.local` so `NEXT_PUBLIC_SUPABASE_URL`, the publishable and secret keys, and `DATABASE_URL` all match the now-linked project; otherwise the running app and the CLI will talk to different backends.
+
+### QA seed
+
+`npm run db:seed:qa` creates (or refreshes) a stable QA account on the Supabase project the env vars point at — typically `glitter-finance-staging`. It provisions a dummy catalog, completed sales, a voided sale, and a refunded sale, attached to a fixed tenant id so re-runs are idempotent. The auth user and tenant are always preserved; `--reset` only wipes the catalog and sales.
+
+Pass the target credentials inline so the command always runs against the intended project:
+
+```bash
+QA_EMAIL=qa@glitterfinance.app QA_PASSWORD=... \
+NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
+npm run db:seed:qa             # append `-- --reset` to wipe catalog + sales and reseed
+```
+
+## Drizzle and Supabase: who owns what
+
+Drizzle and Supabase both touch the database, but they sit at different points in the stack. Keeping that split clear avoids confusion when reading the codebase or running migration commands.
+
+### Drizzle owns the schema and typed queries
+
+- **Schema source of truth.** `lib/db/schema.ts` is hand-written in TypeScript. Every table, column, index, relation, and enum is defined there.
+- **Typed query layer.** Server-side code reads and writes through `db` from `lib/db/index.ts`. The types flow directly from `schema.ts` with no codegen step.
+- **Client-side reuse (planned).** When PowerSync is wired in, `@powersync/drizzle-driver` will reuse the same `schema.ts` to type queries against the per-device SQLite store. The schema lives in one place and types both ends.
+- **Schema-to-SQL diffing.** `drizzle-kit generate` reads the schema, diffs it against the snapshots in `supabase/migrations/meta/`, and writes a new timestamp-prefixed SQL file into `supabase/migrations/`.
+
+Drizzle does **not** apply migrations in this project, and does **not** own the journal that tracks which migrations have run. Those are Supabase CLI concerns.
+
+### Supabase CLI owns migration application and the dev environment
+
+- **Migration runner.** `supabase db push` applies the SQL files in `supabase/migrations/` against the linked cloud project, tracked in `supabase_migrations.schema_migrations`. `supabase db reset` rebuilds the local database from migrations + seed.
+- **Local development stack.** `supabase start` boots Postgres, Auth, Storage, and the rest of the stack locally via Docker. The project is initialized via `supabase/config.toml`.
+- **Things Drizzle cannot model.** RLS policies, `auth.users` foreign keys, `SECURITY DEFINER` functions, triggers, and grants are hand-written SQL files in `supabase/migrations/`, sitting next to the Drizzle-generated ones. The CLI applies them all in lexicographic (timestamp) order — the file's origin does not matter to the runner.
+
+### Daily commands
+
+```bash
+# Edit lib/db/schema.ts, then:
+npm run db:generate     # drizzle-kit generate — writes a new SQL file into supabase/migrations/
+
+# Apply migrations:
+npm run db:push         # supabase db push — apply to the linked cloud project
+npm run db:reset        # supabase db reset — wipe and replay locally
+
+# Local dev stack:
+npm run db:start        # supabase start
+npm run db:stop         # supabase stop
+```
+
+Do not run `drizzle-kit migrate`. The Drizzle `__drizzle_migrations` journal is not maintained; `supabase_migrations.schema_migrations` is the only journal that matters.
+
+### Hand-written SQL migrations
+
+For anything Drizzle's schema cannot express (RLS, auth FKs, triggers, grants), create a new file in `supabase/migrations/` with a fresh timestamp prefix. Example:
+
+```bash
+touch supabase/migrations/$(date -u +%Y%m%d%H%M%S)_my_change.sql
+```
+
+These files are first-class migrations and are applied by `supabase db push` alongside Drizzle-generated ones.
+
+### Runtime data access
+
+Server-only code imports `db` from `lib/db/index.ts` for typed reads and writes through Drizzle. `db` connects directly to Postgres, so it bypasses RLS — treat it as a trusted server context and gate access at the application layer (see `lib/auth/user-context.ts` for the tenant scoping pattern). The `@supabase/ssr` clients in `lib/supabase/` are used for auth and session cookies, not for product/sales data.
 
 ## Product docs
 

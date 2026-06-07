@@ -6,7 +6,8 @@ type SaleLineDetailProps = {
 };
 
 export function SaleLineDetail({ line }: SaleLineDetailProps) {
-  const lineTotal = line.unitPriceCents * line.quantity - line.lineDiscountCents;
+  const lineTotal =
+    line.unitPriceCents * line.quantity - line.lineDiscountCents;
 
   return (
     <article className="sale-line-detail">
@@ -21,7 +22,10 @@ export function SaleLineDetail({ line }: SaleLineDetailProps) {
         </span>
       </div>
       <small>
-        Costo snapshoteado: {line.unitCostCents == null ? "Desconocido" : formatBs(line.unitCostCents, true)}
+        Costo snapshoteado:{" "}
+        {line.unitCostCents == null
+          ? "Desconocido"
+          : formatBs(line.unitCostCents, true)}
       </small>
     </article>
   );

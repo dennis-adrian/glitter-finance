@@ -21,12 +21,16 @@ type SellScreenProps = {
   decrementCart: (productId: string) => void;
   openCart: () => void;
   openPayment: () => void;
+  openProductEditor: () => void;
 };
 
 export function SellScreen(props: SellScreenProps) {
   const filtered = props.products.filter((product) => {
-    const matchesCategory = props.category === "Todos" || product.category === props.category;
-    const matchesQuery = product.name.toLowerCase().includes(props.query.toLowerCase());
+    const matchesCategory =
+      props.category === "Todos" || product.category === props.category;
+    const matchesQuery = product.name
+      .toLowerCase()
+      .includes(props.query.toLowerCase());
     return matchesCategory && matchesQuery;
   });
 
@@ -45,15 +49,25 @@ export function SellScreen(props: SellScreenProps) {
         <span className="status-dot" />
         <span>Modo venta · listo sin conexión</span>
       </div>
-      <CategoryRail active={props.category} categories={categories} setActive={props.setCategory} />
+      <CategoryRail
+        active={props.category}
+        categories={categories}
+        setActive={props.setCategory}
+      />
       <div className="search-panel compact">
         <Search size={18} />
-        <input value={props.query} onChange={(event) => props.setQuery(event.target.value)} placeholder="Buscar producto" />
+        <input
+          value={props.query}
+          onChange={(event) => props.setQuery(event.target.value)}
+          placeholder="Buscar producto"
+        />
       </div>
       {filtered.length ? (
         <div className="product-grid">
           {filtered.map((product) => {
-            const quantity = props.cart.find((line) => line.productId === product.id)?.quantity ?? 0;
+            const quantity =
+              props.cart.find((line) => line.productId === product.id)
+                ?.quantity ?? 0;
             return (
               <ProductTile
                 key={product.id}
@@ -65,11 +79,26 @@ export function SellScreen(props: SellScreenProps) {
             );
           })}
         </div>
-      ) : (
+      ) : props.products.length === 0 ? (
         <EmptyState
           icon={<PackagePlus size={42} />}
-          title="Nada por aquí todavía"
-          body="Cambia de categoría o agrega un producto nuevo desde Productos."
+          title="Agrega tu primer producto"
+          body="Tu catálogo está vacío."
+          action={
+            <button
+              className="primary-action"
+              onClick={props.openProductEditor}
+            >
+              <PackagePlus size={20} />
+              AGREGAR PRODUCTO
+            </button>
+          }
+        />
+      ) : (
+        <EmptyState
+          icon={<Search size={42} />}
+          title="No se encontraron productos"
+          body="Prueba con otra categoría o término de búsqueda."
         />
       )}
       <CheckoutDock

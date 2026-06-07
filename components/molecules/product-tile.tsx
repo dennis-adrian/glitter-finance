@@ -12,7 +12,12 @@ type ProductTileProps = {
   decrement: () => void;
 };
 
-export function ProductTile({ product, quantity, add, decrement }: ProductTileProps) {
+export function ProductTile({
+  product,
+  quantity,
+  add,
+  decrement,
+}: ProductTileProps) {
   const timer = useRef<number | null>(null);
   const longPressed = useRef(false);
 

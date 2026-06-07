@@ -8,14 +8,27 @@ type CheckoutDockProps = {
   openPayment: () => void;
 };
 
-export function CheckoutDock({ cartCount, cartSubtotal, openCart, openPayment }: CheckoutDockProps) {
+export function CheckoutDock({
+  cartCount,
+  cartSubtotal,
+  openCart,
+  openPayment,
+}: CheckoutDockProps) {
   return (
     <div className="checkout-dock">
-      <button className="order-button" onClick={openCart} aria-label="Ver carrito">
+      <button
+        className="order-button"
+        onClick={openCart}
+        aria-label="Ver carrito"
+      >
         <ReceiptText size={22} />
         {cartCount ? <span className="badge">{cartCount}</span> : null}
       </button>
-      <button className="charge-button" disabled={!cartCount} onClick={openPayment}>
+      <button
+        className="charge-button"
+        disabled={!cartCount}
+        onClick={openPayment}
+      >
         <span>COBRAR</span>
         <strong>{formatBs(cartSubtotal, true)}</strong>
       </button>

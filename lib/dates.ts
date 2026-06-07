@@ -1,5 +1,18 @@
 import type { ReportRange } from "@/lib/types";
 
+/** Local calendar-day bound for `<input type="date">` values (matches isInsideRange). */
+export function parseCustomRangeBound(
+  dateStr: string,
+  endOfDay: boolean
+): number {
+  const time = endOfDay ? "T23:59:59.999" : "T00:00:00";
+  const ms = new Date(`${dateStr}${time}`).getTime();
+  if (Number.isNaN(ms)) {
+    return endOfDay ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+  }
+  return ms;
+}
+
 export function isInsideRange(iso: string, range: ReportRange) {
   const date = new Date(iso);
   const now = new Date();
@@ -24,7 +37,10 @@ export function relativeTime(iso: string) {
   if (minutes < 1) return "Ahora";
   if (minutes < 60) return `Hace ${minutes} min`;
   if (minutes < 1440) return `Hace ${Math.floor(minutes / 60)} hora`;
-  return new Intl.DateTimeFormat("es-BO", { day: "2-digit", month: "short" }).format(new Date(iso));
+  return new Intl.DateTimeFormat("es-BO", {
+    day: "2-digit",
+    month: "short",
+  }).format(new Date(iso));
 }
 
 export function minutesSince(iso: string) {

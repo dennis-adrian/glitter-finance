@@ -8,15 +8,28 @@ export type Product = {
   priceCents: number;
   costCents: number | null;
   category: string;
+  imagePath: string | null;
+  imageUrl: string | null;
   imageTone: string;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
+export type ProductInput = {
+  name: string;
+  priceCents: number;
+  costCents: number | null;
+  category: string;
+  imageTone?: string;
+  imagePath?: string | null;
+};
+
 export type CartLine = {
   productId: string;
   quantity: number;
+  lineDiscountCents?: number;
+  lineDiscountReason?: string;
 };
 
 export type SaleLine = {
@@ -28,6 +41,8 @@ export type SaleLine = {
   unitPriceCents: number;
   unitCostCents: number | null;
   lineDiscountCents: number;
+  lineDiscountReason?: string;
+  lineTotalCents: number;
 };
 
 export type Sale = {
@@ -41,12 +56,15 @@ export type Sale = {
   saleDiscountReason?: string;
   lines: SaleLine[];
   status: SaleStatus;
+  clientCreatedAt?: string;
   voidedAt?: string;
+  voidedByUserId?: string;
   refundOfSaleId?: string;
   refundedAt?: string;
+  refundReason?: string;
 };
 
-export type ReportRange = "today" | "week" | "month";
+export type ReportRange = "today" | "week" | "month" | "custom";
 
 export type ToastMessage = {
   id: string;

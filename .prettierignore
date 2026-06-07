@@ -1,0 +1,15 @@
+.next
+node_modules
+package-lock.json
+tsconfig.tsbuildinfo
+supabase/migrations/*
+public
+
+# Supabase
+.branches
+.temp
+
+# dotenvx
+.env.keys
+.env.local
+.env.*.local
