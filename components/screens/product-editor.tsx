@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   ArchiveRestore,
@@ -14,6 +14,10 @@ import { FormField } from "@/components/atoms/form-field";
 import { Header } from "@/components/atoms/header";
 import { ProductArt } from "@/components/atoms/product-art";
 import { parseBolivianos } from "@/lib/money";
+import {
+  productImageMaxBytes,
+  productImageMimeTypes,
+} from "@/lib/product-image-config";
 import { emptyProduct } from "@/lib/products";
 import { categories } from "@/lib/sample-data";
 import type { Product } from "@/lib/types";
@@ -28,7 +32,9 @@ type ProductEditorProps = {
     costCents: number | null;
     category: string;
     imageTone: string;
-  }) => void;
+    imagePath?: string | null;
+    imageFile?: File | null;
+  }) => Promise<void> | void;
   archive: (productId: string) => void;
 };
 
@@ -47,7 +53,56 @@ export function ProductEditor({
   );
   const [category, setCategory] = useState(product?.category ?? "Stickers");
   const [imageTone, setImageTone] = useState(product?.imageTone ?? "violet");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const canSave = hasValidProductForm(name, price);
+  const previewProduct = {
+    ...(product ?? emptyProduct),
+    name: name || "Producto",
+    imageTone,
+    imagePath: product?.imagePath ?? emptyProduct.imagePath,
+    imageUrl: imagePreviewUrl ?? product?.imageUrl ?? null,
+  };
+
+  useEffect(() => {
+    if (!imageFile) {
+      setImagePreviewUrl(null);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(imageFile);
+    setImagePreviewUrl(objectUrl);
+
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [imageFile]);
+
+  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setImageError(null);
+
+    if (!file) {
+      setImageFile(null);
+      return;
+    }
+
+    if (!productImageMimeTypes.some((type) => type === file.type)) {
+      setImageFile(null);
+      setImageError("La imagen debe estar en formato JPG o PNG.");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > productImageMaxBytes) {
+      setImageFile(null);
+      setImageError("La imagen no puede superar 5MB.");
+      event.target.value = "";
+      return;
+    }
+
+    setImageFile(file);
+  }
 
   return (
     <section className="screen editor-screen">
@@ -61,23 +116,41 @@ export function ProductEditor({
         right={<BrandMark size="small" />}
       />
       <label className="field-label">Imagen del producto</label>
-      <div className="image-uploader">
-        <ProductArt
-          product={{
-            ...(product ?? emptyProduct),
-            name: name || "Producto",
-            imageTone,
-          }}
+      <div
+        className={clsx(
+          "image-uploader",
+          previewProduct.imageUrl && "has-image"
+        )}
+      >
+        <ProductArt product={previewProduct} />
+        <input
+          ref={imageInputRef}
+          className="sr-only"
+          type="file"
+          accept="image/jpeg,image/png"
+          onChange={handleImageChange}
         />
-        <div>
+        <button
+          type="button"
+          className="image-upload-trigger"
+          onClick={() => imageInputRef.current?.click()}
+        >
           <Camera size={32} />
-          <strong>Subir imagen</strong>
+          <strong>
+            {previewProduct.imageUrl ? "Cambiar imagen" : "Subir imagen"}
+          </strong>
           <span>Formatos JPG, PNG (Max 5MB)</span>
-        </div>
-        <button className="edit-fab" aria-label="Editar imagen">
+        </button>
+        <button
+          type="button"
+          className="edit-fab"
+          aria-label="Editar imagen"
+          onClick={() => imageInputRef.current?.click()}
+        >
           <Edit3 size={19} />
         </button>
       </div>
+      {imageError ? <p className="field-help error">{imageError}</p> : null}
       <div className="tone-picker" aria-label="Color de placeholder">
         {["aurora", "coral", "linen", "violet", "warm"].map((tone) => (
           <button
@@ -145,6 +218,8 @@ export function ProductEditor({
             costCents: cost.trim() ? parseBolivianos(cost) : null,
             category,
             imageTone,
+            imagePath: product?.imagePath ?? null,
+            imageFile,
           })
         }
       >

@@ -6,6 +6,7 @@ import {
   createProduct,
   restoreProduct as restoreProductAction,
   updateProduct as updateProductAction,
+  uploadProductImage,
 } from "@/app/products/actions";
 import {
   createSale,
@@ -131,16 +132,38 @@ export function GlitterPosApp({
     costCents: number | null;
     category: string;
     imageTone: string;
+    imagePath?: string | null;
+    imageFile?: File | null;
   }) {
     try {
-      const product = editingProduct
+      let product = editingProduct
         ? await updateProductAction(editingProduct.id, input)
         : await createProduct(input);
+      let uploadFailed = false;
+
+      if (input.imageFile) {
+        const formData = new FormData();
+        formData.set("image", input.imageFile);
+
+        try {
+          product = await uploadProductImage(product.id, formData);
+        } catch {
+          uploadFailed = true;
+        }
+      }
+
       upsertProduct(product);
-      showToast(
-        editingProduct ? "Producto actualizado" : "Producto agregado",
-        editingProduct ? "info" : "success"
-      );
+      if (uploadFailed) {
+        showToast(
+          "Producto guardado, pero no se pudo subir la imagen",
+          "danger"
+        );
+      } else {
+        showToast(
+          editingProduct ? "Producto actualizado" : "Producto agregado",
+          editingProduct ? "info" : "success"
+        );
+      }
       setView("products");
     } catch (error) {
       showToast(

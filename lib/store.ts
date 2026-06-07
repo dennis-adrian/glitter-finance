@@ -99,7 +99,10 @@ export const usePosStore = create<PosState>()(
                 priceCents: input.priceCents,
                 costCents: input.costCents,
                 category: input.category,
-                imagePath: `placeholder:${input.imageTone ?? "violet"}`,
+                imagePath:
+                  input.imagePath ??
+                  `placeholder:${input.imageTone ?? "violet"}`,
+                imageUrl: null,
                 imageTone: input.imageTone ?? "violet",
                 archivedAt: null,
                 createdAt: now,
@@ -119,7 +122,10 @@ export const usePosStore = create<PosState>()(
                   priceCents: input.priceCents,
                   costCents: input.costCents,
                   category: input.category,
-                  imagePath: `placeholder:${input.imageTone ?? product.imageTone}`,
+                  imagePath:
+                    input.imagePath ??
+                    `placeholder:${input.imageTone ?? product.imageTone}`,
+                  imageUrl: product.imageUrl,
                   imageTone: input.imageTone ?? product.imageTone,
                   updatedAt: nowIso(),
                 }

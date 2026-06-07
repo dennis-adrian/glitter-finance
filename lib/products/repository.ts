@@ -5,7 +5,16 @@ import {
   encodePlaceholderImagePath,
   mapDbProductToProduct,
 } from "@/lib/product-mapper";
+import { isPlaceholderImagePath } from "@/lib/product-image-config";
 import type { Product, ProductInput } from "@/lib/types";
+
+function resolveInputImagePath(input: ProductInput) {
+  if (isPlaceholderImagePath(input.imagePath)) {
+    return encodePlaceholderImagePath(input.imageTone);
+  }
+
+  return input.imagePath;
+}
 
 export async function getProductsForTenant(
   tenantId: string
@@ -31,7 +40,7 @@ export async function createProductForTenant(
       priceCents: input.priceCents,
       costCents: input.costCents,
       category: input.category,
-      imagePath: encodePlaceholderImagePath(input.imageTone),
+      imagePath: resolveInputImagePath(input),
     })
     .returning();
 
@@ -54,7 +63,28 @@ export async function updateProductForTenant(
       priceCents: input.priceCents,
       costCents: input.costCents,
       category: input.category,
-      imagePath: encodePlaceholderImagePath(input.imageTone),
+      imagePath: resolveInputImagePath(input),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))
+    .returning();
+
+  if (!product) {
+    throw new Error("Product not found.");
+  }
+
+  return mapDbProductToProduct(product);
+}
+
+export async function updateProductImageForTenant(
+  tenantId: string,
+  productId: string,
+  imagePath: string
+): Promise<Product> {
+  const [product] = await db
+    .update(products)
+    .set({
+      imagePath,
       updatedAt: new Date(),
     })
     .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))

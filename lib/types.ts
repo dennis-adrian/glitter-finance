@@ -9,6 +9,7 @@ export type Product = {
   costCents: number | null;
   category: string;
   imagePath: string | null;
+  imageUrl: string | null;
   imageTone: string;
   archivedAt: string | null;
   createdAt: string;
@@ -21,6 +22,7 @@ export type ProductInput = {
   costCents: number | null;
   category: string;
   imageTone?: string;
+  imagePath?: string | null;
 };
 
 export type CartLine = {

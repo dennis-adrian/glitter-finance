@@ -42,12 +42,14 @@ export function ReportsScreen({
         }
 
         const saleTime = new Date(sale.createdAt).getTime();
-        const startTime = customStart
+        const rawStart = customStart
           ? new Date(`${customStart}T00:00:00`).getTime()
           : Number.NEGATIVE_INFINITY;
-        const endTime = customEnd
+        const rawEnd = customEnd
           ? new Date(`${customEnd}T23:59:59.999`).getTime()
           : Number.POSITIVE_INFINITY;
+        const startTime = Math.min(rawStart, rawEnd);
+        const endTime = Math.max(rawStart, rawEnd);
 
         return saleTime >= startTime && saleTime <= endTime;
       }),

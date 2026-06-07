@@ -31,3 +31,13 @@ The local store is intentionally shaped like the eventual sync model:
 Supabase Auth, Drizzle schema, runtime Drizzle client, and RLS policies are scaffolded. Drizzle owns migration generation/tracking; the output folder is `supabase/migrations` to align with Supabase project structure. PowerSync, storage-backed image upload, and replacing the local Zustand store with synced reads/writes are the next infrastructure layer.
 
 Tenant bootstrap is wired into the root app entry. An authenticated user is resolved through Supabase Auth; if they have no `tenant_users` membership, the server creates a tenant and membership row through Drizzle before rendering the POS. The UI still uses the local Zustand product/sales store until Supabase-backed product and sale repositories are connected.
+
+## Known Follow-ups
+
+Deferred items that are acceptable for the current slice but should be revisited. None block the current Stage A work.
+
+### Product image upload
+
+- **Orphaned images on replace.** Uploading a replacement image generates a fresh UUID object path and overwrites `products.image_path`, but the previous object is never removed from Storage. Over many edits this leaks storage. Fix later by deleting the old object on successful replace, or with a periodic sweep that drops objects not referenced by any product row. See `app/products/actions.ts` (`uploadProductImage`) and `lib/products/repository.ts` (`updateProductImageForTenant`).
+- **No bucket-level size/MIME enforcement.** Validation lives only in the `uploadProductImage` server action, and the MIME check trusts the browser-provided `image.type`, which is spoofable. Low risk today (admin-key upload of non-sensitive, publicly readable images). Defense-in-depth: set `file_size_limit` and `allowed_mime_types` on the `product-images` bucket via the bucket migration or `config.toml`.
+- **Public bucket is cross-tenant readable.** `product-images` is a public bucket, so any object URL is world-readable and the tenant-scoped path (`<tenantId>/products/<productId>/<uuid>.<ext>`) is guessable. Accepted because product images are not sensitive and the PRD treats them as display assets. Revisit if images ever carry tenant-private information (would require a private bucket plus signed URLs or an RLS-gated read path). See `supabase/migrations/20260607001000_product_images_bucket.sql`.

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Edit3, Minus, Plus, Trash2 } from "lucide-react";
 import { clampDiscount, formatBs } from "@/lib/money";
 import type { Product } from "@/lib/types";
@@ -37,6 +37,16 @@ export function CartLineItem({
     lineDiscountCents ? String(lineDiscountCents / 100) : ""
   );
   const [reason, setReason] = useState(lineDiscountReason ?? "");
+
+  useEffect(() => {
+    if (discountOpen) {
+      setDiscountInput(
+        lineDiscountCents ? String(lineDiscountCents / 100) : ""
+      );
+      setReason(lineDiscountReason ?? "");
+    }
+  }, [lineDiscountCents, lineDiscountReason, discountOpen]);
+
   const lineSubtotal = product.priceCents * quantity;
   const discount = clampDiscount(lineDiscountCents, lineSubtotal);
   const lineTotal = Math.max(0, lineSubtotal - discount);

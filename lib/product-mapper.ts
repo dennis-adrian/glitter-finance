@@ -1,4 +1,9 @@
 import type { Product } from "@/lib/types";
+import {
+  getProductImagePublicUrl,
+  isPlaceholderImagePath,
+  placeholderImagePrefix,
+} from "@/lib/product-images";
 
 type DbProduct = {
   id: string;
@@ -13,7 +18,6 @@ type DbProduct = {
 };
 
 const tones = ["aurora", "coral", "linen", "violet", "warm"];
-const placeholderPrefix = "placeholder:";
 
 function toIso(value: Date | string) {
   return value instanceof Date ? value.toISOString() : value;
@@ -25,12 +29,16 @@ function deriveImageTone(seed: string) {
 }
 
 export function encodePlaceholderImagePath(tone?: string) {
-  return `${placeholderPrefix}${tones.includes(tone ?? "") ? tone : "violet"}`;
+  return `${placeholderImagePrefix}${tones.includes(tone ?? "") ? tone : "violet"}`;
 }
 
 function imageToneFromPath(path: string | null, fallbackSeed: string) {
-  if (path?.startsWith(placeholderPrefix)) {
-    const tone = path.slice(placeholderPrefix.length);
+  if (!isPlaceholderImagePath(path)) {
+    return deriveImageTone(fallbackSeed);
+  }
+
+  if (path) {
+    const tone = path.slice(placeholderImagePrefix.length);
     if (tones.includes(tone)) {
       return tone;
     }
@@ -47,6 +55,7 @@ export function mapDbProductToProduct(product: DbProduct): Product {
     costCents: product.costCents,
     category: product.category,
     imagePath: product.imagePath,
+    imageUrl: getProductImagePublicUrl(product.imagePath),
     imageTone: imageToneFromPath(
       product.imagePath,
       `${product.id}-${product.category}`

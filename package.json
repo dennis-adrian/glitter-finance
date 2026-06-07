@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "db:generate": "drizzle-kit generate",
+    "db:local:migrate": "supabase migration up",
     "db:push": "supabase db push",
     "db:reset": "supabase db reset",
     "db:start": "supabase start",

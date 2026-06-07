@@ -42,7 +42,9 @@ export function PaymentScreen({
   const total = Math.max(0, subtotal - discount);
 
   function apply(value: number) {
-    setDiscount(clampDiscount(value, subtotal));
+    const next = clampDiscount(value, subtotal);
+    setDiscount(next);
+    if (next === 0) setReason("");
   }
 
   return (

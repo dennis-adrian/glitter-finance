@@ -282,6 +282,22 @@ button {
   font-weight: 600;
 }
 
+.product-art.has-image {
+  background: #f4f1f7;
+}
+
+.product-art.has-image::before,
+.product-art.has-image::after {
+  display: none;
+}
+
+.product-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .product-art.compact {
   width: 58px;
   height: 58px;
@@ -810,17 +826,48 @@ button {
   opacity: 0.22;
 }
 
-.image-uploader > div {
+.image-uploader.has-image .product-art {
+  opacity: 1;
+}
+
+.image-upload-trigger {
   position: relative;
   z-index: 1;
   display: grid;
   place-items: center;
   color: var(--primary);
   gap: 8px;
+  border: 0;
+  background: transparent;
+  text-align: center;
+}
+
+.image-uploader.has-image .image-upload-trigger {
+  align-self: end;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--soft-shadow);
 }
 
 .image-uploader span {
   color: #9b95a8;
+}
+
+.sr-only {
+  width: 1px;
+  height: 1px;
+  position: absolute;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+  margin: -1px;
+}
+
+.field-help.error {
+  color: #c93e51;
 }
 
 .edit-fab {
