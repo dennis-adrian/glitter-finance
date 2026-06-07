@@ -15,10 +15,23 @@ This repository currently implements the Stage A product slice from the PRD:
 
 ```bash
 npm install
+npm run db:start
+npm run db:reset
+npm run db:seed:buckets
 npm run dev
 ```
 
 Then open `http://localhost:3000`.
+
+`npm run db:reset` loads `supabase/seed.sql`, which creates a reusable
+development account:
+
+- Email: `demo@glitter-pos.local`
+- Password: `glitter-demo`
+
+The seeded account includes a demo tenant, active and archived products, a few
+product images from `supabase/product-images/seed`, recent sales, a voided sale,
+and a refunded sale for report/history testing.
 
 ## Environment
 

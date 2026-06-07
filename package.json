@@ -9,6 +9,7 @@
     "db:local:migrate": "supabase migration up",
     "db:push": "supabase db push",
     "db:reset": "supabase db reset",
+    "db:seed:buckets": "supabase seed buckets",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "start": "next start",
