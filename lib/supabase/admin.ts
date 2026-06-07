@@ -7,7 +7,9 @@ export function createAdminClient() {
   const env = getServerEnv();
 
   if (!env.supabaseSecretKey) {
-    throw new Error("Missing required environment variable: SUPABASE_SECRET_KEY");
+    throw new Error(
+      "Missing required environment variable: SUPABASE_SECRET_KEY"
+    );
   }
 
   return createSupabaseClient(env.supabaseUrl, env.supabaseSecretKey, {

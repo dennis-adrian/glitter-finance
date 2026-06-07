@@ -49,7 +49,7 @@ export const tenantUsers = pgTable(
   (table) => [
     primaryKey({ columns: [table.tenantId, table.userId] }),
     index("tenant_users_user_id_idx").on(table.userId),
-  ],
+  ]
 );
 
 export const tenantUsersRelations = relations(tenantUsers, ({ one }) => ({
@@ -82,7 +82,7 @@ export const products = pgTable(
   (table) => [
     index("products_tenant_id_idx").on(table.tenantId),
     index("products_tenant_archived_idx").on(table.tenantId, table.archivedAt),
-  ],
+  ]
 );
 
 export const productsRelations = relations(products, ({ one }) => ({
@@ -115,7 +115,7 @@ export const sales = pgTable(
   (table) => [
     index("sales_tenant_created_at_idx").on(table.tenantId, table.createdAt),
     index("sales_user_id_idx").on(table.userId),
-  ],
+  ]
 );
 
 export const salesRelations = relations(sales, ({ one, many }) => ({
@@ -155,7 +155,7 @@ export const saleLines = pgTable(
   (table) => [
     index("sale_lines_sale_id_idx").on(table.saleId),
     index("sale_lines_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 export const saleLinesRelations = relations(saleLines, ({ one }) => ({
@@ -195,7 +195,7 @@ export const refunds = pgTable(
   (table) => [
     uniqueIndex("refunds_original_sale_id_unique").on(table.originalSaleId),
     index("refunds_tenant_created_at_idx").on(table.tenantId, table.createdAt),
-  ],
+  ]
 );
 
 export const refundsRelations = relations(refunds, ({ one }) => ({

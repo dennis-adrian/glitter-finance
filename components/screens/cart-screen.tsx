@@ -18,14 +18,21 @@ type CartScreenProps = {
 };
 
 export function CartScreen(props: CartScreenProps) {
-  const itemCount = props.cartDetails.reduce((count, line) => count + line.quantity, 0);
+  const itemCount = props.cartDetails.reduce(
+    (count, line) => count + line.quantity,
+    0
+  );
 
   return (
     <section className="screen detail-screen">
       <Header
         title="Tu Carrito"
         left={
-          <button className="icon-button" onClick={props.back} aria-label="Volver">
+          <button
+            className="icon-button"
+            onClick={props.back}
+            aria-label="Volver"
+          >
             <ChevronRight className="flip" size={24} />
           </button>
         }
@@ -45,9 +52,19 @@ export function CartScreen(props: CartScreenProps) {
         ))}
       </div>
       {!props.cartDetails.length ? (
-        <EmptyState icon={<ShoppingBag size={46} />} title="Carrito vacío" body="Toca productos para empezar una venta." />
+        <EmptyState
+          icon={<ShoppingBag size={46} />}
+          title="Carrito vacío"
+          body="Toca productos para empezar una venta."
+        />
       ) : null}
-      <CartSummary itemCount={itemCount} subtotal={props.subtotal} clearCart={props.clearCart} back={props.back} charge={props.charge} />
+      <CartSummary
+        itemCount={itemCount}
+        subtotal={props.subtotal}
+        clearCart={props.clearCart}
+        back={props.back}
+        charge={props.charge}
+      />
     </section>
   );
 }

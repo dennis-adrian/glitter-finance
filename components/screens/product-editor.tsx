@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 import clsx from "clsx";
-import { ArchiveRestore, Camera, Check, ChevronRight, Edit3 } from "lucide-react";
+import {
+  ArchiveRestore,
+  Camera,
+  Check,
+  ChevronRight,
+  Edit3,
+} from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { FormField } from "@/components/atoms/form-field";
 import { Header } from "@/components/atoms/header";
@@ -16,14 +22,29 @@ import { hasValidProductForm } from "@/components/screens/product-editor.helpers
 type ProductEditorProps = {
   product: Product | null;
   back: () => void;
-  save: (input: { name: string; priceCents: number; costCents: number | null; category: string; imageTone: string }) => void;
+  save: (input: {
+    name: string;
+    priceCents: number;
+    costCents: number | null;
+    category: string;
+    imageTone: string;
+  }) => void;
   archive: (productId: string) => void;
 };
 
-export function ProductEditor({ product, back, save, archive }: ProductEditorProps) {
+export function ProductEditor({
+  product,
+  back,
+  save,
+  archive,
+}: ProductEditorProps) {
   const [name, setName] = useState(product?.name ?? "");
-  const [price, setPrice] = useState(product ? String(product.priceCents / 100) : "");
-  const [cost, setCost] = useState(product?.costCents == null ? "" : String(product.costCents / 100));
+  const [price, setPrice] = useState(
+    product ? String(product.priceCents / 100) : ""
+  );
+  const [cost, setCost] = useState(
+    product?.costCents == null ? "" : String(product.costCents / 100)
+  );
   const [category, setCategory] = useState(product?.category ?? "Stickers");
   const [imageTone, setImageTone] = useState(product?.imageTone ?? "violet");
   const canSave = hasValidProductForm(name, price);
@@ -41,7 +62,13 @@ export function ProductEditor({ product, back, save, archive }: ProductEditorPro
       />
       <label className="field-label">Imagen del producto</label>
       <div className="image-uploader">
-        <ProductArt product={{ ...(product ?? emptyProduct), name: name || "Producto", imageTone }} />
+        <ProductArt
+          product={{
+            ...(product ?? emptyProduct),
+            name: name || "Producto",
+            imageTone,
+          }}
+        />
         <div>
           <Camera size={32} />
           <strong>Subir imagen</strong>
@@ -53,23 +80,47 @@ export function ProductEditor({ product, back, save, archive }: ProductEditorPro
       </div>
       <div className="tone-picker" aria-label="Color de placeholder">
         {["aurora", "coral", "linen", "violet", "warm"].map((tone) => (
-          <button key={tone} className={clsx("tone-dot", tone, imageTone === tone && "active")} onClick={() => setImageTone(tone)}>
+          <button
+            key={tone}
+            className={clsx("tone-dot", tone, imageTone === tone && "active")}
+            onClick={() => setImageTone(tone)}
+          >
             {imageTone === tone ? <Check size={14} /> : null}
           </button>
         ))}
       </div>
       <FormField label="Nombre del producto">
-        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Mascot Sticker" />
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Mascot Sticker"
+        />
       </FormField>
       <FormField label="Precio de venta">
-        <input value={price} onChange={(event) => setPrice(event.target.value)} inputMode="decimal" placeholder="15" />
+        <input
+          value={price}
+          onChange={(event) => setPrice(event.target.value)}
+          inputMode="decimal"
+          placeholder="15"
+        />
       </FormField>
       <FormField label="Costo unitario" hint="Opcional">
-        <input value={cost} onChange={(event) => setCost(event.target.value)} inputMode="decimal" placeholder="Desconocido" />
+        <input
+          value={cost}
+          onChange={(event) => setCost(event.target.value)}
+          inputMode="decimal"
+          placeholder="Desconocido"
+        />
       </FormField>
-      <p className="field-help">Se usa para calcular ganancias. Si queda vacío, el costo se marca como desconocido.</p>
+      <p className="field-help">
+        Se usa para calcular ganancias. Si queda vacío, el costo se marca como
+        desconocido.
+      </p>
       <FormField label="Categoría">
-        <select value={category} onChange={(event) => setCategory(event.target.value)}>
+        <select
+          value={category}
+          onChange={(event) => setCategory(event.target.value)}
+        >
           {categories
             .filter((item) => item !== "Todos")
             .map((item) => (

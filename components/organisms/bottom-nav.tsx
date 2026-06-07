@@ -18,7 +18,11 @@ export function BottomNav({ view, setView }: BottomNavProps) {
   return (
     <nav className="bottom-nav" aria-label="Navegación principal">
       {items.map((item) => (
-        <button key={item.view} className={view === item.view ? "active" : ""} onClick={() => setView(item.view)}>
+        <button
+          key={item.view}
+          className={view === item.view ? "active" : ""}
+          onClick={() => setView(item.view)}
+        >
           {item.icon}
           <span>{item.label}</span>
         </button>

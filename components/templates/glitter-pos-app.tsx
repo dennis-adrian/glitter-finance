@@ -7,6 +7,7 @@ import {
   restoreProduct as restoreProductAction,
   updateProduct as updateProductAction,
 } from "@/app/products/actions";
+import { createSale } from "@/app/sales/actions";
 import { Toast } from "@/components/atoms/toast";
 import { BottomNav } from "@/components/organisms/bottom-nav";
 import { CartScreen } from "@/components/screens/cart-screen";
@@ -28,7 +29,10 @@ type GlitterPosAppProps = {
   initialProducts: Product[];
 };
 
-export function GlitterPosApp({ tenantContext, initialProducts }: GlitterPosAppProps) {
+export function GlitterPosApp({
+  tenantContext,
+  initialProducts,
+}: GlitterPosAppProps) {
   const products = usePosStore((state) => state.products);
   const cart = usePosStore((state) => state.cart);
   const sales = usePosStore((state) => state.sales);
@@ -36,7 +40,7 @@ export function GlitterPosApp({ tenantContext, initialProducts }: GlitterPosAppP
   const decrementCart = usePosStore((state) => state.decrementCart);
   const removeFromCart = usePosStore((state) => state.removeFromCart);
   const clearCart = usePosStore((state) => state.clearCart);
-  const commitSale = usePosStore((state) => state.commitSale);
+  const recordSale = usePosStore((state) => state.recordSale);
   const hydrateProducts = usePosStore((state) => state.hydrateProducts);
   const upsertProduct = usePosStore((state) => state.upsertProduct);
   const voidSale = usePosStore((state) => state.voidSale);
@@ -52,6 +56,7 @@ export function GlitterPosApp({ tenantContext, initialProducts }: GlitterPosAppP
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
 
   const activeProducts = products.filter((product) => !product.archivedAt);
   const cartDetails = useMemo(
@@ -61,12 +66,28 @@ export function GlitterPosApp({ tenantContext, initialProducts }: GlitterPosAppP
           const product = products.find((item) => item.id === line.productId);
           return product ? { ...line, product } : null;
         })
-        .filter((line): line is { productId: string; quantity: number; product: Product } => Boolean(line)),
-    [cart, products],
+        .filter(
+          (
+            line
+          ): line is {
+            productId: string;
+            quantity: number;
+            product: Product;
+          } => Boolean(line)
+        ),
+    [cart, products]
   );
-  const cartSubtotal = cartDetails.reduce((total, line) => total + line.product.priceCents * line.quantity, 0);
-  const cartCount = cartDetails.reduce((total, line) => total + line.quantity, 0);
-  const selectedSale = selectedSaleId ? (sales.find((sale) => sale.id === selectedSaleId) ?? null) : null;
+  const cartSubtotal = cartDetails.reduce(
+    (total, line) => total + line.product.priceCents * line.quantity,
+    0
+  );
+  const cartCount = cartDetails.reduce(
+    (total, line) => total + line.quantity,
+    0
+  );
+  const selectedSale = selectedSaleId
+    ? (sales.find((sale) => sale.id === selectedSaleId) ?? null)
+    : null;
 
   useEffect(() => {
     hydrateProducts(initialProducts);
@@ -98,18 +119,56 @@ export function GlitterPosApp({ tenantContext, initialProducts }: GlitterPosAppP
         ? await updateProductAction(editingProduct.id, input)
         : await createProduct(input);
       upsertProduct(product);
-      showToast(editingProduct ? "Producto actualizado" : "Producto agregado", editingProduct ? "info" : "success");
+      showToast(
+        editingProduct ? "Producto actualizado" : "Producto agregado",
+        editingProduct ? "info" : "success"
+      );
       setView("products");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "No se pudo guardar el producto", "danger");
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "No se pudo guardar el producto",
+        "danger"
+      );
     }
   }
 
-  function handlePayment(method: PaymentMethod, discount: number, reason?: string) {
-    const sale = commitSale(method, discount, reason);
-    if (sale) {
-      showToast(`Venta registrada · ${saleTotal(sale)} · ${paymentLabels[method]}`);
+  async function handlePayment(
+    method: PaymentMethod,
+    discount: number,
+    reason?: string
+  ) {
+    if (isCheckingOut || !cartDetails.length) {
+      return;
+    }
+
+    setIsCheckingOut(true);
+
+    try {
+      const sale = await createSale({
+        paymentMethod: method,
+        saleDiscountCents: discount,
+        saleDiscountReason: reason,
+        lines: cartDetails.map((line) => ({
+          productId: line.productId,
+          quantity: line.quantity,
+        })),
+      });
+      recordSale(sale);
+      showToast(
+        `Venta registrada · ${saleTotal(sale)} · ${paymentLabels[method]}`
+      );
       setView("sell");
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "No se pudo registrar la venta",
+        "danger"
+      );
+    } finally {
+      setIsCheckingOut(false);
     }
   }
 
@@ -163,7 +222,12 @@ export function GlitterPosApp({ tenantContext, initialProducts }: GlitterPosAppP
             upsertProduct(product);
             showToast("Producto restaurado", "info");
           } catch (error) {
-            showToast(error instanceof Error ? error.message : "No se pudo restaurar el producto", "danger");
+            showToast(
+              error instanceof Error
+                ? error.message
+                : "No se pudo restaurar el producto",
+              "danger"
+            );
           }
         }}
       />
@@ -197,11 +261,21 @@ export function GlitterPosApp({ tenantContext, initialProducts }: GlitterPosAppP
         charge={() => setView("payment")}
       />
     ),
-    payment: <PaymentScreen subtotal={cartSubtotal} count={cartCount} back={() => setView("sell")} pay={handlePayment} />,
+    payment: (
+      <PaymentScreen
+        subtotal={cartSubtotal}
+        count={cartCount}
+        back={() => setView("sell")}
+        pay={handlePayment}
+        isSubmitting={isCheckingOut}
+      />
+    ),
     editor: (
       <ProductEditor
         product={editingProduct}
-        back={() => setView(previousView === "sell" ? "products" : previousView)}
+        back={() =>
+          setView(previousView === "sell" ? "products" : previousView)
+        }
         save={handleSaveProduct}
         archive={async (productId) => {
           try {
@@ -210,7 +284,12 @@ export function GlitterPosApp({ tenantContext, initialProducts }: GlitterPosAppP
             showToast("Producto archivado", "info");
             setView("products");
           } catch (error) {
-            showToast(error instanceof Error ? error.message : "No se pudo archivar el producto", "danger");
+            showToast(
+              error instanceof Error
+                ? error.message
+                : "No se pudo archivar el producto",
+              "danger"
+            );
           }
         }}
       />

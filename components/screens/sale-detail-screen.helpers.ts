@@ -3,7 +3,11 @@ import { hasRefundForSale } from "@/lib/sales";
 import type { Sale } from "@/lib/types";
 
 export function canVoidSale(sale: Sale, sales: Sale[]) {
-  return sale.status === "completed" && !hasRefundForSale(sales, sale.id) && minutesSince(sale.createdAt) <= 10;
+  return (
+    sale.status === "completed" &&
+    !hasRefundForSale(sales, sale.id) &&
+    minutesSince(sale.createdAt) <= 10
+  );
 }
 
 export function canRefundSale(sale: Sale, sales: Sale[]) {
@@ -18,5 +22,7 @@ export function saleStatusLabel(sale: Sale) {
 }
 
 export function saleReferenceLabel(sale: Sale) {
-  return sale.refundOfSaleId ? `Reembolso de #${sale.refundOfSaleId.slice(-5)}` : `Venta #${sale.id.slice(-5)}`;
+  return sale.refundOfSaleId
+    ? `Reembolso de #${sale.refundOfSaleId.slice(-5)}`
+    : `Venta #${sale.id.slice(-5)}`;
 }

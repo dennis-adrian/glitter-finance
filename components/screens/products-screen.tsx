@@ -19,8 +19,11 @@ type ProductsScreenProps = {
 
 export function ProductsScreen(props: ProductsScreenProps) {
   const filtered = props.products.filter((product) => {
-    const matchesCategory = props.category === "Todos" || product.category === props.category;
-    const matchesQuery = product.name.toLowerCase().includes(props.query.toLowerCase());
+    const matchesCategory =
+      props.category === "Todos" || product.category === props.category;
+    const matchesQuery = product.name
+      .toLowerCase()
+      .includes(props.query.toLowerCase());
     return matchesCategory && matchesQuery;
   });
 
@@ -37,9 +40,17 @@ export function ProductsScreen(props: ProductsScreenProps) {
       />
       <div className="search-panel">
         <Search size={20} />
-        <input value={props.query} onChange={(event) => props.setQuery(event.target.value)} placeholder="Buscar productos..." />
+        <input
+          value={props.query}
+          onChange={(event) => props.setQuery(event.target.value)}
+          placeholder="Buscar productos..."
+        />
       </div>
-      <CategoryRail active={props.category} categories={categories} setActive={props.setCategory} />
+      <CategoryRail
+        active={props.category}
+        categories={categories}
+        setActive={props.setCategory}
+      />
       {filtered.length ? (
         <div className="product-grid catalog-grid">
           {filtered.map((product) => (
@@ -57,14 +68,21 @@ export function ProductsScreen(props: ProductsScreenProps) {
           title="Nada por aquí todavía"
           body="Tu inventario está esperando brillar."
           action={
-            <button className="primary-action" onClick={() => props.openEditor(null)}>
+            <button
+              className="primary-action"
+              onClick={() => props.openEditor(null)}
+            >
               <Plus size={20} />
               AGREGAR TU PRIMER PRODUCTO
             </button>
           }
         />
       )}
-      <button className="floating-add" onClick={() => props.openEditor(null)} aria-label="Agregar producto">
+      <button
+        className="floating-add"
+        onClick={() => props.openEditor(null)}
+        aria-label="Agregar producto"
+      >
         <Plus size={31} />
       </button>
       <button className="import-link">

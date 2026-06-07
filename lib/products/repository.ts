@@ -4,7 +4,9 @@ import { products } from "@/lib/db/schema";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
 import type { Product, ProductInput } from "@/lib/types";
 
-export async function getProductsForTenant(tenantId: string): Promise<Product[]> {
+export async function getProductsForTenant(
+  tenantId: string
+): Promise<Product[]> {
   const rows = await db
     .select()
     .from(products)
@@ -14,7 +16,10 @@ export async function getProductsForTenant(tenantId: string): Promise<Product[]>
   return rows.map(mapDbProductToProduct);
 }
 
-export async function createProductForTenant(tenantId: string, input: ProductInput): Promise<Product> {
+export async function createProductForTenant(
+  tenantId: string,
+  input: ProductInput
+): Promise<Product> {
   const [product] = await db
     .insert(products)
     .values({
@@ -33,7 +38,11 @@ export async function createProductForTenant(tenantId: string, input: ProductInp
   return mapDbProductToProduct(product);
 }
 
-export async function updateProductForTenant(tenantId: string, productId: string, input: ProductInput): Promise<Product> {
+export async function updateProductForTenant(
+  tenantId: string,
+  productId: string,
+  input: ProductInput
+): Promise<Product> {
   const [product] = await db
     .update(products)
     .set({
@@ -53,7 +62,10 @@ export async function updateProductForTenant(tenantId: string, productId: string
   return mapDbProductToProduct(product);
 }
 
-export async function archiveProductForTenant(tenantId: string, productId: string): Promise<Product> {
+export async function archiveProductForTenant(
+  tenantId: string,
+  productId: string
+): Promise<Product> {
   const [product] = await db
     .update(products)
     .set({
@@ -70,7 +82,10 @@ export async function archiveProductForTenant(tenantId: string, productId: strin
   return mapDbProductToProduct(product);
 }
 
-export async function restoreProductForTenant(tenantId: string, productId: string): Promise<Product> {
+export async function restoreProductForTenant(
+  tenantId: string,
+  productId: string
+): Promise<Product> {
   const [product] = await db
     .update(products)
     .set({

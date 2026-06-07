@@ -9,7 +9,9 @@ type ProductArtProps = {
 
 export function ProductArt({ product, compact = false }: ProductArtProps) {
   return (
-    <span className={clsx("product-art", product.imageTone, compact && "compact")}>
+    <span
+      className={clsx("product-art", product.imageTone, compact && "compact")}
+    >
       <span>{getProductInitial(product.name)}</span>
     </span>
   );

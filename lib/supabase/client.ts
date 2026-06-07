@@ -10,7 +10,10 @@ let browserClient: BrowserClient | undefined;
 export function createClient(): BrowserClient {
   if (!browserClient) {
     const env = getPublicEnv();
-    browserClient = createBrowserClient(env.supabaseUrl, env.supabasePublishableKey);
+    browserClient = createBrowserClient(
+      env.supabaseUrl,
+      env.supabasePublishableKey
+    );
   }
 
   return browserClient;

@@ -1,1 +1,9 @@
-export type View = "sell" | "reports" | "products" | "settings" | "cart" | "payment" | "editor" | "saleDetail";
+export type View =
+  | "sell"
+  | "reports"
+  | "products"
+  | "settings"
+  | "cart"
+  | "payment"
+  | "editor"
+  | "saleDetail";

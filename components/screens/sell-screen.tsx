@@ -25,8 +25,11 @@ type SellScreenProps = {
 
 export function SellScreen(props: SellScreenProps) {
   const filtered = props.products.filter((product) => {
-    const matchesCategory = props.category === "Todos" || product.category === props.category;
-    const matchesQuery = product.name.toLowerCase().includes(props.query.toLowerCase());
+    const matchesCategory =
+      props.category === "Todos" || product.category === props.category;
+    const matchesQuery = product.name
+      .toLowerCase()
+      .includes(props.query.toLowerCase());
     return matchesCategory && matchesQuery;
   });
 
@@ -45,15 +48,25 @@ export function SellScreen(props: SellScreenProps) {
         <span className="status-dot" />
         <span>Modo venta · listo sin conexión</span>
       </div>
-      <CategoryRail active={props.category} categories={categories} setActive={props.setCategory} />
+      <CategoryRail
+        active={props.category}
+        categories={categories}
+        setActive={props.setCategory}
+      />
       <div className="search-panel compact">
         <Search size={18} />
-        <input value={props.query} onChange={(event) => props.setQuery(event.target.value)} placeholder="Buscar producto" />
+        <input
+          value={props.query}
+          onChange={(event) => props.setQuery(event.target.value)}
+          placeholder="Buscar producto"
+        />
       </div>
       {filtered.length ? (
         <div className="product-grid">
           {filtered.map((product) => {
-            const quantity = props.cart.find((line) => line.productId === product.id)?.quantity ?? 0;
+            const quantity =
+              props.cart.find((line) => line.productId === product.id)
+                ?.quantity ?? 0;
             return (
               <ProductTile
                 key={product.id}

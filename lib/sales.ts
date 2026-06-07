@@ -7,11 +7,17 @@ export const paymentLabels: Record<PaymentMethod, string> = {
 };
 
 export function saleGrossCents(sale: Sale) {
-  return sale.lines.reduce((total, line) => total + line.unitPriceCents * line.quantity, 0);
+  return sale.lines.reduce(
+    (total, line) => total + line.unitPriceCents * line.quantity,
+    0
+  );
 }
 
 export function saleCostCents(sale: Sale) {
-  return sale.lines.reduce((total, line) => total + (line.unitCostCents ?? 0) * line.quantity, 0);
+  return sale.lines.reduce(
+    (total, line) => total + (line.unitCostCents ?? 0) * line.quantity,
+    0
+  );
 }
 
 export function saleHasUnknownCost(sale: Sale) {
@@ -24,7 +30,10 @@ export function saleNetCents(sale: Sale) {
 }
 
 export function saleProfitCents(sale: Sale) {
-  return Math.max(0, saleGrossCents(sale) - sale.saleDiscountCents) - saleCostCents(sale);
+  return (
+    Math.max(0, saleGrossCents(sale) - sale.saleDiscountCents) -
+    saleCostCents(sale)
+  );
 }
 
 export function saleTotal(sale: Sale) {
@@ -43,16 +52,23 @@ export function computeMetrics(sales: Sale[]) {
       const sign = sale.refundOfSaleId ? -1 : 1;
       const gross = saleGrossCents(sale);
       const discount = sale.saleDiscountCents;
-      const cost = sale.lines.reduce((total, line) => total + (line.unitCostCents ?? 0) * line.quantity, 0);
+      const cost = sale.lines.reduce(
+        (total, line) => total + (line.unitCostCents ?? 0) * line.quantity,
+        0
+      );
       const hasUnknown = sale.lines.some((line) => line.unitCostCents == null);
 
       return {
         grossCents: metrics.grossCents + gross * sign,
         discountCents: metrics.discountCents + discount * sign,
-        netRevenueCents: metrics.netRevenueCents + Math.max(0, gross - discount) * sign,
+        netRevenueCents:
+          metrics.netRevenueCents + Math.max(0, gross - discount) * sign,
         costCents: metrics.costCents + cost * sign,
-        netEarningsCents: metrics.netEarningsCents + (Math.max(0, gross - discount) - cost) * sign,
-        transactionCount: metrics.transactionCount + (sale.refundOfSaleId ? 0 : 1),
+        netEarningsCents:
+          metrics.netEarningsCents +
+          (Math.max(0, gross - discount) - cost) * sign,
+        transactionCount:
+          metrics.transactionCount + (sale.refundOfSaleId ? 0 : 1),
         hasUnknownCost: metrics.hasUnknownCost || hasUnknown,
       };
     },
@@ -64,7 +80,7 @@ export function computeMetrics(sales: Sale[]) {
       netEarningsCents: 0,
       transactionCount: 0,
       hasUnknownCost: false,
-    },
+    }
   );
 }
 
@@ -76,7 +92,11 @@ export function computeCategoryTotals(sales: Sale[]) {
     .forEach((sale) => {
       const sign = sale.refundOfSaleId ? -1 : 1;
       sale.lines.forEach((line) => {
-        totals.set(line.category, (totals.get(line.category) ?? 0) + line.unitPriceCents * line.quantity * sign);
+        totals.set(
+          line.category,
+          (totals.get(line.category) ?? 0) +
+            line.unitPriceCents * line.quantity * sign
+        );
       });
     });
 

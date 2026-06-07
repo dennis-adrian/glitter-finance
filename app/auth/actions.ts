@@ -23,8 +23,14 @@ export async function signInWithPassword(formData: FormData) {
     redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
 
-  await ensureUserTenantContext();
-  redirect("/");
+  try {
+    await ensureUserTenantContext();
+    redirect("/");
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Unable to initialize account.";
+    redirect(`/login?error=${encodeURIComponent(message)}`);
+  }
 }
 
 export async function signUpWithPassword(formData: FormData) {
@@ -47,8 +53,14 @@ export async function signUpWithPassword(formData: FormData) {
     redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
 
-  await ensureUserTenantContext();
-  redirect("/");
+  try {
+    await ensureUserTenantContext();
+    redirect("/");
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Unable to initialize account.";
+    redirect(`/login?error=${encodeURIComponent(message)}`);
+  }
 }
 
 export async function signOut() {

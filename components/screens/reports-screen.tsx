@@ -19,12 +19,22 @@ type ReportsScreenProps = {
   refundSale: (saleId: string) => void;
 };
 
-export function ReportsScreen({ sales, openSale, voidSale, refundSale }: ReportsScreenProps) {
+export function ReportsScreen({
+  sales,
+  openSale,
+  voidSale,
+  refundSale,
+}: ReportsScreenProps) {
   const [range, setRange] = useState<ReportRange>("today");
-  const visibleSales = useMemo(() => sales.filter((sale) => isInsideRange(sale.createdAt, range)), [sales, range]);
+  const visibleSales = useMemo(
+    () => sales.filter((sale) => isInsideRange(sale.createdAt, range)),
+    [sales, range]
+  );
   const metrics = computeMetrics(visibleSales);
   const categoryTotals = computeCategoryTotals(visibleSales);
-  const refundedIds = new Set(sales.map((sale) => sale.refundOfSaleId).filter(Boolean));
+  const refundedIds = new Set(
+    sales.map((sale) => sale.refundOfSaleId).filter(Boolean)
+  );
 
   return (
     <section className="screen reports-screen">
@@ -43,7 +53,11 @@ export function ReportsScreen({ sales, openSale, voidSale, refundSale }: Reports
           ["week", "Esta semana"],
           ["month", "Este mes"],
         ].map(([value, label]) => (
-          <button key={value} className={range === value ? "selected" : ""} onClick={() => setRange(value as ReportRange)}>
+          <button
+            key={value}
+            className={range === value ? "selected" : ""}
+            onClick={() => setRange(value as ReportRange)}
+          >
             {label}
           </button>
         ))}
@@ -55,20 +69,39 @@ export function ReportsScreen({ sales, openSale, voidSale, refundSale }: Reports
       </div>
       <div className="metric-grid">
         <MetricCard label="Ventas" value={String(metrics.transactionCount)} />
-        <MetricCard label="Ganancia" value={formatBs(metrics.netEarningsCents, true)} tone="green" />
-        <MetricCard label="Descuentos" value={formatBs(metrics.discountCents, true)} />
-        <MetricCard label="Costo" value={formatBs(metrics.costCents, true)} warning={metrics.hasUnknownCost} />
+        <MetricCard
+          label="Ganancia"
+          value={formatBs(metrics.netEarningsCents, true)}
+          tone="green"
+        />
+        <MetricCard
+          label="Descuentos"
+          value={formatBs(metrics.discountCents, true)}
+        />
+        <MetricCard
+          label="Costo"
+          value={formatBs(metrics.costCents, true)}
+          warning={metrics.hasUnknownCost}
+        />
       </div>
       {metrics.hasUnknownCost ? (
         <div className="cost-warning">
           <Info size={17} />
-          Ganancia es un máximo estimado porque algunos productos no tienen costo registrado.
+          Ganancia es un máximo estimado porque algunos productos no tienen
+          costo registrado.
         </div>
       ) : null}
       <section className="panel">
         <h2>Ventas por categoría</h2>
         {categoryTotals.length ? (
-          categoryTotals.map((item) => <BarRow key={item.category} label={item.category} value={item.total} max={categoryTotals[0].total} />)
+          categoryTotals.map((item) => (
+            <BarRow
+              key={item.category}
+              label={item.category}
+              value={item.total}
+              max={categoryTotals[0].total}
+            />
+          ))
         ) : (
           <p className="empty-copy">Aún no hay ventas en este rango.</p>
         )}
@@ -79,8 +112,12 @@ export function ReportsScreen({ sales, openSale, voidSale, refundSale }: Reports
           <button>Ver todo</button>
         </div>
         {visibleSales.slice(0, 8).map((sale) => {
-          const canVoid = sale.status === "completed" && !refundedIds.has(sale.id) && minutesSince(sale.createdAt) <= 10;
-          const canRefund = sale.status === "completed" && !refundedIds.has(sale.id);
+          const canVoid =
+            sale.status === "completed" &&
+            !refundedIds.has(sale.id) &&
+            minutesSince(sale.createdAt) <= 10;
+          const canRefund =
+            sale.status === "completed" && !refundedIds.has(sale.id);
           return (
             <SaleRow
               key={sale.id}

@@ -21,7 +21,9 @@ function getRequiredEnv(name: string) {
 export function getPublicEnv(): PublicEnv {
   return {
     supabaseUrl: getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    supabasePublishableKey: getRequiredEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"),
+    supabasePublishableKey: getRequiredEnv(
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    ),
   };
 }
 

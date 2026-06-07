@@ -14,7 +14,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       <section className="auth-panel">
         <span className="brand-mark auth-mark">G</span>
         <h1>Glitter POS</h1>
-        <p>Ingresa con tu cuenta de prueba para sincronizar catálogo y ventas con Supabase.</p>
+        <p>
+          Ingresa con tu cuenta de prueba para sincronizar catálogo y ventas con
+          Supabase.
+        </p>
         {params.error ? <div className="auth-error">{params.error}</div> : null}
         <form action={signInWithPassword} className="auth-form">
           <label>
@@ -23,7 +26,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </label>
           <label>
             Contraseña
-            <input name="password" type="password" autoComplete="current-password" required />
+            <input
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+            />
           </label>
           <button className="primary-action" type="submit">
             Iniciar sesión
@@ -40,7 +48,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </label>
           <label>
             Contraseña
-            <input name="password" type="password" autoComplete="new-password" required />
+            <input
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              required
+            />
           </label>
           <button className="secondary-action" type="submit">
             Crear cuenta de prueba

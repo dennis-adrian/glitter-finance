@@ -14,20 +14,42 @@ type SaleRowProps = {
   refundSale: (saleId: string) => void;
 };
 
-export function SaleRow({ sale, canVoid, canRefund, openSale, voidSale, refundSale }: SaleRowProps) {
+export function SaleRow({
+  sale,
+  canVoid,
+  canRefund,
+  openSale,
+  voidSale,
+  refundSale,
+}: SaleRowProps) {
   const amount = saleNetCents(sale);
   const isRefundRecord = Boolean(sale.refundOfSaleId);
 
   return (
-    <article className={clsx("sale-row", sale.status === "voided" && "muted-row")} onClick={() => openSale(sale.id)}>
-      <span className="sale-icon">{sale.paymentMethod === "cash" ? <ShoppingBag size={20} /> : <QrCode size={20} />}</span>
+    <article
+      className={clsx("sale-row", sale.status === "voided" && "muted-row")}
+      onClick={() => openSale(sale.id)}
+    >
+      <span className="sale-icon">
+        {sale.paymentMethod === "cash" ? (
+          <ShoppingBag size={20} />
+        ) : (
+          <QrCode size={20} />
+        )}
+      </span>
       <div>
-        <strong>{isRefundRecord ? "Reembolso" : `#${sale.id.slice(-5)}`}</strong>
+        <strong>
+          {isRefundRecord ? "Reembolso" : `#${sale.id.slice(-5)}`}
+        </strong>
         <span>
           {relativeTime(sale.createdAt)} · {paymentLabels[sale.paymentMethod]}
           {sale.status === "voided" ? " · Anulada" : ""}
         </span>
-        <small>{sale.lines.map((line) => `${line.quantity}x ${line.productName}`).join(", ")}</small>
+        <small>
+          {sale.lines
+            .map((line) => `${line.quantity}x ${line.productName}`)
+            .join(", ")}
+        </small>
       </div>
       <b>{formatBs(amount, true)}</b>
       <div className="sale-actions">

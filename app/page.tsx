@@ -10,7 +10,11 @@ export default async function Home() {
     redirect("/login");
   }
 
-  const initialProducts = context.tenant ? await getProductsForTenant(context.tenant.id) : [];
+  const initialProducts = context.tenant
+    ? await getProductsForTenant(context.tenant.id)
+    : [];
 
-  return <GlitterPosApp tenantContext={context} initialProducts={initialProducts} />;
+  return (
+    <GlitterPosApp tenantContext={context} initialProducts={initialProducts} />
+  );
 }

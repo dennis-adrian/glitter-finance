@@ -9,7 +9,11 @@ type ProductCatalogCardProps = {
   restoreProduct: (productId: string) => void;
 };
 
-export function ProductCatalogCard({ product, openEditor, restoreProduct }: ProductCatalogCardProps) {
+export function ProductCatalogCard({
+  product,
+  openEditor,
+  restoreProduct,
+}: ProductCatalogCardProps) {
   return (
     <article className={clsx("catalog-card", product.archivedAt && "archived")}>
       <button className="catalog-card-main" onClick={() => openEditor(product)}>
@@ -18,7 +22,10 @@ export function ProductCatalogCard({ product, openEditor, restoreProduct }: Prod
         <strong>{formatBs(product.priceCents, true)}</strong>
       </button>
       {product.archivedAt ? (
-        <button className="restore-chip" onClick={() => restoreProduct(product.id)}>
+        <button
+          className="restore-chip"
+          onClick={() => restoreProduct(product.id)}
+        >
           Restaurar
         </button>
       ) : null}

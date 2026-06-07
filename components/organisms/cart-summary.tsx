@@ -9,7 +9,13 @@ type CartSummaryProps = {
   charge: () => void;
 };
 
-export function CartSummary({ itemCount, subtotal, clearCart, back, charge }: CartSummaryProps) {
+export function CartSummary({
+  itemCount,
+  subtotal,
+  clearCart,
+  back,
+  charge,
+}: CartSummaryProps) {
   return (
     <div className="cart-summary">
       <span>Subtotal ({itemCount} productos)</span>

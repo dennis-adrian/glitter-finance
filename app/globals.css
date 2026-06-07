@@ -27,7 +27,11 @@ body {
   margin: 0;
   color: var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(104, 34, 226, 0.08), transparent 34rem),
+    radial-gradient(
+      circle at top left,
+      rgba(104, 34, 226, 0.08),
+      transparent 34rem
+    ),
     linear-gradient(135deg, #f8f4fb 0%, #f8faf9 42%, #f5f1fb 100%);
   font-family: "Avenir Next", "Nunito Sans", "Trebuchet MS", sans-serif;
   letter-spacing: 0;
@@ -294,7 +298,12 @@ button {
 }
 
 .product-art.coral {
-  background: radial-gradient(circle at 50% 35%, #ffd8b1 0 20%, #f47f55 21% 46%, #fff0e7 47% 100%);
+  background: radial-gradient(
+    circle at 50% 35%,
+    #ffd8b1 0 20%,
+    #f47f55 21% 46%,
+    #fff0e7 47% 100%
+  );
 }
 
 .product-art.linen {
@@ -1281,7 +1290,11 @@ button {
   place-items: center;
   padding: 24px;
   background:
-    radial-gradient(circle at 20% 0%, rgba(104, 34, 226, 0.1), transparent 24rem),
+    radial-gradient(
+      circle at 20% 0%,
+      rgba(104, 34, 226, 0.1),
+      transparent 24rem
+    ),
     #fbfafc;
 }
 

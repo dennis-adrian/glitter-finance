@@ -2,11 +2,9 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { clampDiscount } from "@/lib/money";
 import { starterProducts } from "@/lib/sample-data";
-import type { CartLine, PaymentMethod, Product, ProductInput, Sale, SaleLine } from "@/lib/types";
+import type { CartLine, Product, ProductInput, Sale } from "@/lib/types";
 
-const tenantId = "tenant-glitter-demo";
 const defaultUser = {
   id: "user-adrian",
   name: "Adrian",
@@ -27,7 +25,7 @@ type PosState = {
   decrementCart: (productId: string) => void;
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
-  commitSale: (paymentMethod: PaymentMethod, saleDiscountCents: number, reason?: string) => Sale | null;
+  recordSale: (sale: Sale) => void;
   voidSale: (saleId: string) => void;
   refundSale: (saleId: string) => void;
   resetDemo: () => void;
@@ -41,16 +39,9 @@ function id(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function cartSubtotal(products: Product[], cart: CartLine[]) {
-  return cart.reduce((total, line) => {
-    const product = products.find((item) => item.id === line.productId);
-    return total + (product?.priceCents ?? 0) * line.quantity;
-  }, 0);
-}
-
 export const usePosStore = create<PosState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       products: starterProducts,
       cart: [],
       sales: [],
@@ -58,16 +49,24 @@ export const usePosStore = create<PosState>()(
       hydrateProducts: (products) =>
         set((state) => ({
           products,
-          cart: state.cart.filter((line) => products.some((product) => product.id === line.productId && !product.archivedAt)),
+          cart: state.cart.filter((line) =>
+            products.some(
+              (product) => product.id === line.productId && !product.archivedAt
+            )
+          ),
         })),
       upsertProduct: (product) =>
         set((state) => {
           const exists = state.products.some((item) => item.id === product.id);
           return {
             products: exists
-              ? state.products.map((item) => (item.id === product.id ? product : item))
+              ? state.products.map((item) =>
+                  item.id === product.id ? product : item
+                )
               : [product, ...state.products],
-            cart: product.archivedAt ? state.cart.filter((line) => line.productId !== product.id) : state.cart,
+            cart: product.archivedAt
+              ? state.cart.filter((line) => line.productId !== product.id)
+              : state.cart,
           };
         }),
       addProduct: (input) =>
@@ -103,34 +102,44 @@ export const usePosStore = create<PosState>()(
                   imageTone: input.imageTone ?? product.imageTone,
                   updatedAt: new Date().toISOString(),
                 }
-              : product,
+              : product
           ),
         })),
       archiveProduct: (productId) =>
         set((state) => ({
           products: state.products.map((product) =>
-            product.id === productId ? { ...product, archivedAt: new Date().toISOString() } : product,
+            product.id === productId
+              ? { ...product, archivedAt: new Date().toISOString() }
+              : product
           ),
           cart: state.cart.filter((line) => line.productId !== productId),
         })),
       restoreProduct: (productId) =>
         set((state) => ({
           products: state.products.map((product) =>
-            product.id === productId ? { ...product, archivedAt: null } : product,
+            product.id === productId
+              ? { ...product, archivedAt: null }
+              : product
           ),
         })),
       addToCart: (productId) =>
         set((state) => {
-          const product = state.products.find((item) => item.id === productId && !item.archivedAt);
+          const product = state.products.find(
+            (item) => item.id === productId && !item.archivedAt
+          );
           if (!product) {
             return state;
           }
 
-          const existing = state.cart.find((line) => line.productId === productId);
+          const existing = state.cart.find(
+            (line) => line.productId === productId
+          );
           return {
             cart: existing
               ? state.cart.map((line) =>
-                  line.productId === productId ? { ...line, quantity: line.quantity + 1 } : line,
+                  line.productId === productId
+                    ? { ...line, quantity: line.quantity + 1 }
+                    : line
                 )
               : [...state.cart, { productId, quantity: 1 }],
           };
@@ -138,7 +147,11 @@ export const usePosStore = create<PosState>()(
       decrementCart: (productId) =>
         set((state) => ({
           cart: state.cart
-            .map((line) => (line.productId === productId ? { ...line, quantity: line.quantity - 1 } : line))
+            .map((line) =>
+              line.productId === productId
+                ? { ...line, quantity: line.quantity - 1 }
+                : line
+            )
             .filter((line) => line.quantity > 0),
         })),
       removeFromCart: (productId) =>
@@ -146,69 +159,34 @@ export const usePosStore = create<PosState>()(
           cart: state.cart.filter((line) => line.productId !== productId),
         })),
       clearCart: () => set({ cart: [] }),
-      commitSale: (paymentMethod, saleDiscountCents, reason) => {
-        const state = get();
-        const subtotal = cartSubtotal(state.products, state.cart);
-        const discount = clampDiscount(saleDiscountCents, subtotal);
-
-        if (state.cart.length === 0 || subtotal <= 0) {
-          return null;
-        }
-
-        const saleLines: SaleLine[] = state.cart
-          .map((line) => {
-            const product = state.products.find((item) => item.id === line.productId);
-            if (!product) {
-              return null;
-            }
-
-            const lineDiscountCents = 0;
-            return {
-              id: id("line"),
-              productId: product.id,
-              productName: product.name,
-              category: product.category,
-              quantity: line.quantity,
-              unitPriceCents: product.priceCents,
-              unitCostCents: product.costCents,
-              lineDiscountCents,
-              lineTotalCents: product.priceCents * line.quantity - lineDiscountCents,
-            };
-          })
-          .filter((line): line is SaleLine => Boolean(line));
-
-        const sale: Sale = {
-          id: id("sale"),
-          tenantId,
-          userId: state.currentUser.id,
-          userName: state.currentUser.name,
-          createdAt: new Date().toISOString(),
-          paymentMethod,
-          saleDiscountCents: discount,
-          saleDiscountReason: reason,
-          lines: saleLines,
-          status: "completed",
-        };
-
-        set((current) => ({
-          sales: [sale, ...current.sales],
+      recordSale: (sale) =>
+        set((state) => ({
+          sales: [
+            sale,
+            ...state.sales.filter((existing) => existing.id !== sale.id),
+          ],
           cart: [],
-        }));
-
-        return sale;
-      },
+        })),
       voidSale: (saleId) =>
         set((state) => ({
           sales: state.sales.map((sale) =>
             sale.id === saleId && sale.status === "completed"
-              ? { ...sale, status: "voided", voidedAt: new Date().toISOString() }
-              : sale,
+              ? {
+                  ...sale,
+                  status: "voided",
+                  voidedAt: new Date().toISOString(),
+                }
+              : sale
           ),
         })),
       refundSale: (saleId) =>
         set((state) => {
-          const original = state.sales.find((sale) => sale.id === saleId && sale.status === "completed");
-          const alreadyRefunded = state.sales.some((sale) => sale.refundOfSaleId === saleId);
+          const original = state.sales.find(
+            (sale) => sale.id === saleId && sale.status === "completed"
+          );
+          const alreadyRefunded = state.sales.some(
+            (sale) => sale.refundOfSaleId === saleId
+          );
           if (!original || alreadyRefunded) {
             return state;
           }
@@ -226,11 +204,17 @@ export const usePosStore = create<PosState>()(
             sales: [refund, ...state.sales],
           };
         }),
-      resetDemo: () => set({ products: starterProducts, cart: [], sales: [], currentUser: defaultUser }),
+      resetDemo: () =>
+        set({
+          products: starterProducts,
+          cart: [],
+          sales: [],
+          currentUser: defaultUser,
+        }),
     }),
     {
       name: "glitter-pos-local-v1",
       version: 1,
-    },
-  ),
+    }
+  )
 );

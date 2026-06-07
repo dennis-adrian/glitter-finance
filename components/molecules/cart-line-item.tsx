@@ -36,8 +36,13 @@ export function CartLineItem({
           <Plus size={18} />
         </button>
       </div>
-      <strong className="line-total">{formatBs(product.priceCents * quantity, true)}</strong>
-      <button className="text-danger tiny-action" onClick={() => removeFromCart(productId)}>
+      <strong className="line-total">
+        {formatBs(product.priceCents * quantity, true)}
+      </strong>
+      <button
+        className="text-danger tiny-action"
+        onClick={() => removeFromCart(productId)}
+      >
         <Trash2 size={15} />
       </button>
     </article>
