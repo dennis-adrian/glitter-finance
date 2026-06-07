@@ -1,4 +1,4 @@
--- Supabase Auth foreign keys. Drizzle does not model the `auth.users` table,
+-- Custom SQL migration file, put your code below! ---- Supabase Auth foreign keys. Drizzle does not model the `auth.users` table,
 -- so the user_id columns are declared as plain uuid in the schema and given
 -- their referential integrity here.
 ALTER TABLE "tenant_users"

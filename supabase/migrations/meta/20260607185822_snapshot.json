@@ -1,6 +1,6 @@
 {
-  "id": "6ae74629-33a8-4429-9409-e7f27d851d1b",
-  "prevId": "b71d3c1a-fe49-4f2d-ab81-42dc19c77f23",
+  "id": "e59da8b7-6c68-45f9-898b-dc54b26561ef",
+  "prevId": "a1ba54a5-a177-4d3c-9792-f50221581f4c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -126,7 +126,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "products_id_tenant_id_unique": {
+          "name": "products_id_tenant_id_unique",
+          "columns": [
+            "id",
+            "tenant_id"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -386,19 +395,6 @@
           "onUpdate": "no action",
           "onDelete": "restrict"
         },
-        "sale_lines_product_id_products_id_fk": {
-          "name": "sale_lines_product_id_products_id_fk",
-          "tableFrom": "sale_lines",
-          "columnsFrom": [
-            "product_id"
-          ],
-          "tableTo": "products",
-          "columnsTo": [
-            "id"
-          ],
-          "onUpdate": "no action",
-          "onDelete": "set null"
-        },
         "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk": {
           "name": "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk",
           "tableFrom": "sale_lines",
@@ -407,6 +403,21 @@
             "tenant_id"
           ],
           "tableTo": "sales",
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
+        },
+        "sale_lines_product_id_tenant_id_products_id_tenant_id_fk": {
+          "name": "sale_lines_product_id_tenant_id_products_id_tenant_id_fk",
+          "tableFrom": "sale_lines",
+          "columnsFrom": [
+            "product_id",
+            "tenant_id"
+          ],
+          "tableTo": "products",
           "columnsTo": [
             "id",
             "tenant_id"

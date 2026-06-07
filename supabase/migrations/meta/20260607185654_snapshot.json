@@ -1,5 +1,5 @@
 {
-  "id": "b71d3c1a-fe49-4f2d-ab81-42dc19c77f23",
+  "id": "fc52c0e8-1880-4400-ae5c-07de4c3b3b95",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -126,7 +126,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "products_id_tenant_id_unique": {
+          "name": "products_id_tenant_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "tenant_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -386,25 +395,27 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "sale_lines_product_id_products_id_fk": {
-          "name": "sale_lines_product_id_products_id_fk",
-          "tableFrom": "sale_lines",
-          "tableTo": "products",
-          "columnsFrom": [
-            "product_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
         "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk": {
           "name": "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk",
           "tableFrom": "sale_lines",
           "tableTo": "sales",
           "columnsFrom": [
             "sale_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "sale_lines_product_id_tenant_id_products_id_tenant_id_fk": {
+          "name": "sale_lines_product_id_tenant_id_products_id_tenant_id_fk",
+          "tableFrom": "sale_lines",
+          "tableTo": "products",
+          "columnsFrom": [
+            "product_id",
             "tenant_id"
           ],
           "columnsTo": [

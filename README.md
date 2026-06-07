@@ -44,6 +44,39 @@ Copy `.env.example` to `.env.local` and fill in:
 
 `DATABASE_URL` should point at the Supabase Transaction Pooler (port `6543`). The runtime Drizzle client in `lib/db/index.ts` is configured with `prepare: false` to be compatible with it.
 
+## Cloud environments
+
+Two Supabase cloud projects back this app:
+
+- **`glitter-finance-staging`** — free plan. Used for branch testing, schema experiments, and QA validation. Safe to wipe.
+- **`glitter-finance`** — Pro plan ($25/mo). Production. Migrations land here only after they pass on staging.
+
+Only one project can be linked to the local checkout at a time. A developer relinks via the Supabase CLI when switching contexts:
+
+```bash
+# Working on a branch — point at staging:
+supabase link --project-ref <staging-project-ref>
+npm run db:push       # applies pending migrations to glitter-finance-staging
+
+# Ready to deploy — point at prod:
+supabase link --project-ref <prod-project-ref>
+npm run db:push       # applies the same migrations to glitter-finance
+```
+
+After relinking, update `.env.local` so `NEXT_PUBLIC_SUPABASE_URL`, the publishable and secret keys, and `DATABASE_URL` all match the now-linked project; otherwise the running app and the CLI will talk to different backends.
+
+### QA seed
+
+`npm run db:seed:qa` creates (or refreshes) a stable QA account on the Supabase project the env vars point at — typically `glitter-finance-staging`. It provisions a dummy catalog, completed sales, a voided sale, and a refunded sale, attached to a fixed tenant id so re-runs are idempotent. The auth user and tenant are always preserved; `--reset` only wipes the catalog and sales.
+
+Pass the target credentials inline so the command always runs against the intended project:
+
+```bash
+QA_EMAIL=qa@glitterfinance.app QA_PASSWORD=... \
+NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
+npm run db:seed:qa             # append `-- --reset` to wipe catalog + sales and reseed
+```
+
 ## Drizzle and Supabase: who owns what
 
 Drizzle and Supabase both touch the database, but they sit at different points in the stack. Keeping that split clear avoids confusion when reading the codebase or running migration commands.
