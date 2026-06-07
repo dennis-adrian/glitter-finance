@@ -7,7 +7,9 @@ type BarRowProps = {
 };
 
 export function BarRow({ label, value, max }: BarRowProps) {
-  const width = max ? Math.max(8, Math.round((value / max) * 100)) : 0;
+  const width = max
+    ? Math.max(8, Math.round((Math.abs(value) / max) * 100))
+    : 0;
 
   return (
     <div className="bar-row">

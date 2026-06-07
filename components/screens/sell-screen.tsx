@@ -21,6 +21,7 @@ type SellScreenProps = {
   decrementCart: (productId: string) => void;
   openCart: () => void;
   openPayment: () => void;
+  openProductEditor: () => void;
 };
 
 export function SellScreen(props: SellScreenProps) {
@@ -81,8 +82,17 @@ export function SellScreen(props: SellScreenProps) {
       ) : (
         <EmptyState
           icon={<PackagePlus size={42} />}
-          title="Nada por aquí todavía"
-          body="Cambia de categoría o agrega un producto nuevo desde Productos."
+          title="Agrega tu primer producto"
+          body="Tu catálogo está vacío."
+          action={
+            <button
+              className="primary-action"
+              onClick={props.openProductEditor}
+            >
+              <PackagePlus size={20} />
+              AGREGAR PRODUCTO
+            </button>
+          }
         />
       )}
       <CheckoutDock

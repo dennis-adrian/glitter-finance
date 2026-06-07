@@ -8,6 +8,7 @@ export type Product = {
   priceCents: number;
   costCents: number | null;
   category: string;
+  imagePath: string | null;
   imageTone: string;
   archivedAt: string | null;
   createdAt: string;
@@ -51,7 +52,9 @@ export type Sale = {
   saleDiscountReason?: string;
   lines: SaleLine[];
   status: SaleStatus;
+  clientCreatedAt?: string;
   voidedAt?: string;
+  voidedByUserId?: string;
   refundOfSaleId?: string;
   refundedAt?: string;
 };

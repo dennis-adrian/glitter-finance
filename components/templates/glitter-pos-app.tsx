@@ -7,7 +7,7 @@ import {
   restoreProduct as restoreProductAction,
   updateProduct as updateProductAction,
 } from "@/app/products/actions";
-import { createSale } from "@/app/sales/actions";
+import { createSale, voidSale as voidSaleAction } from "@/app/sales/actions";
 import { Toast } from "@/components/atoms/toast";
 import { BottomNav } from "@/components/organisms/bottom-nav";
 import { CartScreen } from "@/components/screens/cart-screen";
@@ -20,18 +20,20 @@ import { SellScreen } from "@/components/screens/sell-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { paymentLabels, saleTotal } from "@/lib/sales";
 import { usePosStore } from "@/lib/store";
-import type { PaymentMethod, Product, ToastMessage } from "@/lib/types";
+import type { PaymentMethod, Product, Sale, ToastMessage } from "@/lib/types";
 import type { View } from "@/lib/views";
 import type { UserTenantContext } from "@/lib/auth/user-context";
 
 type GlitterPosAppProps = {
   tenantContext: UserTenantContext;
   initialProducts: Product[];
+  initialSales: Sale[];
 };
 
 export function GlitterPosApp({
   tenantContext,
   initialProducts,
+  initialSales,
 }: GlitterPosAppProps) {
   const products = usePosStore((state) => state.products);
   const cart = usePosStore((state) => state.cart);
@@ -41,9 +43,10 @@ export function GlitterPosApp({
   const removeFromCart = usePosStore((state) => state.removeFromCart);
   const clearCart = usePosStore((state) => state.clearCart);
   const recordSale = usePosStore((state) => state.recordSale);
+  const upsertSale = usePosStore((state) => state.upsertSale);
   const hydrateProducts = usePosStore((state) => state.hydrateProducts);
+  const hydrateSales = usePosStore((state) => state.hydrateSales);
   const upsertProduct = usePosStore((state) => state.upsertProduct);
-  const voidSale = usePosStore((state) => state.voidSale);
   const refundSale = usePosStore((state) => state.refundSale);
   const resetDemo = usePosStore((state) => state.resetDemo);
 
@@ -91,7 +94,8 @@ export function GlitterPosApp({
 
   useEffect(() => {
     hydrateProducts(initialProducts);
-  }, [hydrateProducts, initialProducts]);
+    hydrateSales(initialSales);
+  }, [hydrateProducts, hydrateSales, initialProducts, initialSales]);
 
   function showToast(text: string, tone: ToastMessage["tone"] = "success") {
     const message = { id: `${Date.now()}`, text, tone };
@@ -172,6 +176,21 @@ export function GlitterPosApp({
     }
   }
 
+  async function handleVoidSale(saleId: string) {
+    try {
+      const sale = await voidSaleAction(saleId);
+      upsertSale(sale);
+      showToast("Venta anulada", "info");
+      return true;
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "No se pudo anular la venta",
+        "danger"
+      );
+      return false;
+    }
+  }
+
   function openSaleDetail(saleId: string) {
     setSelectedSaleId(saleId);
     setView("saleDetail");
@@ -192,6 +211,7 @@ export function GlitterPosApp({
         decrementCart={decrementCart}
         openCart={() => setView("cart")}
         openPayment={() => setView("payment")}
+        openProductEditor={() => openEditor(null)}
       />
     ),
     reports: (
@@ -199,8 +219,7 @@ export function GlitterPosApp({
         sales={sales}
         openSale={openSaleDetail}
         voidSale={(saleId) => {
-          voidSale(saleId);
-          showToast("Venta anulada", "info");
+          void handleVoidSale(saleId);
         }}
         refundSale={(saleId) => {
           refundSale(saleId);
@@ -300,9 +319,11 @@ export function GlitterPosApp({
         sales={sales}
         back={() => setView("reports")}
         voidSale={(saleId) => {
-          voidSale(saleId);
-          showToast("Venta anulada", "info");
-          setView("reports");
+          void handleVoidSale(saleId).then((voided) => {
+            if (voided) {
+              setView("reports");
+            }
+          });
         }}
         refundSale={(saleId) => {
           refundSale(saleId);

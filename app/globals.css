@@ -972,6 +972,41 @@ button {
   background: linear-gradient(90deg, var(--primary), #9b7cf0);
 }
 
+.report-list {
+  display: grid;
+  gap: 10px;
+}
+
+.report-list-row {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid #f0edf5;
+}
+
+.report-list-row:last-child {
+  border-bottom: 0;
+}
+
+.report-list-row span,
+.report-list-row small,
+.report-list-row strong,
+.report-list-row b {
+  display: block;
+}
+
+.report-list-row small {
+  color: var(--muted);
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.report-list-row b {
+  white-space: nowrap;
+}
+
 .sale-row {
   display: grid;
   grid-template-columns: 46px 1fr auto;

@@ -13,6 +13,18 @@ export function saleGrossCents(sale: Sale) {
   );
 }
 
+export function saleLineDiscountCents(sale: Sale) {
+  return sale.lines.reduce((total, line) => total + line.lineDiscountCents, 0);
+}
+
+export function saleDiscountTotalCents(sale: Sale) {
+  return sale.saleDiscountCents + saleLineDiscountCents(sale);
+}
+
+export function saleLineTotalCents(sale: Sale) {
+  return sale.lines.reduce((total, line) => total + line.lineTotalCents, 0);
+}
+
 export function saleCostCents(sale: Sale) {
   return sale.lines.reduce(
     (total, line) => total + (line.unitCostCents ?? 0) * line.quantity,
@@ -25,15 +37,14 @@ export function saleHasUnknownCost(sale: Sale) {
 }
 
 export function saleNetCents(sale: Sale) {
-  const value = Math.max(0, saleGrossCents(sale) - sale.saleDiscountCents);
+  const value = Math.max(0, saleLineTotalCents(sale) - sale.saleDiscountCents);
   return sale.refundOfSaleId ? -value : value;
 }
 
 export function saleProfitCents(sale: Sale) {
-  return (
-    Math.max(0, saleGrossCents(sale) - sale.saleDiscountCents) -
-    saleCostCents(sale)
-  );
+  const value = Math.max(0, saleLineTotalCents(sale) - sale.saleDiscountCents);
+  const profit = value - saleCostCents(sale);
+  return sale.refundOfSaleId ? -profit : profit;
 }
 
 export function saleTotal(sale: Sale) {
@@ -51,7 +62,8 @@ export function computeMetrics(sales: Sale[]) {
     (metrics, sale) => {
       const sign = sale.refundOfSaleId ? -1 : 1;
       const gross = saleGrossCents(sale);
-      const discount = sale.saleDiscountCents;
+      const discount = saleDiscountTotalCents(sale);
+      const lineTotal = saleLineTotalCents(sale);
       const cost = sale.lines.reduce(
         (total, line) => total + (line.unitCostCents ?? 0) * line.quantity,
         0
@@ -62,13 +74,15 @@ export function computeMetrics(sales: Sale[]) {
         grossCents: metrics.grossCents + gross * sign,
         discountCents: metrics.discountCents + discount * sign,
         netRevenueCents:
-          metrics.netRevenueCents + Math.max(0, gross - discount) * sign,
+          metrics.netRevenueCents +
+          Math.max(0, lineTotal - sale.saleDiscountCents) * sign,
         costCents: metrics.costCents + cost * sign,
         netEarningsCents:
           metrics.netEarningsCents +
-          (Math.max(0, gross - discount) - cost) * sign,
+          (Math.max(0, lineTotal - sale.saleDiscountCents) - cost) * sign,
         transactionCount:
           metrics.transactionCount + (sale.refundOfSaleId ? 0 : 1),
+        refundCount: metrics.refundCount + (sale.refundOfSaleId ? 1 : 0),
         hasUnknownCost: metrics.hasUnknownCost || hasUnknown,
       };
     },
@@ -79,6 +93,7 @@ export function computeMetrics(sales: Sale[]) {
       costCents: 0,
       netEarningsCents: 0,
       transactionCount: 0,
+      refundCount: 0,
       hasUnknownCost: false,
     }
   );
@@ -94,8 +109,7 @@ export function computeCategoryTotals(sales: Sale[]) {
       sale.lines.forEach((line) => {
         totals.set(
           line.category,
-          (totals.get(line.category) ?? 0) +
-            line.unitPriceCents * line.quantity * sign
+          (totals.get(line.category) ?? 0) + line.lineTotalCents * sign
         );
       });
     });
@@ -103,5 +117,85 @@ export function computeCategoryTotals(sales: Sale[]) {
   return [...totals.entries()]
     .map(([category, total]) => ({ category, total }))
     .filter((item) => item.total > 0)
+    .sort((a, b) => b.total - a.total);
+}
+
+export function computePaymentTotals(sales: Sale[]) {
+  const totals = new Map<PaymentMethod, number>();
+
+  sales
+    .filter((sale) => sale.status !== "voided")
+    .forEach((sale) => {
+      totals.set(
+        sale.paymentMethod,
+        (totals.get(sale.paymentMethod) ?? 0) + saleNetCents(sale)
+      );
+    });
+
+  return [...totals.entries()]
+    .map(([paymentMethod, total]) => ({
+      label: paymentLabels[paymentMethod],
+      total,
+    }))
+    .filter((item) => item.total !== 0)
+    .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+}
+
+export function computeProductTotals(sales: Sale[]) {
+  const totals = new Map<
+    string,
+    { productName: string; quantity: number; total: number }
+  >();
+
+  sales
+    .filter((sale) => sale.status !== "voided")
+    .forEach((sale) => {
+      const sign = sale.refundOfSaleId ? -1 : 1;
+      sale.lines.forEach((line) => {
+        const key = line.productId || line.productName;
+        const current = totals.get(key) ?? {
+          productName: line.productName,
+          quantity: 0,
+          total: 0,
+        };
+
+        totals.set(key, {
+          productName: line.productName,
+          quantity: current.quantity + line.quantity * sign,
+          total: current.total + line.lineTotalCents * sign,
+        });
+      });
+    });
+
+  return [...totals.values()]
+    .filter((item) => item.quantity > 0 || item.total > 0)
+    .sort((a, b) => b.quantity - a.quantity || b.total - a.total);
+}
+
+export function computeUserTotals(sales: Sale[]) {
+  const totals = new Map<
+    string,
+    { userName: string; transactionCount: number; total: number }
+  >();
+
+  sales
+    .filter((sale) => sale.status !== "voided")
+    .forEach((sale) => {
+      const current = totals.get(sale.userId) ?? {
+        userName: sale.userName,
+        transactionCount: 0,
+        total: 0,
+      };
+
+      totals.set(sale.userId, {
+        userName: sale.userName,
+        transactionCount:
+          current.transactionCount + (sale.refundOfSaleId ? 0 : 1),
+        total: current.total + saleNetCents(sale),
+      });
+    });
+
+  return [...totals.values()]
+    .filter((item) => item.transactionCount > 0 || item.total !== 0)
     .sort((a, b) => b.total - a.total);
 }

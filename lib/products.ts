@@ -6,6 +6,7 @@ export const emptyProduct: Product = {
   priceCents: 0,
   costCents: null,
   category: "Stickers",
+  imagePath: "placeholder:violet",
   imageTone: "violet",
   archivedAt: null,
   createdAt: "",

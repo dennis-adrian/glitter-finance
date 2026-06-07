@@ -9,7 +9,13 @@ import { MetricCard } from "@/components/atoms/metric-card";
 import { SaleRow } from "@/components/molecules/sale-row";
 import { minutesSince, isInsideRange } from "@/lib/dates";
 import { formatBs } from "@/lib/money";
-import { computeCategoryTotals, computeMetrics } from "@/lib/sales";
+import {
+  computeCategoryTotals,
+  computeMetrics,
+  computePaymentTotals,
+  computeProductTotals,
+  computeUserTotals,
+} from "@/lib/sales";
 import type { ReportRange, Sale } from "@/lib/types";
 
 type ReportsScreenProps = {
@@ -32,6 +38,12 @@ export function ReportsScreen({
   );
   const metrics = computeMetrics(visibleSales);
   const categoryTotals = computeCategoryTotals(visibleSales);
+  const paymentTotals = computePaymentTotals(visibleSales);
+  const productTotals = computeProductTotals(visibleSales);
+  const userTotals = computeUserTotals(visibleSales);
+  const averageTicketCents = metrics.transactionCount
+    ? Math.round(metrics.netRevenueCents / metrics.transactionCount)
+    : 0;
   const refundedIds = new Set(
     sales.map((sale) => sale.refundOfSaleId).filter(Boolean)
   );
@@ -68,6 +80,7 @@ export function ReportsScreen({
         <Wallet size={66} />
       </div>
       <div className="metric-grid">
+        <MetricCard label="Bruto" value={formatBs(metrics.grossCents, true)} />
         <MetricCard label="Ventas" value={String(metrics.transactionCount)} />
         <MetricCard
           label="Ganancia"
@@ -83,6 +96,11 @@ export function ReportsScreen({
           value={formatBs(metrics.costCents, true)}
           warning={metrics.hasUnknownCost}
         />
+        <MetricCard
+          label="Ticket prom."
+          value={formatBs(averageTicketCents, true)}
+        />
+        <MetricCard label="Reembolsos" value={String(metrics.refundCount)} />
       </div>
       {metrics.hasUnknownCost ? (
         <div className="cost-warning">
@@ -104,6 +122,63 @@ export function ReportsScreen({
           ))
         ) : (
           <p className="empty-copy">Aún no hay ventas en este rango.</p>
+        )}
+      </section>
+      <section className="panel">
+        <h2>Pago</h2>
+        {paymentTotals.length ? (
+          paymentTotals.map((item) => (
+            <BarRow
+              key={item.label}
+              label={item.label}
+              value={item.total}
+              max={Math.max(
+                ...paymentTotals.map((total) => Math.abs(total.total))
+              )}
+            />
+          ))
+        ) : (
+          <p className="empty-copy">Aún no hay pagos en este rango.</p>
+        )}
+      </section>
+      <section className="panel">
+        <h2>Más vendidos</h2>
+        {productTotals.length ? (
+          <div className="report-list">
+            {productTotals.slice(0, 6).map((item) => (
+              <div className="report-list-row" key={item.productName}>
+                <span>
+                  <strong>{item.productName}</strong>
+                  <small>{item.quantity} unidades</small>
+                </span>
+                <b>{formatBs(item.total, true)}</b>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-copy">
+            Aún no hay productos vendidos en este rango.
+          </p>
+        )}
+      </section>
+      <section className="panel">
+        <h2>Por vendedor</h2>
+        {userTotals.length ? (
+          <div className="report-list">
+            {userTotals.map((item) => (
+              <div className="report-list-row" key={item.userName}>
+                <span>
+                  <strong>{item.userName}</strong>
+                  <small>{item.transactionCount} ventas</small>
+                </span>
+                <b>{formatBs(item.total, true)}</b>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-copy">
+            Aún no hay vendedores con ventas en este rango.
+          </p>
         )}
       </section>
       <section className="panel recent-panel">

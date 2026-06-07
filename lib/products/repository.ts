@@ -1,7 +1,10 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
-import { mapDbProductToProduct } from "@/lib/product-mapper";
+import {
+  encodePlaceholderImagePath,
+  mapDbProductToProduct,
+} from "@/lib/product-mapper";
 import type { Product, ProductInput } from "@/lib/types";
 
 export async function getProductsForTenant(
@@ -28,6 +31,7 @@ export async function createProductForTenant(
       priceCents: input.priceCents,
       costCents: input.costCents,
       category: input.category,
+      imagePath: encodePlaceholderImagePath(input.imageTone),
     })
     .returning();
 
@@ -50,6 +54,7 @@ export async function updateProductForTenant(
       priceCents: input.priceCents,
       costCents: input.costCents,
       category: input.category,
+      imagePath: encodePlaceholderImagePath(input.imageTone),
       updatedAt: new Date(),
     })
     .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))

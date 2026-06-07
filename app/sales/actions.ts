@@ -4,6 +4,7 @@ import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import {
   createSaleForTenant,
   type CreateSaleLineInput,
+  voidSaleForTenant,
 } from "@/lib/sales/repository";
 import type { PaymentMethod } from "@/lib/types";
 
@@ -29,5 +30,19 @@ export async function createSale(input: CreateSaleActionInput) {
     saleDiscountCents: input.saleDiscountCents,
     saleDiscountReason: input.saleDiscountReason,
     lines: input.lines,
+  });
+}
+
+export async function voidSale(saleId: string) {
+  const context = await ensureUserTenantContext();
+
+  if (!context?.tenant) {
+    throw new Error("A tenant is required to void a sale.");
+  }
+
+  return voidSaleForTenant({
+    tenantId: context.tenant.id,
+    userId: context.user.id,
+    saleId,
   });
 }

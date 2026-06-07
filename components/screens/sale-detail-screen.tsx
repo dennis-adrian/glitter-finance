@@ -17,8 +17,10 @@ import { formatBs } from "@/lib/money";
 import {
   paymentLabels,
   saleCostCents,
+  saleDiscountTotalCents,
   saleGrossCents,
   saleHasUnknownCost,
+  saleLineDiscountCents,
   saleNetCents,
   saleProfitCents,
 } from "@/lib/sales";
@@ -69,9 +71,15 @@ export function SaleDetailScreen({
   const cost = saleCostCents(sale);
   const net = saleNetCents(sale);
   const profit = saleProfitCents(sale);
+  const lineDiscount = saleLineDiscountCents(sale);
+  const totalDiscount = saleDiscountTotalCents(sale);
   const hasUnknownCost = saleHasUnknownCost(sale);
   const canVoid = canVoidSale(sale, sales);
   const canRefund = canRefundSale(sale, sales);
+  const originalSale = sale.refundOfSaleId
+    ? sales.find((item) => item.id === sale.refundOfSaleId)
+    : null;
+  const refundRecord = sales.find((item) => item.refundOfSaleId === sale.id);
 
   return (
     <section className="screen sale-detail-screen">
@@ -99,6 +107,67 @@ export function SaleDetailScreen({
         </p>
       </section>
       <section className="panel sale-detail-panel">
+        <h2>Registro</h2>
+        <DetailRow
+          label="Referencia"
+          value={saleReferenceLabel(sale)}
+          tone="strong"
+        />
+        {originalSale ? (
+          <DetailRow
+            label="Venta original"
+            value={saleReferenceLabel(originalSale)}
+          />
+        ) : null}
+        {refundRecord ? (
+          <DetailRow
+            label="Reembolso"
+            value={saleReferenceLabel(refundRecord)}
+          />
+        ) : null}
+        <DetailRow
+          label="Creada"
+          value={new Intl.DateTimeFormat("es-BO", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          }).format(new Date(sale.createdAt))}
+        />
+        {sale.clientCreatedAt ? (
+          <DetailRow
+            label="Hora local"
+            value={new Intl.DateTimeFormat("es-BO", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            }).format(new Date(sale.clientCreatedAt))}
+          />
+        ) : null}
+        <DetailRow label="Registró" value={sale.userName} />
+        <DetailRow
+          label="Estado"
+          value={saleStatusLabel(sale)}
+          tone={sale.status === "voided" ? "danger" : "strong"}
+        />
+        {sale.voidedAt ? (
+          <DetailRow
+            label="Anulada"
+            value={new Intl.DateTimeFormat("es-BO", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            }).format(new Date(sale.voidedAt))}
+            tone="danger"
+          />
+        ) : null}
+      </section>
+      <section className="panel sale-detail-panel">
         <h2>Pago</h2>
         <DetailRow
           label="Método"
@@ -113,12 +182,6 @@ export function SaleDetailScreen({
             </span>
           }
         />
-        <DetailRow label="Registró" value={sale.userName} />
-        <DetailRow
-          label="Estado"
-          value={saleStatusLabel(sale)}
-          tone={sale.status === "voided" ? "danger" : "strong"}
-        />
       </section>
       <section className="panel sale-detail-panel">
         <h2>Productos</h2>
@@ -132,8 +195,16 @@ export function SaleDetailScreen({
         <h2>Totales</h2>
         <DetailRow label="Subtotal bruto" value={formatBs(gross, true)} />
         <DetailRow
-          label="Descuento"
+          label="Descuento líneas"
+          value={formatBs(lineDiscount, true)}
+        />
+        <DetailRow
+          label="Descuento venta"
           value={formatBs(sale.saleDiscountCents, true)}
+        />
+        <DetailRow
+          label="Descuento total"
+          value={formatBs(totalDiscount, true)}
         />
         <DetailRow label="Cobrado" value={formatBs(net, true)} tone="strong" />
         <DetailRow label="Costo de productos" value={formatBs(cost, true)} />

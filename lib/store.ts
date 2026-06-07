@@ -5,17 +5,15 @@ import { persist } from "zustand/middleware";
 import { starterProducts } from "@/lib/sample-data";
 import type { CartLine, Product, ProductInput, Sale } from "@/lib/types";
 
-const defaultUser = {
-  id: "user-adrian",
-  name: "Adrian",
-};
+const draftCartMaxAgeMs = 24 * 60 * 60 * 1000;
 
 type PosState = {
   products: Product[];
   cart: CartLine[];
+  cartUpdatedAt: string | null;
   sales: Sale[];
-  currentUser: typeof defaultUser;
   hydrateProducts: (products: Product[]) => void;
+  hydrateSales: (sales: Sale[]) => void;
   upsertProduct: (product: Product) => void;
   addProduct: (input: ProductInput) => void;
   updateProduct: (id: string, input: ProductInput) => void;
@@ -26,10 +24,20 @@ type PosState = {
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
   recordSale: (sale: Sale) => void;
-  voidSale: (saleId: string) => void;
+  upsertSale: (sale: Sale) => void;
   refundSale: (saleId: string) => void;
   resetDemo: () => void;
 };
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function isFreshDraftCart(updatedAt: string | null | undefined) {
+  return Boolean(
+    updatedAt && Date.now() - new Date(updatedAt).getTime() < draftCartMaxAgeMs
+  );
+}
 
 function id(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -44,17 +52,24 @@ export const usePosStore = create<PosState>()(
     (set) => ({
       products: starterProducts,
       cart: [],
+      cartUpdatedAt: null,
       sales: [],
-      currentUser: defaultUser,
       hydrateProducts: (products) =>
         set((state) => ({
           products,
-          cart: state.cart.filter((line) =>
-            products.some(
-              (product) => product.id === line.productId && !product.archivedAt
-            )
-          ),
+          cart: isFreshDraftCart(state.cartUpdatedAt)
+            ? state.cart.filter((line) =>
+                products.some(
+                  (product) =>
+                    product.id === line.productId && !product.archivedAt
+                )
+              )
+            : [],
+          cartUpdatedAt: isFreshDraftCart(state.cartUpdatedAt)
+            ? state.cartUpdatedAt
+            : null,
         })),
+      hydrateSales: (sales) => set({ sales }),
       upsertProduct: (product) =>
         set((state) => {
           const exists = state.products.some((item) => item.id === product.id);
@@ -71,7 +86,7 @@ export const usePosStore = create<PosState>()(
         }),
       addProduct: (input) =>
         set((state) => {
-          const now = new Date().toISOString();
+          const now = nowIso();
           return {
             products: [
               {
@@ -80,6 +95,7 @@ export const usePosStore = create<PosState>()(
                 priceCents: input.priceCents,
                 costCents: input.costCents,
                 category: input.category,
+                imagePath: `placeholder:${input.imageTone ?? "violet"}`,
                 imageTone: input.imageTone ?? "violet",
                 archivedAt: null,
                 createdAt: now,
@@ -99,8 +115,9 @@ export const usePosStore = create<PosState>()(
                   priceCents: input.priceCents,
                   costCents: input.costCents,
                   category: input.category,
+                  imagePath: `placeholder:${input.imageTone ?? product.imageTone}`,
                   imageTone: input.imageTone ?? product.imageTone,
-                  updatedAt: new Date().toISOString(),
+                  updatedAt: nowIso(),
                 }
               : product
           ),
@@ -109,10 +126,13 @@ export const usePosStore = create<PosState>()(
         set((state) => ({
           products: state.products.map((product) =>
             product.id === productId
-              ? { ...product, archivedAt: new Date().toISOString() }
+              ? { ...product, archivedAt: nowIso() }
               : product
           ),
           cart: state.cart.filter((line) => line.productId !== productId),
+          cartUpdatedAt: state.cart.some((line) => line.productId === productId)
+            ? nowIso()
+            : state.cartUpdatedAt,
         })),
       restoreProduct: (productId) =>
         set((state) => ({
@@ -142,6 +162,7 @@ export const usePosStore = create<PosState>()(
                     : line
                 )
               : [...state.cart, { productId, quantity: 1 }],
+            cartUpdatedAt: nowIso(),
           };
         }),
       decrementCart: (productId) =>
@@ -153,12 +174,14 @@ export const usePosStore = create<PosState>()(
                 : line
             )
             .filter((line) => line.quantity > 0),
+          cartUpdatedAt: nowIso(),
         })),
       removeFromCart: (productId) =>
         set((state) => ({
           cart: state.cart.filter((line) => line.productId !== productId),
+          cartUpdatedAt: nowIso(),
         })),
-      clearCart: () => set({ cart: [] }),
+      clearCart: () => set({ cart: [], cartUpdatedAt: null }),
       recordSale: (sale) =>
         set((state) => ({
           sales: [
@@ -166,18 +189,15 @@ export const usePosStore = create<PosState>()(
             ...state.sales.filter((existing) => existing.id !== sale.id),
           ],
           cart: [],
+          cartUpdatedAt: null,
         })),
-      voidSale: (saleId) =>
+      upsertSale: (sale) =>
         set((state) => ({
-          sales: state.sales.map((sale) =>
-            sale.id === saleId && sale.status === "completed"
-              ? {
-                  ...sale,
-                  status: "voided",
-                  voidedAt: new Date().toISOString(),
-                }
-              : sale
-          ),
+          sales: state.sales.some((existing) => existing.id === sale.id)
+            ? state.sales.map((existing) =>
+                existing.id === sale.id ? sale : existing
+              )
+            : [sale, ...state.sales],
         })),
       refundSale: (saleId) =>
         set((state) => {
@@ -208,13 +228,32 @@ export const usePosStore = create<PosState>()(
         set({
           products: starterProducts,
           cart: [],
+          cartUpdatedAt: null,
           sales: [],
-          currentUser: defaultUser,
         }),
     }),
     {
       name: "glitter-pos-local-v1",
-      version: 1,
+      version: 2,
+      partialize: (state) => ({
+        cart: state.cart,
+        cartUpdatedAt: state.cartUpdatedAt,
+      }),
+      migrate: (persistedState) => {
+        const state =
+          persistedState && typeof persistedState === "object"
+            ? (persistedState as Partial<PosState>)
+            : {};
+
+        if (!isFreshDraftCart(state.cartUpdatedAt)) {
+          return { cart: [], cartUpdatedAt: null };
+        }
+
+        return {
+          cart: Array.isArray(state.cart) ? state.cart : [],
+          cartUpdatedAt: state.cartUpdatedAt ?? null,
+        };
+      },
     }
   )
 );

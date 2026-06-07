@@ -1,4 +1,5 @@
 import { Box, CreditCard, ReceiptText, RotateCcw } from "lucide-react";
+import { signOut } from "@/app/auth/actions";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
 import { SettingsItem } from "@/components/molecules/settings-item";
@@ -19,7 +20,11 @@ export function SettingsScreen({
   pendingCount,
   resetDemo,
 }: SettingsScreenProps) {
-  const initials = tenantContext.user.email?.slice(0, 2).toUpperCase() ?? "GF";
+  const identity =
+    tenantContext.user.displayName ||
+    tenantContext.user.email ||
+    "Glitter Finance";
+  const initials = identity.slice(0, 2).toUpperCase();
 
   return (
     <section className="screen settings-screen">
@@ -47,7 +52,7 @@ export function SettingsScreen({
         />
         <SettingsItem
           icon={<RotateCcw size={21} />}
-          label="Ventas locales pendientes"
+          label="Ventas cargadas"
           value={String(pendingCount)}
         />
         <SettingsItem
@@ -59,6 +64,11 @@ export function SettingsScreen({
       <button className="secondary-action reset-button" onClick={resetDemo}>
         Restaurar datos demo
       </button>
+      <form action={signOut}>
+        <button className="secondary-action reset-button" type="submit">
+          Cerrar sesión
+        </button>
+      </form>
     </section>
   );
 }
