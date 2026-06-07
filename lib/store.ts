@@ -22,10 +22,14 @@ type PosState = {
   addToCart: (productId: string) => void;
   decrementCart: (productId: string) => void;
   removeFromCart: (productId: string) => void;
+  setLineDiscount: (
+    productId: string,
+    lineDiscountCents: number,
+    lineDiscountReason?: string
+  ) => void;
   clearCart: () => void;
   recordSale: (sale: Sale) => void;
   upsertSale: (sale: Sale) => void;
-  refundSale: (saleId: string) => void;
   resetDemo: () => void;
 };
 
@@ -181,6 +185,19 @@ export const usePosStore = create<PosState>()(
           cart: state.cart.filter((line) => line.productId !== productId),
           cartUpdatedAt: nowIso(),
         })),
+      setLineDiscount: (productId, lineDiscountCents, lineDiscountReason) =>
+        set((state) => ({
+          cart: state.cart.map((line) =>
+            line.productId === productId
+              ? {
+                  ...line,
+                  lineDiscountCents: Math.max(0, lineDiscountCents),
+                  lineDiscountReason: lineDiscountReason?.trim() || undefined,
+                }
+              : line
+          ),
+          cartUpdatedAt: nowIso(),
+        })),
       clearCart: () => set({ cart: [], cartUpdatedAt: null }),
       recordSale: (sale) =>
         set((state) => ({
@@ -199,31 +216,6 @@ export const usePosStore = create<PosState>()(
               )
             : [sale, ...state.sales],
         })),
-      refundSale: (saleId) =>
-        set((state) => {
-          const original = state.sales.find(
-            (sale) => sale.id === saleId && sale.status === "completed"
-          );
-          const alreadyRefunded = state.sales.some(
-            (sale) => sale.refundOfSaleId === saleId
-          );
-          if (!original || alreadyRefunded) {
-            return state;
-          }
-
-          const refund: Sale = {
-            ...original,
-            id: id("refund"),
-            createdAt: new Date().toISOString(),
-            status: "refunded",
-            refundOfSaleId: original.id,
-            refundedAt: new Date().toISOString(),
-          };
-
-          return {
-            sales: [refund, ...state.sales],
-          };
-        }),
       resetDemo: () =>
         set({
           products: starterProducts,

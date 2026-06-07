@@ -125,6 +125,9 @@ export function SaleDetailScreen({
             value={saleReferenceLabel(refundRecord)}
           />
         ) : null}
+        {sale.refundReason ? (
+          <DetailRow label="Motivo reembolso" value={sale.refundReason} />
+        ) : null}
         <DetailRow
           label="Creada"
           value={new Intl.DateTimeFormat("es-BO", {
@@ -202,6 +205,9 @@ export function SaleDetailScreen({
           label="Descuento venta"
           value={formatBs(sale.saleDiscountCents, true)}
         />
+        {sale.saleDiscountReason ? (
+          <DetailRow label="Motivo descuento" value={sale.saleDiscountReason} />
+        ) : null}
         <DetailRow
           label="Descuento total"
           value={formatBs(totalDiscount, true)}

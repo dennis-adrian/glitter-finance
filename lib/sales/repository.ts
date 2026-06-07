@@ -33,6 +33,14 @@ export type VoidSaleInput = {
   saleId: string;
 };
 
+export type RefundSaleInput = {
+  tenantId: string;
+  userId: string;
+  userName: string;
+  saleId: string;
+  reason?: string;
+};
+
 function toIso(value: Date | string) {
   return value instanceof Date ? value.toISOString() : value;
 }
@@ -155,6 +163,35 @@ async function getSaleForTenant(tenantId: string, saleId: string) {
   }
 
   return mappedSale;
+}
+
+function mapRefundRows(
+  refundRows: Array<typeof refunds.$inferSelect>,
+  saleById: Map<string, Sale>,
+  userNameById: Map<string, string>
+) {
+  return refundRows.flatMap((refund): Sale[] => {
+    const original = saleById.get(refund.originalSaleId);
+
+    if (!original) {
+      return [];
+    }
+
+    return [
+      {
+        ...original,
+        id: refund.id,
+        userId: refund.userId,
+        userName: userNameById.get(refund.userId) ?? "Vendedor",
+        createdAt: toIso(refund.createdAt),
+        clientCreatedAt: toIso(refund.clientCreatedAt),
+        status: "refunded",
+        refundOfSaleId: original.id,
+        refundedAt: toIso(refund.createdAt),
+        refundReason: refund.reason ?? undefined,
+      },
+    ];
+  });
 }
 
 function normalizeLines(lines: CreateSaleLineInput[]) {
@@ -316,27 +353,7 @@ export async function getSalesForTenant(tenantId: string): Promise<Sale[]> {
   ]);
 
   const saleById = new Map(mappedSales.map((sale) => [sale.id, sale]));
-  const mappedRefunds: Sale[] = refundRows.flatMap((refund) => {
-    const original = saleById.get(refund.originalSaleId);
-
-    if (!original) {
-      return [];
-    }
-
-    return [
-      {
-        ...original,
-        id: refund.id,
-        userId: refund.userId,
-        userName: refundUserNameById.get(refund.userId) ?? "Vendedor",
-        createdAt: toIso(refund.createdAt),
-        clientCreatedAt: toIso(refund.clientCreatedAt),
-        status: "refunded" as const,
-        refundOfSaleId: original.id,
-        refundedAt: toIso(refund.createdAt),
-      },
-    ];
-  });
+  const mappedRefunds = mapRefundRows(refundRows, saleById, refundUserNameById);
 
   return [...mappedSales, ...mappedRefunds].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -400,4 +417,60 @@ export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
   }
 
   return getSaleForTenant(input.tenantId, input.saleId);
+}
+
+export async function refundSaleForTenant(
+  input: RefundSaleInput
+): Promise<Sale> {
+  const original = await getSaleForTenant(input.tenantId, input.saleId);
+
+  if (original.status === "voided") {
+    throw new Error("A voided sale cannot be refunded.");
+  }
+
+  if (original.refundOfSaleId) {
+    throw new Error("Refund records cannot be refunded.");
+  }
+
+  const [existingRefund] = await db
+    .select({ id: refunds.id })
+    .from(refunds)
+    .where(
+      and(
+        eq(refunds.tenantId, input.tenantId),
+        eq(refunds.originalSaleId, input.saleId)
+      )
+    )
+    .limit(1);
+
+  if (existingRefund) {
+    throw new Error("This sale has already been refunded.");
+  }
+
+  const [refund] = await db
+    .insert(refunds)
+    .values({
+      tenantId: input.tenantId,
+      originalSaleId: input.saleId,
+      userId: input.userId,
+      reason: input.reason?.trim() || null,
+      clientCreatedAt: new Date(),
+    })
+    .returning();
+
+  if (!refund) {
+    throw new Error("Unable to create refund.");
+  }
+
+  const [mappedRefund] = mapRefundRows(
+    [refund],
+    new Map([[original.id, original]]),
+    new Map([[input.userId, input.userName]])
+  );
+
+  if (!mappedRefund) {
+    throw new Error("Unable to create refund.");
+  }
+
+  return mappedRefund;
 }

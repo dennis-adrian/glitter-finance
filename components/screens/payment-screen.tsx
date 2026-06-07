@@ -36,6 +36,7 @@ export function PaymentScreen({
   isSubmitting = false,
 }: PaymentScreenProps) {
   const [discount, setDiscount] = useState(0);
+  const [reason, setReason] = useState("");
   const [custom, setCustom] = useState("");
   const [customOpen, setCustomOpen] = useState(false);
   const total = Math.max(0, subtotal - discount);
@@ -97,13 +98,22 @@ export function PaymentScreen({
             </button>
           </div>
         ) : null}
+        {discount ? (
+          <div className="discount-reason">
+            <input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Motivo opcional"
+            />
+          </div>
+        ) : null}
       </section>
       <section className="payment-block">
         <h2>Método de pago</h2>
         <button
           className="payment-method cash"
           disabled={!count || isSubmitting}
-          onClick={() => pay("cash", discount)}
+          onClick={() => pay("cash", discount, reason)}
         >
           <Wallet size={25} />
           <span>{isSubmitting ? "Registrando..." : "Efectivo"}</span>
@@ -112,7 +122,7 @@ export function PaymentScreen({
         <button
           className="payment-method qr"
           disabled={!count || isSubmitting}
-          onClick={() => pay("qr_transfer", discount)}
+          onClick={() => pay("qr_transfer", discount, reason)}
         >
           <QrCode size={25} />
           <span>{isSubmitting ? "Registrando..." : "QR"}</span>

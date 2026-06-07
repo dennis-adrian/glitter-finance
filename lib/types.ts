@@ -26,6 +26,8 @@ export type ProductInput = {
 export type CartLine = {
   productId: string;
   quantity: number;
+  lineDiscountCents?: number;
+  lineDiscountReason?: string;
 };
 
 export type SaleLine = {
@@ -57,9 +59,10 @@ export type Sale = {
   voidedByUserId?: string;
   refundOfSaleId?: string;
   refundedAt?: string;
+  refundReason?: string;
 };
 
-export type ReportRange = "today" | "week" | "month";
+export type ReportRange = "today" | "week" | "month" | "custom";
 
 export type ToastMessage = {
   id: string;

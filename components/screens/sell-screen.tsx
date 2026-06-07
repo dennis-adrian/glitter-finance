@@ -79,7 +79,7 @@ export function SellScreen(props: SellScreenProps) {
             );
           })}
         </div>
-      ) : (
+      ) : props.products.length === 0 ? (
         <EmptyState
           icon={<PackagePlus size={42} />}
           title="Agrega tu primer producto"
@@ -93,6 +93,12 @@ export function SellScreen(props: SellScreenProps) {
               AGREGAR PRODUCTO
             </button>
           }
+        />
+      ) : (
+        <EmptyState
+          icon={<Search size={42} />}
+          title="No se encontraron productos"
+          body="Prueba con otra categoría o término de búsqueda."
         />
       )}
       <CheckoutDock

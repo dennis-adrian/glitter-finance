@@ -3,6 +3,7 @@
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import {
   createSaleForTenant,
+  refundSaleForTenant,
   type CreateSaleLineInput,
   voidSaleForTenant,
 } from "@/lib/sales/repository";
@@ -44,5 +45,21 @@ export async function voidSale(saleId: string) {
     tenantId: context.tenant.id,
     userId: context.user.id,
     saleId,
+  });
+}
+
+export async function refundSale(saleId: string, reason?: string) {
+  const context = await ensureUserTenantContext();
+
+  if (!context?.tenant) {
+    throw new Error("A tenant is required to refund a sale.");
+  }
+
+  return refundSaleForTenant({
+    tenantId: context.tenant.id,
+    userId: context.user.id,
+    userName: context.user.displayName,
+    saleId,
+    reason,
   });
 }

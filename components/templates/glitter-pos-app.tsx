@@ -7,7 +7,11 @@ import {
   restoreProduct as restoreProductAction,
   updateProduct as updateProductAction,
 } from "@/app/products/actions";
-import { createSale, voidSale as voidSaleAction } from "@/app/sales/actions";
+import {
+  createSale,
+  refundSale as refundSaleAction,
+  voidSale as voidSaleAction,
+} from "@/app/sales/actions";
 import { Toast } from "@/components/atoms/toast";
 import { BottomNav } from "@/components/organisms/bottom-nav";
 import { CartScreen } from "@/components/screens/cart-screen";
@@ -19,8 +23,15 @@ import { SaleDetailScreen } from "@/components/screens/sale-detail-screen";
 import { SellScreen } from "@/components/screens/sell-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { paymentLabels, saleTotal } from "@/lib/sales";
+import { clampDiscount } from "@/lib/money";
 import { usePosStore } from "@/lib/store";
-import type { PaymentMethod, Product, Sale, ToastMessage } from "@/lib/types";
+import type {
+  CartLine,
+  PaymentMethod,
+  Product,
+  Sale,
+  ToastMessage,
+} from "@/lib/types";
 import type { View } from "@/lib/views";
 import type { UserTenantContext } from "@/lib/auth/user-context";
 
@@ -41,13 +52,13 @@ export function GlitterPosApp({
   const addToCart = usePosStore((state) => state.addToCart);
   const decrementCart = usePosStore((state) => state.decrementCart);
   const removeFromCart = usePosStore((state) => state.removeFromCart);
+  const setLineDiscount = usePosStore((state) => state.setLineDiscount);
   const clearCart = usePosStore((state) => state.clearCart);
   const recordSale = usePosStore((state) => state.recordSale);
   const upsertSale = usePosStore((state) => state.upsertSale);
   const hydrateProducts = usePosStore((state) => state.hydrateProducts);
   const hydrateSales = usePosStore((state) => state.hydrateSales);
   const upsertProduct = usePosStore((state) => state.upsertProduct);
-  const refundSale = usePosStore((state) => state.refundSale);
   const resetDemo = usePosStore((state) => state.resetDemo);
 
   const [view, setView] = useState<View>("sell");
@@ -69,19 +80,22 @@ export function GlitterPosApp({
           const product = products.find((item) => item.id === line.productId);
           return product ? { ...line, product } : null;
         })
-        .filter(
-          (
-            line
-          ): line is {
-            productId: string;
-            quantity: number;
-            product: Product;
-          } => Boolean(line)
+        .filter((line): line is CartLine & { product: Product } =>
+          Boolean(line)
         ),
     [cart, products]
   );
   const cartSubtotal = cartDetails.reduce(
-    (total, line) => total + line.product.priceCents * line.quantity,
+    (total, line) =>
+      total +
+      Math.max(
+        0,
+        line.product.priceCents * line.quantity -
+          clampDiscount(
+            line.lineDiscountCents ?? 0,
+            line.product.priceCents * line.quantity
+          )
+      ),
     0
   );
   const cartCount = cartDetails.reduce(
@@ -157,6 +171,8 @@ export function GlitterPosApp({
         lines: cartDetails.map((line) => ({
           productId: line.productId,
           quantity: line.quantity,
+          lineDiscountCents: line.lineDiscountCents,
+          lineDiscountReason: line.lineDiscountReason,
         })),
       });
       recordSale(sale);
@@ -185,6 +201,23 @@ export function GlitterPosApp({
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : "No se pudo anular la venta",
+        "danger"
+      );
+      return false;
+    }
+  }
+
+  async function handleRefundSale(saleId: string) {
+    try {
+      const sale = await refundSaleAction(saleId);
+      upsertSale(sale);
+      showToast("Reembolso registrado", "info");
+      return true;
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "No se pudo registrar el reembolso",
         "danger"
       );
       return false;
@@ -222,8 +255,7 @@ export function GlitterPosApp({
           void handleVoidSale(saleId);
         }}
         refundSale={(saleId) => {
-          refundSale(saleId);
-          showToast("Reembolso registrado", "info");
+          void handleRefundSale(saleId);
         }}
       />
     ),
@@ -271,6 +303,7 @@ export function GlitterPosApp({
         decrementCart={decrementCart}
         addToCart={addToCart}
         removeFromCart={removeFromCart}
+        setLineDiscount={setLineDiscount}
         clearCart={() => {
           clearCart();
           showToast("Carrito vaciado", "info");
@@ -326,9 +359,11 @@ export function GlitterPosApp({
           });
         }}
         refundSale={(saleId) => {
-          refundSale(saleId);
-          showToast("Reembolso registrado", "info");
-          setView("reports");
+          void handleRefundSale(saleId).then((refunded) => {
+            if (refunded) {
+              setView("reports");
+            }
+          });
         }}
       />
     ),

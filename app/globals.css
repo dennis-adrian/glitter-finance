@@ -459,7 +459,7 @@ button {
 
 .cart-line {
   display: grid;
-  grid-template-columns: 58px 1fr auto auto;
+  grid-template-columns: 58px 1fr auto auto auto;
   gap: 11px;
   align-items: center;
   min-height: 98px;
@@ -488,11 +488,13 @@ button {
 }
 
 .tiny-action {
-  position: absolute;
-  right: 10px;
-  bottom: 8px;
   border: 0;
   background: transparent;
+  color: var(--primary);
+  display: grid;
+  place-items: center;
+  min-height: 34px;
+  min-width: 30px;
 }
 
 .text-danger,
@@ -516,6 +518,29 @@ button {
   color: var(--primary);
   display: grid;
   place-items: center;
+}
+
+.line-discount-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.line-discount-editor input {
+  min-height: 38px;
+  border: 1px solid var(--hairline);
+  padding: 0 10px;
+  min-width: 0;
+}
+
+.line-discount-editor button {
+  border: 1px solid var(--hairline);
+  background: #fbfafc;
+  color: var(--primary);
+  padding: 0 10px;
+  font-weight: 800;
 }
 
 .cart-summary {
@@ -647,8 +672,13 @@ button {
   margin-top: 10px;
 }
 
+.discount-reason {
+  margin-top: 10px;
+}
+
 .custom-discount input,
 .custom-discount button,
+.discount-reason input,
 .form-field input,
 .form-field select {
   min-height: 56px;
@@ -656,6 +686,10 @@ button {
   background: #fff;
   padding: 0 14px;
   outline: 0;
+}
+
+.discount-reason input {
+  width: 100%;
 }
 
 .custom-discount button {
@@ -867,6 +901,29 @@ button {
   overflow-x: auto;
   margin-bottom: 16px;
   scrollbar-width: none;
+}
+
+.custom-range-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: -4px 0 16px;
+}
+
+.custom-range-row label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.custom-range-row input {
+  min-height: 44px;
+  border: 1px solid var(--hairline);
+  background: #fff;
+  padding: 0 10px;
+  font: inherit;
 }
 
 .metric-hero,

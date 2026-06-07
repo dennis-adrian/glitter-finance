@@ -32,9 +32,26 @@ export function ReportsScreen({
   refundSale,
 }: ReportsScreenProps) {
   const [range, setRange] = useState<ReportRange>("today");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
   const visibleSales = useMemo(
-    () => sales.filter((sale) => isInsideRange(sale.createdAt, range)),
-    [sales, range]
+    () =>
+      sales.filter((sale) => {
+        if (range !== "custom") {
+          return isInsideRange(sale.createdAt, range);
+        }
+
+        const saleTime = new Date(sale.createdAt).getTime();
+        const startTime = customStart
+          ? new Date(`${customStart}T00:00:00`).getTime()
+          : Number.NEGATIVE_INFINITY;
+        const endTime = customEnd
+          ? new Date(`${customEnd}T23:59:59.999`).getTime()
+          : Number.POSITIVE_INFINITY;
+
+        return saleTime >= startTime && saleTime <= endTime;
+      }),
+    [customEnd, customStart, sales, range]
   );
   const metrics = computeMetrics(visibleSales);
   const categoryTotals = computeCategoryTotals(visibleSales);
@@ -64,6 +81,7 @@ export function ReportsScreen({
           ["today", "Hoy"],
           ["week", "Esta semana"],
           ["month", "Este mes"],
+          ["custom", "Rango"],
         ].map(([value, label]) => (
           <button
             key={value}
@@ -74,6 +92,26 @@ export function ReportsScreen({
           </button>
         ))}
       </div>
+      {range === "custom" ? (
+        <div className="custom-range-row">
+          <label>
+            Desde
+            <input
+              type="date"
+              value={customStart}
+              onChange={(event) => setCustomStart(event.target.value)}
+            />
+          </label>
+          <label>
+            Hasta
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(event) => setCustomEnd(event.target.value)}
+            />
+          </label>
+        </div>
+      ) : null}
       <div className="metric-hero">
         <span>Ingreso neto</span>
         <strong>{formatBs(metrics.netRevenueCents, true)}</strong>
