@@ -1,5 +1,18 @@
 import type { ReportRange } from "@/lib/types";
 
+/** Local calendar-day bound for `<input type="date">` values (matches isInsideRange). */
+export function parseCustomRangeBound(
+  dateStr: string,
+  endOfDay: boolean
+): number {
+  const time = endOfDay ? "T23:59:59.999" : "T00:00:00";
+  const ms = new Date(`${dateStr}${time}`).getTime();
+  if (Number.isNaN(ms)) {
+    return endOfDay ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+  }
+  return ms;
+}
+
 export function isInsideRange(iso: string, range: ReportRange) {
   const date = new Date(iso);
   const now = new Date();

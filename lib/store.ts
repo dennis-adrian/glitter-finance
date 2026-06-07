@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { clampDiscount } from "@/lib/money";
 import { starterProducts } from "@/lib/sample-data";
 import type { CartLine, Product, ProductInput, Sale } from "@/lib/types";
 
@@ -30,7 +31,6 @@ type PosState = {
   clearCart: () => void;
   recordSale: (sale: Sale) => void;
   upsertSale: (sale: Sale) => void;
-  resetDemo: () => void;
 };
 
 function nowIso() {
@@ -193,15 +193,30 @@ export const usePosStore = create<PosState>()(
         })),
       setLineDiscount: (productId, lineDiscountCents, lineDiscountReason) =>
         set((state) => ({
-          cart: state.cart.map((line) =>
-            line.productId === productId
-              ? {
-                  ...line,
-                  lineDiscountCents: Math.max(0, lineDiscountCents),
-                  lineDiscountReason: lineDiscountReason?.trim() || undefined,
-                }
-              : line
-          ),
+          cart: state.cart.map((line) => {
+            if (line.productId !== productId) {
+              return line;
+            }
+
+            // Clamp to 0..lineSubtotal so the stored value never exceeds what
+            // can actually be discounted. Price comes from the product; a cart
+            // line always references one, but fall back to the raw value if not.
+            const product = state.products.find(
+              (item) => item.id === productId
+            );
+            const lineSubtotalCents = product
+              ? product.priceCents * line.quantity
+              : lineDiscountCents;
+
+            return {
+              ...line,
+              lineDiscountCents: clampDiscount(
+                lineDiscountCents,
+                lineSubtotalCents
+              ),
+              lineDiscountReason: lineDiscountReason?.trim() || undefined,
+            };
+          }),
           cartUpdatedAt: nowIso(),
         })),
       clearCart: () => set({ cart: [], cartUpdatedAt: null }),
@@ -222,13 +237,6 @@ export const usePosStore = create<PosState>()(
               )
             : [sale, ...state.sales],
         })),
-      resetDemo: () =>
-        set({
-          products: starterProducts,
-          cart: [],
-          cartUpdatedAt: null,
-          sales: [],
-        }),
     }),
     {
       name: "glitter-pos-local-v1",

@@ -5,15 +5,22 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1780790812782,
-      "tag": "20260607000652_initial_schema",
+      "when": 1780846362142,
+      "tag": "20260607153242_mature_firelord",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1780790829258,
-      "tag": "20260607000709_supabase_rls_policies",
+      "when": 1780846380340,
+      "tag": "20260607153300_supabase_rls_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780846447015,
+      "tag": "20260607153407_product_images_bucket",
       "breakpoints": true
     }
   ]

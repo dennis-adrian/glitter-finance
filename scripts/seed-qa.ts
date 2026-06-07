@@ -65,7 +65,7 @@ function createAdminClient() {
       // use Realtime, but the constructor still requires one. The cast bridges
       // `ws`'s constructor signature to supabase's WebSocketLikeConstructor.
       realtime: { transport: ws as unknown as never },
-    },
+    }
   );
 }
 

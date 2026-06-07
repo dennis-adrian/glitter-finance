@@ -25,7 +25,7 @@ async function requireTenantId() {
   const context = await ensureUserTenantContext();
 
   if (!context?.tenant) {
-    throw new Error("A tenant is required to manage products.");
+    throw new Error("Se requiere una cuenta para gestionar productos.");
   }
 
   return context.tenant.id;

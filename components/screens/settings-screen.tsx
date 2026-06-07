@@ -10,7 +10,6 @@ type SettingsScreenProps = {
   productCount: number;
   saleCount: number;
   pendingCount: number;
-  resetDemo: () => void;
 };
 
 export function SettingsScreen({
@@ -18,7 +17,6 @@ export function SettingsScreen({
   productCount,
   saleCount,
   pendingCount,
-  resetDemo,
 }: SettingsScreenProps) {
   const identity =
     tenantContext.user.displayName ||
@@ -61,9 +59,6 @@ export function SettingsScreen({
           value="Efectivo · QR"
         />
       </section>
-      <button className="secondary-action reset-button" onClick={resetDemo}>
-        Restaurar datos demo
-      </button>
       <form action={signOut}>
         <button className="secondary-action reset-button" type="submit">
           Cerrar sesión

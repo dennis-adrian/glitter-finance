@@ -283,6 +283,10 @@ export async function createSaleForTenant(
     input.saleDiscountCents,
     subtotalAfterLineDiscounts
   );
+  // `client_created_at` holds the time the record was created on the device, for
+  // the offline-first model (see PRD §9). This online-only Stage A path has no
+  // device timestamp to forward, so the server stamps it as a stand-in. When
+  // PowerSync lands, the real client timestamp will be supplied here instead.
   const clientCreatedAt = new Date();
 
   return await db.transaction(async (tx) => {
@@ -454,6 +458,8 @@ export async function refundSaleForTenant(
       originalSaleId: input.saleId,
       userId: input.userId,
       reason: input.reason?.trim() || null,
+      // Server-stamped stand-in for the device creation time; see the note in
+      // createSaleForTenant. PowerSync will supply the real client timestamp.
       clientCreatedAt: new Date(),
     })
     .returning();

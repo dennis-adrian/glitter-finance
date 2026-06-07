@@ -7,7 +7,11 @@ import { Header } from "@/components/atoms/header";
 import { BarRow } from "@/components/atoms/bar-row";
 import { MetricCard } from "@/components/atoms/metric-card";
 import { SaleRow } from "@/components/molecules/sale-row";
-import { minutesSince, isInsideRange } from "@/lib/dates";
+import {
+  isInsideRange,
+  minutesSince,
+  parseCustomRangeBound,
+} from "@/lib/dates";
 import { formatBs } from "@/lib/money";
 import {
   computeCategoryTotals,
@@ -42,11 +46,14 @@ export function ReportsScreen({
         }
 
         const saleTime = new Date(sale.createdAt).getTime();
+        if (Number.isNaN(saleTime)) {
+          return false;
+        }
         const rawStart = customStart
-          ? new Date(`${customStart}T00:00:00`).getTime()
+          ? parseCustomRangeBound(customStart, false)
           : Number.NEGATIVE_INFINITY;
         const rawEnd = customEnd
-          ? new Date(`${customEnd}T23:59:59.999`).getTime()
+          ? parseCustomRangeBound(customEnd, true)
           : Number.POSITIVE_INFINITY;
         const startTime = Math.min(rawStart, rawEnd);
         const endTime = Math.max(rawStart, rawEnd);

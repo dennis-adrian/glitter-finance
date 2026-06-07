@@ -1,4 +1,5 @@
 import {
+  foreignKey,
   index,
   integer,
   pgEnum,
@@ -6,6 +7,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -115,6 +117,9 @@ export const sales = pgTable(
   (table) => [
     index("sales_tenant_created_at_idx").on(table.tenantId, table.createdAt),
     index("sales_user_id_idx").on(table.userId),
+    // Target for the tenant-scoped composite FKs on sale_lines and refunds.
+    // (id) is already unique as the PK; this pair makes the composite FK legal.
+    unique("sales_id_tenant_id_unique").on(table.id, table.tenantId),
   ]
 );
 
@@ -131,9 +136,9 @@ export const saleLines = pgTable(
   "sale_lines",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    saleId: uuid("sale_id")
-      .notNull()
-      .references(() => sales.id, { onDelete: "restrict" }),
+    // FK to sales is composite (sale_id, tenant_id) — declared in the table
+    // config below so a line cannot reference a sale in another tenant.
+    saleId: uuid("sale_id").notNull(),
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "restrict" }),
@@ -155,6 +160,11 @@ export const saleLines = pgTable(
   (table) => [
     index("sale_lines_sale_id_idx").on(table.saleId),
     index("sale_lines_tenant_id_idx").on(table.tenantId),
+    foreignKey({
+      name: "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk",
+      columns: [table.saleId, table.tenantId],
+      foreignColumns: [sales.id, sales.tenantId],
+    }).onDelete("restrict"),
   ]
 );
 
@@ -180,9 +190,9 @@ export const refunds = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "restrict" }),
-    originalSaleId: uuid("original_sale_id")
-      .notNull()
-      .references(() => sales.id, { onDelete: "restrict" }),
+    // FK to sales is composite (original_sale_id, tenant_id) — declared in the
+    // table config below so a refund cannot reference a sale in another tenant.
+    originalSaleId: uuid("original_sale_id").notNull(),
     userId: uuid("user_id").notNull(),
     reason: text("reason"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -195,6 +205,11 @@ export const refunds = pgTable(
   (table) => [
     uniqueIndex("refunds_original_sale_id_unique").on(table.originalSaleId),
     index("refunds_tenant_created_at_idx").on(table.tenantId, table.createdAt),
+    foreignKey({
+      name: "refunds_original_sale_id_tenant_id_sales_id_tenant_id_fk",
+      columns: [table.originalSaleId, table.tenantId],
+      foreignColumns: [sales.id, sales.tenantId],
+    }).onDelete("restrict"),
   ]
 );
 

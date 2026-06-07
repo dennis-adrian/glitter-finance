@@ -60,7 +60,6 @@ export function GlitterPosApp({
   const hydrateProducts = usePosStore((state) => state.hydrateProducts);
   const hydrateSales = usePosStore((state) => state.hydrateSales);
   const upsertProduct = usePosStore((state) => state.upsertProduct);
-  const resetDemo = usePosStore((state) => state.resetDemo);
 
   const [view, setView] = useState<View>("sell");
   const [previousView, setPreviousView] = useState<View>("products");
@@ -312,11 +311,6 @@ export function GlitterPosApp({
         productCount={activeProducts.length}
         saleCount={sales.filter((sale) => sale.status === "completed").length}
         pendingCount={sales.length}
-        resetDemo={() => {
-          resetDemo();
-          showToast("Datos demo restaurados", "info");
-          setView("sell");
-        }}
       />
     ),
     cart: (

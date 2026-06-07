@@ -1,6 +1,6 @@
 {
-  "id": "36436c23-bf85-4cf8-bc14-3a634c0de1b2",
-  "prevId": "f845ab56-d359-4c6e-9464-0dc14511c749",
+  "id": "6ae74629-33a8-4429-9409-e7f27d851d1b",
+  "prevId": "b71d3c1a-fe49-4f2d-ab81-42dc19c77f23",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -232,15 +232,17 @@
           "onUpdate": "no action",
           "onDelete": "restrict"
         },
-        "refunds_original_sale_id_sales_id_fk": {
-          "name": "refunds_original_sale_id_sales_id_fk",
+        "refunds_original_sale_id_tenant_id_sales_id_tenant_id_fk": {
+          "name": "refunds_original_sale_id_tenant_id_sales_id_tenant_id_fk",
           "tableFrom": "refunds",
           "columnsFrom": [
-            "original_sale_id"
+            "original_sale_id",
+            "tenant_id"
           ],
           "tableTo": "sales",
           "columnsTo": [
-            "id"
+            "id",
+            "tenant_id"
           ],
           "onUpdate": "no action",
           "onDelete": "restrict"
@@ -371,19 +373,6 @@
         }
       },
       "foreignKeys": {
-        "sale_lines_sale_id_sales_id_fk": {
-          "name": "sale_lines_sale_id_sales_id_fk",
-          "tableFrom": "sale_lines",
-          "columnsFrom": [
-            "sale_id"
-          ],
-          "tableTo": "sales",
-          "columnsTo": [
-            "id"
-          ],
-          "onUpdate": "no action",
-          "onDelete": "restrict"
-        },
         "sale_lines_tenant_id_tenants_id_fk": {
           "name": "sale_lines_tenant_id_tenants_id_fk",
           "tableFrom": "sale_lines",
@@ -409,6 +398,21 @@
           ],
           "onUpdate": "no action",
           "onDelete": "set null"
+        },
+        "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk": {
+          "name": "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk",
+          "tableFrom": "sale_lines",
+          "columnsFrom": [
+            "sale_id",
+            "tenant_id"
+          ],
+          "tableTo": "sales",
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -540,7 +544,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "sales_id_tenant_id_unique": {
+          "name": "sales_id_tenant_id_unique",
+          "columns": [
+            "id",
+            "tenant_id"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

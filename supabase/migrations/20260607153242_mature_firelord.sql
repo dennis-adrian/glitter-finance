@@ -48,7 +48,8 @@ CREATE TABLE "sales" (
 	"voided_at" timestamp with time zone,
 	"voided_by_user_id" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"client_created_at" timestamp with time zone NOT NULL
+	"client_created_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "sales_id_tenant_id_unique" UNIQUE("id","tenant_id")
 );
 --> statement-breakpoint
 CREATE TABLE "tenant_users" (
@@ -68,10 +69,10 @@ CREATE TABLE "tenants" (
 --> statement-breakpoint
 ALTER TABLE "products" ADD CONSTRAINT "products_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "refunds" ADD CONSTRAINT "refunds_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "refunds" ADD CONSTRAINT "refunds_original_sale_id_sales_id_fk" FOREIGN KEY ("original_sale_id") REFERENCES "public"."sales"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "sale_lines" ADD CONSTRAINT "sale_lines_sale_id_sales_id_fk" FOREIGN KEY ("sale_id") REFERENCES "public"."sales"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "refunds" ADD CONSTRAINT "refunds_original_sale_id_tenant_id_sales_id_tenant_id_fk" FOREIGN KEY ("original_sale_id","tenant_id") REFERENCES "public"."sales"("id","tenant_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sale_lines" ADD CONSTRAINT "sale_lines_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sale_lines" ADD CONSTRAINT "sale_lines_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sale_lines" ADD CONSTRAINT "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk" FOREIGN KEY ("sale_id","tenant_id") REFERENCES "public"."sales"("id","tenant_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sales" ADD CONSTRAINT "sales_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "tenant_users" ADD CONSTRAINT "tenant_users_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "products_tenant_id_idx" ON "products" USING btree ("tenant_id");--> statement-breakpoint

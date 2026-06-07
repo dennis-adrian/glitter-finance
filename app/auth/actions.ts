@@ -55,7 +55,12 @@ export async function signUpWithPassword(formData: FormData) {
   }
 
   try {
-    await ensureUserTenantContext();
+    const context = await ensureUserTenantContext();
+    if (!context) {
+      redirect(
+        `/login?error=${encodeURIComponent("Authentication pending or no user session")}`
+      );
+    }
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Unable to initialize account.";

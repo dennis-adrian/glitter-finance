@@ -89,12 +89,14 @@ export function CartLineItem({
       <button
         className="tiny-action"
         onClick={() => setDiscountOpen((open) => !open)}
+        aria-label={`Editar descuento de ${product.name}`}
       >
         <Edit3 size={15} />
       </button>
       <button
         className="text-danger tiny-action"
         onClick={() => removeFromCart(productId)}
+        aria-label={`Quitar ${product.name} del carrito`}
       >
         <Trash2 size={15} />
       </button>
