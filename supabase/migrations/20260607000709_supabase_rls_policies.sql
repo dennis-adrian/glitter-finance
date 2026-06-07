@@ -148,9 +148,29 @@ WITH CHECK (
 );
 --> statement-breakpoint
 
+-- Composite foreign key so a sale_line cannot be attached to a sale that
+-- lives in a different tenant. The single-column FK from the initial migration
+-- only enforced "sale_id exists," which leaves room for a user with membership
+-- in two tenants to attach a line in tenant B to a sale in tenant A. Postgres
+-- requires the FK target columns to be UNIQUE, so we first add a UNIQUE
+-- constraint on (id, tenant_id) of sales — id alone is already the primary key
+-- so this is a no-op uniqueness-wise, but it makes the composite FK legal.
+ALTER TABLE "sales"
+  ADD CONSTRAINT "sales_id_tenant_id_unique" UNIQUE ("id", "tenant_id");
+--> statement-breakpoint
+ALTER TABLE "sale_lines"
+  DROP CONSTRAINT "sale_lines_sale_id_sales_id_fk";
+--> statement-breakpoint
+ALTER TABLE "sale_lines"
+  ADD CONSTRAINT "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk"
+  FOREIGN KEY ("sale_id", "tenant_id")
+  REFERENCES "sales" ("id", "tenant_id") ON DELETE RESTRICT;
+--> statement-breakpoint
+
 -- Sale lines are append-only. No UPDATE or DELETE policy is declared, which
--- denies those operations under RLS. The tenant_id on each line must match a
--- tenant the caller belongs to.
+-- denies those operations under RLS. The composite FK above guarantees the
+-- tenant_id on each line matches the parent sale's tenant_id, so a malicious
+-- caller cannot smuggle a line into the wrong tenant scope.
 CREATE POLICY "tenant members can read sale lines"
 ON "sale_lines" FOR SELECT
 USING ("public"."current_user_has_tenant"("tenant_id"));
@@ -160,9 +180,25 @@ ON "sale_lines" FOR INSERT
 WITH CHECK ("public"."current_user_has_tenant"("tenant_id"));
 --> statement-breakpoint
 
+-- Composite foreign key so a refund cannot be attached to a sale that lives
+-- in a different tenant. Same pattern as sale_lines above: the original
+-- single-column FK only enforced "original_sale_id exists," which leaves room
+-- for a user with membership in two tenants to file a refund under tenant B
+-- against a sale that lives in tenant A. The sales_id_tenant_id_unique
+-- constraint added above makes the composite FK target legal.
+ALTER TABLE "refunds"
+  DROP CONSTRAINT "refunds_original_sale_id_sales_id_fk";
+--> statement-breakpoint
+ALTER TABLE "refunds"
+  ADD CONSTRAINT "refunds_original_sale_id_tenant_id_sales_id_tenant_id_fk"
+  FOREIGN KEY ("original_sale_id", "tenant_id")
+  REFERENCES "sales" ("id", "tenant_id") ON DELETE RESTRICT;
+--> statement-breakpoint
+
 -- Refunds are append-only and self-attributed. The unique index on
 -- original_sale_id enforces the MVP rule of at most one (full-sale) refund
--- per sale.
+-- per sale; the composite FK above guarantees that refund and its original
+-- sale share a tenant.
 CREATE POLICY "tenant members can read refunds"
 ON "refunds" FOR SELECT
 USING ("public"."current_user_has_tenant"("tenant_id"));

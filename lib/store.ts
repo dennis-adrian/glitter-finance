@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { clampDiscount } from "@/lib/money";
 import { starterProducts } from "@/lib/sample-data";
-import type { CartLine, PaymentMethod, Product, Sale, SaleLine } from "@/lib/types";
+import type { CartLine, PaymentMethod, Product, ProductInput, Sale, SaleLine } from "@/lib/types";
 
 const tenantId = "tenant-glitter-demo";
 const defaultUser = {
@@ -12,19 +12,13 @@ const defaultUser = {
   name: "Adrian",
 };
 
-type ProductInput = {
-  name: string;
-  priceCents: number;
-  costCents: number | null;
-  category: string;
-  imageTone?: string;
-};
-
 type PosState = {
   products: Product[];
   cart: CartLine[];
   sales: Sale[];
   currentUser: typeof defaultUser;
+  hydrateProducts: (products: Product[]) => void;
+  upsertProduct: (product: Product) => void;
   addProduct: (input: ProductInput) => void;
   updateProduct: (id: string, input: ProductInput) => void;
   archiveProduct: (id: string) => void;
@@ -61,6 +55,21 @@ export const usePosStore = create<PosState>()(
       cart: [],
       sales: [],
       currentUser: defaultUser,
+      hydrateProducts: (products) =>
+        set((state) => ({
+          products,
+          cart: state.cart.filter((line) => products.some((product) => product.id === line.productId && !product.archivedAt)),
+        })),
+      upsertProduct: (product) =>
+        set((state) => {
+          const exists = state.products.some((item) => item.id === product.id);
+          return {
+            products: exists
+              ? state.products.map((item) => (item.id === product.id ? product : item))
+              : [product, ...state.products],
+            cart: product.archivedAt ? state.cart.filter((line) => line.productId !== product.id) : state.cart,
+          };
+        }),
       addProduct: (input) =>
         set((state) => {
           const now = new Date().toISOString();
@@ -153,6 +162,7 @@ export const usePosStore = create<PosState>()(
               return null;
             }
 
+            const lineDiscountCents = 0;
             return {
               id: id("line"),
               productId: product.id,
@@ -161,7 +171,8 @@ export const usePosStore = create<PosState>()(
               quantity: line.quantity,
               unitPriceCents: product.priceCents,
               unitCostCents: product.costCents,
-              lineDiscountCents: 0,
+              lineDiscountCents,
+              lineTotalCents: product.priceCents * line.quantity - lineDiscountCents,
             };
           })
           .filter((line): line is SaleLine => Boolean(line));

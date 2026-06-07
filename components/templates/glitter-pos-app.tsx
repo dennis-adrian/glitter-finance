@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  archiveProduct as archiveProductAction,
+  createProduct,
+  restoreProduct as restoreProductAction,
+  updateProduct as updateProductAction,
+} from "@/app/products/actions";
 import { Toast } from "@/components/atoms/toast";
 import { BottomNav } from "@/components/organisms/bottom-nav";
 import { CartScreen } from "@/components/screens/cart-screen";
@@ -15,8 +21,14 @@ import { paymentLabels, saleTotal } from "@/lib/sales";
 import { usePosStore } from "@/lib/store";
 import type { PaymentMethod, Product, ToastMessage } from "@/lib/types";
 import type { View } from "@/lib/views";
+import type { UserTenantContext } from "@/lib/auth/user-context";
 
-export function GlitterPosApp() {
+type GlitterPosAppProps = {
+  tenantContext: UserTenantContext;
+  initialProducts: Product[];
+};
+
+export function GlitterPosApp({ tenantContext, initialProducts }: GlitterPosAppProps) {
   const products = usePosStore((state) => state.products);
   const cart = usePosStore((state) => state.cart);
   const sales = usePosStore((state) => state.sales);
@@ -25,10 +37,8 @@ export function GlitterPosApp() {
   const removeFromCart = usePosStore((state) => state.removeFromCart);
   const clearCart = usePosStore((state) => state.clearCart);
   const commitSale = usePosStore((state) => state.commitSale);
-  const addProduct = usePosStore((state) => state.addProduct);
-  const updateProduct = usePosStore((state) => state.updateProduct);
-  const archiveProduct = usePosStore((state) => state.archiveProduct);
-  const restoreProduct = usePosStore((state) => state.restoreProduct);
+  const hydrateProducts = usePosStore((state) => state.hydrateProducts);
+  const upsertProduct = usePosStore((state) => state.upsertProduct);
   const voidSale = usePosStore((state) => state.voidSale);
   const refundSale = usePosStore((state) => state.refundSale);
   const resetDemo = usePosStore((state) => state.resetDemo);
@@ -58,6 +68,10 @@ export function GlitterPosApp() {
   const cartCount = cartDetails.reduce((total, line) => total + line.quantity, 0);
   const selectedSale = selectedSaleId ? (sales.find((sale) => sale.id === selectedSaleId) ?? null) : null;
 
+  useEffect(() => {
+    hydrateProducts(initialProducts);
+  }, [hydrateProducts, initialProducts]);
+
   function showToast(text: string, tone: ToastMessage["tone"] = "success") {
     const message = { id: `${Date.now()}`, text, tone };
     setToast(message);
@@ -72,22 +86,23 @@ export function GlitterPosApp() {
     setView("editor");
   }
 
-  function handleSaveProduct(input: {
+  async function handleSaveProduct(input: {
     name: string;
     priceCents: number;
     costCents: number | null;
     category: string;
     imageTone: string;
   }) {
-    if (editingProduct) {
-      updateProduct(editingProduct.id, input);
-      showToast("Producto actualizado", "info");
-    } else {
-      addProduct(input);
-      showToast("Producto agregado");
+    try {
+      const product = editingProduct
+        ? await updateProductAction(editingProduct.id, input)
+        : await createProduct(input);
+      upsertProduct(product);
+      showToast(editingProduct ? "Producto actualizado" : "Producto agregado", editingProduct ? "info" : "success");
+      setView("products");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "No se pudo guardar el producto", "danger");
     }
-
-    setView("products");
   }
 
   function handlePayment(method: PaymentMethod, discount: number, reason?: string) {
@@ -142,14 +157,20 @@ export function GlitterPosApp() {
         setCategory={setCatalogCategory}
         setQuery={setCatalogQuery}
         openEditor={openEditor}
-        restoreProduct={(productId) => {
-          restoreProduct(productId);
-          showToast("Producto restaurado", "info");
+        restoreProduct={async (productId) => {
+          try {
+            const product = await restoreProductAction(productId);
+            upsertProduct(product);
+            showToast("Producto restaurado", "info");
+          } catch (error) {
+            showToast(error instanceof Error ? error.message : "No se pudo restaurar el producto", "danger");
+          }
         }}
       />
     ),
     settings: (
       <SettingsScreen
+        tenantContext={tenantContext}
         productCount={activeProducts.length}
         saleCount={sales.filter((sale) => sale.status === "completed").length}
         pendingCount={sales.length}
@@ -182,10 +203,15 @@ export function GlitterPosApp() {
         product={editingProduct}
         back={() => setView(previousView === "sell" ? "products" : previousView)}
         save={handleSaveProduct}
-        archive={(productId) => {
-          archiveProduct(productId);
-          showToast("Producto archivado", "info");
-          setView("products");
+        archive={async (productId) => {
+          try {
+            const product = await archiveProductAction(productId);
+            upsertProduct(product);
+            showToast("Producto archivado", "info");
+            setView("products");
+          } catch (error) {
+            showToast(error instanceof Error ? error.message : "No se pudo archivar el producto", "danger");
+          }
         }}
       />
     ),

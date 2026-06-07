@@ -1,7 +1,7 @@
 # Glitter Finance — Product Requirements Document
 
 **Author:** Adrian Guzman
-**Status:** Draft v1.12
+**Status:** Draft v1.13
 **Date:** May 2026
 
 ---
@@ -344,8 +344,9 @@ All libraries are pinned to their latest stable versions at project start and ke
 **Backend**
 
 - Supabase (hosted) providing Postgres + Auth + Storage
-- Drizzle ORM for schema definition, migrations, and queries
-- `@powersync/drizzle-driver` for Drizzle against the client-side SQLite store
+- Drizzle ORM for schema definition and typed queries (server-side Postgres and, via `@powersync/drizzle-driver`, client-side SQLite)
+- Drizzle Kit to diff the TypeScript schema and emit SQL migration files
+- Supabase CLI as the migration runner and the local development stack (see section 12.4)
 
 **Offline / sync**
 
@@ -375,6 +376,20 @@ The PowerSync free tier covers closed testing: 2 GB synced per month, 500 MB hos
 ### 12.3 Authentication
 
 Supabase Auth handles email/password sign-up and sign-in. No OAuth providers initially. Row-level security policies in Supabase Postgres enforce tenant isolation independently of client-side checks, which also cleanly supports multiple users on one tenant.
+
+### 12.4 Schema and Migrations
+
+Drizzle and Supabase both touch the database. They sit at different layers and the split is deliberate.
+
+**Drizzle owns the schema and typed queries.** The TypeScript schema in `lib/db/schema.ts` is the single source of truth for tables, columns, indexes, relations, and enums. The same definitions type queries on both ends of the system: server-side reads and writes against Supabase Postgres go through Drizzle, and once PowerSync is wired in, the per-device SQLite store will be queried through `@powersync/drizzle-driver` using the same schema. There is no separate codegen step; refactoring the schema in TypeScript flows through to every consumer at compile time.
+
+**Drizzle Kit generates SQL migrations.** Running `drizzle-kit generate` diffs the TypeScript schema against the snapshots in `supabase/migrations/meta/` and emits a new timestamp-prefixed SQL file into `supabase/migrations/`. Drizzle Kit does not apply migrations in this project; it is purely a diff-and-emit tool. The `meta/` snapshots are kept in version control because they are how Drizzle Kit computes future incremental migrations.
+
+**Supabase CLI applies migrations and owns the development stack.** `supabase db push` applies the files in `supabase/migrations/` against the linked cloud project, tracking applied migrations in the `supabase_migrations.schema_migrations` table. `supabase db reset` rebuilds a local Postgres from the migration history. `supabase start` boots the full local Supabase stack (Postgres, Auth, Storage) via Docker, configured by `supabase/config.toml`, so feature work can happen offline against a real Supabase-shaped backend.
+
+**Hand-written SQL is a first-class citizen alongside Drizzle-generated SQL.** Anything Drizzle's schema cannot express — RLS policies, `auth.users` foreign keys, `SECURITY DEFINER` helper functions, triggers, grants, check constraints — lives in hand-written `.sql` files in `supabase/migrations/` with a fresh timestamp prefix. The Supabase CLI applies all files in chronological order; their origin does not matter to the runner.
+
+**Runtime access bypasses RLS by design.** The Drizzle client in `lib/db/index.ts` connects directly to Postgres with a privileged role, so RLS does not gate its queries. Tenant scoping in server actions is enforced at the application layer by always passing the authenticated user's `tenant_id` into queries (see `lib/auth/user-context.ts`). RLS remains the authoritative gate for any path that uses Supabase's PostgREST clients, including the PowerSync replication path, where the authenticated user's JWT is the only credential and policies are non-negotiable.
 
 ## 13. UI Design Approach
 
@@ -406,6 +421,7 @@ Glitter Finance is built without a dedicated designer. UI work is done iterative
 - **Product name:** Glitter Finance.
 - **Platform:** PWA. Native Expo apps optional later.
 - **Backend:** Supabase. **Offline/sync:** PowerSync. **ORM:** Drizzle (server-side Postgres and client-side SQLite).
+- **Schema and migrations ownership:** Drizzle owns the TypeScript schema and emits SQL via `drizzle-kit generate`. Supabase CLI applies migrations (`supabase db push`) and runs the local development stack (`supabase start`, `supabase db reset`). Hand-written SQL for RLS, auth foreign keys, and triggers lives alongside Drizzle-generated SQL in `supabase/migrations/` and is applied by the same Supabase CLI runner. Drizzle Kit is not used as a migration runner. Detail in section 12.4.
 - **Frontend stack:** Next.js 16 (App Router), TypeScript, Tailwind CSS 4, shadcn/ui, Serwist, react-hook-form, Zod, Zustand, Recharts. Icons: Lucide React (the order/cart entry uses `scroll-text`). Libraries kept on their latest stable versions unless pinned (Next 16, Tailwind 4).
 - **Brand:** primary color `#6822E2`, applied via the Tailwind 4 theme and shadcn/ui tokens.
 - **Hosting:** Vercel. **Telemetry:** PostHog (analytics) and Sentry (errors).

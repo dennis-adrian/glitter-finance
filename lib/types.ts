@@ -14,6 +14,14 @@ export type Product = {
   updatedAt: string;
 };
 
+export type ProductInput = {
+  name: string;
+  priceCents: number;
+  costCents: number | null;
+  category: string;
+  imageTone?: string;
+};
+
 export type CartLine = {
   productId: string;
   quantity: number;
@@ -28,6 +36,8 @@ export type SaleLine = {
   unitPriceCents: number;
   unitCostCents: number | null;
   lineDiscountCents: number;
+  lineDiscountReason?: string;
+  lineTotalCents: number;
 };
 
 export type Sale = {

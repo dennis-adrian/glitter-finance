@@ -1275,6 +1275,75 @@ button {
   background: var(--danger);
 }
 
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(104, 34, 226, 0.1), transparent 24rem),
+    #fbfafc;
+}
+
+.auth-panel {
+  width: min(100%, 420px);
+  background: #fff;
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.auth-panel h1 {
+  margin: 8px 0;
+  color: var(--primary);
+  font-size: 28px;
+}
+
+.auth-panel p {
+  margin: 0 0 18px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.auth-mark {
+  display: grid;
+}
+
+.auth-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 6px;
+  color: #504a5c;
+}
+
+.auth-form input {
+  min-height: 48px;
+  border: 1px solid var(--hairline);
+  background: #fff;
+  padding: 0 12px;
+  outline: 0;
+}
+
+.auth-signup {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid var(--hairline);
+}
+
+.auth-error {
+  color: var(--danger);
+  background: #fff2f3;
+  border: 1px solid #f3c2c8;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+
 @keyframes toast-in {
   from {
     transform: translateY(10px);
