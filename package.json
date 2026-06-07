@@ -18,6 +18,8 @@
     "lint:check": "prettier --check ."
   },
   "dependencies": {
+    "@powersync/drizzle-driver": "^0.7.3",
+    "@powersync/web": "^1.38.2",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.107.0",
     "@tailwindcss/postcss": "^4.1.17",

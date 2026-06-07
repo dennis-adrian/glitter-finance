@@ -1,10 +1,32 @@
 import { eq, sql } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
+import type { User } from "@supabase/supabase-js";
 import { db } from "@/lib/db";
 import { tenantUsers, tenants } from "@/lib/db/schema";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 type DbOrTx = typeof db | PgTransaction<any, any, any>;
+
+// PowerSync's sync rules read tenant_id from the JWT via
+// `request.jwt() -> 'app_metadata' ->> 'tenant_id'`, so the claim has to be
+// present in every authenticated token. Supabase embeds `app_metadata` as a
+// top-level claim automatically; this helper makes sure the field is set
+// (or backfilled for users created before we started writing it). The
+// updated claim only appears on the *next* token refresh, not the current
+// one, so the first sync attempt after bootstrap may still miss it.
+async function ensureAppMetadataTenantId(user: User, tenantId: string) {
+  if (user.app_metadata?.tenant_id === tenantId) {
+    return;
+  }
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.updateUserById(user.id, {
+    app_metadata: { ...(user.app_metadata ?? {}), tenant_id: tenantId },
+  });
+  if (error) {
+    throw new Error(`Could not set tenant_id on user: ${error.message}`);
+  }
+}
 
 async function loadMembership(client: DbOrTx, userId: string) {
   const [row] = await client
@@ -63,6 +85,7 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
   // membership lookup without opening a transaction.
   const existing = await loadMembership(db, user.id);
   if (existing) {
+    await ensureAppMetadataTenantId(user, existing.tenantId);
     return {
       user: {
         id: user.id,
@@ -84,7 +107,7 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
   // The lock is released automatically when the transaction commits or rolls
   // back. After acquiring the lock, re-check membership — another transaction
   // may have just bootstrapped this user while we were waiting.
-  return await db.transaction(async (tx) => {
+  const context = await db.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtext(${"user_tenant_bootstrap:" + user.id}))`
     );
@@ -121,4 +144,12 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
       tenant,
     };
   });
+
+  // Persist the tenant_id claim on the auth user. Done after the tx commits
+  // so a failed admin call rolls back the JWT update, not the membership.
+  if (context.tenant) {
+    await ensureAppMetadataTenantId(user, context.tenant.id);
+  }
+
+  return context;
 }

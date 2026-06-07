@@ -1,0 +1,35 @@
+# PowerSync Sync Streams for Glitter POS (edition 3).
+#
+# Every authenticated user belongs to a single tenant. The user's tenant_id
+# is written to Supabase Auth's `app_metadata` (set in the bootstrap path in
+# lib/auth/user-context.ts, and in the QA seed). Supabase embeds
+# `app_metadata` as a nested object in every JWT it issues, so the stream
+# below reads it via auth.parameters() and filters every synced row to the
+# caller's tenant.
+#
+# Tables NOT synced (yet):
+# - tenants: single row per tenant, loaded server-side.
+# - tenant_users: composite PK in Postgres; PowerSync needs a single `id`
+#   column. Until the table grows an id column (or the rule projects one),
+#   user display names are loaded server-side.
+#
+# To deploy: paste into the PowerSync Cloud instance's Sync Streams editor,
+# click Validate, then Deploy.
+
+config:
+  edition: 3
+
+streams:
+  by_tenant:
+    auto_subscribe: true
+    queries:
+      # No ::uuid cast — PowerSync evaluates these rules in a SQLite engine
+      # which has no native UUID type; UUIDs are compared as text.
+      - SELECT * FROM products
+          WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+      - SELECT * FROM sales
+          WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+      - SELECT * FROM sale_lines
+          WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+      - SELECT * FROM refunds
+          WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'

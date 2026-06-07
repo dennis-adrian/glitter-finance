@@ -85,13 +85,22 @@ async function findOrCreateAuthUser(email: string, password: string) {
   );
 
   if (existing) {
-    // Keep the documented password working even if the user already existed.
+    // Keep the documented password working even if the user already existed,
+    // and (re)set app_metadata.tenant_id so PowerSync's sync rules can read
+    // it from the JWT. Pre-existing QA users from before this script set
+    // app_metadata get backfilled here.
     const { error: updateError } = await admin.auth.admin.updateUserById(
       existing.id,
-      { password }
+      {
+        password,
+        app_metadata: {
+          ...(existing.app_metadata ?? {}),
+          tenant_id: QA_TENANT_ID,
+        },
+      }
     );
     if (updateError) {
-      throw new Error(`Could not update QA password: ${updateError.message}`);
+      throw new Error(`Could not update QA user: ${updateError.message}`);
     }
     return { id: existing.id, created: false };
   }
@@ -101,6 +110,10 @@ async function findOrCreateAuthUser(email: string, password: string) {
     password,
     email_confirm: true,
     user_metadata: { display_name: QA_DISPLAY_NAME },
+    // Set app_metadata.tenant_id at create time so the very first JWT
+    // carries the claim. PowerSync's sync rules read it via
+    // request.jwt() -> 'app_metadata' ->> 'tenant_id'.
+    app_metadata: { tenant_id: QA_TENANT_ID },
   });
   if (error || !data.user) {
     throw new Error(`Could not create QA user: ${error?.message ?? "unknown"}`);

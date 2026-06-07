@@ -65,6 +65,41 @@ npm run db:push       # applies the same migrations to glitter-finance
 
 After relinking, update `.env.local` so `NEXT_PUBLIC_SUPABASE_URL`, the publishable and secret keys, and `DATABASE_URL` all match the now-linked project; otherwise the running app and the CLI will talk to different backends.
 
+### PowerSync setup
+
+One-time bootstrap, run once per Supabase project that PowerSync Cloud will connect to (currently `glitter-finance-staging`, and `glitter-finance` once we deploy there). Not run via `db:push` because the role credential must be different per environment and should never live in git.
+
+In the target project's Supabase dashboard, open the SQL editor and run:
+
+```sql
+CREATE ROLE powersync_role WITH REPLICATION BYPASSRLS LOGIN PASSWORD '<per-env-secret>';
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
+CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds;
+```
+
+Notes:
+
+- Generate a fresh `<per-env-secret>` for each environment (e.g. `openssl rand -base64 32`) and store it in a password manager. Do not reuse across staging and prod.
+- The role has `REPLICATION BYPASSRLS` — it can read every row in every tenant, bypassing RLS. Treat the credential like a service-role key.
+- The publication is targeted at exactly the four synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
+- After running, paste the `powersync_role` password into the PowerSync Cloud instance's database-connection settings.
+- Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
+
+**After `supabase db reset --linked`:** the reset drops everything in the `public` schema, which includes the `powersync` publication and the grants you gave `powersync_role`. The role itself survives (it's cluster-level, not database-level), and its password is unchanged. To restore the replication bits, re-run just the grants + publication portion (skip `CREATE ROLE`):
+
+```sql
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
+CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds;
+```
+
+Also pass `--no-seed` when resetting any cloud project — the `supabase/seed.sql` script is local-only (creates a demo auth user with a known password, and assumes `pgcrypto` is enabled). It has no business running against staging or prod.
+
+```bash
+supabase db reset --linked --no-seed
+```
+
 ### QA seed
 
 `npm run db:seed:qa` creates (or refreshes) a stable QA account on the Supabase project the env vars point at — typically `glitter-finance-staging`. It provisions a dummy catalog, completed sales, a voided sale, and a refunded sale, attached to a fixed tenant id so re-runs are idempotent. The auth user and tenant are always preserved; `--reset` only wipes the catalog and sales.
