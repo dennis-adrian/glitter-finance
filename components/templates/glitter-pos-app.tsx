@@ -26,6 +26,12 @@ import { SettingsScreen } from "@/components/screens/settings-screen";
 import { paymentLabels, saleTotal } from "@/lib/sales";
 import { clampDiscount } from "@/lib/money";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
+import {
+  buildSalesFromLocal,
+  type LocalRefundRow,
+  type LocalSaleLineRow,
+  type LocalSaleRow,
+} from "@/lib/powersync/sales-from-local";
 import { usePosStore } from "@/lib/store";
 import type {
   CartLine,
@@ -37,6 +43,7 @@ import type {
 import type { View } from "@/lib/views";
 import type { UserTenantContext } from "@/lib/auth/user-context";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
+import { SyncStatusPill } from "@/components/molecules/sync-status-pill";
 
 // Shape of a row coming back from the local SQLite store. Column names are
 // snake_case (matching Postgres) because PowerSync replicates with the
@@ -161,7 +168,7 @@ export function GlitterPosApp({
         {
           onResult: (results) => {
             const rows = ((results.rows as unknown as { _array?: ProductRow[] })
-              ._array ?? []) as ProductRow[];
+              ?._array ?? []) as ProductRow[];
             hydrateProducts(rows.map(rowToProduct));
           },
           onError: (error) => {
@@ -191,6 +198,82 @@ export function GlitterPosApp({
       unregister?.();
     };
   }, [powerSyncDb, hydrateProducts]);
+
+  // Subscribe to sales + sale_lines + refunds. PowerSync's onChange fires
+  // whenever any of the three tables mutates; we requery all three and
+  // rebuild the in-memory Sale[] (same shape as the server-side
+  // getSalesForTenant returns). User display names are resolved from the
+  // current session — sales rung up by other tenant members fall back to a
+  // generic label until tenant_users sync lands (see lib/powersync/sales-from-local.ts).
+  const currentUserId = tenantContext.user.id;
+  const currentUserName = tenantContext.user.displayName;
+  useEffect(() => {
+    if (!powerSyncDb) return;
+
+    const controller = new AbortController();
+    let unregister: (() => void) | undefined;
+
+    function resolveUserName(userId: string) {
+      return userId === currentUserId ? currentUserName : "Vendedor";
+    }
+
+    async function rebuildSales(db: NonNullable<typeof powerSyncDb>) {
+      try {
+        const [saleRows, lineRows, refundRows] = await Promise.all([
+          db.getAll<LocalSaleRow>(
+            "SELECT * FROM sales ORDER BY created_at DESC"
+          ),
+          db.getAll<LocalSaleLineRow>("SELECT * FROM sale_lines"),
+          db.getAll<LocalRefundRow>(
+            "SELECT * FROM refunds ORDER BY created_at DESC"
+          ),
+        ]);
+        if (controller.signal.aborted) return;
+        hydrateSales(
+          buildSalesFromLocal(saleRows, lineRows, refundRows, resolveUserName)
+        );
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.error("[PowerSync] sales rebuild failed", error);
+        }
+      }
+    }
+
+    function startWatching(db: NonNullable<typeof powerSyncDb>) {
+      db.onChange(
+        {
+          onChange: () => rebuildSales(db),
+          onError: (error) => {
+            console.error("[PowerSync] sales onChange error", error);
+          },
+        },
+        {
+          signal: controller.signal,
+          tables: ["sales", "sale_lines", "refunds"],
+          triggerImmediate: true,
+        }
+      );
+    }
+
+    if (powerSyncDb.currentStatus?.hasSynced) {
+      startWatching(powerSyncDb);
+    } else {
+      unregister = powerSyncDb.registerListener({
+        statusChanged: (status) => {
+          if (status.hasSynced && !controller.signal.aborted) {
+            startWatching(powerSyncDb);
+            unregister?.();
+            unregister = undefined;
+          }
+        },
+      });
+    }
+
+    return () => {
+      controller.abort();
+      unregister?.();
+    };
+  }, [powerSyncDb, hydrateSales, currentUserId, currentUserName]);
 
   function showToast(text: string, tone: ToastMessage["tone"] = "success") {
     const message = { id: `${Date.now()}`, text, tone };
@@ -471,6 +554,7 @@ export function GlitterPosApp({
     <main className="app-shell">
       <div className="phone-frame">
         {content}
+        <SyncStatusPill />
         {["sell", "reports", "products", "settings"].includes(view) ? (
           <BottomNav view={view} setView={(nextView) => setView(nextView)} />
         ) : null}

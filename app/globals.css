@@ -1423,6 +1423,78 @@ button {
   background: var(--danger);
 }
 
+/* Persistent sync indicator: pinned top-right of the phone-frame, visible
+   across every screen. Subtle pill that doesn't compete with screen headers
+   or the CheckoutDock at the bottom of Sell Mode. */
+.sync-pill {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  background: rgba(23, 21, 29, 0.78);
+  color: #fff;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.sync-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #14b86e;
+  box-shadow: 0 0 0 4px rgba(20, 184, 110, 0.18);
+}
+
+.sync-pill-meta {
+  opacity: 0.7;
+  font-weight: 400;
+}
+
+.sync-pill-synced .sync-pill-dot {
+  background: #14b86e;
+  box-shadow: 0 0 0 4px rgba(20, 184, 110, 0.18);
+}
+
+.sync-pill-syncing .sync-pill-dot {
+  background: #6822e2;
+  box-shadow: 0 0 0 4px rgba(104, 34, 226, 0.2);
+  animation: sync-pulse 1.2s ease-in-out infinite;
+}
+
+.sync-pill-offline {
+  background: rgba(180, 90, 30, 0.92);
+}
+
+.sync-pill-offline .sync-pill-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22);
+}
+
+.sync-pill-initializing .sync-pill-dot {
+  background: #94a3b8;
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.22);
+  animation: sync-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sync-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
 .auth-shell {
   min-height: 100vh;
   display: grid;
