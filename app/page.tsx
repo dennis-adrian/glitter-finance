@@ -1,4 +1,5 @@
 import { GlitterPosApp } from "@/components/templates/glitter-pos-app";
+import { PowerSyncProvider } from "@/components/providers/powersync-provider";
 import { redirect } from "next/navigation";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import { getProductsForTenant } from "@/lib/products/repository";
@@ -19,10 +20,12 @@ export default async function Home() {
     : [[], []];
 
   return (
-    <GlitterPosApp
-      tenantContext={context}
-      initialProducts={initialProducts}
-      initialSales={initialSales}
-    />
+    <PowerSyncProvider>
+      <GlitterPosApp
+        tenantContext={context}
+        initialProducts={initialProducts}
+        initialSales={initialSales}
+      />
+    </PowerSyncProvider>
   );
 }
