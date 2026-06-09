@@ -2,26 +2,35 @@
 
 // PowerSyncProvider mounts the per-device PowerSyncDatabase, connects it to
 // the PowerSync Cloud instance using the current Supabase session, and
-// exposes it to descendants via PowerSyncContext (from @powersync/react).
+// exposes it to descendants two ways:
+//
+// - via @powersync/react's PowerSyncContext (only present once the db is
+//   ready) for components that want to use library hooks like useQuery.
+// - via our local OptionalPowerSyncContext (always present; value is null
+//   until the db is ready) so app code can subscribe without throwing during
+//   the brief async-init window.
 //
 // The web SDK is browser-only (uses WASM + OPFS + workers); imports are
 // lazy-loaded inside useEffect so SSR never touches them.
-//
-// PR 2a scope: provider is mounted and connects, but no UI component yet
-// reads from it. Verification is via the browser console (see the status
-// logging below). PR 2b will switch the products read path to live SQLite
-// queries via usePowerSync().
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { PowerSyncContext } from "@powersync/react";
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 
-export function PowerSyncProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+const OptionalPowerSyncContext =
+  createContext<AbstractPowerSyncDatabase | null>(null);
+
+/**
+ * Returns the PowerSync database if it has finished initializing, otherwise
+ * null. Use this in app code so the calling component renders happily before
+ * PowerSync is ready and starts subscribing as soon as it is.
+ */
+export function useOptionalPowerSyncDb(): AbstractPowerSyncDatabase | null {
+  return useContext(OptionalPowerSyncContext);
+}
+
+export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
   const [db, setDb] = useState<AbstractPowerSyncDatabase | null>(null);
 
   useEffect(() => {
@@ -54,8 +63,7 @@ export function PowerSyncProvider({
       const supabase = createSupabaseClient();
       await instance.connect(new SupabaseConnector(supabase));
 
-      // Verification logging for PR 2a (no UI surface yet). Removed/replaced
-      // by a visible sync indicator in a later PR.
+      // Status logging — temporary until PR 3 surfaces a visible indicator.
       const unsubscribe = instance.registerListener({
         statusChanged: (status) => {
           console.info("[PowerSync] status", {
@@ -85,14 +93,19 @@ export function PowerSyncProvider({
     };
   }, []);
 
-  // Render children whether or not PowerSync is ready. Until db is set,
-  // PowerSyncContext is absent — consumers that call usePowerSync() will
-  // throw. That's fine for PR 2a since nothing consumes it yet.
-  if (!db) {
-    return <>{children}</>;
-  }
-
+  // Always render children inside the OptionalPowerSyncContext so
+  // useOptionalPowerSyncDb() resolves to null (not "outside provider")
+  // before init completes. PowerSyncContext is only mounted once db exists,
+  // so @powersync/react hooks like useQuery/useStatus don't see undefined.
   return (
-    <PowerSyncContext.Provider value={db}>{children}</PowerSyncContext.Provider>
+    <OptionalPowerSyncContext.Provider value={db}>
+      {db ? (
+        <PowerSyncContext.Provider value={db}>
+          {children}
+        </PowerSyncContext.Provider>
+      ) : (
+        children
+      )}
+    </OptionalPowerSyncContext.Provider>
   );
 }

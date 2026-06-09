@@ -25,6 +25,7 @@ import { SellScreen } from "@/components/screens/sell-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { paymentLabels, saleTotal } from "@/lib/sales";
 import { clampDiscount } from "@/lib/money";
+import { mapDbProductToProduct } from "@/lib/product-mapper";
 import { usePosStore } from "@/lib/store";
 import type {
   CartLine,
@@ -35,6 +36,36 @@ import type {
 } from "@/lib/types";
 import type { View } from "@/lib/views";
 import type { UserTenantContext } from "@/lib/auth/user-context";
+import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
+
+// Shape of a row coming back from the local SQLite store. Column names are
+// snake_case (matching Postgres) because PowerSync replicates with the
+// source column names verbatim.
+type ProductRow = {
+  id: string;
+  name: string;
+  price_cents: number;
+  cost_cents: number | null;
+  category: string;
+  image_path: string | null;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function rowToProduct(row: ProductRow): Product {
+  return mapDbProductToProduct({
+    id: row.id,
+    name: row.name,
+    priceCents: row.price_cents,
+    costCents: row.cost_cents,
+    category: row.category,
+    imagePath: row.image_path,
+    archivedAt: row.archived_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  });
+}
 
 type GlitterPosAppProps = {
   tenantContext: UserTenantContext;
@@ -110,6 +141,56 @@ export function GlitterPosApp({
     hydrateProducts(initialProducts);
     hydrateSales(initialSales);
   }, [hydrateProducts, hydrateSales, initialProducts, initialSales]);
+
+  // Subscribe to the local PowerSync SQLite store and push updates into
+  // Zustand. Server-prop hydration above gives the first paint; this watch
+  // takes over once PowerSync has finished its initial sync, then keeps the
+  // UI live as new rows replicate down. We gate on `hasSynced` so the first
+  // onResult doesn't fire with an empty store and wipe the server data.
+  const powerSyncDb = useOptionalPowerSyncDb();
+  useEffect(() => {
+    if (!powerSyncDb) return;
+
+    const controller = new AbortController();
+    let unregister: (() => void) | undefined;
+
+    function startWatching(db: NonNullable<typeof powerSyncDb>) {
+      db.watch(
+        "SELECT * FROM products ORDER BY created_at DESC",
+        [],
+        {
+          onResult: (results) => {
+            const rows = ((results.rows as unknown as { _array?: ProductRow[] })
+              ._array ?? []) as ProductRow[];
+            hydrateProducts(rows.map(rowToProduct));
+          },
+          onError: (error) => {
+            console.error("[PowerSync] products watch error", error);
+          },
+        },
+        { signal: controller.signal }
+      );
+    }
+
+    if (powerSyncDb.currentStatus?.hasSynced) {
+      startWatching(powerSyncDb);
+    } else {
+      unregister = powerSyncDb.registerListener({
+        statusChanged: (status) => {
+          if (status.hasSynced && !controller.signal.aborted) {
+            startWatching(powerSyncDb);
+            unregister?.();
+            unregister = undefined;
+          }
+        },
+      });
+    }
+
+    return () => {
+      controller.abort();
+      unregister?.();
+    };
+  }, [powerSyncDb, hydrateProducts]);
 
   function showToast(text: string, tone: ToastMessage["tone"] = "success") {
     const message = { id: `${Date.now()}`, text, tone };
