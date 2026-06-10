@@ -49,6 +49,14 @@ import {
   refundSaleLocal,
   voidSaleLocal,
 } from "@/lib/powersync/write-sales";
+import {
+  archiveProductLocal,
+  createProductLocal,
+  restoreProductLocal,
+  updateProductLocal,
+  uploadProductImageLocal,
+} from "@/lib/powersync/write-products";
+import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatBs } from "@/lib/money";
 
 // Shape of a row coming back from the local SQLite store. Column names are
@@ -304,24 +312,66 @@ export function GlitterPosApp({
     imagePath?: string | null;
     imageFile?: File | null;
   }) {
+    if (!tenantContext.tenant) {
+      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+      return;
+    }
     try {
-      let product = editingProduct
-        ? await updateProductAction(editingProduct.id, input)
-        : await createProduct(input);
       let uploadFailed = false;
 
-      if (input.imageFile) {
-        const formData = new FormData();
-        formData.set("image", input.imageFile);
+      if (powerSyncDb) {
+        // Local-first path. Metadata writes go through the local SQLite
+        // store; image upload goes browser-side to Supabase Storage using
+        // the user's JWT and falls back gracefully if the network is down
+        // (the product is still saved without an image, per PRD §7.1).
+        const productId = editingProduct
+          ? (await updateProductLocal(powerSyncDb, {
+              tenantId: tenantContext.tenant.id,
+              productId: editingProduct.id,
+              product: input,
+            }),
+            editingProduct.id)
+          : (
+              await createProductLocal(powerSyncDb, {
+                tenantId: tenantContext.tenant.id,
+                product: input,
+              })
+            ).productId;
 
-        try {
-          product = await uploadProductImage(product.id, formData);
-        } catch {
-          uploadFailed = true;
+        if (input.imageFile) {
+          try {
+            await uploadProductImageLocal(
+              createSupabaseBrowserClient(),
+              powerSyncDb,
+              {
+                tenantId: tenantContext.tenant.id,
+                productId,
+                file: input.imageFile,
+              }
+            );
+          } catch {
+            uploadFailed = true;
+          }
         }
+      } else {
+        // Fallback: server actions during the brief window before
+        // PowerSync is ready.
+        let product = editingProduct
+          ? await updateProductAction(editingProduct.id, input)
+          : await createProduct(input);
+
+        if (input.imageFile) {
+          const formData = new FormData();
+          formData.set("image", input.imageFile);
+          try {
+            product = await uploadProductImage(product.id, formData);
+          } catch {
+            uploadFailed = true;
+          }
+        }
+        upsertProduct(product);
       }
 
-      upsertProduct(product);
       if (uploadFailed) {
         showToast(
           "Producto guardado, pero no se pudo subir la imagen",
@@ -513,9 +563,20 @@ export function GlitterPosApp({
         setQuery={setCatalogQuery}
         openEditor={openEditor}
         restoreProduct={async (productId) => {
+          if (!tenantContext.tenant) {
+            showToast("Tu cuenta aún no tiene un tenant.", "danger");
+            return;
+          }
           try {
-            const product = await restoreProductAction(productId);
-            upsertProduct(product);
+            if (powerSyncDb) {
+              await restoreProductLocal(powerSyncDb, {
+                tenantId: tenantContext.tenant.id,
+                productId,
+              });
+            } else {
+              const product = await restoreProductAction(productId);
+              upsertProduct(product);
+            }
             showToast("Producto restaurado", "info");
           } catch (error) {
             showToast(
@@ -570,9 +631,20 @@ export function GlitterPosApp({
         }
         save={handleSaveProduct}
         archive={async (productId) => {
+          if (!tenantContext.tenant) {
+            showToast("Tu cuenta aún no tiene un tenant.", "danger");
+            return;
+          }
           try {
-            const product = await archiveProductAction(productId);
-            upsertProduct(product);
+            if (powerSyncDb) {
+              await archiveProductLocal(powerSyncDb, {
+                tenantId: tenantContext.tenant.id,
+                productId,
+              });
+            } else {
+              const product = await archiveProductAction(productId);
+              upsertProduct(product);
+            }
             showToast("Producto archivado", "info");
             setView("products");
           } catch (error) {

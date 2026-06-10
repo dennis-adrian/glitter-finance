@@ -22,6 +22,13 @@
       "when": 1780858702641,
       "tag": "20260607185822_supabase_storage_bucket",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781054583535,
+      "tag": "20260610012303_product_image_upload_policy",
+      "breakpoints": true
     }
   ]
 }
