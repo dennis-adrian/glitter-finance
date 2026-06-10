@@ -44,6 +44,12 @@ import type { View } from "@/lib/views";
 import type { UserTenantContext } from "@/lib/auth/user-context";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
 import { SyncStatusPill } from "@/components/molecules/sync-status-pill";
+import {
+  createSaleLocal,
+  refundSaleLocal,
+  voidSaleLocal,
+} from "@/lib/powersync/write-sales";
+import { formatBs } from "@/lib/money";
 
 // Shape of a row coming back from the local SQLite store. Column names are
 // snake_case (matching Postgres) because PowerSync replicates with the
@@ -346,25 +352,54 @@ export function GlitterPosApp({
     if (isCheckingOut || !cartDetails.length) {
       return;
     }
+    if (!tenantContext.tenant) {
+      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+      return;
+    }
 
     setIsCheckingOut(true);
 
     try {
-      const sale = await createSale({
-        paymentMethod: method,
-        saleDiscountCents: discount,
-        saleDiscountReason: reason,
-        lines: cartDetails.map((line) => ({
-          productId: line.productId,
-          quantity: line.quantity,
-          lineDiscountCents: line.lineDiscountCents,
-          lineDiscountReason: line.lineDiscountReason,
-        })),
-      });
-      recordSale(sale);
-      showToast(
-        `Venta registrada · ${saleTotal(sale)} · ${paymentLabels[method]}`
-      );
+      // Local-first when PowerSync is initialized; the watch subscription
+      // picks up the new rows and updates the sales list, and the upload
+      // queue replicates to Supabase in the background. Fall back to the
+      // server action during the brief window before PowerSync is ready.
+      if (powerSyncDb) {
+        await createSaleLocal(powerSyncDb, {
+          tenantId: tenantContext.tenant.id,
+          userId: tenantContext.user.id,
+          paymentMethod: method,
+          saleDiscountCents: discount,
+          saleDiscountReason: reason,
+          lines: cartDetails.map((line) => ({
+            product: line.product,
+            quantity: line.quantity,
+            lineDiscountCents: line.lineDiscountCents,
+            lineDiscountReason: line.lineDiscountReason,
+          })),
+        });
+        clearCart();
+        const totalCents = Math.max(0, cartSubtotal - discount);
+        showToast(
+          `Venta registrada · ${formatBs(totalCents, true)} · ${paymentLabels[method]}`
+        );
+      } else {
+        const sale = await createSale({
+          paymentMethod: method,
+          saleDiscountCents: discount,
+          saleDiscountReason: reason,
+          lines: cartDetails.map((line) => ({
+            productId: line.productId,
+            quantity: line.quantity,
+            lineDiscountCents: line.lineDiscountCents,
+            lineDiscountReason: line.lineDiscountReason,
+          })),
+        });
+        recordSale(sale);
+        showToast(
+          `Venta registrada · ${saleTotal(sale)} · ${paymentLabels[method]}`
+        );
+      }
       setView("sell");
     } catch (error) {
       showToast(
@@ -379,9 +414,21 @@ export function GlitterPosApp({
   }
 
   async function handleVoidSale(saleId: string) {
+    if (!tenantContext.tenant) {
+      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+      return false;
+    }
     try {
-      const sale = await voidSaleAction(saleId);
-      upsertSale(sale);
+      if (powerSyncDb) {
+        await voidSaleLocal(powerSyncDb, {
+          saleId,
+          userId: tenantContext.user.id,
+          tenantId: tenantContext.tenant.id,
+        });
+      } else {
+        const sale = await voidSaleAction(saleId);
+        upsertSale(sale);
+      }
       showToast("Venta anulada", "info");
       return true;
     } catch (error) {
@@ -394,9 +441,21 @@ export function GlitterPosApp({
   }
 
   async function handleRefundSale(saleId: string) {
+    if (!tenantContext.tenant) {
+      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+      return false;
+    }
     try {
-      const sale = await refundSaleAction(saleId);
-      upsertSale(sale);
+      if (powerSyncDb) {
+        await refundSaleLocal(powerSyncDb, {
+          saleId,
+          userId: tenantContext.user.id,
+          tenantId: tenantContext.tenant.id,
+        });
+      } else {
+        const sale = await refundSaleAction(saleId);
+        upsertSale(sale);
+      }
       showToast("Reembolso registrado", "info");
       return true;
     } catch (error) {
