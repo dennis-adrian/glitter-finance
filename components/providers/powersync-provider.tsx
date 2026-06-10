@@ -13,13 +13,27 @@
 // The web SDK is browser-only (uses WASM + OPFS + workers); imports are
 // lazy-loaded inside useEffect so SSR never touches them.
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { PowerSyncContext } from "@powersync/react";
-import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import type {
+  AbstractPowerSyncDatabase,
+  PowerSyncBackendConnector,
+} from "@powersync/web";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 
 const OptionalPowerSyncContext =
   createContext<AbstractPowerSyncDatabase | null>(null);
+
+type PowerSyncControls = {
+  /**
+   * Disconnects and re-connects the PowerSync client, which refreshes the
+   * Supabase JWT and kicks the upload queue. Surfaced via the Diagnostics
+   * screen's "Forzar sincronización" button.
+   */
+  reconnect: () => Promise<void>;
+};
+
+const PowerSyncControlsContext = createContext<PowerSyncControls | null>(null);
 
 /**
  * Returns the PowerSync database if it has finished initializing, otherwise
@@ -30,8 +44,13 @@ export function useOptionalPowerSyncDb(): AbstractPowerSyncDatabase | null {
   return useContext(OptionalPowerSyncContext);
 }
 
+export function usePowerSyncControls(): PowerSyncControls | null {
+  return useContext(PowerSyncControlsContext);
+}
+
 export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
   const [db, setDb] = useState<AbstractPowerSyncDatabase | null>(null);
+  const connectorRef = useRef<PowerSyncBackendConnector | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,9 +80,12 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
       });
 
       const supabase = createSupabaseClient();
-      await instance.connect(new SupabaseConnector(supabase));
+      const connector = new SupabaseConnector(supabase);
+      connectorRef.current = connector;
+      await instance.connect(connector);
 
-      // Status logging — temporary until PR 3 surfaces a visible indicator.
+      // Status logging — kept alongside the visible pill so tester bug
+      // reports show a console trail too.
       const unsubscribe = instance.registerListener({
         statusChanged: (status) => {
           console.info("[PowerSync] status", {
@@ -93,19 +115,37 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Reconnect closure is stable across renders so the controls context
+  // doesn't change identity and trigger spurious consumer re-renders.
+  const controlsRef = useRef<PowerSyncControls>({
+    reconnect: async () => {
+      if (!db || !connectorRef.current) return;
+      await db.disconnect();
+      await db.connect(connectorRef.current);
+    },
+  });
+  // Refresh the closure when `db` updates so it captures the live instance.
+  controlsRef.current.reconnect = async () => {
+    if (!db || !connectorRef.current) return;
+    await db.disconnect();
+    await db.connect(connectorRef.current);
+  };
+
   // Always render children inside the OptionalPowerSyncContext so
   // useOptionalPowerSyncDb() resolves to null (not "outside provider")
   // before init completes. PowerSyncContext is only mounted once db exists,
   // so @powersync/react hooks like useQuery/useStatus don't see undefined.
   return (
-    <OptionalPowerSyncContext.Provider value={db}>
-      {db ? (
-        <PowerSyncContext.Provider value={db}>
-          {children}
-        </PowerSyncContext.Provider>
-      ) : (
-        children
-      )}
-    </OptionalPowerSyncContext.Provider>
+    <PowerSyncControlsContext.Provider value={controlsRef.current}>
+      <OptionalPowerSyncContext.Provider value={db}>
+        {db ? (
+          <PowerSyncContext.Provider value={db}>
+            {children}
+          </PowerSyncContext.Provider>
+        ) : (
+          children
+        )}
+      </OptionalPowerSyncContext.Provider>
+    </PowerSyncControlsContext.Provider>
   );
 }

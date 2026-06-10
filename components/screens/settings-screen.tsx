@@ -1,4 +1,10 @@
-import { Box, CreditCard, ReceiptText, RotateCcw } from "lucide-react";
+import {
+  Box,
+  CreditCard,
+  ReceiptText,
+  RotateCcw,
+  Stethoscope,
+} from "lucide-react";
 import { signOut } from "@/app/auth/actions";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
@@ -10,6 +16,7 @@ type SettingsScreenProps = {
   productCount: number;
   saleCount: number;
   pendingCount: number;
+  openDiagnostics: () => void;
 };
 
 export function SettingsScreen({
@@ -17,6 +24,7 @@ export function SettingsScreen({
   productCount,
   saleCount,
   pendingCount,
+  openDiagnostics,
 }: SettingsScreenProps) {
   const identity =
     tenantContext.user.displayName ||
@@ -58,6 +66,17 @@ export function SettingsScreen({
           label="Métodos de pago"
           value="Efectivo · QR"
         />
+        <button
+          type="button"
+          className="settings-link-button"
+          onClick={openDiagnostics}
+        >
+          <SettingsItem
+            icon={<Stethoscope size={21} />}
+            label="Diagnósticos"
+            value="Estado de sincronización y dispositivo"
+          />
+        </button>
       </section>
       <form action={signOut}>
         <button className="secondary-action reset-button" type="submit">

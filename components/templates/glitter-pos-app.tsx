@@ -23,6 +23,7 @@ import { ReportsScreen } from "@/components/screens/reports-screen";
 import { SaleDetailScreen } from "@/components/screens/sale-detail-screen";
 import { SellScreen } from "@/components/screens/sell-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
+import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
 import { paymentLabels, saleTotal } from "@/lib/sales";
 import { clampDiscount } from "@/lib/money";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
@@ -595,6 +596,10 @@ export function GlitterPosApp({
         productCount={activeProducts.length}
         saleCount={sales.filter((sale) => sale.status === "completed").length}
         pendingCount={sales.length}
+        openDiagnostics={() => {
+          setPreviousView("settings");
+          setView("diagnostics");
+        }}
       />
     ),
     cart: (
@@ -677,6 +682,12 @@ export function GlitterPosApp({
             }
           });
         }}
+      />
+    ),
+    diagnostics: (
+      <DiagnosticsScreen
+        tenantContext={tenantContext}
+        back={() => setView("settings")}
       />
     ),
   }[view];
