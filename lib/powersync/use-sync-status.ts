@@ -55,13 +55,20 @@ export function useSyncStatus(): SyncStatusSnapshot {
       if (cancelled) return;
 
       const connected = status?.connected ?? false;
+      const hasSynced = status?.hasSynced ?? false;
       const uploading = status?.dataFlowStatus.uploading ?? false;
       const downloading = status?.dataFlowStatus.downloading ?? false;
 
+      // `hasSynced` is required for the "synced" state: PowerSync can briefly
+      // report connected + neither uploading nor downloading mid-way through
+      // the initial bucket replication (the downloading flag toggles between
+      // buckets). Showing "Sincronizado" then is a false positive — the
+      // local store doesn't yet have everything. Until hasSynced flips true
+      // for the first time, fall through to "syncing".
       let state: SyncState;
       if (!connected) {
         state = "offline";
-      } else if (uploading || downloading) {
+      } else if (uploading || downloading || !hasSynced) {
         state = "syncing";
       } else {
         state = "synced";

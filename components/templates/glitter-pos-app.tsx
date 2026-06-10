@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   archiveProduct as archiveProductAction,
   createProduct,
@@ -57,6 +57,13 @@ import {
   updateProductLocal,
   uploadProductImageLocal,
 } from "@/lib/powersync/write-products";
+import {
+  clearDraftCartLocal,
+  loadDraftCartLocal,
+  migrateLegacyDraftCartLocal,
+  saveDraftCartLocal,
+} from "@/lib/powersync/draft-cart";
+import { hasCompletedInitialSync } from "@/lib/powersync/initial-sync";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatBs } from "@/lib/money";
 
@@ -108,6 +115,7 @@ export function GlitterPosApp({
   const removeFromCart = usePosStore((state) => state.removeFromCart);
   const setLineDiscount = usePosStore((state) => state.setLineDiscount);
   const clearCart = usePosStore((state) => state.clearCart);
+  const hydrateCart = usePosStore((state) => state.hydrateCart);
   const recordSale = usePosStore((state) => state.recordSale);
   const upsertSale = usePosStore((state) => state.upsertSale);
   const hydrateProducts = usePosStore((state) => state.hydrateProducts);
@@ -124,6 +132,9 @@ export function GlitterPosApp({
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const draftCartReadyRef = useRef(false);
+  const cartRef = useRef(cart);
+  const cartUpdatedAtRef = useRef<string | null>(null);
 
   const activeProducts = products.filter((product) => !product.archivedAt);
   const cartDetails = useMemo(
@@ -164,22 +175,33 @@ export function GlitterPosApp({
     hydrateSales(initialSales);
   }, [hydrateProducts, hydrateSales, initialProducts, initialSales]);
 
+  useEffect(() => {
+    cartRef.current = cart;
+    cartUpdatedAtRef.current = usePosStore.getState().cartUpdatedAt;
+  }, [cart]);
+
   // Subscribe to the local PowerSync SQLite store and push updates into
   // Zustand. Server-prop hydration above gives the first paint; this watch
   // takes over once PowerSync has finished its initial sync, then keeps the
   // UI live as new rows replicate down. We gate on `hasSynced` so the first
   // onResult doesn't fire with an empty store and wipe the server data.
+  //
+  // Tenant filter: sync rules already scope replication by tenant_id and
+  // sign-out wipes the local store via disconnectAndClear, but we also
+  // filter the read in case a race or a future code path leaves stale
+  // rows on disk under a different tenant_id.
   const powerSyncDb = useOptionalPowerSyncDb();
+  const activeTenantId = tenantContext.tenant?.id ?? null;
   useEffect(() => {
-    if (!powerSyncDb) return;
+    if (!powerSyncDb || !activeTenantId) return;
 
     const controller = new AbortController();
     let unregister: (() => void) | undefined;
 
     function startWatching(db: NonNullable<typeof powerSyncDb>) {
       db.watch(
-        "SELECT * FROM products ORDER BY created_at DESC",
-        [],
+        "SELECT * FROM products WHERE tenant_id = ? ORDER BY created_at DESC",
+        [activeTenantId],
         {
           onResult: (results) => {
             const rows = ((results.rows as unknown as { _array?: ProductRow[] })
@@ -194,7 +216,7 @@ export function GlitterPosApp({
       );
     }
 
-    if (powerSyncDb.currentStatus?.hasSynced) {
+    if (powerSyncDb.currentStatus?.hasSynced || hasCompletedInitialSync()) {
       startWatching(powerSyncDb);
     } else {
       unregister = powerSyncDb.registerListener({
@@ -212,7 +234,7 @@ export function GlitterPosApp({
       controller.abort();
       unregister?.();
     };
-  }, [powerSyncDb, hydrateProducts]);
+  }, [powerSyncDb, hydrateProducts, activeTenantId]);
 
   // Subscribe to sales + sale_lines + refunds. PowerSync's onChange fires
   // whenever any of the three tables mutates; we requery all three and
@@ -223,7 +245,7 @@ export function GlitterPosApp({
   const currentUserId = tenantContext.user.id;
   const currentUserName = tenantContext.user.displayName;
   useEffect(() => {
-    if (!powerSyncDb) return;
+    if (!powerSyncDb || !activeTenantId) return;
 
     const controller = new AbortController();
     let unregister: (() => void) | undefined;
@@ -234,13 +256,19 @@ export function GlitterPosApp({
 
     async function rebuildSales(db: NonNullable<typeof powerSyncDb>) {
       try {
+        // Tenant-scoped reads: see the note on the products watch above.
         const [saleRows, lineRows, refundRows] = await Promise.all([
           db.getAll<LocalSaleRow>(
-            "SELECT * FROM sales ORDER BY created_at DESC"
+            "SELECT * FROM sales WHERE tenant_id = ? ORDER BY created_at DESC",
+            [activeTenantId]
           ),
-          db.getAll<LocalSaleLineRow>("SELECT * FROM sale_lines"),
+          db.getAll<LocalSaleLineRow>(
+            "SELECT * FROM sale_lines WHERE tenant_id = ?",
+            [activeTenantId]
+          ),
           db.getAll<LocalRefundRow>(
-            "SELECT * FROM refunds ORDER BY created_at DESC"
+            "SELECT * FROM refunds WHERE tenant_id = ? ORDER BY created_at DESC",
+            [activeTenantId]
           ),
         ]);
         if (controller.signal.aborted) return;
@@ -270,7 +298,7 @@ export function GlitterPosApp({
       );
     }
 
-    if (powerSyncDb.currentStatus?.hasSynced) {
+    if (powerSyncDb.currentStatus?.hasSynced || hasCompletedInitialSync()) {
       startWatching(powerSyncDb);
     } else {
       unregister = powerSyncDb.registerListener({
@@ -288,7 +316,86 @@ export function GlitterPosApp({
       controller.abort();
       unregister?.();
     };
-  }, [powerSyncDb, hydrateSales, currentUserId, currentUserName]);
+  }, [
+    powerSyncDb,
+    hydrateSales,
+    currentUserId,
+    currentUserName,
+    activeTenantId,
+  ]);
+
+  useEffect(() => {
+    if (!powerSyncDb) return;
+    const db = powerSyncDb;
+
+    let cancelled = false;
+    draftCartReadyRef.current = false;
+    const expectedCartRevision = usePosStore.getState().cartRevision;
+
+    async function hydrateDraftCart() {
+      try {
+        await migrateLegacyDraftCartLocal(db);
+        const draft = await loadDraftCartLocal(db);
+        if (cancelled) return;
+
+        hydrateCart(draft.cart, draft.updatedAt, expectedCartRevision);
+        draftCartReadyRef.current = true;
+      } catch (error) {
+        console.error("[PowerSync] draft cart hydrate failed", error);
+        draftCartReadyRef.current = true;
+      }
+    }
+
+    void hydrateDraftCart();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [powerSyncDb, hydrateCart]);
+
+  useEffect(() => {
+    if (!powerSyncDb || !draftCartReadyRef.current) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void saveDraftCartLocal(
+        powerSyncDb,
+        cart,
+        usePosStore.getState().cartUpdatedAt
+      );
+    }, 450);
+
+    return () => window.clearTimeout(timeout);
+  }, [powerSyncDb, cart]);
+
+  useEffect(() => {
+    function flushDraftCart() {
+      if (!powerSyncDb || !draftCartReadyRef.current) {
+        return;
+      }
+
+      void saveDraftCartLocal(
+        powerSyncDb,
+        cartRef.current,
+        cartUpdatedAtRef.current
+      );
+    }
+
+    function flushWhenHidden() {
+      if (document.visibilityState === "hidden") {
+        flushDraftCart();
+      }
+    }
+
+    window.addEventListener("pagehide", flushDraftCart);
+    document.addEventListener("visibilitychange", flushWhenHidden);
+
+    return () => {
+      window.removeEventListener("pagehide", flushDraftCart);
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+    };
+  }, [powerSyncDb]);
 
   function showToast(text: string, tone: ToastMessage["tone"] = "success") {
     const message = { id: `${Date.now()}`, text, tone };
@@ -430,6 +537,7 @@ export function GlitterPosApp({
           })),
         });
         clearCart();
+        void clearDraftCartLocal(powerSyncDb);
         const totalCents = Math.max(0, cartSubtotal - discount);
         showToast(
           `Venta registrada · ${formatBs(totalCents, true)} · ${paymentLabels[method]}`
@@ -612,6 +720,9 @@ export function GlitterPosApp({
         setLineDiscount={setLineDiscount}
         clearCart={() => {
           clearCart();
+          if (powerSyncDb) {
+            void clearDraftCartLocal(powerSyncDb);
+          }
           showToast("Carrito vaciado", "info");
           setView("sell");
         }}

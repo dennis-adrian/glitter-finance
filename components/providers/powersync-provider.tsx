@@ -20,6 +20,10 @@ import type {
   PowerSyncBackendConnector,
 } from "@powersync/web";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
+import {
+  clearInitialSyncCompleted,
+  markInitialSyncCompleted,
+} from "@/lib/powersync/initial-sync";
 
 const OptionalPowerSyncContext =
   createContext<AbstractPowerSyncDatabase | null>(null);
@@ -31,6 +35,12 @@ type PowerSyncControls = {
    * screen's "Forzar sincronización" button.
    */
   reconnect: () => Promise<void>;
+  /**
+   * Disconnects from sync and wipes the local SQLite store + upload queue.
+   * Called during sign out so the next user on this device doesn't read
+   * stale rows that belong to the previous tenant.
+   */
+  clearLocal: () => Promise<void>;
 };
 
 const PowerSyncControlsContext = createContext<PowerSyncControls | null>(null);
@@ -88,6 +98,10 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
       // reports show a console trail too.
       const unsubscribe = instance.registerListener({
         statusChanged: (status) => {
+          if (status.hasSynced) {
+            markInitialSyncCompleted();
+          }
+
           console.info("[PowerSync] status", {
             connected: status.connected,
             hasSynced: status.hasSynced,
@@ -115,20 +129,31 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Reconnect closure is stable across renders so the controls context
-  // doesn't change identity and trigger spurious consumer re-renders.
+  // Reconnect/clearLocal closures are kept on a stable ref so the controls
+  // context value doesn't change identity and trigger spurious consumer
+  // re-renders.
   const controlsRef = useRef<PowerSyncControls>({
     reconnect: async () => {
       if (!db || !connectorRef.current) return;
       await db.disconnect();
       await db.connect(connectorRef.current);
     },
+    clearLocal: async () => {
+      if (!db) return;
+      await db.disconnectAndClear();
+      clearInitialSyncCompleted();
+    },
   });
-  // Refresh the closure when `db` updates so it captures the live instance.
+  // Refresh the closures when `db` updates so they capture the live instance.
   controlsRef.current.reconnect = async () => {
     if (!db || !connectorRef.current) return;
     await db.disconnect();
     await db.connect(connectorRef.current);
+  };
+  controlsRef.current.clearLocal = async () => {
+    if (!db) return;
+    await db.disconnectAndClear();
+    clearInitialSyncCompleted();
   };
 
   // Always render children inside the OptionalPowerSyncContext so

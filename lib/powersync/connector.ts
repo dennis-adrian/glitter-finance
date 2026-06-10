@@ -44,6 +44,29 @@ function isFatalError(error: unknown): boolean {
   return FATAL_RESPONSE_CODES.some((re) => re.test(code));
 }
 
+function isPrimaryKeyUniqueViolation(
+  error: unknown,
+  tableName: string
+): boolean {
+  if (!error || typeof error !== "object") return false;
+
+  const postgresError = error as {
+    code?: unknown;
+    details?: unknown;
+    message?: unknown;
+  };
+  if (postgresError.code !== "23505") return false;
+
+  const details =
+    typeof postgresError.details === "string" ? postgresError.details : "";
+  const message =
+    typeof postgresError.message === "string" ? postgresError.message : "";
+
+  return (
+    details.startsWith("Key (id)=") || message.includes(`"${tableName}_pkey"`)
+  );
+}
+
 export class SupabaseConnector implements PowerSyncBackendConnector {
   constructor(private readonly supabase: SupabaseClient) {}
 
@@ -80,12 +103,22 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
             // Plain INSERT, not upsert. PostgREST upsert requires UPDATE
             // privilege on every column it might touch on conflict, and our
             // sales table revokes UPDATE on everything except the void
-            // columns (see supabase/migrations/...rls_policies.sql). If a
-            // retried PUT lands on an already-committed row, the resulting
-            // 23505 unique-violation is fatal-discarded by the catch below,
-            // which is the right outcome — the row's already there.
+            // columns (see supabase/migrations/...rls_policies.sql).
             const record = { ...op.opData, id: op.id };
             result = await table.insert(record);
+            // A primary-key 23505 means this exact row is already on the
+            // server, usually because a previous upload committed this op
+            // before a later op failed transiently. Treat only that case as
+            // idempotent; business unique constraints such as
+            // refunds(original_sale_id) should still surface as fatal upload
+            // errors instead of silently clearing the queue.
+            if (isPrimaryKeyUniqueViolation(result.error, op.table)) {
+              console.info(
+                "[PowerSync] PUT row already on server, treating as success",
+                { table: op.table, id: op.id }
+              );
+              continue;
+            }
             break;
           }
           case UpdateType.PATCH: {

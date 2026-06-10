@@ -73,4 +73,19 @@ export const refunds = sqliteTable("refunds", {
   clientCreatedAt: text("client_created_at").notNull(),
 });
 
-export const clientSchema = { products, sales, saleLines, refunds };
+export const draftCart = sqliteTable("draft_cart", {
+  id: text("id").primaryKey(),
+  linesJson: text("lines_json").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const clientSchema = {
+  products,
+  sales,
+  saleLines,
+  refunds,
+  draftCart: {
+    tableDefinition: draftCart,
+    options: { localOnly: true },
+  },
+};

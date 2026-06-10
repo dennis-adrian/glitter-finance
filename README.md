@@ -2,14 +2,20 @@
 
 Offline-first point-of-sale PWA for Bolivian festival vendors.
 
-This repository currently implements the Stage A product slice from the PRD:
+This repository currently implements the Stage A product slice and the Stage B
+offline/sync hardening code path from the PRD. Stage B is code-ready for
+acceptance, but it is not considered accepted until the documented real-device
+offline tests pass on iPhone Safari installed PWA and Android Chrome installed
+PWA.
 
 - Product catalog with categories, optional cost, archive/restore, and graceful image placeholders.
-- Sell Mode as the default screen with tappable product grid, quantity badges, draft cart persistence, and a fixed Cobrar action.
+- Sell Mode as the default screen with tappable product grid, quantity badges, PowerSync-backed draft cart persistence, and a fixed Cobrar action.
 - Cart review surface with quantity controls and clear-cart.
 - Payment screen with sale-level discounts and cash/QR checkout.
 - Immutable local sales with snapshotted price/cost data, recent sales, voids, refunds, and basic reports.
-- Local persistence using browser storage through Zustand, ready to be replaced by PowerSync-backed SQLite.
+- PowerSync-backed local SQLite reads/writes for products, sales, sale lines, refunds, and local-only draft carts.
+- Offline app shell through Serwist, with Supabase and PowerSync API responses kept network-only so synced data remains owned by PowerSync/local SQLite.
+- Sync status visibility and a tester diagnostics surface for pending queue count, offline/reconnect state, errors, and last sync time.
 
 ## Run locally
 
@@ -39,6 +45,7 @@ Copy `.env.example` to `.env.local` and fill in:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `NEXT_PUBLIC_POWERSYNC_URL`
 - `SUPABASE_SECRET_KEY`
 - `DATABASE_URL`
 
@@ -83,7 +90,7 @@ Notes:
 - Generate a fresh `<per-env-secret>` for each environment (e.g. `openssl rand -base64 32`) and store it in a password manager. Do not reuse across staging and prod.
 - The role has `REPLICATION BYPASSRLS` — it can read every row in every tenant, bypassing RLS. Treat the credential like a service-role key.
 - The publication is targeted at exactly the four synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
-- After running, paste the `powersync_role` password into the PowerSync Cloud instance's database-connection settings.
+- After running, configure the PowerSync Cloud instance: paste the `powersync_role` password into its database-connection settings — this is the credential PowerSync uses to read the WAL, so it must match the `CREATE ROLE PASSWORD` above exactly. Then grab the instance URL from the dashboard (typically in the instance's Overview or Settings tab, looks like `https://<id>.powersync.journeyapps.com`) and set it as `NEXT_PUBLIC_POWERSYNC_URL` in `.env.local` (the placeholder is already in `.env.example` and the env var is listed in the [Environment](#environment) section above). The browser-side client reads it at startup — see [`lib/powersync/connector.ts`](lib/powersync/connector.ts) where `getPublicEnv().powersyncUrl` is returned as the sync endpoint from `fetchCredentials`.
 - Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
 
 **After `supabase db reset --linked`:** the reset drops everything in the `public` schema, which includes the `powersync` publication and the grants you gave `powersync_role`. The role itself survives (it's cluster-level, not database-level), and its password is unchanged. To restore the replication bits, re-run just the grants + publication portion (skip `CREATE ROLE`):
@@ -112,6 +119,18 @@ NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
 npm run db:seed:qa             # append `-- --reset` to wipe catalog + sales and reseed
 ```
 
+### Stage B staging checklist
+
+Before running Stage B acceptance on staging:
+
+- Supabase migrations are applied to `glitter-finance-staging`.
+- `powersync_role` exists with a per-environment password stored outside git.
+- The `powersync` publication includes `products`, `sales`, `sale_lines`, and `refunds`.
+- PowerSync sync rules are deployed and scoped by the authenticated tenant.
+- `NEXT_PUBLIC_POWERSYNC_URL` points at the staging PowerSync instance.
+- The QA account is seeded with `npm run db:seed:qa`.
+- The installed PWA has been launched once online and the sync pill has reached the synced state before offline relaunch testing.
+
 ## Drizzle and Supabase: who owns what
 
 Drizzle and Supabase both touch the database, but they sit at different points in the stack. Keeping that split clear avoids confusion when reading the codebase or running migration commands.
@@ -120,7 +139,7 @@ Drizzle and Supabase both touch the database, but they sit at different points i
 
 - **Schema source of truth.** `lib/db/schema.ts` is hand-written in TypeScript. Every table, column, index, relation, and enum is defined there.
 - **Typed query layer.** Server-side code reads and writes through `db` from `lib/db/index.ts`. The types flow directly from `schema.ts` with no codegen step.
-- **Client-side reuse (planned).** When PowerSync is wired in, `@powersync/drizzle-driver` will reuse the same `schema.ts` to type queries against the per-device SQLite store. The schema lives in one place and types both ends.
+- **Client-side reuse.** PowerSync uses the client schema in `lib/db/client-schema.ts` to type and materialize the per-device SQLite store. Server-only tables stay in `schema.ts`; local-only device state such as the draft cart lives only in the client schema.
 - **Schema-to-SQL diffing.** `drizzle-kit generate` reads the schema, diffs it against the snapshots in `supabase/migrations/meta/`, and writes a new timestamp-prefixed SQL file into `supabase/migrations/`.
 
 Drizzle does **not** apply migrations in this project, and does **not** own the journal that tracks which migrations have run. Those are Supabase CLI concerns.

@@ -119,7 +119,10 @@ export function DiagnosticsScreen({
         uploading: status?.dataFlowStatus.uploading ?? false,
         downloading: status?.dataFlowStatus.downloading ?? false,
         uploadError: status?.dataFlowStatus.uploadError
-          ? String(status.dataFlowStatus.uploadError.message ?? status.dataFlowStatus.uploadError)
+          ? String(
+              status.dataFlowStatus.uploadError.message ??
+                status.dataFlowStatus.uploadError
+            )
           : null,
         downloadError: status?.dataFlowStatus.downloadError
           ? String(
@@ -267,26 +270,22 @@ export function DiagnosticsScreen({
 
       <section className="panel">
         <h2>Identidad</h2>
-        <DiagRow
-          label="Tenant"
-          value={tenantContext.tenant?.id ?? "—"}
-          mono
-        />
+        <DiagRow label="Tenant" value={tenantContext.tenant?.id ?? "—"} mono />
         <DiagRow
           label="Nombre del tenant"
           value={tenantContext.tenant?.name ?? "—"}
         />
         <DiagRow label="Usuario" value={tenantContext.user.id} mono />
-        <DiagRow
-          label="Nombre"
-          value={tenantContext.user.displayName}
-        />
+        <DiagRow label="Nombre" value={tenantContext.user.displayName} />
         <DiagRow label="Email" value={tenantContext.user.email ?? "—"} />
       </section>
 
       <section className="panel">
         <h2>Dispositivo</h2>
-        <DiagRow label="Conexión" value={device.online ? "Online" : "Offline"} />
+        <DiagRow
+          label="Conexión"
+          value={device.online ? "Online" : "Offline"}
+        />
         <DiagRow label="Modo PWA" value={yesNo(device.pwa)} />
         <DiagRow label="Pantalla" value={device.viewport} />
         <DiagRow label="Almacenamiento" value={device.storage} />
@@ -323,11 +322,7 @@ function DiagRow({ label, value, mono, small }: DiagRowProps) {
     <div className="diag-row">
       <span className="diag-row-label">{label}</span>
       <span
-        className={[
-          "diag-row-value",
-          mono ? "mono" : "",
-          small ? "small" : "",
-        ]
+        className={["diag-row-value", mono ? "mono" : "", small ? "small" : ""]
           .filter(Boolean)
           .join(" ")}
       >

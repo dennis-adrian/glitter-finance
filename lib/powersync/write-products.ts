@@ -148,9 +148,29 @@ export async function uploadProductImageLocal(
     throw new Error(`No se pudo subir la imagen: ${error.message}`);
   }
 
-  await db.execute(
-    `UPDATE products SET image_path = ?, updated_at = ?
-     WHERE id = ? AND tenant_id = ?`,
-    [objectPath, nowIso(), productId, tenantId]
-  );
+  try {
+    await db.execute(
+      `UPDATE products SET image_path = ?, updated_at = ?
+       WHERE id = ? AND tenant_id = ?`,
+      [objectPath, nowIso(), productId, tenantId]
+    );
+  } catch (dbError) {
+    // Storage upload already succeeded; we couldn't persist the link in
+    // local SQLite. Remove the now-orphaned object so the bucket doesn't
+    // accumulate dead files. Best-effort: log if removal also fails, but
+    // surface the original DB error to the caller. We don't gate on a
+    // "no rows affected" check because PowerSync's view system can report
+    // rowsAffected: 0 even for successful UPDATEs without a RETURNING
+    // clause — false positives there would delete just-uploaded images.
+    const { error: removeError } = await supabase.storage
+      .from(productImagesBucket)
+      .remove([objectPath]);
+    if (removeError) {
+      console.error(
+        "[uploadProductImageLocal] orphan cleanup failed after DB error",
+        { objectPath, removeError }
+      );
+    }
+    throw dbError;
+  }
 }

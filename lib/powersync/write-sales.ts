@@ -165,43 +165,50 @@ export async function voidSaleLocal(
   db: AbstractPowerSyncDatabase,
   input: VoidSaleLocalInput
 ): Promise<void> {
-  const rows = await db.getAll<{
-    created_at: string;
-    voided_at: string | null;
-    tenant_id: string;
-  }>(
-    `SELECT created_at, voided_at, tenant_id FROM sales WHERE id = ? LIMIT 1`,
-    [input.saleId]
-  );
-  const sale = rows[0];
-  if (!sale || sale.tenant_id !== input.tenantId) {
-    throw new Error("Sale not found.");
-  }
-  if (sale.voided_at) {
-    throw new Error("This sale has already been voided.");
-  }
-
-  const minutesSince =
-    (Date.now() - new Date(sale.created_at).getTime()) / 60000;
-  if (minutesSince > VOID_WINDOW_MINUTES) {
-    throw new Error(
-      `Sales can only be voided within ${VOID_WINDOW_MINUTES} minutes.`
+  // writeTransaction takes a global lock, so the SELECT pre-checks and
+  // the UPDATE mutation execute atomically against the local SQLite
+  // store. Without it, two simultaneous voids (e.g. a double-tap or two
+  // tabs sharing the same PowerSync DB) could both pass the
+  // `voided_at IS NULL` check before either UPDATE landed.
+  await db.writeTransaction(async (tx) => {
+    const rows = await tx.getAll<{
+      created_at: string;
+      voided_at: string | null;
+      tenant_id: string;
+    }>(
+      `SELECT created_at, voided_at, tenant_id FROM sales WHERE id = ? LIMIT 1`,
+      [input.saleId]
     );
-  }
+    const sale = rows[0];
+    if (!sale || sale.tenant_id !== input.tenantId) {
+      throw new Error("Sale not found.");
+    }
+    if (sale.voided_at) {
+      throw new Error("This sale has already been voided.");
+    }
 
-  const existingRefund = await db.getAll<{ id: string }>(
-    `SELECT id FROM refunds WHERE original_sale_id = ? LIMIT 1`,
-    [input.saleId]
-  );
-  if (existingRefund.length) {
-    throw new Error("A refunded sale cannot be voided.");
-  }
+    const minutesSince =
+      (Date.now() - new Date(sale.created_at).getTime()) / 60000;
+    if (minutesSince > VOID_WINDOW_MINUTES) {
+      throw new Error(
+        `Sales can only be voided within ${VOID_WINDOW_MINUTES} minutes.`
+      );
+    }
 
-  await db.execute(
-    `UPDATE sales SET voided_at = ?, voided_by_user_id = ?
-     WHERE id = ? AND voided_at IS NULL`,
-    [nowIso(), input.userId, input.saleId]
-  );
+    const existingRefund = await tx.getAll<{ id: string }>(
+      `SELECT id FROM refunds WHERE original_sale_id = ? LIMIT 1`,
+      [input.saleId]
+    );
+    if (existingRefund.length) {
+      throw new Error("A refunded sale cannot be voided.");
+    }
+
+    await tx.execute(
+      `UPDATE sales SET voided_at = ?, voided_by_user_id = ?
+       WHERE id = ? AND voided_at IS NULL`,
+      [nowIso(), input.userId, input.saleId]
+    );
+  });
 }
 
 export type RefundSaleLocalInput = {
@@ -215,41 +222,49 @@ export async function refundSaleLocal(
   db: AbstractPowerSyncDatabase,
   input: RefundSaleLocalInput
 ): Promise<void> {
-  const saleRows = await db.getAll<{
-    voided_at: string | null;
-    tenant_id: string;
-  }>(`SELECT voided_at, tenant_id FROM sales WHERE id = ? LIMIT 1`, [
-    input.saleId,
-  ]);
-  const sale = saleRows[0];
-  if (!sale || sale.tenant_id !== input.tenantId) {
-    throw new Error("Sale not found.");
-  }
-  if (sale.voided_at) {
-    throw new Error("A voided sale cannot be refunded.");
-  }
-
-  const existingRefund = await db.getAll<{ id: string }>(
-    `SELECT id FROM refunds WHERE original_sale_id = ? LIMIT 1`,
-    [input.saleId]
-  );
-  if (existingRefund.length) {
-    throw new Error("This sale has already been refunded.");
-  }
-
-  const now = nowIso();
-  await db.execute(
-    `INSERT INTO refunds
-      (id, tenant_id, original_sale_id, user_id, reason, created_at, client_created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      uuid(),
-      input.tenantId,
+  // Atomic check + INSERT. Most important for refunds because the local
+  // SQLite refunds mirror has no UNIQUE(original_sale_id) constraint
+  // (only the Postgres source does). Two simultaneous refund attempts
+  // without serialization would both pass the existence check, both
+  // INSERT, and PowerSync's uploader would discard one server-side via
+  // 23505 — leaving a phantom duplicate in local SQLite indefinitely.
+  await db.writeTransaction(async (tx) => {
+    const saleRows = await tx.getAll<{
+      voided_at: string | null;
+      tenant_id: string;
+    }>(`SELECT voided_at, tenant_id FROM sales WHERE id = ? LIMIT 1`, [
       input.saleId,
-      input.userId,
-      input.reason?.trim() || null,
-      now,
-      now,
-    ]
-  );
+    ]);
+    const sale = saleRows[0];
+    if (!sale || sale.tenant_id !== input.tenantId) {
+      throw new Error("Sale not found.");
+    }
+    if (sale.voided_at) {
+      throw new Error("A voided sale cannot be refunded.");
+    }
+
+    const existingRefund = await tx.getAll<{ id: string }>(
+      `SELECT id FROM refunds WHERE original_sale_id = ? LIMIT 1`,
+      [input.saleId]
+    );
+    if (existingRefund.length) {
+      throw new Error("This sale has already been refunded.");
+    }
+
+    const now = nowIso();
+    await tx.execute(
+      `INSERT INTO refunds
+        (id, tenant_id, original_sale_id, user_id, reason, created_at, client_created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        input.tenantId,
+        input.saleId,
+        input.userId,
+        input.reason?.trim() || null,
+        now,
+        now,
+      ]
+    );
+  });
 }

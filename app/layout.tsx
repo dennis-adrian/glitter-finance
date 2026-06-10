@@ -1,10 +1,23 @@
 import type { Metadata, Viewport } from "next";
+import { SerwistClientProvider } from "@/components/providers/serwist-client-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Glitter POS",
   description: "POS offline-first para vendedores de ferias y convenciones.",
   manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Glitter POS",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.svg", sizes: "192x192", type: "image/svg+xml" },
+      { url: "/icons/icon-512.svg", sizes: "512x512", type: "image/svg+xml" },
+    ],
+    apple: [{ url: "/icons/icon-192.svg" }],
+  },
 };
 
 export const viewport: Viewport = {
@@ -21,7 +34,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body>
+        <SerwistClientProvider>{children}</SerwistClientProvider>
+      </body>
     </html>
   );
 }
