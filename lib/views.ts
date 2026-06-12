@@ -6,4 +6,5 @@ export type View =
   | "cart"
   | "payment"
   | "editor"
-  | "saleDetail";
+  | "saleDetail"
+  | "diagnostics";

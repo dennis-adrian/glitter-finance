@@ -45,10 +45,6 @@ export function SellScreen(props: SellScreenProps) {
           </button>
         }
       />
-      <div className="sell-status">
-        <span className="status-dot" />
-        <span>Modo venta · listo sin conexión</span>
-      </div>
       <CategoryRail
         active={props.category}
         categories={categories}

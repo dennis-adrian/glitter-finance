@@ -1423,6 +1423,159 @@ button {
   background: var(--danger);
 }
 
+/* Persistent sync indicator: pinned top-right of the phone-frame, visible
+   across every screen. Subtle pill that doesn't compete with screen headers
+   or the CheckoutDock at the bottom of Sell Mode. */
+.sync-pill {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  background: rgba(23, 21, 29, 0.78);
+  color: #fff;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.sync-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #14b86e;
+  box-shadow: 0 0 0 4px rgba(20, 184, 110, 0.18);
+}
+
+.sync-pill-meta {
+  opacity: 0.7;
+  font-weight: 400;
+}
+
+.sync-pill-synced .sync-pill-dot {
+  background: #14b86e;
+  box-shadow: 0 0 0 4px rgba(20, 184, 110, 0.18);
+}
+
+.sync-pill-syncing .sync-pill-dot {
+  background: #6822e2;
+  box-shadow: 0 0 0 4px rgba(104, 34, 226, 0.2);
+  animation: sync-pulse 1.2s ease-in-out infinite;
+}
+
+.sync-pill-offline {
+  background: rgba(180, 90, 30, 0.92);
+}
+
+.sync-pill-offline .sync-pill-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22);
+}
+
+.sync-pill-initializing .sync-pill-dot {
+  background: #94a3b8;
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.22);
+  animation: sync-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sync-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Diagnostics screen: dense label/value rows for testers to screenshot
+   alongside bug reports. */
+.diagnostics-screen .panel {
+  padding: 14px 16px;
+  margin: 12px 16px;
+}
+
+.diagnostics-screen .panel h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #625c70;
+  margin: 0 0 10px;
+}
+
+.diag-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(98, 92, 112, 0.08);
+}
+
+.diag-row:last-child {
+  border-bottom: none;
+}
+
+.diag-row-label {
+  font-size: 13px;
+  color: #625c70;
+  flex-shrink: 0;
+}
+
+.diag-row-value {
+  font-size: 13px;
+  text-align: right;
+  color: #17151d;
+  word-break: break-all;
+  font-weight: 500;
+}
+
+.diag-row-value.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.diag-row-value.small {
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.diagnostics-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px 24px;
+}
+
+.diagnostics-actions .primary-action,
+.diagnostics-actions .secondary-action {
+  width: 100%;
+}
+
+.settings-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  display: block;
+}
+
+.settings-link-button:focus-visible {
+  outline: 2px solid var(--brand, #6822e2);
+  outline-offset: 2px;
+}
+
 .auth-shell {
   min-height: 100vh;
   display: grid;
@@ -1494,6 +1647,34 @@ button {
   padding: 10px 12px;
   margin-bottom: 14px;
   font-size: 14px;
+}
+
+.offline-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #fbfafc;
+  color: var(--primary);
+}
+
+.offline-page section {
+  width: min(100%, 420px);
+  border: 1px solid var(--hairline);
+  background: #fff;
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.offline-page h1 {
+  margin: 0 0 10px;
+  font-size: 28px;
+}
+
+.offline-page p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 @keyframes toast-in {
