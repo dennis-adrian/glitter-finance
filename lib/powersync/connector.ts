@@ -67,24 +67,50 @@ function isPrimaryKeyUniqueViolation(
   );
 }
 
-function readTenantIdFromAccessToken(token: string): string | null {
+function decodeJwtPart<T>(token: string, index: number): T | null {
   try {
-    const [, payload] = token.split(".");
-    if (!payload) return null;
+    const part = token.split(".")[index];
+    if (!part) return null;
 
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const normalized = part.replace(/-/g, "+").replace(/_/g, "/");
     const padded = normalized.padEnd(
       normalized.length + ((4 - (normalized.length % 4)) % 4),
       "="
     );
-    const decoded = JSON.parse(atob(padded)) as {
+    return JSON.parse(atob(padded)) as T;
+  } catch {
+    return null;
+  }
+}
+
+function readTenantIdFromAccessToken(token: string): string | null {
+  try {
+    const decoded = decodeJwtPart<{
       app_metadata?: { tenant_id?: unknown };
-    };
+    }>(token, 1);
+    if (!decoded) return null;
     const tenantId = decoded.app_metadata?.tenant_id;
     return typeof tenantId === "string" && tenantId ? tenantId : null;
   } catch {
     return null;
   }
+}
+
+function readJwtDebugInfo(token: string) {
+  const header = decodeJwtPart<{ alg?: unknown; kid?: unknown }>(token, 0);
+  const payload = decodeJwtPart<{ iss?: unknown; aud?: unknown }>(token, 1);
+
+  return {
+    algorithm: typeof header?.alg === "string" ? header.alg : undefined,
+    keyId: typeof header?.kid === "string" ? header.kid : undefined,
+    issuer: typeof payload?.iss === "string" ? payload.iss : undefined,
+    audience:
+      typeof payload?.aud === "string"
+        ? payload.aud
+        : Array.isArray(payload?.aud)
+          ? payload.aud.join(",")
+          : undefined,
+  };
 }
 
 function endpointHost(endpoint: string): string {
@@ -129,6 +155,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     console.info("[PowerSync] credentials", {
       endpointHost: endpointHost(endpoint),
       hasTenantClaim: Boolean(tenantId),
+      jwt: readJwtDebugInfo(session.access_token),
       expiresAt: session.expires_at
         ? new Date(session.expires_at * 1000).toISOString()
         : undefined,
