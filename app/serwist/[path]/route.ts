@@ -17,7 +17,6 @@ export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
     ],
     additionalPrecacheEntries: [
       { url: "/~offline", revision: process.env.BUILD_ID || "1" },
-      { url: "/manifest.webmanifest", revision: process.env.BUILD_ID || "1" },
     ],
     useNativeEsbuild: true,
     rebuildOnChange: true,
