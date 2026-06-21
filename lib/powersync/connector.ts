@@ -67,6 +67,22 @@ function isPrimaryKeyUniqueViolation(
   );
 }
 
+function readTenantIdFromAccessToken(token: string): string | null {
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) return null;
+
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(atob(normalized)) as {
+      app_metadata?: { tenant_id?: unknown };
+    };
+    const tenantId = decoded.app_metadata?.tenant_id;
+    return typeof tenantId === "string" && tenantId ? tenantId : null;
+  } catch {
+    return null;
+  }
+}
+
 export class SupabaseConnector implements PowerSyncBackendConnector {
   constructor(private readonly supabase: SupabaseClient) {}
 
@@ -78,11 +94,31 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     if (!data.session) {
       return null;
     }
+    let session = data.session;
+
+    // Tenant bootstrap updates app_metadata server-side. The browser can still
+    // hold the pre-bootstrap access token, so refresh once before PowerSync
+    // evaluates sync rules that depend on app_metadata.tenant_id.
+    let tenantId = readTenantIdFromAccessToken(session.access_token);
+    if (!tenantId) {
+      const refreshed = await this.supabase.auth.refreshSession();
+      if (!refreshed.error && refreshed.data.session) {
+        session = refreshed.data.session;
+        tenantId = readTenantIdFromAccessToken(session.access_token);
+      }
+    }
+
+    if (!tenantId) {
+      console.warn(
+        "[PowerSync] Supabase session is missing app_metadata.tenant_id"
+      );
+    }
+
     return {
       endpoint: getPublicEnv().powersyncUrl,
-      token: data.session.access_token,
-      expiresAt: data.session.expires_at
-        ? new Date(data.session.expires_at * 1000)
+      token: session.access_token,
+      expiresAt: session.expires_at
+        ? new Date(session.expires_at * 1000)
         : undefined,
     };
   }
