@@ -102,25 +102,27 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
             markInitialSyncCompleted();
           }
 
-          console.info("[PowerSync] status", {
-            connected: status.connected,
-            hasSynced: status.hasSynced,
-            uploading: status.dataFlowStatus.uploading,
-            downloading: status.dataFlowStatus.downloading,
-            uploadError: status.dataFlowStatus.uploadError
-              ? String(
-                  status.dataFlowStatus.uploadError.message ??
-                    status.dataFlowStatus.uploadError
-                )
-              : null,
-            downloadError: status.dataFlowStatus.downloadError
-              ? String(
-                  status.dataFlowStatus.downloadError.message ??
-                    status.dataFlowStatus.downloadError
-                )
-              : null,
-            lastSyncedAt: status.lastSyncedAt?.toISOString(),
-          });
+          if (process.env.NODE_ENV !== "production") {
+            console.info("[PowerSync] status", {
+              connected: status.connected,
+              hasSynced: status.hasSynced,
+              uploading: status.dataFlowStatus.uploading,
+              downloading: status.dataFlowStatus.downloading,
+              uploadError: status.dataFlowStatus.uploadError
+                ? String(
+                    status.dataFlowStatus.uploadError.message ??
+                      status.dataFlowStatus.uploadError
+                  )
+                : null,
+              downloadError: status.dataFlowStatus.downloadError
+                ? String(
+                    status.dataFlowStatus.downloadError.message ??
+                      status.dataFlowStatus.downloadError
+                  )
+                : null,
+              lastSyncedAt: status.lastSyncedAt?.toISOString(),
+            });
+          }
         },
       });
 

@@ -96,31 +96,6 @@ function readTenantIdFromAccessToken(token: string): string | null {
   }
 }
 
-function readJwtDebugInfo(token: string) {
-  const header = decodeJwtPart<{ alg?: unknown; kid?: unknown }>(token, 0);
-  const payload = decodeJwtPart<{ iss?: unknown; aud?: unknown }>(token, 1);
-
-  return {
-    algorithm: typeof header?.alg === "string" ? header.alg : undefined,
-    keyId: typeof header?.kid === "string" ? header.kid : undefined,
-    issuer: typeof payload?.iss === "string" ? payload.iss : undefined,
-    audience:
-      typeof payload?.aud === "string"
-        ? payload.aud
-        : Array.isArray(payload?.aud)
-          ? payload.aud.join(",")
-          : undefined,
-  };
-}
-
-function endpointHost(endpoint: string): string {
-  try {
-    return new URL(endpoint).host;
-  } catch {
-    return "(invalid endpoint URL)";
-  }
-}
-
 export class SupabaseConnector implements PowerSyncBackendConnector {
   constructor(private readonly supabase: SupabaseClient) {}
 
@@ -152,14 +127,6 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     }
 
     const endpoint = getPublicEnv().powersyncUrl;
-    console.info("[PowerSync] credentials", {
-      endpointHost: endpointHost(endpoint),
-      hasTenantClaim: Boolean(tenantId),
-      jwt: readJwtDebugInfo(session.access_token),
-      expiresAt: session.expires_at
-        ? new Date(session.expires_at * 1000).toISOString()
-        : undefined,
-    });
 
     if (!tenantId) {
       console.warn(
