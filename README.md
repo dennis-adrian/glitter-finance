@@ -90,8 +90,50 @@ Notes:
 - Generate a fresh `<per-env-secret>` for each environment (e.g. `openssl rand -base64 32`) and store it in a password manager. Do not reuse across staging and prod.
 - The role has `REPLICATION BYPASSRLS` — it can read every row in every tenant, bypassing RLS. Treat the credential like a service-role key.
 - The publication is targeted at exactly the four synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
-- After running, configure the PowerSync Cloud instance: paste the `powersync_role` password into its database-connection settings — this is the credential PowerSync uses to read the WAL, so it must match the `CREATE ROLE PASSWORD` above exactly. Then grab the instance URL from the dashboard (typically in the instance's Overview or Settings tab, looks like `https://<id>.powersync.journeyapps.com`) and set it as `NEXT_PUBLIC_POWERSYNC_URL` in `.env.local` (the placeholder is already in `.env.example` and the env var is listed in the [Environment](#environment) section above). The browser-side client reads it at startup — see [`lib/powersync/connector.ts`](lib/powersync/connector.ts) where `getPublicEnv().powersyncUrl` is returned as the sync endpoint from `fetchCredentials`.
 - Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
+
+Then configure the matching PowerSync Cloud instance. Each Supabase environment
+must have its own PowerSync instance or a carefully separated configuration;
+do not point staging app env vars at a prod PowerSync instance, or vice versa.
+
+1. **Database connection.** In PowerSync Cloud, add/connect the target Supabase database using the `powersync_role` credentials above. The password must match the `CREATE ROLE ... PASSWORD` value exactly.
+2. **Client Auth.** Enable **Use Supabase Auth**.
+3. **JWKS URI.** Set the JWKS URI to the target Supabase project's JWKS endpoint:
+
+   ```text
+   https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
+   ```
+
+   This is required for Supabase projects using JWT signing keys such as ES256
+   tokens with a `kid` header. Without it, clients fail with
+   `PSYNC_S2101 Could not find an appropriate key in the keystore`.
+
+4. **JWT Audience.** Add this accepted audience:
+
+   ```text
+   authenticated
+   ```
+
+   Supabase Auth access tokens use `aud: "authenticated"`. Without this,
+   clients fail with `PSYNC_S2105 Unexpected "aud" claim value:
+"authenticated"`.
+
+5. **Sync Streams.** Paste [`powersync/sync-rules.yaml`](powersync/sync-rules.yaml)
+   into the PowerSync Cloud **Sync Streams** editor, then **Validate** and
+   **Deploy**. Without a deployed sync config, clients fail with
+   `PSYNC_S2302 No sync config available`.
+6. **App environment.** Grab the instance URL from the PowerSync dashboard
+   (typically `https://<id>.powersync.journeyapps.com`) and set it as
+   `NEXT_PUBLIC_POWERSYNC_URL` in the matching app environment (`.env.local`
+   locally, Vercel Production/Preview for deployed apps). Redeploy after
+   changing any `NEXT_PUBLIC_*` variable because it is baked into the browser
+   bundle.
+
+PowerSync auth and app auth must point at the same Supabase project. At runtime
+the app logs safe diagnostics from `lib/powersync/connector.ts`: the PowerSync
+endpoint host, whether the JWT has `app_metadata.tenant_id`, and the JWT
+metadata (`alg`, `kid`, issuer, audience). The `issuer` must match the Supabase
+project used for the JWKS URI, and the `kid` must appear in that JWKS response.
 
 **After `supabase db reset --linked`:** the reset drops everything in the `public` schema, which includes the `powersync` publication and the grants you gave `powersync_role`. The role itself survives (it's cluster-level, not database-level), and its password is unchanged. To restore the replication bits, re-run just the grants + publication portion (skip `CREATE ROLE`):
 
@@ -126,7 +168,8 @@ Before running Stage B acceptance on staging:
 - Supabase migrations are applied to `glitter-finance-staging`.
 - `powersync_role` exists with a per-environment password stored outside git.
 - The `powersync` publication includes `products`, `sales`, `sale_lines`, and `refunds`.
-- PowerSync sync rules are deployed and scoped by the authenticated tenant.
+- PowerSync Client Auth uses the staging Supabase JWKS URI and accepts JWT audience `authenticated`.
+- PowerSync sync rules from `powersync/sync-rules.yaml` are validated, deployed, and scoped by the authenticated tenant.
 - `NEXT_PUBLIC_POWERSYNC_URL` points at the staging PowerSync instance.
 - The QA account is seeded with `npm run db:seed:qa`.
 - The installed PWA has been launched once online and the sync pill has reached the synced state before offline relaunch testing.

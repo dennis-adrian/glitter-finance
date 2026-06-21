@@ -206,6 +206,18 @@ export function GlitterPosApp({
           onResult: (results) => {
             const rows = ((results.rows as unknown as { _array?: ProductRow[] })
               ?._array ?? []) as ProductRow[];
+
+            if (rows.length === 0 && initialProducts.length > 0) {
+              console.warn(
+                "[PowerSync] products watch returned zero rows while server data had products",
+                {
+                  tenantId: activeTenantId,
+                  initialProductCount: initialProducts.length,
+                }
+              );
+              return;
+            }
+
             hydrateProducts(rows.map(rowToProduct));
           },
           onError: (error) => {
