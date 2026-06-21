@@ -1649,6 +1649,15 @@ button {
   font-size: 14px;
 }
 
+.auth-message {
+  color: #23614a;
+  background: #edf9f3;
+  border: 1px solid #a9dcc5;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+
 .offline-page {
   min-height: 100vh;
   display: grid;

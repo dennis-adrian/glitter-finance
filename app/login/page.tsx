@@ -3,6 +3,7 @@ import { signInWithPassword, signUpWithPassword } from "@/app/auth/actions";
 type LoginPageProps = {
   searchParams: Promise<{
     error?: string;
+    message?: string;
   }>;
 };
 
@@ -19,6 +20,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           Supabase.
         </p>
         {params.error ? <div className="auth-error">{params.error}</div> : null}
+        {params.message ? (
+          <div className="auth-message">{params.message}</div>
+        ) : null}
         <form action={signInWithPassword} className="auth-form">
           <label>
             Email
