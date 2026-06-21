@@ -73,13 +73,25 @@ function readTenantIdFromAccessToken(token: string): string | null {
     if (!payload) return null;
 
     const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const decoded = JSON.parse(atob(normalized)) as {
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      "="
+    );
+    const decoded = JSON.parse(atob(padded)) as {
       app_metadata?: { tenant_id?: unknown };
     };
     const tenantId = decoded.app_metadata?.tenant_id;
     return typeof tenantId === "string" && tenantId ? tenantId : null;
   } catch {
     return null;
+  }
+}
+
+function endpointHost(endpoint: string): string {
+  try {
+    return new URL(endpoint).host;
+  } catch {
+    return "(invalid endpoint URL)";
   }
 }
 
@@ -105,8 +117,22 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
       if (!refreshed.error && refreshed.data.session) {
         session = refreshed.data.session;
         tenantId = readTenantIdFromAccessToken(session.access_token);
+      } else if (refreshed.error) {
+        console.warn(
+          "[PowerSync] Supabase session refresh failed",
+          refreshed.error.message
+        );
       }
     }
+
+    const endpoint = getPublicEnv().powersyncUrl;
+    console.info("[PowerSync] credentials", {
+      endpointHost: endpointHost(endpoint),
+      hasTenantClaim: Boolean(tenantId),
+      expiresAt: session.expires_at
+        ? new Date(session.expires_at * 1000).toISOString()
+        : undefined,
+    });
 
     if (!tenantId) {
       console.warn(
@@ -115,7 +141,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     }
 
     return {
-      endpoint: getPublicEnv().powersyncUrl,
+      endpoint,
       token: session.access_token,
       expiresAt: session.expires_at
         ? new Date(session.expires_at * 1000)
