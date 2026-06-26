@@ -33,12 +33,20 @@ import {
   type LocalSaleLineRow,
   type LocalSaleRow,
 } from "@/lib/powersync/sales-from-local";
+import {
+  buildUserNameMap,
+  isTeamReplicationConfirmed,
+  mapTenantUserRow,
+  mergeTenantMembersFromWatch,
+  type LocalTenantUserRow,
+} from "@/lib/powersync/tenant-users-from-local";
 import { usePosStore } from "@/lib/store";
 import type {
   CartLine,
   PaymentMethod,
   Product,
   Sale,
+  TenantMember,
   ToastMessage,
 } from "@/lib/types";
 import type { View } from "@/lib/views";
@@ -100,12 +108,14 @@ type GlitterPosAppProps = {
   tenantContext: UserTenantContext;
   initialProducts: Product[];
   initialSales: Sale[];
+  initialTenantMembers: TenantMember[];
 };
 
 export function GlitterPosApp({
   tenantContext,
   initialProducts,
   initialSales,
+  initialTenantMembers,
 }: GlitterPosAppProps) {
   const products = usePosStore((state) => state.products);
   const cart = usePosStore((state) => state.cart);
@@ -132,6 +142,13 @@ export function GlitterPosApp({
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [tenantMembers, setTenantMembers] =
+    useState<TenantMember[]>(initialTenantMembers);
+  const [teamSyncConfirmed, setTeamSyncConfirmed] = useState(
+    () => initialTenantMembers.length === 0
+  );
+  const initialTenantMembersRef = useRef(initialTenantMembers);
+  const teamSyncEverConfirmedRef = useRef(false);
   const draftCartReadyRef = useRef(false);
   const cartRef = useRef(cart);
   const cartUpdatedAtRef = useRef<string | null>(null);
@@ -170,10 +187,33 @@ export function GlitterPosApp({
     ? (sales.find((sale) => sale.id === selectedSaleId) ?? null)
     : null;
 
+  // Fall back to server-hydrated members while tenant_users is still
+  // replicating — avoids "Vendedor" regressions in reports on upgrade.
+  const membersForNames = useMemo(
+    () => (tenantMembers.length > 0 ? tenantMembers : initialTenantMembers),
+    [tenantMembers, initialTenantMembers]
+  );
+  const userNameById = useMemo(
+    () => buildUserNameMap(membersForNames),
+    [membersForNames]
+  );
+
+  useEffect(() => {
+    initialTenantMembersRef.current = initialTenantMembers;
+    setTeamSyncConfirmed(initialTenantMembers.length === 0);
+  }, [initialTenantMembers]);
+
   useEffect(() => {
     hydrateProducts(initialProducts);
     hydrateSales(initialSales);
-  }, [hydrateProducts, hydrateSales, initialProducts, initialSales]);
+    setTenantMembers(initialTenantMembers);
+  }, [
+    hydrateProducts,
+    hydrateSales,
+    initialProducts,
+    initialSales,
+    initialTenantMembers,
+  ]);
 
   useEffect(() => {
     cartRef.current = cart;
@@ -236,12 +276,77 @@ export function GlitterPosApp({
     };
   }, [powerSyncDb, hydrateProducts, activeTenantId]);
 
+  useEffect(() => {
+    if (!powerSyncDb || !activeTenantId) return;
+
+    setTeamSyncConfirmed(initialTenantMembersRef.current.length === 0);
+    teamSyncEverConfirmedRef.current = false;
+    const controller = new AbortController();
+    let unregister: (() => void) | undefined;
+
+    function startWatching(db: NonNullable<typeof powerSyncDb>) {
+      db.watch(
+        "SELECT * FROM tenant_users WHERE tenant_id = ? ORDER BY created_at ASC",
+        [activeTenantId],
+        {
+          onResult: (results) => {
+            const rows = ((
+              results.rows as unknown as { _array?: LocalTenantUserRow[] }
+            )?._array ?? []) as LocalTenantUserRow[];
+            const mapped = rows.map(mapTenantUserRow);
+            const serverMembers = initialTenantMembersRef.current;
+            const hasSynced = db.currentStatus?.hasSynced ?? false;
+            const confirmed = isTeamReplicationConfirmed(
+              mapped,
+              serverMembers,
+              hasSynced
+            );
+            if (confirmed) {
+              teamSyncEverConfirmedRef.current = true;
+            }
+            setTeamSyncConfirmed(confirmed);
+            setTenantMembers((prev) =>
+              mergeTenantMembersFromWatch(prev, mapped, {
+                allowMemberShrink: teamSyncEverConfirmedRef.current,
+              })
+            );
+          },
+          onError: (error) => {
+            console.error("[PowerSync] tenant_users watch error", error);
+          },
+        },
+        { signal: controller.signal }
+      );
+    }
+
+    // Require hasSynced on this connection — do not use hasCompletedInitialSync()
+    // here. The localStorage flag can be true from a prior app version that did
+    // not replicate tenant_users yet.
+    if (powerSyncDb.currentStatus?.hasSynced) {
+      startWatching(powerSyncDb);
+    } else {
+      unregister = powerSyncDb.registerListener({
+        statusChanged: (status) => {
+          if (status.hasSynced && !controller.signal.aborted) {
+            startWatching(powerSyncDb);
+            unregister?.();
+            unregister = undefined;
+          }
+        },
+      });
+    }
+
+    return () => {
+      controller.abort();
+      unregister?.();
+    };
+  }, [powerSyncDb, activeTenantId]);
+
   // Subscribe to sales + sale_lines + refunds. PowerSync's onChange fires
   // whenever any of the three tables mutates; we requery all three and
   // rebuild the in-memory Sale[] (same shape as the server-side
-  // getSalesForTenant returns). User display names are resolved from the
-  // current session — sales rung up by other tenant members fall back to a
-  // generic label until tenant_users sync lands (see lib/powersync/sales-from-local.ts).
+  // getSalesForTenant returns). User display names come from synced
+  // tenant_users rows (see the watch above).
   const currentUserId = tenantContext.user.id;
   const currentUserName = tenantContext.user.displayName;
   useEffect(() => {
@@ -251,7 +356,10 @@ export function GlitterPosApp({
     let unregister: (() => void) | undefined;
 
     function resolveUserName(userId: string) {
-      return userId === currentUserId ? currentUserName : "Vendedor";
+      return (
+        userNameById.get(userId) ??
+        (userId === currentUserId ? currentUserName : "Vendedor")
+      );
     }
 
     async function rebuildSales(db: NonNullable<typeof powerSyncDb>) {
@@ -322,6 +430,7 @@ export function GlitterPosApp({
     currentUserId,
     currentUserName,
     activeTenantId,
+    userNameById,
   ]);
 
   useEffect(() => {
@@ -701,6 +810,10 @@ export function GlitterPosApp({
     settings: (
       <SettingsScreen
         tenantContext={tenantContext}
+        tenantMembers={membersForNames}
+        teamSyncPending={
+          !teamSyncConfirmed && initialTenantMembers.length > 0
+        }
         productCount={activeProducts.length}
         saleCount={sales.filter((sale) => sale.status === "completed").length}
         pendingCount={sales.length}

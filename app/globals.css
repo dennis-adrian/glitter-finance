@@ -143,6 +143,33 @@ button {
   flex: 0 0 auto;
 }
 
+.avatar.small {
+  width: 34px;
+  height: 34px;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.settings-member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-team-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.settings-team-sync-warning {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 .flip {
   transform: rotate(180deg);
 }

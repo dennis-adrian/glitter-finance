@@ -9,9 +9,6 @@
 #
 # Tables NOT synced (yet):
 # - tenants: single row per tenant, loaded server-side.
-# - tenant_users: composite PK in Postgres; PowerSync needs a single `id`
-#   column. Until the table grows an id column (or the rule projects one),
-#   user display names are loaded server-side.
 #
 # To deploy: paste into the PowerSync Cloud instance's Sync Streams editor,
 # click Validate, then Deploy.
@@ -32,4 +29,6 @@ streams:
       - SELECT * FROM sale_lines
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
       - SELECT * FROM refunds
+        WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+      - SELECT * FROM tenant_users
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
