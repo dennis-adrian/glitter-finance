@@ -26,6 +26,8 @@ export const products = sqliteTable("products", {
   costCents: integer("cost_cents"),
   category: text("category").notNull(),
   imagePath: text("image_path"),
+  tracksInventory: integer("tracks_inventory").notNull().default(0),
+  lowStockThreshold: integer("low_stock_threshold"),
   archivedAt: text("archived_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
@@ -78,6 +80,18 @@ export const tenantUsers = sqliteTable("tenant_users", {
   createdAt: text("created_at").notNull(),
 });
 
+export const inventoryMovements = sqliteTable("inventory_movements", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  productId: text("product_id").notNull(),
+  userId: text("user_id").notNull(),
+  delta: integer("delta").notNull(),
+  reason: text("reason").notNull(),
+  note: text("note"),
+  createdAt: text("created_at").notNull(),
+  clientCreatedAt: text("client_created_at").notNull(),
+});
+
 export const draftCart = sqliteTable("draft_cart", {
   id: text("id").primaryKey(),
   linesJson: text("lines_json").notNull(),
@@ -90,6 +104,7 @@ export const clientSchema = {
   saleLines,
   refunds,
   tenantUsers,
+  inventoryMovements,
   draftCart: {
     tableDefinition: draftCart,
     options: { localOnly: true },

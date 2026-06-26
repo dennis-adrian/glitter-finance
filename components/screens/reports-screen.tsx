@@ -20,10 +20,18 @@ import {
   computeProductTotals,
   computeUserTotals,
 } from "@/lib/sales";
-import type { ReportRange, Sale } from "@/lib/types";
+import {
+  compareStockSeverity,
+  computeTrackedProductStock,
+  stockStateWord,
+  stockValueLabel,
+} from "@/lib/inventory";
+import type { Product, ReportRange, Sale } from "@/lib/types";
 
 type ReportsScreenProps = {
   sales: Sale[];
+  products: Product[];
+  stockByProduct: Map<string, number>;
   openSale: (saleId: string) => void;
   voidSale: (saleId: string) => void;
   refundSale: (saleId: string) => void;
@@ -31,6 +39,8 @@ type ReportsScreenProps = {
 
 export function ReportsScreen({
   sales,
+  products,
+  stockByProduct,
   openSale,
   voidSale,
   refundSale,
@@ -67,6 +77,12 @@ export function ReportsScreen({
   const paymentTotals = computePaymentTotals(visibleSales);
   const productTotals = computeProductTotals(visibleSales);
   const userTotals = computeUserTotals(visibleSales);
+  const trackedStock = computeTrackedProductStock(products, stockByProduct).sort(
+    (a, b) => compareStockSeverity(a.stock.state, b.stock.state)
+  );
+  const oversoldProducts = trackedStock.filter(
+    ({ stock }) => stock.state === "oversold"
+  );
   const averageTicketCents = metrics.transactionCount
     ? Math.round(metrics.netRevenueCents / metrics.transactionCount)
     : 0;
@@ -208,6 +224,31 @@ export function ReportsScreen({
           </p>
         )}
       </section>
+      {trackedStock.length ? (
+        <section className="panel">
+          <h2>Inventario actual</h2>
+          <p className="field-help">
+            Stock actual, independiente del rango seleccionado.
+          </p>
+          <div className="report-list">
+            {trackedStock.map(({ product, stock }) => (
+              <div className="report-list-row" key={product.id}>
+                <span>
+                  <strong>{product.name}</strong>
+                  <small>{stockStateWord(stock)}</small>
+                </span>
+                <b>{stockValueLabel(stock)}</b>
+              </div>
+            ))}
+          </div>
+          {oversoldProducts.length ? (
+            <p className="field-help">
+              {oversoldProducts.length} producto
+              {oversoldProducts.length === 1 ? "" : "s"} con sobreventa.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
       <section className="panel">
         <h2>Por vendedor</h2>
         {userTotals.length ? (

@@ -41,6 +41,8 @@ export async function createProductForTenant(
       costCents: input.costCents,
       category: input.category,
       imagePath: resolveInputImagePath(input),
+      tracksInventory: input.tracksInventory ?? false,
+      lowStockThreshold: input.lowStockThreshold ?? null,
     })
     .returning();
 
@@ -64,6 +66,8 @@ export async function updateProductForTenant(
       costCents: input.costCents,
       category: input.category,
       imagePath: resolveInputImagePath(input),
+      tracksInventory: input.tracksInventory ?? false,
+      lowStockThreshold: input.lowStockThreshold ?? null,
       updatedAt: new Date(),
     })
     .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))

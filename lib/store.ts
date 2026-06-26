@@ -133,6 +133,8 @@ export const usePosStore = create<PosState>()((set) => ({
               input.imagePath ?? `placeholder:${input.imageTone ?? "violet"}`,
             imageUrl: null,
             imageTone: input.imageTone ?? "violet",
+            tracksInventory: input.tracksInventory ?? false,
+            lowStockThreshold: input.lowStockThreshold ?? null,
             archivedAt: null,
             createdAt: now,
             updatedAt: now,
@@ -156,6 +158,9 @@ export const usePosStore = create<PosState>()((set) => ({
                 `placeholder:${input.imageTone ?? product.imageTone}`,
               imageUrl: product.imageUrl,
               imageTone: input.imageTone ?? product.imageTone,
+              tracksInventory: input.tracksInventory ?? product.tracksInventory,
+              lowStockThreshold:
+                input.lowStockThreshold ?? product.lowStockThreshold,
               updatedAt: nowIso(),
             }
           : product

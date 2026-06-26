@@ -1,4 +1,5 @@
 import {
+  boolean,
   foreignKey,
   index,
   integer,
@@ -17,6 +18,14 @@ export const paymentMethodEnum = pgEnum("payment_method", [
   "qr_transfer",
 ]);
 
+export const inventoryMovementReasonEnum = pgEnum("inventory_movement_reason", [
+  "initial",
+  "restock",
+  "adjustment",
+  "loss",
+  "gift",
+]);
+
 export const tenants = pgTable("tenants", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
@@ -33,6 +42,7 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   products: many(products),
   sales: many(sales),
   refunds: many(refunds),
+  inventoryMovements: many(inventoryMovements),
 }));
 
 export const tenantUsers = pgTable(
@@ -78,6 +88,8 @@ export const products = pgTable(
     costCents: integer("cost_cents"),
     category: text("category").notNull(),
     imagePath: text("image_path"),
+    tracksInventory: boolean("tracks_inventory").notNull().default(false),
+    lowStockThreshold: integer("low_stock_threshold"),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -95,12 +107,63 @@ export const products = pgTable(
   ]
 );
 
-export const productsRelations = relations(products, ({ one }) => ({
+export const productsRelations = relations(products, ({ one, many }) => ({
   tenant: one(tenants, {
     fields: [products.tenantId],
     references: [tenants.id],
   }),
+  inventoryMovements: many(inventoryMovements),
 }));
+
+export const inventoryMovements = pgTable(
+  "inventory_movements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "restrict" }),
+    productId: uuid("product_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    delta: integer("delta").notNull(),
+    reason: inventoryMovementReasonEnum("reason").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    clientCreatedAt: timestamp("client_created_at", {
+      withTimezone: true,
+    }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: "inventory_movements_product_id_tenant_id_products_id_tenant_id_fk",
+      columns: [table.productId, table.tenantId],
+      foreignColumns: [products.id, products.tenantId],
+    }).onDelete("restrict"),
+    index("inventory_movements_tenant_product_idx").on(
+      table.tenantId,
+      table.productId
+    ),
+    index("inventory_movements_tenant_created_at_idx").on(
+      table.tenantId,
+      table.createdAt
+    ),
+  ]
+);
+
+export const inventoryMovementsRelations = relations(
+  inventoryMovements,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [inventoryMovements.tenantId],
+      references: [tenants.id],
+    }),
+    product: one(products, {
+      fields: [inventoryMovements.productId],
+      references: [products.id],
+    }),
+  })
+);
 
 export const sales = pgTable(
   "sales",

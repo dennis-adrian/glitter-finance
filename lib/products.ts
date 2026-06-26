@@ -9,6 +9,8 @@ export const emptyProduct: Product = {
   imagePath: "placeholder:violet",
   imageUrl: null,
   imageTone: "violet",
+  tracksInventory: false,
+  lowStockThreshold: null,
   archivedAt: null,
   createdAt: "",
   updatedAt: "",

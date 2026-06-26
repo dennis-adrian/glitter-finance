@@ -6,9 +6,11 @@ import { EmptyState } from "@/components/molecules/empty-state";
 import { ProductCatalogCard } from "@/components/molecules/product-catalog-card";
 import { categories } from "@/lib/sample-data";
 import type { Product } from "@/lib/types";
+import { getProductStock } from "@/lib/inventory";
 
 type ProductsScreenProps = {
   products: Product[];
+  stockByProduct: Map<string, number>;
   category: string;
   query: string;
   setCategory: (value: string) => void;
@@ -57,6 +59,7 @@ export function ProductsScreen(props: ProductsScreenProps) {
             <ProductCatalogCard
               key={product.id}
               product={product}
+              stock={getProductStock(product, props.stockByProduct)}
               openEditor={props.openEditor}
               restoreProduct={props.restoreProduct}
             />
