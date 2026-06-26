@@ -19,7 +19,7 @@ export async function getTenantMembersForTenant(
     })
     .from(tenantUsers)
     .where(eq(tenantUsers.tenantId, tenantId))
-    .orderBy(asc(tenantUsers.createdAt));
+    .orderBy(asc(tenantUsers.createdAt), asc(tenantUsers.id));
 
   return rows.map((row) => ({
     id: row.id,

@@ -287,7 +287,7 @@ export function GlitterPosApp({
 
     function startWatching(db: NonNullable<typeof powerSyncDb>) {
       db.watch(
-        "SELECT * FROM tenant_users WHERE tenant_id = ? ORDER BY created_at ASC",
+        "SELECT * FROM tenant_users WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
         [activeTenantId],
         {
           onResult: (results) => {
@@ -309,6 +309,7 @@ export function GlitterPosApp({
             setTenantMembers((prev) =>
               mergeTenantMembersFromWatch(prev, mapped, {
                 allowMemberShrink: teamSyncEverConfirmedRef.current,
+                replicationConfirmed: confirmed,
               })
             );
           },

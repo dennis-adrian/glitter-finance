@@ -70,7 +70,12 @@ export function isTeamReplicationConfirmed(
       return true;
     }
     const localUserIds = new Set(local.map((member) => member.userId));
-    return serverHydrated.every((member) => localUserIds.has(member.userId));
+    if (serverHydrated.every((member) => localUserIds.has(member.userId))) {
+      return true;
+    }
+    // After full sync, a strict subset reflects server-side removals — not
+    // partial replication still catching up to the hydrated member list.
+    return hasSynced && isTenantMembersSubset(local, serverHydrated);
   }
   return hasSynced && serverHydrated.length === 0;
 }
@@ -78,9 +83,14 @@ export function isTeamReplicationConfirmed(
 export type MergeTenantMembersOptions = {
   /**
    * When true, accept a strictly smaller mapped set (member removed server-side).
-   * Only set after local replication has fully matched the server hydrate once.
+   * Sticky once replication has been confirmed (full match or post-sync shrink).
    */
   allowMemberShrink?: boolean;
+  /**
+   * When true this tick, accept shrink via {@link isTeamReplicationConfirmed}
+   * even if allowMemberShrink was never set on a prior watch result.
+   */
+  replicationConfirmed?: boolean;
 };
 
 /** Apply a tenant_users watch result without shrinking a fuller hydrated list. */
@@ -89,7 +99,8 @@ export function mergeTenantMembersFromWatch(
   mapped: TenantMember[],
   options: MergeTenantMembersOptions = {}
 ): TenantMember[] {
-  const { allowMemberShrink = false } = options;
+  const { allowMemberShrink = false, replicationConfirmed = false } = options;
+  const mayAcceptShrink = allowMemberShrink || replicationConfirmed;
 
   if (mapped.length === 0 && previous.length > 0) {
     return previous;
@@ -97,13 +108,13 @@ export function mergeTenantMembersFromWatch(
   // Partial replication delivers a strict subset of members before the full
   // set arrives. Compare counts, not just userIds — same-sized sets with
   // updated display names (or ids) must flow through. Once replication has
-  // been confirmed at least once, accept shrinks as removals.
+  // been confirmed at least once (including post-sync shrink), accept removals.
   if (
     mapped.length > 0 &&
     previous.length > 0 &&
     mapped.length < previous.length &&
     isTenantMembersSubset(mapped, previous) &&
-    !allowMemberShrink
+    !mayAcceptShrink
   ) {
     return previous;
   }

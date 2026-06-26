@@ -90,7 +90,8 @@ Notes:
 - Generate a fresh `<per-env-secret>` for each environment (e.g. `openssl rand -base64 32`) and store it in a password manager. Do not reuse across staging and prod.
 - The role has `REPLICATION BYPASSRLS` — it can read every row in every tenant, bypassing RLS. Treat the credential like a service-role key.
 - The publication is targeted at exactly the five synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
-- Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
+- **Existing environments (Stage D):** if `powersync` was created before `tenant_users` was added to the table list above, run [`supabase/manual/powersync-add-tenant-users-to-publication.sql`](supabase/manual/powersync-add-tenant-users-to-publication.sql) in the SQL editor after `npm run db:push`. It is idempotent and skips quietly when the publication is missing (e.g. local `db:reset` before bootstrap).
+- Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
 
 Then configure the matching PowerSync Cloud instance. Each Supabase environment
 must have its own PowerSync instance or a carefully separated configuration;
@@ -167,7 +168,7 @@ During closed testing, additional booth helpers are provisioned manually — not
 
 Before inviting:
 
-1. Apply pending migrations (`npm run db:push`) so `tenant_users.id` exists and the publication includes `tenant_users`.
+1. Apply pending migrations (`npm run db:push`) so `tenant_users.id` exists, then run [`supabase/manual/powersync-add-tenant-users-to-publication.sql`](supabase/manual/powersync-add-tenant-users-to-publication.sql) if the environment predates Stage D (see PowerSync setup notes).
 2. Redeploy updated sync rules from `powersync/sync-rules.yaml` in PowerSync Cloud.
 
 Then invite the helper:
@@ -242,7 +243,7 @@ For anything Drizzle's schema cannot express (RLS, auth FKs, triggers, grants), 
 touch supabase/migrations/$(date -u +%Y%m%d%H%M%S)_my_change.sql
 ```
 
-These files are first-class migrations and are applied by `supabase db push` alongside Drizzle-generated ones.
+These files are first-class migrations and are applied by `supabase db push` alongside Drizzle-generated ones. PowerSync publication changes are **not** migrations — they live under `supabase/manual/` and are run in the SQL editor (see PowerSync setup).
 
 ### Runtime data access
 

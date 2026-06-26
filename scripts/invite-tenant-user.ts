@@ -50,15 +50,15 @@ function defaultDisplayName(email: string) {
 }
 
 async function assertUserCanJoinTenant(userId: string, tenantId: string) {
-  const [existingForUser] = await db
+  const memberships = await db
     .select({ tenantId: tenantUsers.tenantId })
     .from(tenantUsers)
-    .where(eq(tenantUsers.userId, userId))
-    .limit(1);
+    .where(eq(tenantUsers.userId, userId));
 
-  if (existingForUser && existingForUser.tenantId !== tenantId) {
+  const conflicting = memberships.find((m) => m.tenantId !== tenantId);
+  if (conflicting) {
     throw new Error(
-      `User already belongs to tenant ${existingForUser.tenantId}. ` +
+      `User already belongs to tenant ${conflicting.tenantId}. ` +
         "Remove that membership first before inviting to another tenant."
     );
   }
@@ -196,7 +196,6 @@ async function main() {
 
   console.log("Invited tenant member:");
   console.log(`  tenant: ${tenant.name} (${tenant.id})`);
-  console.log(`  email: ${email}`);
   console.log(`  display name: ${displayName}`);
   console.log(`  auth user: ${authUser.id} (${authUser.created ? "created" : "existing"})`);
   console.log(

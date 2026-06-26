@@ -1,6 +1,11 @@
 -- Add tenant_users to the PowerSync logical replication publication when it
--- exists (cloud/staging). Local `supabase db reset` skips this quietly when
--- the publication has not been bootstrapped yet — see README PowerSync setup.
+-- exists (cloud/staging). Safe to re-run: skips when the publication is missing
+-- or tenant_users is already published.
+--
+-- Not a Drizzle/Supabase migration — run manually in the Supabase SQL editor
+-- after `npm run db:push` when upgrading an environment whose `powersync`
+-- publication predates Stage D. Fresh bootstrap already includes tenant_users;
+-- see README "PowerSync setup".
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'powersync') THEN
