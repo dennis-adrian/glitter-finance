@@ -52,6 +52,7 @@ import type {
 import type { View } from "@/lib/views";
 import type { UserTenantContext } from "@/lib/auth/user-context";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
+import { isPowerSyncConfigured } from "@/lib/env";
 import { SyncStatusPill } from "@/components/molecules/sync-status-pill";
 import {
   createSaleLocal,
@@ -71,7 +72,6 @@ import {
   migrateLegacyDraftCartLocal,
   saveDraftCartLocal,
 } from "@/lib/powersync/draft-cart";
-import { hasCompletedInitialSync } from "@/lib/powersync/initial-sync";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   computeStockByProduct,
@@ -280,9 +280,13 @@ export function GlitterPosApp({
   // rows on disk under a different tenant_id.
   const powerSyncDb = useOptionalPowerSyncDb();
   const activeTenantId = tenantContext.tenant?.id ?? null;
-  const inventoryStockReady = !powerSyncDb || inventoryWatchReady;
+  const inventoryStockReady = inventoryWatchReady;
 
   useEffect(() => {
+    if (!isPowerSyncConfigured()) {
+      setInventoryWatchReady(true);
+      return;
+    }
     setInventoryWatchReady(false);
   }, [powerSyncDb, activeTenantId]);
 
@@ -347,6 +351,9 @@ export function GlitterPosApp({
         [activeTenantId],
         {
           onResult: (results) => {
+            if (!db.currentStatus?.hasSynced) {
+              return;
+            }
             const rows = ((results.rows as unknown as { _array?: ProductRow[] })
               ?._array ?? []) as ProductRow[];
             hydrateProducts(rows.map(rowToProduct));
@@ -359,7 +366,7 @@ export function GlitterPosApp({
       );
     }
 
-    if (powerSyncDb.currentStatus?.hasSynced || hasCompletedInitialSync()) {
+    if (powerSyncDb.currentStatus?.hasSynced) {
       startWatching(powerSyncDb);
     } else {
       unregister = powerSyncDb.registerListener({
@@ -391,6 +398,9 @@ export function GlitterPosApp({
         [activeTenantId],
         {
           onResult: (results) => {
+            if (!db.currentStatus?.hasSynced) {
+              return;
+            }
             const rows = ((
               results.rows as unknown as { _array?: InventoryMovementRow[] }
             )?._array ?? []) as InventoryMovementRow[];
@@ -513,6 +523,9 @@ export function GlitterPosApp({
     }
 
     async function rebuildSales(db: NonNullable<typeof powerSyncDb>) {
+      if (!db.currentStatus?.hasSynced) {
+        return;
+      }
       try {
         // Tenant-scoped reads: see the note on the products watch above.
         const [saleRows, lineRows, refundRows] = await Promise.all([
@@ -556,7 +569,7 @@ export function GlitterPosApp({
       );
     }
 
-    if (powerSyncDb.currentStatus?.hasSynced || hasCompletedInitialSync()) {
+    if (powerSyncDb.currentStatus?.hasSynced) {
       startWatching(powerSyncDb);
     } else {
       unregister = powerSyncDb.registerListener({

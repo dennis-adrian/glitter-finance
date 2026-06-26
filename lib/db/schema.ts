@@ -162,9 +162,6 @@ export const inventoryMovements = pgTable(
       table.tenantId,
       table.createdAt
     ),
-    uniqueIndex("inventory_movements_one_initial_per_product_idx")
-      .on(table.tenantId, table.productId)
-      .where(sql`${table.reason} = 'initial'`),
     check(
       "inventory_movements_delta_nonzero_check",
       sql`${table.delta} <> 0`

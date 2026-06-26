@@ -67,7 +67,8 @@ async function assertUserCanJoinTenant(userId: string, tenantId: string) {
 async function updateAuthUserForInvite(
   user: User,
   password: string,
-  displayName: string
+  displayName: string,
+  tenantId: string
 ) {
   const admin = createAdminClient();
   const { error } = await admin.auth.admin.updateUserById(user.id, {
@@ -75,6 +76,10 @@ async function updateAuthUserForInvite(
     user_metadata: {
       ...(user.user_metadata ?? {}),
       display_name: displayName,
+    },
+    app_metadata: {
+      ...(user.app_metadata ?? {}),
+      tenant_id: tenantId,
     },
   });
   if (error) {
@@ -86,7 +91,8 @@ async function updateAuthUserForInvite(
 async function createAuthUserForInvite(
   email: string,
   password: string,
-  displayName: string
+  displayName: string,
+  tenantId: string
 ) {
   const admin = createAdminClient();
   const { data, error } = await admin.auth.admin.createUser({
@@ -94,6 +100,7 @@ async function createAuthUserForInvite(
     password,
     email_confirm: true,
     user_metadata: { display_name: displayName },
+    app_metadata: { tenant_id: tenantId },
   });
   if (error || !data.user) {
     throw new Error(
@@ -184,8 +191,8 @@ async function main() {
   }
 
   const authUser = existing
-    ? await updateAuthUserForInvite(existing, password, displayName)
-    : await createAuthUserForInvite(email, password, displayName);
+    ? await updateAuthUserForInvite(existing, password, displayName, tenantId)
+    : await createAuthUserForInvite(email, password, displayName, tenantId);
 
   const membership = await ensureMembership({
     tenantId,

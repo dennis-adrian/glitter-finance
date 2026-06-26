@@ -366,6 +366,7 @@ export function ProductEditor({
                   type="button"
                   className="inventory-action-button"
                   disabled={!canRestock}
+                  aria-label="Registrar reabastecimiento"
                   onClick={() =>
                     void submitMovement("restock", restockAmount)
                   }
@@ -394,7 +395,6 @@ export function ProductEditor({
                       onChange={(event) =>
                         setAdjustmentAmount(event.target.value)
                       }
-                      inputMode="numeric"
                       placeholder="±2"
                     />
                     <input
@@ -438,6 +438,7 @@ export function ProductEditor({
                       type="button"
                       className="inventory-action-button"
                       disabled={!canLoss}
+                      aria-label="Registrar pérdida"
                       onClick={() =>
                         void submitMovement("loss", lossAmount, {
                           note: lossNote,
@@ -467,6 +468,7 @@ export function ProductEditor({
                       type="button"
                       className="inventory-action-button"
                       disabled={!canGift}
+                      aria-label="Registrar regalo"
                       onClick={() =>
                         void submitMovement("gift", giftAmount, {
                           note: giftNote,

@@ -45,9 +45,15 @@ Copy `.env.example` to `.env.local` and fill in:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-- `NEXT_PUBLIC_POWERSYNC_URL`
 - `SUPABASE_SECRET_KEY`
 - `DATABASE_URL`
+
+**Local-only (no PowerSync):** leave `NEXT_PUBLIC_POWERSYNC_URL` empty. The app
+loads products and sales from Supabase on the server and uses server actions for
+writes. The sync pill is hidden and no local SQLite store is opened.
+
+**Staging / production:** set `NEXT_PUBLIC_POWERSYNC_URL` to the PowerSync Cloud
+instance URL for that environment (see [PowerSync setup](#powersync-setup) below).
 
 `DATABASE_URL` should point at the Supabase Transaction Pooler (port `6543`). The runtime Drizzle client in `lib/db/index.ts` is configured with `prepare: false` to be compatible with it.
 

@@ -34,10 +34,24 @@ export type ProductStock = {
  * completed sale lines (voids excluded; refunds add units back).
  */
 export function computeStockByProduct(
-  movements: Pick<InventoryMovement, "productId" | "delta">[],
+  movements: Pick<
+    InventoryMovement,
+    "productId" | "delta" | "reason" | "createdAt"
+  >[],
   sales: Sale[]
 ): Map<string, number> {
   const stock = new Map<string, number>();
+  const trackingBaselineByProduct = new Map<string, string>();
+
+  for (const movement of movements) {
+    if (movement.reason !== "initial") {
+      continue;
+    }
+    const previousBaseline = trackingBaselineByProduct.get(movement.productId);
+    if (!previousBaseline || movement.createdAt > previousBaseline) {
+      trackingBaselineByProduct.set(movement.productId, movement.createdAt);
+    }
+  }
 
   for (const movement of movements) {
     stock.set(
@@ -53,6 +67,10 @@ export function computeStockByProduct(
     const sign = sale.refundOfSaleId ? -1 : 1;
     for (const line of sale.lines) {
       if (!line.productId) {
+        continue;
+      }
+      const baseline = trackingBaselineByProduct.get(line.productId);
+      if (baseline && sale.createdAt < baseline) {
         continue;
       }
       stock.set(

@@ -58,18 +58,34 @@ export async function updateProductForTenant(
   productId: string,
   input: ProductInput
 ): Promise<Product> {
+  const updates: {
+    name: string;
+    priceCents: number;
+    costCents: number | null;
+    category: string;
+    imagePath: string | null;
+    tracksInventory?: boolean;
+    lowStockThreshold?: number | null;
+    updatedAt: Date;
+  } = {
+    name: input.name,
+    priceCents: input.priceCents,
+    costCents: input.costCents,
+    category: input.category,
+    imagePath: resolveInputImagePath(input) ?? null,
+    updatedAt: new Date(),
+  };
+
+  if ("tracksInventory" in input) {
+    updates.tracksInventory = input.tracksInventory ?? false;
+  }
+  if ("lowStockThreshold" in input) {
+    updates.lowStockThreshold = input.lowStockThreshold ?? null;
+  }
+
   const [product] = await db
     .update(products)
-    .set({
-      name: input.name,
-      priceCents: input.priceCents,
-      costCents: input.costCents,
-      category: input.category,
-      imagePath: resolveInputImagePath(input),
-      tracksInventory: input.tracksInventory ?? false,
-      lowStockThreshold: input.lowStockThreshold ?? null,
-      updatedAt: new Date(),
-    })
+    .set(updates)
     .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))
     .returning();
 

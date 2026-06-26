@@ -20,6 +20,7 @@ import type {
   PowerSyncBackendConnector,
 } from "@powersync/web";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
+import { isPowerSyncConfigured } from "@/lib/env";
 import {
   clearInitialSyncCompleted,
   markInitialSyncCompleted,
@@ -63,6 +64,15 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
   const connectorRef = useRef<PowerSyncBackendConnector | null>(null);
 
   useEffect(() => {
+    if (!isPowerSyncConfigured()) {
+      if (process.env.NODE_ENV !== "production") {
+        console.info(
+          "[PowerSync] disabled — set NEXT_PUBLIC_POWERSYNC_URL to enable sync"
+        );
+      }
+      return;
+    }
+
     let cancelled = false;
     let instance: AbstractPowerSyncDatabase | null = null;
 

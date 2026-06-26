@@ -12,8 +12,6 @@
 -- writes to a fresh uuid path, and we never delete images in this MVP.
 -- SELECT stays public per the bucket setup migration.
 
-DROP POLICY IF EXISTS "tenant members can upload product images" ON storage.objects;
---> statement-breakpoint
 CREATE POLICY "tenant members can upload product images"
 ON storage.objects FOR INSERT
 TO authenticated

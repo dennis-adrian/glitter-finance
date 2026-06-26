@@ -298,21 +298,24 @@ Mirror all of this in the SQLite client schema
 and optional `lowStockThreshold` to the `products` client table. Register
 `inventoryMovements` in the exported `clientSchema`.
 
-### 6.2 Hand-written SQL migration (RLS, FK, checks)
+### 6.2 Hand-written SQL migration (RLS and auth FK)
 
-A separate hand-written `.sql` migration (the parent PRD's first-class-citizen
-pattern, like `supabase/migrations/...rls_policies.sql`). It must:
+A separate hand-written `.sql` file under `supabase/manual/` (the parent PRD's
+first-class-citizen pattern, like `supabase/migrations/...rls_policies.sql` for
+other tables). It must:
 
 - Add the `auth.users` FK on `user_id` (Drizzle can't model `auth.users`):
   `inventory_movements_user_id_auth_users_id_fk ... ON DELETE restrict`.
-- CHECK `delta <> 0`.
-- CHECK sign discipline:
-  `(reason IN ('initial','restock') AND delta > 0) OR (reason IN ('loss','gift') AND delta < 0) OR (reason = 'adjustment')`.
 - `ALTER TABLE inventory_movements ENABLE ROW LEVEL SECURITY`.
 - **Append-only policies** (mirror `refunds`): SELECT and INSERT only; **no
   UPDATE or DELETE policy** (their absence denies those ops under RLS).
   - SELECT `USING current_user_has_tenant(tenant_id)`.
   - INSERT `WITH CHECK current_user_has_tenant(tenant_id) AND user_id = auth.uid()`.
+
+Domain checks (`delta <> 0`, sign discipline for `reason`) and indexes on
+`(tenant_id, product_id)` / `(tenant_id, created_at)` live in
+`lib/db/schema.ts` and are applied via Drizzle-generated migrations — not in
+this hand-written file.
 
 ### 6.3 Replication publication (NOT a migration)
 
