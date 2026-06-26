@@ -4,7 +4,6 @@ import {
   integer,
   pgEnum,
   pgTable,
-  primaryKey,
   text,
   timestamp,
   unique,
@@ -39,6 +38,8 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
 export const tenantUsers = pgTable(
   "tenant_users",
   {
+    // Single-column PK so PowerSync can replicate membership rows to devices.
+    id: uuid("id").primaryKey().defaultRandom(),
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
@@ -49,8 +50,12 @@ export const tenantUsers = pgTable(
       .defaultNow(),
   },
   (table) => [
-    primaryKey({ columns: [table.tenantId, table.userId] }),
+    unique("tenant_users_tenant_id_user_id_unique").on(
+      table.tenantId,
+      table.userId
+    ),
     index("tenant_users_user_id_idx").on(table.userId),
+    index("tenant_users_tenant_id_idx").on(table.tenantId),
   ]
 );
 

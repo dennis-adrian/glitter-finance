@@ -66,6 +66,13 @@ export type Sale = {
 
 export type ReportRange = "today" | "week" | "month" | "custom";
 
+export type TenantMember = {
+  id: string;
+  userId: string;
+  displayName: string;
+  createdAt: string;
+};
+
 export type ToastMessage = {
   id: string;
   text: string;

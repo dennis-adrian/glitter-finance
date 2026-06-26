@@ -15,9 +15,6 @@
 //
 // Not yet synced:
 // - tenants — single row per tenant; not worth a sync bucket.
-// - tenant_users — composite PK in Postgres, needs either an `id` column or a
-//   projected one in the sync rules. Until then, user display names are loaded
-//   server-side.
 
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
@@ -73,6 +70,14 @@ export const refunds = sqliteTable("refunds", {
   clientCreatedAt: text("client_created_at").notNull(),
 });
 
+export const tenantUsers = sqliteTable("tenant_users", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  userId: text("user_id").notNull(),
+  displayName: text("display_name").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
 export const draftCart = sqliteTable("draft_cart", {
   id: text("id").primaryKey(),
   linesJson: text("lines_json").notNull(),
@@ -84,6 +89,7 @@ export const clientSchema = {
   sales,
   saleLines,
   refunds,
+  tenantUsers,
   draftCart: {
     tableDefinition: draftCart,
     options: { localOnly: true },

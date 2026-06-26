@@ -29,6 +29,13 @@
       "when": 1781054583535,
       "tag": "20260610012303_product_image_upload_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782435925928,
+      "tag": "20260626010525_perpetual_gideon",
+      "breakpoints": true
     }
   ]
 }

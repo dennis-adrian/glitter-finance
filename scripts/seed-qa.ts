@@ -37,6 +37,7 @@ import {
   createSaleForTenant,
   refundSaleForTenant,
 } from "@/lib/sales/repository";
+import { findAuthUserByEmail } from "./admin-auth";
 
 // Stable identifiers so the QA account is recognizable and re-runs are idempotent.
 const QA_TENANT_ID = "7a000000-0000-4000-8000-000000000001";
@@ -72,17 +73,7 @@ function createAdminClient() {
 async function findOrCreateAuthUser(email: string, password: string) {
   const admin = createAdminClient();
 
-  const { data: list, error: listError } = await admin.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  });
-  if (listError) {
-    throw new Error(`Could not list users: ${listError.message}`);
-  }
-
-  const existing = list.users.find(
-    (user) => user.email?.toLowerCase() === email.toLowerCase()
-  );
+  const existing = await findAuthUserByEmail(admin, email);
 
   if (existing) {
     // Keep the documented password working even if the user already existed,

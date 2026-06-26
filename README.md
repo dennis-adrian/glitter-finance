@@ -82,15 +82,16 @@ In the target project's Supabase dashboard, open the SQL editor and run:
 CREATE ROLE powersync_role WITH REPLICATION BYPASSRLS LOGIN PASSWORD '<per-env-secret>';
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
-CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds;
+CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds, tenant_users;
 ```
 
 Notes:
 
 - Generate a fresh `<per-env-secret>` for each environment (e.g. `openssl rand -base64 32`) and store it in a password manager. Do not reuse across staging and prod.
 - The role has `REPLICATION BYPASSRLS` — it can read every row in every tenant, bypassing RLS. Treat the credential like a service-role key.
-- The publication is targeted at exactly the four synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
-- Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
+- The publication is targeted at exactly the five synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
+- **Existing environments (Stage D):** if `powersync` was created before `tenant_users` was added to the table list above, run [`supabase/manual/powersync-add-tenant-users-to-publication.sql`](supabase/manual/powersync-add-tenant-users-to-publication.sql) in the SQL editor after `npm run db:push`. It is idempotent and skips quietly when the publication is missing (e.g. local `db:reset` before bootstrap).
+- Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
 
 Then configure the matching PowerSync Cloud instance. Each Supabase environment
 must have its own PowerSync instance or a carefully separated configuration;
@@ -140,7 +141,7 @@ project used for the JWKS URI, and the `kid` must appear in that JWKS response.
 ```sql
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
-CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds;
+CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds, tenant_users;
 ```
 
 Also pass `--no-seed` when resetting any cloud project — the `supabase/seed.sql` script is local-only (creates a demo auth user with a known password, and assumes `pgcrypto` is enabled). It has no business running against staging or prod.
@@ -161,18 +162,42 @@ NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
 npm run db:seed:qa             # append `-- --reset` to wipe catalog + sales and reseed
 ```
 
+### Invite a tenant member (Stage D)
+
+During closed testing, additional booth helpers are provisioned manually — not through in-app invite UI. `npm run db:invite:tenant-user` creates (or refreshes) an auth user, inserts a `tenant_users` row on the target tenant, and sets `app_metadata.tenant_id` so PowerSync scopes replication correctly.
+
+Before inviting:
+
+1. Apply pending migrations (`npm run db:push`) so `tenant_users.id` exists, then run [`supabase/manual/powersync-add-tenant-users-to-publication.sql`](supabase/manual/powersync-add-tenant-users-to-publication.sql) if the environment predates Stage D (see PowerSync setup notes).
+2. Redeploy updated sync rules from `powersync/sync-rules.yaml` in PowerSync Cloud.
+
+Then invite the helper:
+
+```bash
+TENANT_ID=7a000000-0000-4000-8000-000000000001 \
+INVITE_EMAIL=helper@glitterfinance.app INVITE_PASSWORD=... \
+INVITE_DISPLAY_NAME="Helper Booth" \
+NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
+npm run db:invite:tenant-user
+```
+
+After inviting, have the user sign in on their device. Settings → Equipo should list every member; reports should attribute sales by display name once both devices have synced.
+
 ### Stage B staging checklist
 
 Before running Stage B acceptance on staging:
 
 - Supabase migrations are applied to `glitter-finance-staging`.
 - `powersync_role` exists with a per-environment password stored outside git.
-- The `powersync` publication includes `products`, `sales`, `sale_lines`, and `refunds`.
+- The `powersync` publication includes `products`, `sales`, `sale_lines`, `refunds`, and `tenant_users`.
 - PowerSync Client Auth uses the staging Supabase JWKS URI and accepts JWT audience `authenticated`.
 - PowerSync sync rules from `powersync/sync-rules.yaml` are validated, deployed, and scoped by the authenticated tenant.
 - `NEXT_PUBLIC_POWERSYNC_URL` points at the staging PowerSync instance.
 - The QA account is seeded with `npm run db:seed:qa`.
 - The installed PWA has been launched once online and the sync pill has reached the synced state before offline relaunch testing.
+
+See [`docs/stage-d-acceptance.md`](docs/stage-d-acceptance.md) for multi-user /
+`tenant_users` replication verification after Stage D deploys.
 
 ## Drizzle and Supabase: who owns what
 
@@ -218,7 +243,7 @@ For anything Drizzle's schema cannot express (RLS, auth FKs, triggers, grants), 
 touch supabase/migrations/$(date -u +%Y%m%d%H%M%S)_my_change.sql
 ```
 
-These files are first-class migrations and are applied by `supabase db push` alongside Drizzle-generated ones.
+These files are first-class migrations and are applied by `supabase db push` alongside Drizzle-generated ones. PowerSync publication changes are **not** migrations — they live under `supabase/manual/` and are run in the SQL editor (see PowerSync setup).
 
 ### Runtime data access
 
