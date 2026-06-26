@@ -35,6 +35,7 @@ same Supabase project as the app env vars.
   ```bash
   TENANT_ID=7a000000-0000-4000-8000-000000000001 \
   INVITE_EMAIL=... INVITE_PASSWORD=... \
+  NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
   npm run db:invite:tenant-user
   ```
 

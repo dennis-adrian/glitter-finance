@@ -200,6 +200,7 @@ export function GlitterPosApp({
 
   useEffect(() => {
     initialTenantMembersRef.current = initialTenantMembers;
+    teamSyncEverConfirmedRef.current = false;
     setTeamSyncConfirmed(initialTenantMembers.length === 0);
   }, [initialTenantMembers]);
 

@@ -165,6 +165,13 @@ npm run db:seed:qa             # append `-- --reset` to wipe catalog + sales and
 
 During closed testing, additional booth helpers are provisioned manually — not through in-app invite UI. `npm run db:invite:tenant-user` creates (or refreshes) an auth user, inserts a `tenant_users` row on the target tenant, and sets `app_metadata.tenant_id` so PowerSync scopes replication correctly.
 
+Before inviting:
+
+1. Apply pending migrations (`npm run db:push`) so `tenant_users.id` exists and the publication includes `tenant_users`.
+2. Redeploy updated sync rules from `powersync/sync-rules.yaml` in PowerSync Cloud.
+
+Then invite the helper:
+
 ```bash
 TENANT_ID=7a000000-0000-4000-8000-000000000001 \
 INVITE_EMAIL=helper@glitterfinance.app INVITE_PASSWORD=... \
@@ -173,11 +180,7 @@ NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
 npm run db:invite:tenant-user
 ```
 
-After inviting:
-
-1. Apply pending migrations (`npm run db:push`) so `tenant_users.id` exists and the publication includes `tenant_users`.
-2. Redeploy updated sync rules from `powersync/sync-rules.yaml` in PowerSync Cloud.
-3. Have the invited user sign in on their device. Settings → Equipo should list every member; reports should attribute sales by display name once both devices have synced.
+After inviting, have the user sign in on their device. Settings → Equipo should list every member; reports should attribute sales by display name once both devices have synced.
 
 ### Stage B staging checklist
 
