@@ -1,5 +1,7 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   foreignKey,
   index,
   integer,
@@ -104,6 +106,18 @@ export const products = pgTable(
     // Target for the tenant-scoped composite FK on sale_lines.product_id.
     // (id) is already unique as the PK; this pair makes the composite FK legal.
     unique("products_id_tenant_id_unique").on(table.id, table.tenantId),
+    check(
+      "products_price_cents_nonnegative_check",
+      sql`${table.priceCents} >= 0`
+    ),
+    check(
+      "products_cost_cents_nonnegative_check",
+      sql`${table.costCents} IS NULL OR ${table.costCents} >= 0`
+    ),
+    check(
+      "products_low_stock_threshold_nonnegative_check",
+      sql`${table.lowStockThreshold} IS NULL OR ${table.lowStockThreshold} >= 0`
+    ),
   ]
 );
 
@@ -148,6 +162,21 @@ export const inventoryMovements = pgTable(
       table.tenantId,
       table.createdAt
     ),
+    uniqueIndex("inventory_movements_one_initial_per_product_idx")
+      .on(table.tenantId, table.productId)
+      .where(sql`${table.reason} = 'initial'`),
+    check(
+      "inventory_movements_delta_nonzero_check",
+      sql`${table.delta} <> 0`
+    ),
+    check(
+      "inventory_movements_sign_discipline_check",
+      sql`(
+        (${table.reason} IN ('initial', 'restock') AND ${table.delta} > 0)
+        OR (${table.reason} IN ('loss', 'gift') AND ${table.delta} < 0)
+        OR (${table.reason} = 'adjustment')
+      )`
+    ),
   ]
 );
 
@@ -191,6 +220,17 @@ export const sales = pgTable(
     // Target for the tenant-scoped composite FKs on sale_lines and refunds.
     // (id) is already unique as the PK; this pair makes the composite FK legal.
     unique("sales_id_tenant_id_unique").on(table.id, table.tenantId),
+    check(
+      "sales_discount_cents_nonnegative_check",
+      sql`${table.saleDiscountCents} >= 0`
+    ),
+    check(
+      "sales_void_coherence_check",
+      sql`(
+        (${table.voidedAt} IS NULL AND ${table.voidedByUserId} IS NULL)
+        OR (${table.voidedAt} IS NOT NULL AND ${table.voidedByUserId} IS NOT NULL)
+      )`
+    ),
   ]
 );
 
@@ -245,6 +285,26 @@ export const saleLines = pgTable(
       columns: [table.productId, table.tenantId],
       foreignColumns: [products.id, products.tenantId],
     }).onDelete("restrict"),
+    check(
+      "sale_lines_quantity_positive_check",
+      sql`${table.quantity} > 0`
+    ),
+    check(
+      "sale_lines_unit_price_cents_nonnegative_check",
+      sql`${table.unitPriceCents} >= 0`
+    ),
+    check(
+      "sale_lines_unit_cost_cents_nonnegative_check",
+      sql`${table.unitCostCents} IS NULL OR ${table.unitCostCents} >= 0`
+    ),
+    check(
+      "sale_lines_discount_cents_nonnegative_check",
+      sql`${table.lineDiscountCents} >= 0`
+    ),
+    check(
+      "sale_lines_total_cents_nonnegative_check",
+      sql`${table.lineTotalCents} >= 0`
+    ),
   ]
 );
 

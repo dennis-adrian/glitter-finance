@@ -1,17 +1,10 @@
--- Inventory movements: auth.users FK, domain checks, and append-only RLS.
--- Drizzle cannot model auth.users; CHECK sign discipline is enforced here.
+-- Inventory movements: auth.users FK and append-only RLS.
+-- Domain checks and the one-initial partial unique index live in
+-- lib/db/schema.ts (Drizzle-generated). Drizzle cannot model auth.users.
 
 ALTER TABLE "inventory_movements"
   ADD CONSTRAINT "inventory_movements_user_id_auth_users_id_fk"
   FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE restrict;
---> statement-breakpoint
-ALTER TABLE "inventory_movements"
-  ADD CONSTRAINT "inventory_movements_delta_nonzero_check" CHECK ("delta" <> 0),
-  ADD CONSTRAINT "inventory_movements_sign_discipline_check" CHECK (
-    ("reason" IN ('initial', 'restock') AND "delta" > 0)
-    OR ("reason" IN ('loss', 'gift') AND "delta" < 0)
-    OR ("reason" = 'adjustment')
-  );
 --> statement-breakpoint
 ALTER TABLE "inventory_movements" ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint

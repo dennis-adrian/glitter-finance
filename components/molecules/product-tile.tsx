@@ -16,6 +16,7 @@ import { ProductArt } from "@/components/atoms/product-art";
 type ProductTileProps = {
   product: Product;
   stockByProduct: Map<string, number>;
+  inventoryStockReady: boolean;
   quantity: number;
   add: () => void;
   decrement: () => void;
@@ -24,13 +25,16 @@ type ProductTileProps = {
 export function ProductTile({
   product,
   stockByProduct,
+  inventoryStockReady,
   quantity,
   add,
   decrement,
 }: ProductTileProps) {
   const timer = useRef<number | null>(null);
   const longPressed = useRef(false);
-  const stock = getProductStock(product, stockByProduct);
+  const stock = inventoryStockReady
+    ? getProductStock(product, stockByProduct)
+    : null;
 
   function clearTimer() {
     if (timer.current) {

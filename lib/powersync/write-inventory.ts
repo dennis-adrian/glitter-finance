@@ -42,32 +42,40 @@ export async function addInventoryMovement(
     throw new Error("La cantidad debe ser un número entero distinto de cero.");
   }
 
-  if (input.reason === "initial") {
-    if (await productHasInitialMovementLocal(db, input.productId)) {
-      throw new Error("Este producto ya tiene un stock inicial registrado.");
-    }
-  }
-
   const movementId = uuid();
   const now = nowIso();
 
-  await db.execute(
-    `INSERT INTO inventory_movements
-      (id, tenant_id, product_id, user_id, delta, reason, note,
-       created_at, client_created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      movementId,
-      input.tenantId,
-      input.productId,
-      input.userId,
-      input.delta,
-      input.reason,
-      input.note?.trim() || null,
-      now,
-      now,
-    ]
-  );
+  await db.writeTransaction(async (tx) => {
+    if (input.reason === "initial") {
+      const existing = await tx.getAll<{ id: string }>(
+        `SELECT id FROM inventory_movements
+         WHERE product_id = ? AND reason = 'initial'
+         LIMIT 1`,
+        [input.productId]
+      );
+      if (existing.length > 0) {
+        throw new Error("Este producto ya tiene un stock inicial registrado.");
+      }
+    }
+
+    await tx.execute(
+      `INSERT INTO inventory_movements
+        (id, tenant_id, product_id, user_id, delta, reason, note,
+         created_at, client_created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        movementId,
+        input.tenantId,
+        input.productId,
+        input.userId,
+        input.delta,
+        input.reason,
+        input.note?.trim() || null,
+        now,
+        now,
+      ]
+    );
+  });
 
   return { movementId };
 }

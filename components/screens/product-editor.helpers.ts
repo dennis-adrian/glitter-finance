@@ -7,7 +7,7 @@ export function hasValidProductForm(name: string, price: string) {
 /** Whole positive integers only — rejects decimals and trailing junk. */
 export function parsePositiveInteger(value: string) {
   const trimmed = value.trim();
-  if (!/^\d+$/.test(trimmed)) {
+  if (!/^\+?\d+$/.test(trimmed)) {
     return null;
   }
   const parsed = Number.parseInt(trimmed, 10);
@@ -17,7 +17,7 @@ export function parsePositiveInteger(value: string) {
 /** Non-zero whole integers only — rejects decimals and trailing junk. */
 export function parseSignedInteger(value: string) {
   const trimmed = value.trim();
-  if (!/^-?\d+$/.test(trimmed)) {
+  if (!/^(?:\+?\d+|-\d+)$/.test(trimmed)) {
     return null;
   }
   const parsed = Number.parseInt(trimmed, 10);

@@ -33,6 +33,7 @@ import { hasValidProductForm, parsePositiveInteger, parseSignedInteger } from "@
 type ProductEditorProps = {
   product: Product | null;
   stockByProduct: Map<string, number>;
+  inventoryStockReady: boolean;
   hasInitialMovement: boolean;
   back: () => void;
   save: (input: {
@@ -58,6 +59,7 @@ type ProductEditorProps = {
 export function ProductEditor({
   product,
   stockByProduct,
+  inventoryStockReady,
   hasInitialMovement,
   back,
   save,
@@ -93,11 +95,15 @@ export function ProductEditor({
   >(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canSave = hasValidProductForm(name, price);
+  const trackingPersisted = product?.tracksInventory ?? false;
+  const trackingDirty =
+    Boolean(product) && tracksInventory !== trackingPersisted;
   const showInitialStockField =
     tracksInventory && (!product || !hasInitialMovement);
-  const currentStock = product
-    ? getProductStock(product, stockByProduct)
-    : null;
+  const currentStock =
+    product && trackingPersisted && inventoryStockReady
+      ? getProductStock(product, stockByProduct)
+      : null;
   const canRestock = parsePositiveInteger(restockAmount) != null;
   const canAdjust = parseSignedInteger(adjustmentAmount) != null;
   const canLoss = parsePositiveInteger(lossAmount) != null;
@@ -157,6 +163,12 @@ export function ProductEditor({
     if (!product) {
       return;
     }
+    if (!product.tracksInventory) {
+      setInventoryActionError(
+        "Guarda el producto con inventario activado antes de ajustar stock."
+      );
+      return;
+    }
     const amount = options?.signed
       ? parseSignedInteger(rawAmount)
       : parsePositiveInteger(rawAmount);
@@ -168,29 +180,37 @@ export function ProductEditor({
       }
       return;
     }
-    setInventoryActionError(null);
     const delta =
       reason === "loss" || reason === "gift" ? -Math.abs(amount) : amount;
-    await onInventoryMovement({
-      productId: product.id,
-      delta,
-      reason,
-      note: options?.note,
-    });
-    if (reason === "restock") {
-      setRestockAmount("");
-    }
-    if (reason === "adjustment") {
-      setAdjustmentAmount("");
-      setAdjustmentNote("");
-    }
-    if (reason === "loss") {
-      setLossAmount("");
-      setLossNote("");
-    }
-    if (reason === "gift") {
-      setGiftAmount("");
-      setGiftNote("");
+    try {
+      await onInventoryMovement({
+        productId: product.id,
+        delta,
+        reason,
+        note: options?.note,
+      });
+      setInventoryActionError(null);
+      if (reason === "restock") {
+        setRestockAmount("");
+      }
+      if (reason === "adjustment") {
+        setAdjustmentAmount("");
+        setAdjustmentNote("");
+      }
+      if (reason === "loss") {
+        setLossAmount("");
+        setLossNote("");
+      }
+      if (reason === "gift") {
+        setGiftAmount("");
+        setGiftNote("");
+      }
+    } catch (error) {
+      setInventoryActionError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar el inventario."
+      );
     }
   }
 
@@ -319,7 +339,13 @@ export function ProductEditor({
           </FormField>
         ) : null}
 
-        {product && tracksInventory ? (
+        {trackingDirty ? (
+          <p className="field-help">
+            Guarda los cambios para activar los ajustes de inventario.
+          </p>
+        ) : null}
+
+        {product && trackingPersisted ? (
           <div className="inventory-actions">
             {currentStock ? (
               <p className="inventory-current">

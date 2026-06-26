@@ -160,7 +160,9 @@ export const usePosStore = create<PosState>()((set) => ({
               imageTone: input.imageTone ?? product.imageTone,
               tracksInventory: input.tracksInventory ?? product.tracksInventory,
               lowStockThreshold:
-                input.lowStockThreshold ?? product.lowStockThreshold,
+                "lowStockThreshold" in input
+                  ? (input.lowStockThreshold ?? null)
+                  : product.lowStockThreshold,
               updatedAt: nowIso(),
             }
           : product

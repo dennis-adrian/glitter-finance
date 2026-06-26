@@ -186,6 +186,7 @@ export function GlitterPosApp({
   >([]);
   const [editorHasInitialMovement, setEditorHasInitialMovement] =
     useState(false);
+  const [inventoryWatchReady, setInventoryWatchReady] = useState(false);
   const [teamSyncConfirmed, setTeamSyncConfirmed] = useState(
     () => initialTenantMembers.length === 0
   );
@@ -279,6 +280,11 @@ export function GlitterPosApp({
   // rows on disk under a different tenant_id.
   const powerSyncDb = useOptionalPowerSyncDb();
   const activeTenantId = tenantContext.tenant?.id ?? null;
+  const inventoryStockReady = !powerSyncDb || inventoryWatchReady;
+
+  useEffect(() => {
+    setInventoryWatchReady(false);
+  }, [powerSyncDb, activeTenantId]);
 
   useEffect(() => {
     if (!editingProduct) {
@@ -288,9 +294,20 @@ export function GlitterPosApp({
 
     let cancelled = false;
     const productId = editingProduct.id;
+    const productTracksInventory = editingProduct.tracksInventory;
 
     async function loadEditorInitialMovementState() {
-      if (powerSyncDb) {
+      if (productHasInitialMovement(productId, inventoryMovements)) {
+        if (!cancelled) {
+          setEditorHasInitialMovement(true);
+        }
+        return;
+      }
+
+      if (
+        powerSyncDb?.currentStatus?.hasSynced &&
+        inventoryWatchReady
+      ) {
         const hasInitial = await productHasInitialMovementLocal(
           powerSyncDb,
           productId
@@ -302,9 +319,7 @@ export function GlitterPosApp({
       }
 
       if (!cancelled) {
-        setEditorHasInitialMovement(
-          productHasInitialMovement(productId, inventoryMovements)
-        );
+        setEditorHasInitialMovement(productTracksInventory);
       }
     }
 
@@ -313,7 +328,12 @@ export function GlitterPosApp({
     return () => {
       cancelled = true;
     };
-  }, [editingProduct, powerSyncDb, inventoryMovements]);
+  }, [
+    editingProduct,
+    powerSyncDb,
+    inventoryMovements,
+    inventoryWatchReady,
+  ]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
@@ -375,6 +395,7 @@ export function GlitterPosApp({
               results.rows as unknown as { _array?: InventoryMovementRow[] }
             )?._array ?? []) as InventoryMovementRow[];
             setInventoryMovements(rows.map(rowToInventoryMovement));
+            setInventoryWatchReady(true);
           },
           onError: (error) => {
             console.error("[PowerSync] inventory_movements watch error", error);
@@ -384,7 +405,7 @@ export function GlitterPosApp({
       );
     }
 
-    if (powerSyncDb.currentStatus?.hasSynced || hasCompletedInitialSync()) {
+    if (powerSyncDb.currentStatus?.hasSynced) {
       startWatching(powerSyncDb);
     } else {
       unregister = powerSyncDb.registerListener({
@@ -668,15 +689,19 @@ export function GlitterPosApp({
       let uploadFailed = false;
       let hasInitial = false;
       if (editingProduct) {
-        hasInitial = powerSyncDb
-          ? await productHasInitialMovementLocal(
-              powerSyncDb,
-              editingProduct.id
-            )
-          : productHasInitialMovement(
-              editingProduct.id,
-              inventoryMovements
-            );
+        if (productHasInitialMovement(editingProduct.id, inventoryMovements)) {
+          hasInitial = true;
+        } else if (
+          powerSyncDb?.currentStatus?.hasSynced &&
+          inventoryWatchReady
+        ) {
+          hasInitial = await productHasInitialMovementLocal(
+            powerSyncDb,
+            editingProduct.id
+          );
+        } else if (editingProduct.tracksInventory) {
+          hasInitial = true;
+        }
       }
       const needsInitialMovement =
         input.tracksInventory &&
@@ -801,6 +826,7 @@ export function GlitterPosApp({
           : "No se pudo actualizar el inventario",
         "danger"
       );
+      throw error;
     }
   }
 
@@ -940,6 +966,7 @@ export function GlitterPosApp({
       <SellScreen
         products={activeProducts}
         stockByProduct={stockByProduct}
+        inventoryStockReady={inventoryStockReady}
         cartCount={cartCount}
         cartSubtotal={cartSubtotal}
         cart={cart}
@@ -959,6 +986,7 @@ export function GlitterPosApp({
         sales={sales}
         products={activeProducts}
         stockByProduct={stockByProduct}
+        inventoryStockReady={inventoryStockReady}
         openSale={openSaleDetail}
         voidSale={(saleId) => {
           void handleVoidSale(saleId);
@@ -972,6 +1000,7 @@ export function GlitterPosApp({
       <ProductsScreen
         products={products}
         stockByProduct={stockByProduct}
+        inventoryStockReady={inventoryStockReady}
         category={catalogCategory}
         query={catalogQuery}
         setCategory={setCatalogCategory}
@@ -1053,6 +1082,7 @@ export function GlitterPosApp({
       <ProductEditor
         product={editingProduct}
         stockByProduct={stockByProduct}
+        inventoryStockReady={inventoryStockReady}
         hasInitialMovement={editorHasInitialMovement}
         onInventoryMovement={handleInventoryMovement}
         back={() =>

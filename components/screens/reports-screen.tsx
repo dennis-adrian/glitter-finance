@@ -32,6 +32,7 @@ type ReportsScreenProps = {
   sales: Sale[];
   products: Product[];
   stockByProduct: Map<string, number>;
+  inventoryStockReady: boolean;
   openSale: (saleId: string) => void;
   voidSale: (saleId: string) => void;
   refundSale: (saleId: string) => void;
@@ -41,6 +42,7 @@ export function ReportsScreen({
   sales,
   products,
   stockByProduct,
+  inventoryStockReady,
   openSale,
   voidSale,
   refundSale,
@@ -77,9 +79,11 @@ export function ReportsScreen({
   const paymentTotals = computePaymentTotals(visibleSales);
   const productTotals = computeProductTotals(visibleSales);
   const userTotals = computeUserTotals(visibleSales);
-  const trackedStock = computeTrackedProductStock(products, stockByProduct).sort(
-    (a, b) => compareStockSeverity(a.stock.state, b.stock.state)
-  );
+  const trackedStock = inventoryStockReady
+    ? computeTrackedProductStock(products, stockByProduct).sort((a, b) =>
+        compareStockSeverity(a.stock.state, b.stock.state)
+      )
+    : [];
   const oversoldProducts = trackedStock.filter(
     ({ stock }) => stock.state === "oversold"
   );

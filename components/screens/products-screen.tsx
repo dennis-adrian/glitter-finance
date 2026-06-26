@@ -11,6 +11,7 @@ import { getProductStock } from "@/lib/inventory";
 type ProductsScreenProps = {
   products: Product[];
   stockByProduct: Map<string, number>;
+  inventoryStockReady: boolean;
   category: string;
   query: string;
   setCategory: (value: string) => void;
@@ -59,7 +60,11 @@ export function ProductsScreen(props: ProductsScreenProps) {
             <ProductCatalogCard
               key={product.id}
               product={product}
-              stock={getProductStock(product, props.stockByProduct)}
+              stock={
+                props.inventoryStockReady
+                  ? getProductStock(product, props.stockByProduct)
+                  : null
+              }
               openEditor={props.openEditor}
               restoreProduct={props.restoreProduct}
             />
