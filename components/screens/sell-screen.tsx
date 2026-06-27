@@ -85,8 +85,9 @@ export function SellScreen(props: SellScreenProps) {
           body="Tu catálogo está vacío."
           action={
             <Button
+              size="lg"
               onClick={props.openProductEditor}
-              className="h-12 rounded-2xl px-5 font-extrabold tracking-wide"
+              className="rounded-2xl font-extrabold tracking-wide"
             >
               <PackagePlus className="size-5" />
               AGREGAR PRODUCTO

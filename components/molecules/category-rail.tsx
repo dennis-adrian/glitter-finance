@@ -20,7 +20,7 @@ export function CategoryRail({
           size="sm"
           variant={active === item ? "default" : "outline"}
           aria-pressed={active === item}
-          className="h-9 shrink-0 rounded-full px-4"
+          className="shrink-0 rounded-full px-4"
           onClick={() => setActive(item)}
         >
           {item}

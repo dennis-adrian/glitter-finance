@@ -115,6 +115,7 @@ export function PaymentScreen({
               onChange={(event) => setCustom(event.target.value)}
               inputMode="decimal"
               placeholder="Ej. 7 o 10%"
+              aria-label="Monto o porcentaje de descuento"
             />
             <Button
               type="button"
@@ -129,6 +130,7 @@ export function PaymentScreen({
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             placeholder="Motivo opcional"
+            aria-label="Motivo opcional del descuento"
             className="mt-2.5 h-12 rounded-xl"
           />
         ) : null}
@@ -165,6 +167,7 @@ export function PaymentScreen({
         type="button"
         variant="ghost"
         className="w-full text-primary hover:text-primary"
+        disabled
       >
         <ClipboardList />
         Ver detalle de orden
@@ -173,6 +176,7 @@ export function PaymentScreen({
         type="button"
         variant="ghost"
         className="w-full text-muted-foreground"
+        disabled
       >
         <UserRound />
         Asignar cliente

@@ -142,13 +142,15 @@ export function CartLineItem({
             onChange={(event) => setDiscountInput(event.target.value)}
             inputMode="decimal"
             placeholder="Descuento"
-            className="h-9 rounded-xl"
+            aria-label="Descuento"
+            className="rounded-xl"
           />
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             placeholder="Motivo opcional"
-            className="h-9 rounded-xl"
+            aria-label="Motivo opcional"
+            className="rounded-xl"
           />
           <Button type="button" size="sm" onClick={applyDiscount}>
             Aplicar

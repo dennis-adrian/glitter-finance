@@ -20,9 +20,10 @@ export function CheckoutDock({
       <Button
         type="button"
         variant="secondary"
+        size="icon-lg"
         onClick={openCart}
         aria-label="Ver carrito"
-        className="relative h-14 rounded-2xl"
+        className="relative rounded-2xl"
       >
         <ReceiptText className="size-[22px]" />
         {cartCount ? (
@@ -33,9 +34,10 @@ export function CheckoutDock({
       </Button>
       <Button
         type="button"
+        size="lg"
         disabled={!cartCount}
         onClick={openPayment}
-        className="h-14 justify-between rounded-2xl px-6 text-base shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
+        className="justify-between rounded-2xl shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
       >
         <span className="font-extrabold tracking-wide">COBRAR</span>
         <strong className="text-lg font-extrabold tabular-nums">

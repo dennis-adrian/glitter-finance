@@ -37,9 +37,10 @@ export function CartSummary({
         </Button>
       </div>
       <Button
+        size="lg"
         disabled={!itemCount}
         onClick={charge}
-        className="h-14 w-full rounded-2xl text-base font-extrabold tracking-wide shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
+        className="w-full rounded-2xl font-extrabold tracking-wide shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
       >
         <BadgeDollarSign className="size-5" />
         COBRAR
@@ -47,7 +48,7 @@ export function CartSummary({
       <Button
         variant="outline"
         onClick={back}
-        className="mt-3 h-12 w-full rounded-2xl"
+        className="mt-3 w-full rounded-2xl"
       >
         Agregar más productos
       </Button>
