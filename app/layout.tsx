@@ -1,6 +1,15 @@
 import type { Metadata, Viewport } from "next";
+import { ThemeColorSync } from "@/components/atoms/theme-color-sync";
 import { SerwistClientProvider } from "@/components/providers/serwist-client-provider";
+import { ThemeProvider } from "@/components/providers/theme-provider";
 import "./globals.css";
+import { Inter, Geist } from "next/font/google";
+import { SHELL_THEME_COLORS } from "@/lib/shell-theme-colors";
+import { cn } from "@/lib/utils";
+
+const geistHeading = Geist({subsets:['latin'],variable:'--font-heading'});
+
+const inter = Inter({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
   title: "Glitter POS",
@@ -24,7 +33,10 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#6822E2",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: SHELL_THEME_COLORS.light },
+    { media: "(prefers-color-scheme: dark)", color: SHELL_THEME_COLORS.dark },
+  ],
 };
 
 export default function RootLayout({
@@ -33,9 +45,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es">
+    <html
+      lang="es"
+      className={cn("font-sans", inter.variable, geistHeading.variable)}
+      suppressHydrationWarning
+    >
       <body>
-        <SerwistClientProvider>{children}</SerwistClientProvider>
+        <ThemeProvider>
+          <ThemeColorSync />
+          <SerwistClientProvider>{children}</SerwistClientProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

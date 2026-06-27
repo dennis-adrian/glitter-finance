@@ -6,7 +6,7 @@ import {
   ArchiveRestore,
   Camera,
   Check,
-  ChevronRight,
+  ChevronLeft,
   Edit3,
   Minus,
   Plus,
@@ -15,6 +15,17 @@ import { BrandMark } from "@/components/atoms/brand-mark";
 import { FormField } from "@/components/atoms/form-field";
 import { Header } from "@/components/atoms/header";
 import { ProductArt } from "@/components/atoms/product-art";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   getProductStock,
   stockValueLabel,
@@ -28,7 +39,11 @@ import {
 import { emptyProduct } from "@/lib/products";
 import { categories } from "@/lib/sample-data";
 import type { Product } from "@/lib/types";
-import { hasValidProductForm, parsePositiveInteger, parseSignedInteger } from "@/components/screens/product-editor.helpers";
+import {
+  hasValidProductForm,
+  parsePositiveInteger,
+  parseSignedInteger,
+} from "@/components/screens/product-editor.helpers";
 
 type ProductEditorProps = {
   product: Product | null;
@@ -227,12 +242,20 @@ export function ProductEditor({
       <Header
         title={product ? "Editar producto" : "Nuevo producto"}
         left={
-          <button className="icon-button" onClick={back} aria-label="Volver">
-            <ChevronRight className="flip dark" size={24} />
-          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={back}
+            aria-label="Volver"
+          >
+            <ChevronLeft className="size-6" />
+          </Button>
         }
         right={<BrandMark size="small" />}
       />
+
+      {/* Bespoke image uploader + tone picker keep their existing styles since
+          they're coupled to ProductArt's gradient placeholders. */}
       <label className="field-label">Imagen del producto</label>
       <div
         className={clsx(
@@ -268,7 +291,9 @@ export function ProductEditor({
           <Edit3 size={19} />
         </button>
       </div>
-      {imageError ? <p className="field-help error">{imageError}</p> : null}
+      {imageError ? (
+        <p className="mt-1.5 text-sm text-destructive">{imageError}</p>
+      ) : null}
       <div className="tone-picker" aria-label="Color de placeholder">
         {["aurora", "coral", "linen", "violet", "warm"].map((tone) => (
           <button
@@ -280,62 +305,80 @@ export function ProductEditor({
           </button>
         ))}
       </div>
+
       <FormField label="Nombre del producto">
-        <input
+        <Input
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Mascot Sticker"
+          className="h-12 rounded-xl"
         />
       </FormField>
       <FormField label="Precio de venta">
-        <input
+        <Input
           value={price}
           onChange={(event) => setPrice(event.target.value)}
           inputMode="decimal"
           placeholder="15"
+          className="h-12 rounded-xl"
         />
       </FormField>
       <FormField label="Costo unitario" hint="Opcional">
-        <input
+        <Input
           value={cost}
           onChange={(event) => setCost(event.target.value)}
           inputMode="decimal"
           placeholder="Desconocido"
+          className="h-12 rounded-xl"
         />
       </FormField>
-      <p className="field-help">
+      <p className="mt-1.5 text-sm text-muted-foreground">
         Se usa para calcular ganancias. Si queda vacío, el costo se marca como
         desconocido.
       </p>
-      <FormField label="Categoría">
-        <select
+      <FormField label="Categoría" id="product-category">
+        <Select
           value={category}
-          onChange={(event) => setCategory(event.target.value)}
+          onValueChange={(value) => setCategory(value ?? "")}
         >
-          {categories
-            .filter((item) => item !== "Todos")
-            .map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-        </select>
+          <SelectTrigger
+            id="product-category"
+            className="h-12 w-full rounded-xl"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {categories
+              .filter((item) => item !== "Todos")
+              .map((item) => (
+                <SelectItem key={item} value={item}>
+                  {item}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
       </FormField>
 
-      <section className="inventory-panel">
-        <label className="inventory-toggle">
+      <section className="mt-5 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+        <Label className="flex items-start justify-between gap-3">
           <span>
-            <strong>Rastrear inventario</strong>
-            <small>Cuenta unidades disponibles; nunca bloquea una venta.</small>
+            <strong className="block text-[15px] font-semibold">
+              Rastrear inventario
+            </strong>
+            <small className="mt-1 block text-sm leading-snug text-muted-foreground">
+              Cuenta unidades disponibles; nunca bloquea una venta.
+            </small>
           </span>
-          <input
-            type="checkbox"
+          <Switch
             checked={tracksInventory}
-            onChange={(event) => setTracksInventory(event.target.checked)}
+            onCheckedChange={setTracksInventory}
+            className="mt-0.5"
           />
-        </label>
+        </Label>
 
         {showInitialStockField ? (
           <FormField label="Stock inicial">
-            <input
+            <Input
               value={initialStock}
               onChange={(event) => {
                 setInitialStock(event.target.value);
@@ -343,78 +386,91 @@ export function ProductEditor({
               }}
               inputMode="numeric"
               placeholder="10"
+              className="h-12 rounded-xl"
             />
           </FormField>
         ) : null}
 
         {trackingDirty ? (
-          <p className="field-help">
+          <p className="mt-1.5 text-sm text-muted-foreground">
             Guarda los cambios para activar los ajustes de inventario.
           </p>
         ) : null}
 
         {product && trackingPersisted ? (
-          <div className="inventory-actions">
+          <div className="mt-4 grid gap-3">
             {currentStock != null ? (
-              <p className="inventory-current">
-                En mano: <strong>{stockValueLabel(currentStock)}</strong>
+              <p className="text-sm text-muted-foreground">
+                En mano:{" "}
+                <strong className="text-foreground">
+                  {stockValueLabel(currentStock)}
+                </strong>
               </p>
             ) : null}
 
-            <div className="inventory-action-row">
-              <label>Reabastecer</label>
-              <div className="inventory-action-controls">
-                <input
+            <div>
+              <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+                Reabastecer
+              </Label>
+              <div className="flex gap-2">
+                <Input
                   value={restockAmount}
                   onChange={(event) => setRestockAmount(event.target.value)}
                   inputMode="numeric"
                   placeholder="+5"
+                  className="h-14 flex-1 rounded-xl"
                 />
-                <button
+                <Button
                   type="button"
-                  className="inventory-action-button"
+                  variant="outline"
+                  size="icon-lg"
                   disabled={!canRestock || inventoryMovementSubmitting}
                   aria-label="Registrar reabastecimiento"
-                  onClick={() =>
-                    void submitMovement("restock", restockAmount)
-                  }
+                  onClick={() => void submitMovement("restock", restockAmount)}
                 >
-                  <Plus size={16} />
-                </button>
+                  <Plus />
+                </Button>
               </div>
             </div>
 
-            <button
+            <Button
               type="button"
-              className="inventory-more-toggle"
+              variant="link"
+              size="sm"
+              className="justify-start px-0"
               aria-expanded={showMoreActions}
               onClick={() => setShowMoreActions((value) => !value)}
             >
               {showMoreActions ? "Menos acciones" : "Más acciones"}
-            </button>
+            </Button>
 
             {showMoreActions ? (
               <>
-                <div className="inventory-action-row">
-                  <label>Ajuste</label>
-                  <div className="inventory-action-controls stacked">
-                    <input
+                <div>
+                  <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+                    Ajuste
+                  </Label>
+                  <div className="flex flex-col gap-2">
+                    <Input
                       value={adjustmentAmount}
                       onChange={(event) =>
                         setAdjustmentAmount(event.target.value)
                       }
                       placeholder="±2"
+                      className="h-14 rounded-xl"
                     />
-                    <input
+                    <Input
                       value={adjustmentNote}
                       onChange={(event) =>
                         setAdjustmentNote(event.target.value)
                       }
                       placeholder="Nota opcional"
+                      className="h-14 rounded-xl"
                     />
-                    <button
+                    <Button
                       type="button"
-                      className="inventory-action-button"
+                      variant="outline"
+                      size="lg"
                       disabled={!canAdjust || inventoryMovementSubmitting}
                       onClick={() =>
                         void submitMovement("adjustment", adjustmentAmount, {
@@ -424,27 +480,32 @@ export function ProductEditor({
                       }
                     >
                       Ajustar
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
-                <div className="inventory-action-row">
-                  <label>Pérdida</label>
-                  <div className="inventory-action-controls stacked">
-                    <input
+                <div>
+                  <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+                    Pérdida
+                  </Label>
+                  <div className="flex flex-col gap-2">
+                    <Input
                       value={lossAmount}
                       onChange={(event) => setLossAmount(event.target.value)}
                       inputMode="numeric"
                       placeholder="2"
+                      className="h-14 rounded-xl"
                     />
-                    <input
+                    <Input
                       value={lossNote}
                       onChange={(event) => setLossNote(event.target.value)}
                       placeholder="Nota opcional"
+                      className="h-14 rounded-xl"
                     />
-                    <button
+                    <Button
                       type="button"
-                      className="inventory-action-button"
+                      variant="outline"
+                      size="lg"
                       disabled={!canLoss || inventoryMovementSubmitting}
                       aria-label="Registrar pérdida"
                       onClick={() =>
@@ -453,28 +514,34 @@ export function ProductEditor({
                         })
                       }
                     >
-                      <Minus size={16} />
-                    </button>
+                      <Minus />
+                      Registrar pérdida
+                    </Button>
                   </div>
                 </div>
 
-                <div className="inventory-action-row">
-                  <label>Regalo</label>
-                  <div className="inventory-action-controls stacked">
-                    <input
+                <div>
+                  <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+                    Regalo
+                  </Label>
+                  <div className="flex flex-col gap-2">
+                    <Input
                       value={giftAmount}
                       onChange={(event) => setGiftAmount(event.target.value)}
                       inputMode="numeric"
                       placeholder="1"
+                      className="h-14 rounded-xl"
                     />
-                    <input
+                    <Input
                       value={giftNote}
                       onChange={(event) => setGiftNote(event.target.value)}
                       placeholder="Nota opcional"
+                      className="h-14 rounded-xl"
                     />
-                    <button
+                    <Button
                       type="button"
-                      className="inventory-action-button"
+                      variant="outline"
+                      size="lg"
                       disabled={!canGift || inventoryMovementSubmitting}
                       aria-label="Registrar regalo"
                       onClick={() =>
@@ -483,8 +550,9 @@ export function ProductEditor({
                         })
                       }
                     >
-                      <Minus size={16} />
-                    </button>
+                      <Minus />
+                      Registrar regalo
+                    </Button>
                   </div>
                 </div>
               </>
@@ -492,20 +560,32 @@ export function ProductEditor({
           </div>
         ) : null}
         {inventoryActionError ? (
-          <p className="field-help error">{inventoryActionError}</p>
+          <p className="mt-2 text-sm text-destructive">
+            {inventoryActionError}
+          </p>
         ) : null}
       </section>
 
       {product ? (
-        <button className="archive-button" onClick={() => archive(product.id)}>
-          <ArchiveRestore size={18} />
-          Archivar producto
-          <span>El producto ya no aparecerá en el menú de ventas.</span>
-        </button>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => archive(product.id)}
+          className="mt-6 mb-20 h-auto w-full flex-col gap-1 py-4 text-destructive hover:text-destructive"
+        >
+          <span className="flex items-center gap-2 font-bold">
+            <ArchiveRestore className="size-[18px]" />
+            Archivar producto
+          </span>
+          <span className="text-sm font-normal text-muted-foreground">
+            El producto ya no aparecerá en el menú de ventas.
+          </span>
+        </Button>
       ) : null}
-      <button
-        className="save-dock"
+      <Button
+        size="lg"
         disabled={!canSave}
+        className="sticky bottom-0 mt-4 w-full font-extrabold tracking-wide shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
         onClick={() => {
           if (
             showInitialStockField &&
@@ -527,13 +607,13 @@ export function ProductEditor({
             imageFile,
             tracksInventory,
             initialStock: showInitialStockField
-              ? parsePositiveInteger(initialStock) ?? undefined
+              ? (parsePositiveInteger(initialStock) ?? undefined)
               : undefined,
           });
         }}
       >
         GUARDAR CAMBIOS
-      </button>
+      </Button>
     </section>
   );
 }

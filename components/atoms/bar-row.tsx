@@ -12,13 +12,16 @@ export function BarRow({ label, value, max }: BarRowProps) {
     : 0;
 
   return (
-    <div className="bar-row">
-      <div>
-        <span>{label}</span>
-        <b>{formatBs(value, true)}</b>
+    <div className="mb-3.5 grid gap-1.5 last:mb-0">
+      <div className="flex justify-between gap-3 text-sm">
+        <span className="text-muted-foreground">{label}</span>
+        <b className="tabular-nums">{formatBs(value, true)}</b>
       </div>
-      <span className="track">
-        <i style={{ width: `${width}%` }} />
+      <span className="block h-2.5 overflow-hidden rounded-full bg-muted">
+        <i
+          className="block h-full rounded-full bg-primary"
+          style={{ width: `${width}%` }}
+        />
       </span>
     </div>
   );

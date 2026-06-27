@@ -13,7 +13,8 @@ import {
   refundSale as refundSaleAction,
   voidSale as voidSaleAction,
 } from "@/app/sales/actions";
-import { Toast } from "@/components/atoms/toast";
+import { toast as sonnerToast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { BottomNav } from "@/components/organisms/bottom-nav";
 import { CartScreen } from "@/components/screens/cart-screen";
 import { PaymentScreen } from "@/components/screens/payment-screen";
@@ -79,7 +80,10 @@ import {
   type InventoryMovement,
   type InventoryMovementReason,
 } from "@/lib/inventory";
-import { addInventoryMovement, productHasInitialMovementLocal } from "@/lib/powersync/write-inventory";
+import {
+  addInventoryMovement,
+  productHasInitialMovementLocal,
+} from "@/lib/powersync/write-inventory";
 import { formatBs } from "@/lib/money";
 
 // Shape of a row coming back from the local SQLite store. Column names are
@@ -179,7 +183,6 @@ export function GlitterPosApp({
   const [catalogQuery, setCatalogQuery] = useState("");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
-  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [tenantMembers, setTenantMembers] =
     useState<TenantMember[]>(initialTenantMembers);
@@ -312,10 +315,7 @@ export function GlitterPosApp({
         return;
       }
 
-      if (
-        powerSyncDb?.currentStatus?.hasSynced &&
-        inventoryWatchReady
-      ) {
+      if (powerSyncDb?.currentStatus?.hasSynced && inventoryWatchReady) {
         const hasInitial = await productHasInitialMovementLocal(
           powerSyncDb,
           productId
@@ -338,12 +338,7 @@ export function GlitterPosApp({
     return () => {
       cancelled = true;
     };
-  }, [
-    editingProduct,
-    powerSyncDb,
-    inventoryMovements,
-    inventoryWatchReady,
-  ]);
+  }, [editingProduct, powerSyncDb, inventoryMovements, inventoryWatchReady]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
@@ -676,17 +671,23 @@ export function GlitterPosApp({
   }, [powerSyncDb]);
 
   function showToast(text: string, tone: ToastMessage["tone"] = "success") {
-    const message = { id: `${Date.now()}`, text, tone };
-    setToast(message);
-    window.setTimeout(() => {
-      setToast((current) => (current?.id === message.id ? null : current));
-    }, 2600);
+    if (tone === "danger") {
+      sonnerToast.error(text);
+    } else if (tone === "info") {
+      sonnerToast.info(text);
+    } else {
+      sonnerToast.success(text);
+    }
   }
 
   function openEditor(product: Product | null) {
     setPreviousView(view === "editor" ? "products" : view);
     setEditingProduct(product);
     setView("editor");
+  }
+
+  function openImport() {
+    showToast("La importación desde Excel aún no está disponible.", "info");
   }
 
   async function handleSaveProduct(input: {
@@ -1029,9 +1030,12 @@ export function GlitterPosApp({
         inventoryStockReady={inventoryStockReady}
         category={catalogCategory}
         query={catalogQuery}
+        userDisplayName={tenantContext.user.displayName}
+        userEmail={tenantContext.user.email}
         setCategory={setCatalogCategory}
         setQuery={setCatalogQuery}
         openEditor={openEditor}
+        onImport={openImport}
         restoreProduct={async (productId) => {
           if (!tenantContext.tenant) {
             showToast("Tu cuenta aún no tiene un tenant.", "danger");
@@ -1063,9 +1067,7 @@ export function GlitterPosApp({
       <SettingsScreen
         tenantContext={tenantContext}
         tenantMembers={membersForNames}
-        teamSyncPending={
-          !teamSyncConfirmed && initialTenantMembers.length > 0
-        }
+        teamSyncPending={!teamSyncConfirmed && initialTenantMembers.length > 0}
         productCount={activeProducts.length}
         saleCount={sales.filter((sale) => sale.status === "completed").length}
         pendingCount={sales.length}
@@ -1148,20 +1150,20 @@ export function GlitterPosApp({
         sale={selectedSale}
         sales={sales}
         back={() => setView("reports")}
-        voidSale={(saleId) => {
-          void handleVoidSale(saleId).then((voided) => {
+        voidSale={(saleId) =>
+          handleVoidSale(saleId).then((voided) => {
             if (voided) {
               setView("reports");
             }
-          });
-        }}
-        refundSale={(saleId) => {
-          void handleRefundSale(saleId).then((refunded) => {
+          })
+        }
+        refundSale={(saleId) =>
+          handleRefundSale(saleId).then((refunded) => {
             if (refunded) {
               setView("reports");
             }
-          });
-        }}
+          })
+        }
       />
     ),
     diagnostics: (
@@ -1180,7 +1182,13 @@ export function GlitterPosApp({
         {["sell", "reports", "products", "settings"].includes(view) ? (
           <BottomNav view={view} setView={(nextView) => setView(nextView)} />
         ) : null}
-        {toast ? <Toast toast={toast} /> : null}
+        <Toaster
+          richColors
+          position="bottom-center"
+          offset={{ bottom: "88px" }}
+          mobileOffset={{ bottom: "88px" }}
+          duration={2600}
+        />
       </div>
     </main>
   );

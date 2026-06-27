@@ -1,6 +1,8 @@
 import { PackagePlus, Search } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { CategoryRail } from "@/components/molecules/category-rail";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { ProductTile } from "@/components/molecules/product-tile";
@@ -37,31 +39,28 @@ export function SellScreen(props: SellScreenProps) {
   });
 
   return (
-    <section className="screen sell-screen">
-      <Header
-        title="Glitter POS"
-        left={<BrandMark />}
-        right={
-          <button className="icon-button" aria-label="Buscar">
-            <Search size={22} />
-          </button>
-        }
-      />
+    <section className="screen">
+      <Header title="Glitter POS" left={<BrandMark />} />
+
       <CategoryRail
         active={props.category}
         categories={categories}
         setActive={props.setCategory}
       />
-      <div className="search-panel compact">
-        <Search size={18} />
-        <input
+
+      <div className="relative mb-3">
+        <Search className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-muted-foreground" />
+        <Input
           value={props.query}
           onChange={(event) => props.setQuery(event.target.value)}
           placeholder="Buscar producto"
+          aria-label="Buscar producto"
+          className="h-12 rounded-2xl pl-11"
         />
       </div>
+
       {filtered.length ? (
-        <div className="product-grid">
+        <div className="grid grid-cols-2 gap-3.5">
           {filtered.map((product) => {
             const quantity =
               props.cart.find((line) => line.productId === product.id)
@@ -85,13 +84,14 @@ export function SellScreen(props: SellScreenProps) {
           title="Agrega tu primer producto"
           body="Tu catálogo está vacío."
           action={
-            <button
-              className="primary-action"
+            <Button
+              size="lg"
               onClick={props.openProductEditor}
+              className="font-extrabold tracking-wide"
             >
-              <PackagePlus size={20} />
+              <PackagePlus className="size-5" />
               AGREGAR PRODUCTO
-            </button>
+            </Button>
           }
         />
       ) : (
@@ -101,6 +101,7 @@ export function SellScreen(props: SellScreenProps) {
           body="Prueba con otra categoría o término de búsqueda."
         />
       )}
+
       <CheckoutDock
         cartCount={props.cartCount}
         cartSubtotal={props.cartSubtotal}

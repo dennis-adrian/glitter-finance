@@ -9,13 +9,13 @@ type SettingsItemProps = {
 
 export function SettingsItem({ icon, label, value }: SettingsItemProps) {
   return (
-    <article className="settings-item">
-      <span>{icon}</span>
+    <div className="grid min-h-16 grid-cols-[42px_1fr_24px] items-center rounded-2xl bg-card px-3.5 ring-1 ring-foreground/10">
+      <span className="text-primary">{icon}</span>
       <div>
-        <strong>{label}</strong>
-        <small>{value}</small>
+        <strong className="block text-sm font-semibold">{label}</strong>
+        <small className="block text-xs text-muted-foreground">{value}</small>
       </div>
-      <ChevronRight size={20} />
-    </article>
+      <ChevronRight className="size-5 text-muted-foreground" />
+    </div>
   );
 }

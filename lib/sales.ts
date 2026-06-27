@@ -144,7 +144,7 @@ export function computePaymentTotals(sales: Sale[]) {
 export function computeProductTotals(sales: Sale[]) {
   const totals = new Map<
     string,
-    { productName: string; quantity: number; total: number }
+    { productId: string; productName: string; quantity: number; total: number }
   >();
 
   sales
@@ -152,14 +152,16 @@ export function computeProductTotals(sales: Sale[]) {
     .forEach((sale) => {
       const sign = sale.refundOfSaleId ? -1 : 1;
       sale.lines.forEach((line) => {
-        const key = line.productId || line.productName;
-        const current = totals.get(key) ?? {
+        const productId = line.productId || line.productName;
+        const current = totals.get(productId) ?? {
+          productId,
           productName: line.productName,
           quantity: 0,
           total: 0,
         };
 
-        totals.set(key, {
+        totals.set(productId, {
+          productId,
           productName: line.productName,
           quantity: current.quantity + line.quantity * sign,
           total: current.total + line.lineTotalCents * sign,
@@ -175,20 +177,27 @@ export function computeProductTotals(sales: Sale[]) {
 export function computeUserTotals(sales: Sale[]) {
   const totals = new Map<
     string,
-    { userName: string; transactionCount: number; total: number }
+    {
+      userId: string;
+      userName: string;
+      transactionCount: number;
+      total: number;
+    }
   >();
 
   sales
     .filter((sale) => sale.status !== "voided")
     .forEach((sale) => {
       const current = totals.get(sale.userId) ?? {
+        userId: sale.userId,
         userName: sale.userName,
         transactionCount: 0,
         total: 0,
       };
 
       totals.set(sale.userId, {
-        userName: sale.userName,
+        userId: sale.userId,
+        userName: current.userName,
         transactionCount:
           current.transactionCount + (sale.refundOfSaleId ? 0 : 1),
         total: current.total + saleNetCents(sale),
