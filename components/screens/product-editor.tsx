@@ -341,7 +341,10 @@ export function ProductEditor({
           value={category}
           onValueChange={(value) => setCategory(value ?? "")}
         >
-          <SelectTrigger id="product-category" className="h-12 w-full rounded-xl">
+          <SelectTrigger
+            id="product-category"
+            className="h-12 w-full rounded-xl"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -394,7 +397,7 @@ export function ProductEditor({
           </p>
         ) : null}
 
-        {product && tracksInventory && trackingPersisted ? (
+        {product && trackingPersisted ? (
           <div className="mt-4 grid gap-3">
             {currentStock != null ? (
               <p className="text-sm text-muted-foreground">
@@ -421,7 +424,6 @@ export function ProductEditor({
                   type="button"
                   variant="outline"
                   size="icon-lg"
-                  className="rounded-xl"
                   disabled={!canRestock || inventoryMovementSubmitting}
                   aria-label="Registrar reabastecimiento"
                   onClick={() => void submitMovement("restock", restockAmount)}
@@ -469,7 +471,6 @@ export function ProductEditor({
                       type="button"
                       variant="outline"
                       size="lg"
-                      className="rounded-xl"
                       disabled={!canAdjust || inventoryMovementSubmitting}
                       onClick={() =>
                         void submitMovement("adjustment", adjustmentAmount, {
@@ -505,7 +506,6 @@ export function ProductEditor({
                       type="button"
                       variant="outline"
                       size="lg"
-                      className="rounded-xl"
                       disabled={!canLoss || inventoryMovementSubmitting}
                       aria-label="Registrar pérdida"
                       onClick={() =>
@@ -542,7 +542,6 @@ export function ProductEditor({
                       type="button"
                       variant="outline"
                       size="lg"
-                      className="rounded-xl"
                       disabled={!canGift || inventoryMovementSubmitting}
                       aria-label="Registrar regalo"
                       onClick={() =>
@@ -586,7 +585,7 @@ export function ProductEditor({
       <Button
         size="lg"
         disabled={!canSave}
-        className="sticky bottom-0 mt-4 w-full rounded-2xl font-extrabold tracking-wide shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
+        className="sticky bottom-0 mt-4 w-full font-extrabold tracking-wide shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
         onClick={() => {
           if (
             showInitialStockField &&

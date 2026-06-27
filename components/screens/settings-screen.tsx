@@ -170,7 +170,7 @@ export function SettingsScreen({
           size="lg"
           type="submit"
           disabled={signingOut}
-          className="w-full rounded-2xl"
+          className="w-full"
         >
           {signingOut ? "Cerrando sesión…" : "Cerrar sesión"}
         </Button>

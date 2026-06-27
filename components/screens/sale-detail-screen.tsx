@@ -227,7 +227,6 @@ export function SaleDetailScreen({
           type="button"
           variant="outline"
           size="lg"
-          className="rounded-2xl"
           disabled={!canVoid}
           onClick={() => voidSale(sale.id)}
         >
@@ -238,7 +237,6 @@ export function SaleDetailScreen({
           type="button"
           variant="outline"
           size="lg"
-          className="rounded-2xl"
           disabled={!canRefund}
           onClick={() => refundSale(sale.id)}
         >

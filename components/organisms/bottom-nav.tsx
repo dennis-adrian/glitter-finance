@@ -34,7 +34,7 @@ export function BottomNav({ view, setView }: BottomNavProps) {
 
   return (
     <nav
-      className="absolute inset-x-0 bottom-0 grid h-[66px] grid-cols-4 border-t border-border bg-background/90 shadow-[0_-8px_22px_rgba(22,16,35,0.06)] backdrop-blur-md"
+      className="absolute inset-x-0 bottom-0 z-30 grid h-[66px] grid-cols-4 border-t border-border bg-card shadow-[0_-8px_22px_rgba(22,16,35,0.06)]"
       aria-label="Navegación principal"
     >
       {items.map((item) => {

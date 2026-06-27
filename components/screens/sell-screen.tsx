@@ -87,7 +87,7 @@ export function SellScreen(props: SellScreenProps) {
             <Button
               size="lg"
               onClick={props.openProductEditor}
-              className="rounded-2xl font-extrabold tracking-wide"
+              className="font-extrabold tracking-wide"
             >
               <PackagePlus className="size-5" />
               AGREGAR PRODUCTO

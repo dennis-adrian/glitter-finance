@@ -4,6 +4,7 @@ import { SerwistClientProvider } from "@/components/providers/serwist-client-pro
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import "./globals.css";
 import { Inter, Geist } from "next/font/google";
+import { SHELL_THEME_COLORS } from "@/lib/shell-theme-colors";
 import { cn } from "@/lib/utils";
 
 const geistHeading = Geist({subsets:['latin'],variable:'--font-heading'});
@@ -33,8 +34,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#252422" },
+    { media: "(prefers-color-scheme: light)", color: SHELL_THEME_COLORS.light },
+    { media: "(prefers-color-scheme: dark)", color: SHELL_THEME_COLORS.dark },
   ],
 };
 

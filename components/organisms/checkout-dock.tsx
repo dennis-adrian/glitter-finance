@@ -16,14 +16,14 @@ export function CheckoutDock({
   openPayment,
 }: CheckoutDockProps) {
   return (
-    <div className="absolute right-4 bottom-[76px] left-4 grid grid-cols-[58px_1fr] gap-3">
+    <div className="absolute right-4 bottom-[76px] left-4 z-30 grid grid-cols-[58px_1fr] gap-3">
       <Button
         type="button"
         variant="secondary"
         size="icon-lg"
         onClick={openCart}
         aria-label="Ver carrito"
-        className="relative rounded-2xl"
+        className="relative"
       >
         <ReceiptText className="size-[22px]" />
         {cartCount ? (
@@ -37,7 +37,7 @@ export function CheckoutDock({
         size="lg"
         disabled={!cartCount}
         onClick={openPayment}
-        className="justify-between rounded-2xl shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
+        className="justify-between shadow-lg shadow-primary/25 disabled:pointer-events-auto disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
       >
         <span className="font-extrabold tracking-wide">COBRAR</span>
         <strong className="text-lg font-extrabold tabular-nums">

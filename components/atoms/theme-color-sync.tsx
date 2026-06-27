@@ -1,12 +1,8 @@
 "use client";
 
+import { SHELL_THEME_COLORS } from "@/lib/shell-theme-colors";
 import { useTheme } from "next-themes";
 import { useEffect } from "react";
-
-const THEME_COLORS = {
-  light: "#ffffff",
-  dark: "#252422",
-} as const;
 
 export function ThemeColorSync() {
   const { resolvedTheme } = useTheme();
@@ -15,7 +11,9 @@ export function ThemeColorSync() {
     if (!resolvedTheme) return;
 
     const color =
-      resolvedTheme === "dark" ? THEME_COLORS.dark : THEME_COLORS.light;
+      resolvedTheme === "dark"
+        ? SHELL_THEME_COLORS.dark
+        : SHELL_THEME_COLORS.light;
 
     for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
       meta.setAttribute("content", color);

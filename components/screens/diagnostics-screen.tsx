@@ -299,19 +299,13 @@ export function DiagnosticsScreen({
       <div className="mt-4 grid gap-2.5">
         <Button
           size="lg"
-          className="rounded-2xl"
           onClick={handleReconnect}
           disabled={!controls || reconnecting}
         >
           <RefreshCw className="size-[18px]" />
           {reconnecting ? "Reconectando…" : "Forzar sincronización"}
         </Button>
-        <Button
-          variant="outline"
-          size="lg"
-          className="rounded-2xl"
-          onClick={handleCopy}
-        >
+        <Button variant="outline" size="lg" onClick={handleCopy}>
           <ClipboardCopy className="size-[18px]" />
           {copyConfirmed ? "Copiado" : "Copiar diagnóstico"}
         </Button>

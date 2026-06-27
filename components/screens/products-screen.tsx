@@ -86,7 +86,7 @@ export function ProductsScreen(props: ProductsScreenProps) {
           action={
             <Button
               size="lg"
-              className="rounded-2xl font-extrabold tracking-wide"
+              className="font-extrabold tracking-wide"
               onClick={() => props.openEditor(null)}
             >
               <Plus className="size-5" />
