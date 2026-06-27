@@ -22,7 +22,11 @@ export function CheckoutDock({
         variant="secondary"
         size="icon-lg"
         onClick={openCart}
-        aria-label="Ver carrito"
+        aria-label={
+          cartCount
+            ? `Ver carrito, ${cartCount} ${cartCount === 1 ? "producto" : "productos"}`
+            : "Ver carrito"
+        }
         className="relative"
       >
         <ReceiptText className="size-[22px]" />

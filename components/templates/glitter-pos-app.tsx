@@ -1150,20 +1150,20 @@ export function GlitterPosApp({
         sale={selectedSale}
         sales={sales}
         back={() => setView("reports")}
-        voidSale={(saleId) => {
-          void handleVoidSale(saleId).then((voided) => {
+        voidSale={(saleId) =>
+          handleVoidSale(saleId).then((voided) => {
             if (voided) {
               setView("reports");
             }
-          });
-        }}
-        refundSale={(saleId) => {
-          void handleRefundSale(saleId).then((refunded) => {
+          })
+        }
+        refundSale={(saleId) =>
+          handleRefundSale(saleId).then((refunded) => {
             if (refunded) {
               setView("reports");
             }
-          });
-        }}
+          })
+        }
       />
     ),
     diagnostics: (

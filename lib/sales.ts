@@ -197,7 +197,7 @@ export function computeUserTotals(sales: Sale[]) {
 
       totals.set(sale.userId, {
         userId: sale.userId,
-        userName: sale.userName,
+        userName: current.userName,
         transactionCount:
           current.transactionCount + (sale.refundOfSaleId ? 0 : 1),
         total: current.total + saleNetCents(sale),

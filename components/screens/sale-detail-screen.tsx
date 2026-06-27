@@ -8,6 +8,7 @@ import {
   Trash2,
   Wallet,
 } from "lucide-react";
+import { useRef, useState } from "react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { DetailRow } from "@/components/atoms/detail-row";
 import { Header } from "@/components/atoms/header";
@@ -37,8 +38,8 @@ type SaleDetailScreenProps = {
   sale: Sale | null;
   sales: Sale[];
   back: () => void;
-  voidSale: (saleId: string) => void;
-  refundSale: (saleId: string) => void;
+  voidSale: (saleId: string) => void | Promise<void>;
+  refundSale: (saleId: string) => void | Promise<void>;
 };
 
 const dateFormatter = new Intl.DateTimeFormat("es-BO", {
@@ -64,6 +65,27 @@ export function SaleDetailScreen({
   voidSale,
   refundSale,
 }: SaleDetailScreenProps) {
+  const [saleActionPending, setSaleActionPending] = useState(false);
+  const saleActionPendingRef = useRef(false);
+
+  async function handleSaleAction(
+    action: (saleId: string) => void | Promise<void>,
+    allowed: boolean,
+  ) {
+    if (!sale || !allowed || saleActionPendingRef.current) {
+      return;
+    }
+
+    saleActionPendingRef.current = true;
+    setSaleActionPending(true);
+    try {
+      await Promise.resolve(action(sale.id));
+    } finally {
+      saleActionPendingRef.current = false;
+      setSaleActionPending(false);
+    }
+  }
+
   if (!sale) {
     return (
       <section className="screen">
@@ -227,8 +249,8 @@ export function SaleDetailScreen({
           type="button"
           variant="outline"
           size="lg"
-          disabled={!canVoid}
-          onClick={() => voidSale(sale.id)}
+          disabled={!canVoid || saleActionPending}
+          onClick={() => void handleSaleAction(voidSale, canVoid)}
         >
           <Trash2 className="size-[18px]" />
           Anular venta
@@ -237,8 +259,8 @@ export function SaleDetailScreen({
           type="button"
           variant="outline"
           size="lg"
-          disabled={!canRefund}
-          onClick={() => refundSale(sale.id)}
+          disabled={!canRefund || saleActionPending}
+          onClick={() => void handleSaleAction(refundSale, canRefund)}
         >
           <RotateCcw className="size-[18px]" />
           Reembolsar venta

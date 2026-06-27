@@ -55,42 +55,74 @@ less battery on OLED phones.
 
 ## 4. Current State (Analysis)
 
-What already exists:
+### 4.1 Implemented
+
+**Tokens and utilities**
 
 - **Dark tokens are defined.** `app/globals.css` has a `.dark { … }` block
   overriding the shadcn semantic tokens (`--background`, `--foreground`,
   `--card`, `--popover`, `--primary`, `--secondary`, `--muted`, `--accent`,
-  `--destructive`, `--border`, `--input`, `--ring`, charts, sidebar).
-- **The dark variant is wired for utilities.** `@custom-variant dark (&:is(.dark
-  *))` means any `dark:` Tailwind utility activates under a `.dark` ancestor, and
-  `@theme inline` maps the tokens to `--color-*`. So all components built on
-  semantic tokens (`bg-card`, `text-muted-foreground`, `border-border`,
-  `bg-primary`, `ring-foreground/10`, …) already flip for free.
+  `--destructive`, `--border`, `--input`, `--ring`, charts, sidebar) and the
+  bespoke vars (`--bg`, `--ink`, `--hairline`, `--shadow`, `--soft-shadow`,
+  `--green`, `--amber`, `--danger`, `--amber-surface`).
+- **The dark variant is wired for utilities.** `@custom-variant dark (&:is(.dark,
+  .dark *))` means any `dark:` Tailwind utility activates under a `.dark`
+  ancestor, and `@theme inline` maps the tokens to `--color-*`. Components built
+  on semantic tokens (`bg-card`, `text-muted-foreground`, `border-border`,
+  `bg-primary`, `ring-foreground/10`, …) flip automatically when `.dark` is
+  present on `<html>`.
 
-What's missing or broken for dark:
+**Theme plumbing (`next-themes` → `.dark` on `<html>`)**
 
-- **No mechanism to apply `.dark`.** No theme library, no class on `<html>`, no
-  persistence, no system-preference detection, no no-flash script. `next-themes`
-  is not installed.
-- **Bespoke CSS vars are not overridden in `.dark`.** `--bg`, `--ink`,
-  `--hairline`, `--shadow`, `--soft-shadow`, `--green`, `--amber`, `--danger`,
-  `--primary-2` keep their light values in dark mode.
-- **Hardcoded light-only colors won't flip:**
-  - `html { background: #eeeaf5 }` — light lavender page backdrop.
-  - `body { background: <light purple/white gradient>; color: var(--ink) }` —
-    light gradient and dark `--ink` text both stay put.
-  - `.image-uploader { background:#f0eef5; border:#d4cfdd }` and `.edit-fab
-    { background:#fff }` in the product editor.
-  - Amber "cost incomplete" warning boxes use `bg-[#fff8e8]` (a light cream) in
-    `reports-screen.tsx` and `sale-detail-screen.tsx`.
-- **Already fine in both modes (dark-on-dark by design):** the `Toast`
-  (`bg-[#17151d]`/`#31234c`/`bg-destructive`) and the `.sync-pill` translucent
-  dark pill. The `.product-art` gradient placeholders are decorative and read
-  acceptably on either background (verify, don't redesign).
-- **`theme-color` is static.** `app/layout.tsx` sets `viewport.themeColor:
-  "#6822E2"`. It doesn't change per mode (and is a stale brand value — see §9).
-- **No `suppressHydrationWarning`** on `<html>`, which the pre-paint theme
-  script will require (the script mutates the class before React hydrates).
+- **`next-themes` is installed** (`package.json`).
+- **`ThemeProvider`** (`components/providers/theme-provider.tsx`) wraps the app
+  with `attribute="class"`, `defaultTheme="system"`, `enableSystem`,
+  `storageKey="glitter-theme"`, and `disableTransitionOnChange`. It injects the
+  standard pre-paint inline script so the stored mode (or system preference) is
+  applied before first paint — no FOUC on cold PWA starts.
+- **`app/layout.tsx`** nests `<ThemeProvider>` around `SerwistClientProvider` and
+  sets `suppressHydrationWarning` on `<html>` (required because the pre-paint
+  script mutates the class before React hydrates).
+- **Settings toggle is live.** `settings-screen.tsx` → "Apariencia" section uses
+  `ThemePicker` (`components/molecules/theme-picker.tsx`): Sistema / Claro /
+  Oscuro segmented control calling `setTheme()`.
+
+**PWA `theme-color`**
+
+- **`app/layout.tsx` `viewport.themeColor`** exports a media-query pair from
+  `SHELL_THEME_COLORS` (`lib/shell-theme-colors.ts`) — light and dark surface
+  colors aligned with each mode's `--bg` (not the brand crimson; see §9).
+- **`ThemeColorSync`** (`components/atoms/theme-color-sync.tsx`) reads
+  `resolvedTheme` from `next-themes` and overrides every
+  `<meta name="theme-color">` when the user forces Claro/Oscuro against the OS
+  (§5.6). Mounted in `app/layout.tsx` inside `ThemeProvider`.
+
+**Style gaps already closed**
+
+- `html` / `body` backgrounds are token-driven (`var(--bg)`, `var(--foreground)`,
+  theme-aware gradients including a `.dark body` override).
+- Product editor `.image-uploader` / `.edit-fab` use semantic tokens (`--muted`,
+  `--border`, `--card`), not hardcoded light hex.
+- Amber "cost incomplete" boxes in `reports-screen.tsx` and
+  `sale-detail-screen.tsx` use `var(--amber-surface)`, which has a `.dark`
+  override in `globals.css`.
+
+**Already fine in both modes (dark-on-dark by design):** the `Toast`
+(`bg-[#17151d]`/`#31234c`/`bg-destructive`) and the `.sync-pill` translucent
+dark pill. The `.product-art` gradient placeholders are decorative and read
+acceptably on either background (verify in audit, don't redesign).
+
+### 4.2 Remaining gaps
+
+See §6 for work items; summary of what's still open:
+
+- **`public/manifest.webmanifest`** — `theme_color` and `background_color` are
+  still static light (`#fbfafc`). Runtime `theme-color` is handled by
+  `app/layout.tsx` + `ThemeColorSync`; the manifest values only affect install /
+  splash chrome and do not track dark mode yet.
+- **Full dual-platform audit** — walk every screen in both modes on iOS Safari
+  PWA and Android Chrome PWA; grep for stranded hardcoded colors (§6.5).
+- **Optional header quick-toggle** — not built; Settings-only for v1 (§10.1).
 
 ## 5. Functional Requirements
 
@@ -155,59 +187,55 @@ OS; in Claro/Oscuro it's fixed.
 
 ## 6. Token & Style Work (the real surface area)
 
-Most components already flip via tokens; the work is closing the gaps from §4.
+Plumbing (§7), Settings toggle (§5.5), and runtime `theme-color` (§5.6) are
+implemented — see §4.1. Remaining work is in §4.2:
 
-1. **Add dark overrides for bespoke vars** in the `.dark` block of
-   `app/globals.css`: `--bg`, `--ink`, `--hairline`, `--shadow`, `--soft-shadow`,
-   and tune `--green` / `--amber` / `--danger` / `--primary-2` for dark contrast.
-   (Prefer migrating usages onto semantic tokens where reasonable, but keeping
-   the bespoke vars and giving them dark values is the lower-risk path.)
-2. **Make `html` / `body` backgrounds theme-aware.** Replace the hardcoded
-   `#eeeaf5` and the light gradient with token-driven values (or a `.dark`
-   override of the gradient). `body` text should use `--foreground` rather than
-   the fixed `--ink`.
-3. **Product editor**: give `.image-uploader` / `.edit-fab` dark variants (or
-   re-express with tokens).
-4. **Amber warning boxes**: replace `bg-[#fff8e8]` in `reports-screen.tsx` and
-   `sale-detail-screen.tsx` with a token/`dark:` treatment that reads on dark
-   (e.g. an amber-tinted surface that has both light and dark variants).
-5. **Audit pass**: grep for `#`, `rgb(`, `bg-[`, `text-[var(--green|amber)`,
+1. ~~**Add dark overrides for bespoke vars**~~ — done in `app/globals.css` `.dark`
+   block (§4.1).
+2. ~~**Make `html` / `body` backgrounds theme-aware**~~ — done (§4.1).
+3. ~~**Product editor** `.image-uploader` / `.edit-fab`~~ — done (§4.1).
+4. ~~**Amber warning boxes**~~ — done via `--amber-surface` (§4.1).
+5. **Audit pass:** grep for `#`, `rgb(`, `bg-[`, `text-[var(--green|amber)`,
    `var(--ink)` across `components/` and `app/` and confirm each reads correctly
    in dark. Decorative `.product-art` gradients and the intentionally-dark Toast
    / sync-pill are expected to stay.
-6. **`theme-color`** in `app/layout.tsx` updated per §5.6.
+6. **`manifest.webmanifest` install chrome** — align `theme_color` /
+   `background_color` with per-mode surfaces (runtime `theme-color` is already
+   handled by `app/layout.tsx` + `ThemeColorSync`; see §4.1).
 
 ## 7. Technical Approach
 
-**Recommended: `next-themes`.** It is the shadcn-canonical solution, ~2KB, fully
-offline (no network), and handles exactly our requirements: `system` default,
-`localStorage` persistence, cross-tab sync, the pre-paint no-flash script, live
-`matchMedia` updates, and a `useTheme()` hook returning `theme` + `resolvedTheme`
-+ `setTheme`. We add `attribute="class"`, `defaultTheme="system"`,
-`enableSystem`, and `disableTransitionOnChange`.
+**Implemented with `next-themes`** (shadcn-canonical, ~2KB, fully offline). See
+§4.1 for the wired setup:
 
-- Add a client `ThemeProvider` (wrapping `next-themes`) and nest it in
-  `app/layout.tsx` alongside `SerwistClientProvider` (provider is client; layout
-  stays a server component). Add `suppressHydrationWarning` to `<html>`.
-- The Settings control and any header toggle call `setTheme(mode)`.
-- `theme-color` sync handled by a small effect reading `resolvedTheme`.
+- `ThemeProvider` (`components/providers/theme-provider.tsx`) — `attribute="class"`,
+  `defaultTheme="system"`, `enableSystem`, `storageKey="glitter-theme"`,
+  `disableTransitionOnChange`.
+- `app/layout.tsx` — `suppressHydrationWarning` on `<html>`; `ThemeProvider` wraps
+  `SerwistClientProvider`; `ThemeColorSync` syncs `theme-color` from
+  `resolvedTheme`.
+- Settings `ThemePicker` calls `setTheme(mode)`.
 
-**Alternative (zero-dep):** a ~30–40 line custom hook + inline head script doing
-the same thing. Viable, but re-implements what `next-themes` already hardened
-(no-flash timing, cross-tab, system listener). Recommend `next-themes` unless we
-want to avoid the dependency.
+The pre-paint no-flash script, `localStorage` persistence, cross-tab sync, live
+`matchMedia` updates, and `useTheme()` (`theme` + `resolvedTheme` + `setTheme`) all
+come from `next-themes` as planned.
 
 ## 8. Implementation Plan
 
-1. **Plumbing:** install `next-themes`; add `ThemeProvider`; wrap in layout;
-   `suppressHydrationWarning`; verify class toggles and persists. No flash.
-2. **Token gaps:** dark overrides for bespoke vars; theme-aware `html`/`body`;
-   editor uploader; amber boxes. (§6.1–6.4)
-3. **Settings control:** "Apariencia" segmented control (Sistema/Claro/Oscuro).
-4. **PWA theme-color** sync. (§5.6)
+1. ~~**Plumbing:** install `next-themes`; add `ThemeProvider`; wrap in layout;
+   `suppressHydrationWarning`; verify class toggles and persists. No flash.~~ ✓
+   (§4.1)
+2. ~~**Token gaps:** dark overrides for bespoke vars; theme-aware `html`/`body`;
+   editor uploader; amber boxes.~~ ✓ (§4.1)
+3. ~~**Settings control:** "Apariencia" segmented control (Sistema/Claro/Oscuro).~~ ✓
+   (§4.1)
+4. ~~**PWA `theme-color` runtime sync.**~~ ✓ (`app/layout.tsx` media-query pair +
+   `ThemeColorSync`; §4.1)
 5. **Audit + dual-platform pass:** walk every screen in both modes on iOS Safari
-   PWA and Android Chrome PWA; fix contrast issues.
-6. *(Optional)* header quick-toggle, if chosen in §10.
+   PWA and Android Chrome PWA; fix contrast issues. (§4.2, §6.5)
+6. **`manifest.webmanifest` install chrome** — per-mode `theme_color` /
+   `background_color`. (§4.2, §6.6)
+7. *(Optional)* header quick-toggle, if chosen in §10.
 
 ## 9. Primary Color Note (cross-reference)
 
@@ -236,13 +264,13 @@ without a separate go-ahead. Two related observations to flag, not fix here:
 ## 10. Open Questions / Decisions
 
 1. **Header quick-toggle?** Settings-only (simplest), or also a Sun/Moon in
-   headers for one-tap switching? (Recommend: Settings-only for v1.)
-2. **Default when no OS signal / first run:** Sistema (recommended).
-3. **`theme-color` strategy:** media-query meta pair + override effect, vs fully
-   provider-managed. (Recommend: provider-managed for correctness under manual
-   override.)
-4. **Dependency:** accept `next-themes`, or hand-roll zero-dep? (Recommend:
-   `next-themes`.)
+   headers for one-tap switching? (Recommend: Settings-only for v1; current
+   build is Settings-only.)
+2. **Default when no OS signal / first run:** Sistema (recommended; implemented
+   via `defaultTheme="system"`).
+3. ~~**`theme-color` strategy:**~~ Resolved — provider-managed via
+   `ThemeColorSync` + media-query fallback in `app/layout.tsx` (§4.1).
+4. ~~**Dependency:**~~ Resolved — `next-themes` in use (§4.1).
 5. **Tune dark accent values** (`--green`/`--amber`) now, or only if the audit
    shows contrast failures?
 

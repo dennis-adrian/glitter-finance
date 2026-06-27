@@ -2,7 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.dark, .dark *));
 
 :root {
   --bg: #fbfafc;
@@ -111,7 +111,6 @@ body {
       transparent 34rem
     ),
     linear-gradient(135deg, var(--bg) 0%, var(--background) 42%, var(--bg) 100%);
-  font-family: "Avenir Next", "Nunito Sans", "Trebuchet MS", sans-serif;
   letter-spacing: 0;
 }
 
@@ -381,7 +380,7 @@ button {
   height: 1px;
   position: absolute;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
   padding: 0;
@@ -511,6 +510,6 @@ button {
     @apply bg-background text-foreground;
   }
   html {
-    @apply font-sans;
+    @apply font-sans scheme-light dark:scheme-dark;
   }
 }
