@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef } from "react";
-import clsx from "clsx";
 import { TriangleAlert } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { formatBs } from "@/lib/money";
 import {
   getProductStock,
@@ -35,6 +36,7 @@ export function ProductTile({
   const stock = inventoryStockReady
     ? getProductStock(product, stockByProduct)
     : null;
+  const stockAlert = stock?.state === "out" || stock?.state === "oversold";
 
   function clearTimer() {
     if (timer.current) {
@@ -45,9 +47,14 @@ export function ProductTile({
 
   return (
     <button
-      className={clsx(
-        "product-tile",
-        stock && `stock-${stock.state}`
+      type="button"
+      className={cn(
+        "group relative flex min-h-[236px] flex-col overflow-hidden rounded-2xl bg-card text-left ring-1 transition-transform active:scale-[0.985]",
+        quantity
+          ? "ring-2 ring-primary"
+          : stockAlert
+            ? "ring-destructive/40"
+            : "ring-foreground/10"
       )}
       onPointerDown={() => {
         longPressed.current = false;
@@ -67,22 +74,31 @@ export function ProductTile({
       }}
     >
       <ProductArt product={product} />
-      {quantity ? <span className="quantity-pill">{quantity}x</span> : null}
+      {quantity ? (
+        <Badge className="absolute top-2 right-2 h-7 min-w-7 rounded-full px-2 text-sm font-bold tabular-nums">
+          {quantity}×
+        </Badge>
+      ) : null}
       {stock ? (
-        <span
-          className={clsx("stock-badge", stock.state)}
+        <Badge
+          variant={stock.state === "oversold" ? "destructive" : "secondary"}
+          className="absolute top-2 left-2 h-6 gap-1 rounded-full font-semibold"
           aria-label={stockAriaLabel(stock)}
         >
           {stockNeedsGlyph(stock.state) ? (
-            <TriangleAlert size={11} aria-hidden="true" />
+            <TriangleAlert aria-hidden="true" />
           ) : null}
           {stockBadgeLabel(stock)}
-        </span>
+        </Badge>
       ) : null}
-      <span className="product-copy">
-        <span>{product.name}</span>
-        <strong>{formatBs(product.priceCents, true)}</strong>
-      </span>
+      <div className="px-3 pt-2.5 pb-3.5">
+        <span className="block text-[15px] leading-tight text-foreground">
+          {product.name}
+        </span>
+        <strong className="mt-1 block text-xl leading-none font-bold text-primary">
+          {formatBs(product.priceCents, true)}
+        </strong>
+      </div>
     </button>
   );
 }

@@ -1,3 +1,5 @@
+import { Button } from "@/components/ui/button";
+
 type CategoryRailProps = {
   categories: string[];
   active: string;
@@ -10,15 +12,18 @@ export function CategoryRail({
   setActive,
 }: CategoryRailProps) {
   return (
-    <div className="category-rail">
+    <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {categories.map((item) => (
-        <button
+        <Button
           key={item}
-          className={active === item ? "active" : ""}
+          type="button"
+          size="sm"
+          variant={active === item ? "default" : "outline"}
+          className="h-9 shrink-0 rounded-full px-4"
           onClick={() => setActive(item)}
         >
           {item}
-        </button>
+        </Button>
       ))}
     </div>
   );

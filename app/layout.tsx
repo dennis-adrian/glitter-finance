@@ -1,6 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { SerwistClientProvider } from "@/components/providers/serwist-client-provider";
 import "./globals.css";
+import { Inter, Geist } from "next/font/google";
+import { cn } from "@/lib/utils";
+
+const geistHeading = Geist({subsets:['latin'],variable:'--font-heading'});
+
+const inter = Inter({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
   title: "Glitter POS",
@@ -33,7 +39,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es">
+    <html lang="es" className={cn("font-sans", inter.variable, geistHeading.variable)}>
       <body>
         <SerwistClientProvider>{children}</SerwistClientProvider>
       </body>
