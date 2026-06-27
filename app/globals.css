@@ -9,10 +9,10 @@
   --panel: #ffffff;
   --ink: #17151d;
   --hairline: #e8e4ee;
-  --primary-2: #8b5cf6;
   --green: #16a34a;
   --danger: #dc3545;
   --amber: #b7791f;
+  --amber-surface: #fff8e8;
   --shadow: 0 18px 48px rgba(35, 20, 66, 0.12);
   --soft-shadow: 0 10px 24px rgba(37, 27, 52, 0.09);
   --background: oklch(1 0 0);
@@ -50,6 +50,16 @@
 }
 
 .dark {
+  --bg: oklch(0.147 0.004 49.25);
+  --panel: oklch(0.216 0.006 56.043);
+  --ink: oklch(0.985 0.001 106.423);
+  --hairline: oklch(1 0 0 / 10%);
+  --green: #4ade80;
+  --danger: #f87171;
+  --amber: #fbbf24;
+  --amber-surface: oklch(0.28 0.04 75);
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+  --soft-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
   --background: oklch(0.147 0.004 49.25);
   --foreground: oklch(0.985 0.001 106.423);
   --card: oklch(0.216 0.006 56.043);
@@ -88,21 +98,36 @@
 }
 
 html {
-  background: #eeeaf5;
+  background: var(--bg);
 }
 
 body {
   margin: 0;
-  color: var(--ink);
+  color: var(--foreground);
   background:
     radial-gradient(
       circle at top left,
-      rgba(104, 34, 226, 0.08),
+      color-mix(in oklch, var(--primary) 6%, transparent),
       transparent 34rem
     ),
-    linear-gradient(135deg, #f8f4fb 0%, #f8faf9 42%, #f5f1fb 100%);
+    linear-gradient(135deg, var(--bg) 0%, var(--background) 42%, var(--bg) 100%);
   font-family: "Avenir Next", "Nunito Sans", "Trebuchet MS", sans-serif;
   letter-spacing: 0;
+}
+
+.dark body {
+  background:
+    radial-gradient(
+      circle at top left,
+      color-mix(in oklch, var(--primary) 10%, transparent),
+      transparent 34rem
+    ),
+    linear-gradient(
+      135deg,
+      oklch(0.16 0.006 49.25) 0%,
+      var(--background) 42%,
+      oklch(0.15 0.005 49.25) 100%
+    );
 }
 
 button,
@@ -187,9 +212,10 @@ button {
   height: 30px;
 }
 
-/* Product placeholder art: gradient tiles with an initial when there's no
-   uploaded image. Shared by Sell Mode tiles, the catalog, cart lines, and the
-   product editor preview. */
+/* Product placeholder art: a flat tile tinted by the product's tone, with the
+   initial drawn in the full tone color. No gradients. Each tone sets --tone
+   (shared with the editor's tone-dot swatches). Used by Sell Mode tiles, the
+   catalog, cart lines, and the product editor preview. */
 .product-art {
   width: 100%;
   aspect-ratio: 1.13;
@@ -197,40 +223,19 @@ button {
   place-items: center;
   position: relative;
   overflow: hidden;
-}
-
-.product-art::before,
-.product-art::after {
-  content: "";
-  position: absolute;
-  inset: 18%;
-  border-radius: 36% 64% 44% 56%;
-  background: rgba(255, 255, 255, 0.38);
-  filter: blur(1px);
-  transform: rotate(20deg);
-}
-
-.product-art::after {
-  inset: 52% 12% 9% 44%;
-  background: rgba(0, 0, 0, 0.08);
-  filter: blur(10px);
+  background: color-mix(in oklab, var(--tone, #8b46d8) 20%, var(--card));
 }
 
 .product-art span {
   position: relative;
   z-index: 1;
   font-size: 56px;
-  color: rgba(33, 23, 52, 0.52);
-  font-weight: 600;
+  color: var(--tone, #8b46d8);
+  font-weight: 700;
 }
 
 .product-art.has-image {
-  background: #f4f1f7;
-}
-
-.product-art.has-image::before,
-.product-art.has-image::after {
-  display: none;
+  background: var(--muted);
 }
 
 .product-art img {
@@ -251,43 +256,44 @@ button {
   font-size: 22px;
 }
 
-.product-art.aurora {
-  background: linear-gradient(145deg, #291244, #d23688 47%, #48c0d8);
+/* Tone palette — drives both the placeholder tiles and the editor tone-dots. */
+.product-art.aurora,
+.tone-dot.aurora {
+  --tone: #c0397f;
 }
 
-.product-art.coral {
-  background: radial-gradient(
-    circle at 50% 35%,
-    #ffd8b1 0 20%,
-    #f47f55 21% 46%,
-    #fff0e7 47% 100%
-  );
+.product-art.coral,
+.tone-dot.coral {
+  --tone: #ee6a40;
 }
 
-.product-art.linen {
-  background: linear-gradient(135deg, #efe5cf, #b78c5e);
+.product-art.linen,
+.tone-dot.linen {
+  --tone: #a87a45;
 }
 
-.product-art.violet {
-  background: #a879ed;
+.product-art.violet,
+.tone-dot.violet {
+  --tone: #8b46d8;
 }
 
-.product-art.warm {
-  background: linear-gradient(160deg, #f6c17a, #8f5935);
+.product-art.warm,
+.tone-dot.warm {
+  --tone: #cf8a2c;
 }
 
 /* Product editor image uploader + tone picker (coupled to .product-art). */
 .field-label {
   display: flex;
   justify-content: space-between;
-  color: #504a5c;
+  color: var(--muted-foreground);
   margin: 14px 0 6px;
 }
 
 .image-uploader {
   min-height: 240px;
-  border: 1px dashed #d4cfdd;
-  background: #f0eef5;
+  border: 1px dashed var(--border);
+  background: var(--muted);
   display: grid;
   place-items: center;
   position: relative;
@@ -321,12 +327,12 @@ button {
   align-self: end;
   margin-bottom: 16px;
   padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.94);
+  background: color-mix(in oklch, var(--card) 94%, transparent);
   box-shadow: var(--soft-shadow);
 }
 
 .image-uploader span {
-  color: #9b95a8;
+  color: var(--muted-foreground);
 }
 
 .edit-fab {
@@ -337,7 +343,7 @@ button {
   height: 48px;
   border: 0;
   border-radius: 999px;
-  background: #fff;
+  background: var(--card);
   color: var(--primary);
   display: grid;
   place-items: center;
@@ -354,10 +360,11 @@ button {
   width: 30px;
   height: 30px;
   border-radius: 999px;
-  border: 2px solid #fff;
+  border: 2px solid var(--background);
   display: grid;
   place-items: center;
   color: #fff;
+  background: var(--tone, #8b46d8);
 }
 
 .tone-dot.active {
@@ -418,8 +425,8 @@ button {
 }
 
 .sync-pill-syncing .sync-pill-dot {
-  background: #6822e2;
-  box-shadow: 0 0 0 4px rgba(104, 34, 226, 0.2);
+  background: #c70036;
+  box-shadow: 0 0 0 4px rgba(199, 0, 54, 0.2);
   animation: sync-pulse 1.2s ease-in-out infinite;
 }
 
@@ -445,18 +452,6 @@ button {
   }
   50% {
     opacity: 0.4;
-  }
-}
-
-/* Toast entrance (used via [animation:toast-in_...] on the Toast component). */
-@keyframes toast-in {
-  from {
-    transform: translateY(10px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
   }
 }
 

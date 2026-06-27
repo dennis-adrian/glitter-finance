@@ -336,12 +336,12 @@ export function ProductEditor({
         Se usa para calcular ganancias. Si queda vacío, el costo se marca como
         desconocido.
       </p>
-      <FormField label="Categoría">
+      <FormField label="Categoría" id="product-category">
         <Select
           value={category}
           onValueChange={(value) => setCategory(value ?? "")}
         >
-          <SelectTrigger className="h-12 w-full rounded-xl">
+          <SelectTrigger id="product-category" className="h-12 w-full rounded-xl">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -394,7 +394,7 @@ export function ProductEditor({
           </p>
         ) : null}
 
-        {product && trackingPersisted ? (
+        {product && tracksInventory && trackingPersisted ? (
           <div className="mt-4 grid gap-3">
             {currentStock != null ? (
               <p className="text-sm text-muted-foreground">

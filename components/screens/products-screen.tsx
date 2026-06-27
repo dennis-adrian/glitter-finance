@@ -20,6 +20,7 @@ type ProductsScreenProps = {
   setQuery: (value: string) => void;
   openEditor: (product: Product | null) => void;
   restoreProduct: (productId: string) => void;
+  onImport?: () => void;
 };
 
 export function ProductsScreen(props: ProductsScreenProps) {
@@ -102,13 +103,17 @@ export function ProductsScreen(props: ProductsScreenProps) {
       >
         <Plus className="size-8" />
       </Button>
-      <Button
-        variant="ghost"
-        className="absolute bottom-[88px] left-1/2 -translate-x-1/2 text-primary hover:text-primary"
-      >
-        <Download className="size-4" />
-        Importar desde Excel
-      </Button>
+      {props.onImport ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="absolute bottom-[88px] left-1/2 -translate-x-1/2 text-primary hover:text-primary"
+          onClick={props.onImport}
+        >
+          <Download className="size-4" />
+          Importar desde Excel
+        </Button>
+      ) : null}
     </section>
   );
 }

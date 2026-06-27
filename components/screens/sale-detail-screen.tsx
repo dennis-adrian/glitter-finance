@@ -215,7 +215,7 @@ export function SaleDetailScreen({
       </section>
 
       {hasUnknownCost ? (
-        <div className="mt-3 flex gap-2 rounded-xl border border-[var(--amber)]/35 bg-[#fff8e8] p-3 text-sm text-[var(--amber)]">
+        <div className="mt-3 flex gap-2 rounded-xl border border-[var(--amber)]/35 bg-[var(--amber-surface)] p-3 text-sm text-[var(--amber)]">
           <Info className="size-[17px] shrink-0" />
           La ganancia es un máximo estimado porque al menos un producto no tiene
           costo registrado.

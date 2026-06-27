@@ -29,46 +29,48 @@ export function SaleRow({
   return (
     <article
       className={cn(
-        "grid cursor-pointer grid-cols-[46px_1fr_auto] gap-x-2.5 gap-y-2 border-b border-border py-3.5 last:border-b-0",
+        "border-b border-border py-3.5 last:border-b-0",
         sale.status === "voided" && "opacity-60"
       )}
-      onClick={() => openSale(sale.id)}
     >
-      <span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
-        {sale.paymentMethod === "cash" ? (
-          <ShoppingBag size={20} />
-        ) : (
-          <QrCode size={20} />
-        )}
-      </span>
-      <div className="min-w-0">
-        <strong className="block text-base">
-          {isRefundRecord ? "Reembolso" : `#${sale.id.slice(-5)}`}
-        </strong>
-        <span className="block text-sm text-muted-foreground">
-          {relativeTime(sale.createdAt)} · {paymentLabels[sale.paymentMethod]}
-          {sale.status === "voided" ? " · Anulada" : ""}
+      <button
+        type="button"
+        className="grid w-full grid-cols-[46px_1fr_auto] gap-x-2.5 text-left"
+        onClick={() => openSale(sale.id)}
+      >
+        <span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
+          {sale.paymentMethod === "cash" ? (
+            <ShoppingBag size={20} />
+          ) : (
+            <QrCode size={20} />
+          )}
         </span>
-        <small className="block max-w-[190px] truncate text-sm text-muted-foreground">
-          {sale.lines
-            .map((line) => `${line.quantity}x ${line.productName}`)
-            .join(", ")}
-        </small>
-      </div>
-      <b className="text-base whitespace-nowrap tabular-nums">
-        {formatBs(amount, true)}
-      </b>
+        <div className="min-w-0">
+          <strong className="block text-base">
+            {isRefundRecord ? "Reembolso" : `#${sale.id.slice(-5)}`}
+          </strong>
+          <span className="block text-sm text-muted-foreground">
+            {relativeTime(sale.createdAt)} · {paymentLabels[sale.paymentMethod]}
+            {sale.status === "voided" ? " · Anulada" : ""}
+          </span>
+          <small className="block max-w-[190px] truncate text-sm text-muted-foreground">
+            {sale.lines
+              .map((line) => `${line.quantity}x ${line.productName}`)
+              .join(", ")}
+          </small>
+        </div>
+        <b className="text-base whitespace-nowrap tabular-nums">
+          {formatBs(amount, true)}
+        </b>
+      </button>
       {canVoid || canRefund ? (
-        <div className="col-start-2 col-end-4 flex gap-2">
+        <div className="mt-2 flex gap-2 pl-[54px]">
           {canVoid ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={(event) => {
-                event.stopPropagation();
-                voidSale(sale.id);
-              }}
+              onClick={() => voidSale(sale.id)}
             >
               Anular
             </Button>
@@ -78,10 +80,7 @@ export function SaleRow({
               type="button"
               variant="outline"
               size="sm"
-              onClick={(event) => {
-                event.stopPropagation();
-                refundSale(sale.id);
-              }}
+              onClick={() => refundSale(sale.id)}
             >
               Reembolso
             </Button>

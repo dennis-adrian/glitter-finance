@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
+import { ThemeColorSync } from "@/components/atoms/theme-color-sync";
 import { SerwistClientProvider } from "@/components/providers/serwist-client-provider";
+import { ThemeProvider } from "@/components/providers/theme-provider";
 import "./globals.css";
 import { Inter, Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
@@ -30,7 +32,10 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#6822E2",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#252422" },
+  ],
 };
 
 export default function RootLayout({
@@ -39,9 +44,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className={cn("font-sans", inter.variable, geistHeading.variable)}>
+    <html
+      lang="es"
+      className={cn("font-sans", inter.variable, geistHeading.variable)}
+      suppressHydrationWarning
+    >
       <body>
-        <SerwistClientProvider>{children}</SerwistClientProvider>
+        <ThemeProvider>
+          <ThemeColorSync />
+          <SerwistClientProvider>{children}</SerwistClientProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

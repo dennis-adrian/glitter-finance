@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BarChart3, Info, Wallet } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
@@ -90,6 +90,11 @@ export function ReportsScreen({
   const [range, setRange] = useState<ReportRange>("today");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  const [showAllSales, setShowAllSales] = useState(false);
+
+  useEffect(() => {
+    setShowAllSales(false);
+  }, [customEnd, customStart, range]);
   const visibleSales = useMemo(
     () =>
       sales.filter((sale) => {
@@ -133,6 +138,9 @@ export function ReportsScreen({
   const refundedIds = new Set(
     sales.map((sale) => sale.refundOfSaleId).filter(Boolean)
   );
+  const hasMoreSales = visibleSales.length > 8;
+  const displayedSales =
+    showAllSales || !hasMoreSales ? visibleSales : visibleSales.slice(0, 8);
 
   return (
     <section className="screen">
@@ -140,9 +148,9 @@ export function ReportsScreen({
         title="Reportes"
         left={<BrandMark />}
         right={
-          <Button variant="ghost" size="icon" aria-label="Reportes">
+          <span className="grid size-10 place-items-center text-primary" aria-hidden>
             <BarChart3 className="size-[23px]" />
-          </Button>
+          </span>
         }
       />
 
@@ -217,7 +225,7 @@ export function ReportsScreen({
       </div>
 
       {metrics.hasUnknownCost ? (
-        <div className="my-3 flex gap-2 rounded-xl border border-[var(--amber)]/35 bg-[#fff8e8] p-3 text-sm text-[var(--amber)]">
+        <div className="my-3 flex gap-2 rounded-xl border border-[var(--amber)]/35 bg-[var(--amber-surface)] p-3 text-sm text-[var(--amber)]">
           <Info className="size-[17px] shrink-0" />
           Ganancia es un máximo estimado porque algunos productos no tienen
           costo registrado.
@@ -315,11 +323,19 @@ export function ReportsScreen({
       <section className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Ventas recientes</h2>
-          <Button variant="link" size="sm" className="px-0">
-            Ver todo
-          </Button>
+          {hasMoreSales ? (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="px-0"
+              onClick={() => setShowAllSales((current) => !current)}
+            >
+              {showAllSales ? "Ver menos" : "Ver todo"}
+            </Button>
+          ) : null}
         </div>
-        {visibleSales.slice(0, 8).map((sale) => {
+        {displayedSales.map((sale) => {
           const canVoid =
             sale.status === "completed" &&
             !refundedIds.has(sale.id) &&

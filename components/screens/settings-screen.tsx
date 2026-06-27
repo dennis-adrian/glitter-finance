@@ -12,6 +12,7 @@ import { signOut } from "@/app/auth/actions";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
 import { SettingsItem } from "@/components/molecules/settings-item";
+import { ThemePicker } from "@/components/molecules/theme-picker";
 import { Button } from "@/components/ui/button";
 import { usePowerSyncControls } from "@/components/providers/powersync-provider";
 import type { UserTenantContext } from "@/lib/auth/user-context";
@@ -115,6 +116,11 @@ export function SettingsScreen({
             value="Estado de sincronización y dispositivo"
           />
         </button>
+      </section>
+
+      <section className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+        <h2 className="mb-3 text-lg font-semibold">Apariencia</h2>
+        <ThemePicker />
       </section>
 
       <section className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
