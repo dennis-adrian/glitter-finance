@@ -54,6 +54,10 @@ export function computeStockByProduct(
   }
 
   for (const movement of movements) {
+    const baseline = trackingBaselineByProduct.get(movement.productId);
+    if (baseline && movement.createdAt < baseline) {
+      continue;
+    }
     stock.set(
       movement.productId,
       (stock.get(movement.productId) ?? 0) + movement.delta

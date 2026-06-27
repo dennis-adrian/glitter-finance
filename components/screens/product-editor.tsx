@@ -355,7 +355,7 @@ export function ProductEditor({
 
         {product && trackingPersisted ? (
           <div className="inventory-actions">
-            {currentStock ? (
+            {currentStock != null ? (
               <p className="inventory-current">
                 En mano: <strong>{stockValueLabel(currentStock)}</strong>
               </p>

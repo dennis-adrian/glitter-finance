@@ -378,10 +378,11 @@ replicate to PowerSync but never reach the client; sync-rules-without-client-sch
 → the client can't read the table. Deploy all four together, in order, per
 environment:
 
-1. `npm run db:push` (schema + the hand-written RLS/FK/CHECK migration).
-2. Run the manual publication script (§6.3); confirm with the query above.
-3. Deploy sync rules in PowerSync Cloud (§6.4).
-4. Ship the app build (client schema + `inventory_movements` watch).
+1. `npm run db:push` (Drizzle-generated schema migrations only).
+2. Run the manual SQL from §6.2 (`supabase/manual/20260626170000_inventory_movements_rls.sql`) in the Supabase SQL editor.
+3. Run the manual publication script (§6.3); confirm with the query above.
+4. Deploy sync rules in PowerSync Cloud (§6.4).
+5. Ship the app build (client schema + `inventory_movements` watch).
 
 ## 7. Write Path and Derivation
 

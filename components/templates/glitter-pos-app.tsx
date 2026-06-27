@@ -185,10 +185,12 @@ export function GlitterPosApp({
     useState<TenantMember[]>(initialTenantMembers);
   const [inventoryMovements, setInventoryMovements] = useState<
     InventoryMovement[]
-  >([]);
+  >(initialInventoryMovements);
   const [editorHasInitialMovement, setEditorHasInitialMovement] =
     useState(false);
-  const [inventoryWatchReady, setInventoryWatchReady] = useState(false);
+  const [inventoryWatchReady, setInventoryWatchReady] = useState(
+    () => !isPowerSyncConfigured() || initialInventoryMovements.length > 0
+  );
   const [teamSyncConfirmed, setTeamSyncConfirmed] = useState(
     () => initialTenantMembers.length === 0
   );
@@ -246,6 +248,7 @@ export function GlitterPosApp({
     () => computeStockByProduct(inventoryMovements, sales),
     [inventoryMovements, sales]
   );
+  const activeTenantId = tenantContext.tenant?.id ?? null;
 
   useEffect(() => {
     initialTenantMembersRef.current = initialTenantMembers;
@@ -257,12 +260,20 @@ export function GlitterPosApp({
     hydrateProducts(initialProducts);
     hydrateSales(initialSales);
     setTenantMembers(initialTenantMembers);
+    setInventoryMovements(initialInventoryMovements);
+    if (!isPowerSyncConfigured()) {
+      setInventoryWatchReady(Boolean(activeTenantId));
+    } else {
+      setInventoryWatchReady(initialInventoryMovements.length > 0);
+    }
   }, [
     hydrateProducts,
     hydrateSales,
     initialProducts,
     initialSales,
     initialTenantMembers,
+    initialInventoryMovements,
+    activeTenantId,
   ]);
 
   useEffect(() => {
@@ -281,24 +292,7 @@ export function GlitterPosApp({
   // filter the read in case a race or a future code path leaves stale
   // rows on disk under a different tenant_id.
   const powerSyncDb = useOptionalPowerSyncDb();
-  const activeTenantId = tenantContext.tenant?.id ?? null;
   const inventoryStockReady = inventoryWatchReady;
-
-  useEffect(() => {
-    if (isPowerSyncConfigured()) {
-      setInventoryWatchReady(false);
-      return;
-    }
-
-    if (!activeTenantId) {
-      setInventoryMovements([]);
-      setInventoryWatchReady(false);
-      return;
-    }
-
-    setInventoryMovements(initialInventoryMovements);
-    setInventoryWatchReady(true);
-  }, [activeTenantId, initialInventoryMovements]);
 
   useEffect(() => {
     if (!editingProduct) {
@@ -734,6 +728,20 @@ export function GlitterPosApp({
         input.initialStock > 0 &&
         !hasInitial;
 
+      const inventoryPersistenceRequired =
+        !powerSyncDb &&
+        input.tracksInventory &&
+        (needsInitialMovement ||
+          !editingProduct ||
+          !editingProduct.tracksInventory);
+      if (inventoryPersistenceRequired) {
+        showToast(
+          "Conecta para guardar productos con inventario activado.",
+          "info"
+        );
+        return;
+      }
+
       if (powerSyncDb) {
         const productId = editingProduct
           ? (await updateProductLocal(powerSyncDb, {
@@ -778,13 +786,6 @@ export function GlitterPosApp({
         let product = editingProduct
           ? await updateProductAction(editingProduct.id, input)
           : await createProduct(input);
-
-        if (needsInitialMovement) {
-          showToast(
-            "Conecta para registrar el stock inicial en este dispositivo.",
-            "info"
-          );
-        }
 
         if (input.imageFile) {
           const formData = new FormData();

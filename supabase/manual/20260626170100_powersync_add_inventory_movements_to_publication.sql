@@ -24,5 +24,5 @@ BEGIN
     RETURN;
   END IF;
 
-  ALTER PUBLICATION powersync ADD TABLE inventory_movements;
+  ALTER PUBLICATION powersync ADD TABLE public.inventory_movements;
 END $$;
