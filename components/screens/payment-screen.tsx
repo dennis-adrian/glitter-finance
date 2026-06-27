@@ -1,17 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import clsx from "clsx";
 import {
+  Banknote,
+  ChevronLeft,
   ChevronRight,
   ClipboardList,
   Edit3,
   Info,
   QrCode,
   UserRound,
-  Wallet,
 } from "lucide-react";
 import { Header } from "@/components/atoms/header";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { clampDiscount, formatBs } from "@/lib/money";
 import type { PaymentMethod } from "@/lib/types";
 import { parseCustomDiscount } from "@/components/screens/payment-screen.helpers";
@@ -48,97 +50,133 @@ export function PaymentScreen({
   }
 
   return (
-    <section className="screen payment-screen">
+    <section className="screen detail-screen">
       <Header
         title="Pago"
         left={
-          <button className="icon-button" onClick={back} aria-label="Volver">
-            <ChevronRight className="flip dark" size={24} />
-          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={back}
+            aria-label="Volver"
+          >
+            <ChevronLeft className="size-6" />
+          </Button>
         }
       />
-      <div className="payment-total">
-        <span>Monto total</span>
-        <strong>Cobrar {formatBs(total, true)}</strong>
-        <small>{count} productos</small>
+
+      <div className="py-8 text-center">
+        <span className="text-sm text-muted-foreground">Monto total</span>
+        <strong className="mt-1 mb-1.5 block text-3xl font-bold tabular-nums">
+          Cobrar {formatBs(total, true)}
+        </strong>
+        <small className="text-sm text-muted-foreground">
+          {count} productos
+        </small>
         {discount ? (
-          <em>Descuento aplicado: {formatBs(discount, true)}</em>
+          <p className="mt-2">
+            <span className="inline-block rounded-full bg-primary/10 px-3 py-1 text-sm font-bold text-primary">
+              Descuento aplicado: {formatBs(discount, true)}
+            </span>
+          </p>
         ) : null}
       </div>
-      <section className="payment-block">
-        <div className="section-title">
-          <h2>Aplicar descuento</h2>
-          <Info size={20} />
+
+      <section className="mb-7">
+        <div className="mb-3.5 flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Aplicar descuento</h2>
+          <Info className="size-5 text-muted-foreground" />
         </div>
-        <div className="discount-row">
+        <div className="grid grid-cols-4 gap-2.5">
           {[200, 500, 1000].map((value) => (
-            <button
+            <Button
               key={value}
-              className={clsx(discount === value && "selected")}
+              type="button"
+              variant={discount === value ? "default" : "outline"}
+              className="tabular-nums"
               onClick={() => apply(value)}
             >
               {formatBs(value, true)}
-            </button>
+            </Button>
           ))}
-          <button onClick={() => setCustomOpen((open) => !open)}>
-            <Edit3 size={16} />
+          <Button
+            type="button"
+            variant={customOpen ? "default" : "outline"}
+            onClick={() => setCustomOpen((open) => !open)}
+          >
+            <Edit3 />
             Otro
-          </button>
+          </Button>
         </div>
         {customOpen ? (
-          <div className="custom-discount">
-            <input
+          <div className="mt-2.5 grid grid-cols-[1fr_96px] gap-2">
+            <Input
               value={custom}
               onChange={(event) => setCustom(event.target.value)}
               inputMode="decimal"
               placeholder="Ej. 7 o 10%"
             />
-            <button
+            <Button
+              type="button"
               onClick={() => apply(parseCustomDiscount(custom, subtotal))}
             >
               Aplicar
-            </button>
+            </Button>
           </div>
         ) : null}
         {discount ? (
-          <div className="discount-reason">
-            <input
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder="Motivo opcional"
-            />
-          </div>
+          <Input
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="Motivo opcional"
+            className="mt-2.5 h-12 rounded-xl"
+          />
         ) : null}
       </section>
-      <section className="payment-block">
-        <h2>Método de pago</h2>
-        <button
-          className="payment-method cash"
-          disabled={!count || isSubmitting}
-          onClick={() => pay("cash", discount, reason)}
-        >
-          <Wallet size={25} />
-          <span>{isSubmitting ? "Registrando..." : "Efectivo"}</span>
-          <ChevronRight size={22} />
-        </button>
-        <button
-          className="payment-method qr"
-          disabled={!count || isSubmitting}
-          onClick={() => pay("qr_transfer", discount, reason)}
-        >
-          <QrCode size={25} />
-          <span>{isSubmitting ? "Registrando..." : "QR"}</span>
-          <ChevronRight size={22} />
-        </button>
+
+      <section className="mb-7">
+        <h2 className="mb-3.5 text-xl font-semibold">Método de pago</h2>
+        <div className="flex flex-col gap-2">
+          <Button
+            type="button"
+            disabled={!count || isSubmitting}
+            onClick={() => pay("cash", discount, reason)}
+            className="w-full"
+          >
+            <Banknote className="size-6" />
+            <span>{isSubmitting ? "Registrando..." : "Efectivo"}</span>
+            <ChevronRight className="size-[22px] justify-self-end" />
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!count || isSubmitting}
+            onClick={() => pay("qr_transfer", discount, reason)}
+            className="w-full"
+          >
+            <QrCode className="size-6" />
+            <span>{isSubmitting ? "Registrando..." : "QR"}</span>
+            <ChevronRight className="size-[22px] justify-self-end" />
+          </Button>
+        </div>
       </section>
-      <button className="ghost-link">
-        <ClipboardList size={19} />
+
+      <Button
+        type="button"
+        variant="ghost"
+        className="w-full text-primary hover:text-primary"
+      >
+        <ClipboardList />
         Ver detalle de orden
-      </button>
-      <button className="ghost-link muted">
-        <UserRound size={19} />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        className="w-full text-muted-foreground"
+      >
+        <UserRound />
         Asignar cliente
-      </button>
+      </Button>
     </section>
   );
 }

@@ -1,5 +1,6 @@
 import { PackagePlus, Search } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
+import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CategoryRail } from "@/components/molecules/category-rail";
@@ -39,13 +40,7 @@ export function SellScreen(props: SellScreenProps) {
 
   return (
     <section className="screen">
-      <header className="mb-3.5 grid h-11 grid-cols-[44px_1fr_44px] items-center">
-        <BrandMark />
-        <h1 className="text-center font-heading text-xl font-extrabold text-primary">
-          Glitter POS
-        </h1>
-        <span aria-hidden="true" />
-      </header>
+      <Header title="Glitter POS" left={<BrandMark />} />
 
       <CategoryRail
         active={props.category}

@@ -1,6 +1,7 @@
-import { ChevronRight, ShoppingBag } from "lucide-react";
+import { ChevronLeft, ShoppingBag } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
+import { Button } from "@/components/ui/button";
 import { CartLineItem } from "@/components/molecules/cart-line-item";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { CartSummary } from "@/components/organisms/cart-summary";
@@ -33,17 +34,18 @@ export function CartScreen(props: CartScreenProps) {
       <Header
         title="Tu Carrito"
         left={
-          <button
-            className="icon-button"
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={props.back}
             aria-label="Volver"
           >
-            <ChevronRight className="flip" size={24} />
-          </button>
+            <ChevronLeft className="size-6" />
+          </Button>
         }
         right={<BrandMark size="small" />}
       />
-      <div className="cart-list">
+      <div className="grid gap-3">
         {props.cartDetails.map((line) => (
           <CartLineItem
             key={line.productId}
