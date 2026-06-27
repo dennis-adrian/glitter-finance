@@ -1,3 +1,4 @@
+-- Run after: npm run db:push (tenant_users table from Drizzle migrations).
 -- Add tenant_users to the PowerSync logical replication publication when it
 -- exists (cloud/staging). Safe to re-run: skips when the publication is missing
 -- or tenant_users is already published.

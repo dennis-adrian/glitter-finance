@@ -1,3 +1,4 @@
+-- Run after: 20260626170000_inventory_movements_rls.sql.
 -- Add inventory_movements to the PowerSync logical replication publication
 -- when it exists (cloud/staging). Safe to re-run: skips when the publication
 -- is missing or inventory_movements is already published.

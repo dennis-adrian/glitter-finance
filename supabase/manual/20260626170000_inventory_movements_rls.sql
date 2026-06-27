@@ -1,0 +1,37 @@
+-- Run after: inventory_movements Drizzle migrations (wide_cargill + parallel_shape).
+-- Inventory movements: auth.users FK and append-only RLS.
+-- Domain checks live in lib/db/schema.ts (Drizzle-generated). Drizzle cannot
+-- model auth.users. Run in the SQL editor after `npm run db:push` applies the
+-- inventory_movements table (wide_cargill + parallel_shape).
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'inventory_movements_user_id_auth_users_id_fk'
+  ) THEN
+    ALTER TABLE "inventory_movements"
+      ADD CONSTRAINT "inventory_movements_user_id_auth_users_id_fk"
+      FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE restrict;
+  END IF;
+END $$;
+
+ALTER TABLE "inventory_movements" ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "tenant members can read inventory movements"
+  ON "inventory_movements";
+
+CREATE POLICY "tenant members can read inventory movements"
+ON "inventory_movements" FOR SELECT
+USING ("public"."current_user_has_tenant"("tenant_id"));
+
+DROP POLICY IF EXISTS "tenant members can insert inventory movements"
+  ON "inventory_movements";
+
+CREATE POLICY "tenant members can insert inventory movements"
+ON "inventory_movements" FOR INSERT
+WITH CHECK (
+  "public"."current_user_has_tenant"("tenant_id")
+  AND "user_id" = auth.uid()
+);

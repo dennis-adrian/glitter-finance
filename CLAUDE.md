@@ -10,7 +10,9 @@
   `supabase/migrations/` or `supabase/migrations/meta/` (including
   `_journal.json` and snapshots). Hand-editing them causes schema/snapshot/journal
   drift.
-- The only exception is **hand-written SQL migrations** for things Drizzle
-  cannot model: RLS policies, `auth.users` foreign keys, storage policies,
-  grants, triggers, and `ALTER PUBLICATION` (those live under `supabase/manual/`
-  when not migration-replayable).
+- The only exception is **hand-written SQL** for things Drizzle cannot model:
+  RLS policies, `auth.users` foreign keys, storage policies, grants, triggers,
+  and `ALTER PUBLICATION`. Put these under `supabase/manual/` with a
+  `YYYYMMDDHHMMSS_description.sql` timestamp prefix (same ordering idea as
+  Drizzle migrations). They are run in the SQL editor after `db:push`, in
+  lexicographic order — not tracked in `supabase/migrations/meta/`.

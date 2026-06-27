@@ -300,9 +300,9 @@ and optional `lowStockThreshold` to the `products` client table. Register
 
 ### 6.2 Hand-written SQL migration (RLS and auth FK)
 
-A separate hand-written `.sql` file under `supabase/manual/` (the parent PRD's
-first-class-citizen pattern, like `supabase/migrations/...rls_policies.sql` for
-other tables). It must:
+A separate hand-written `.sql` file under `supabase/manual/` with a timestamp
+prefix (e.g. `20260626170000_inventory_movements_rls.sql`), run after the
+Drizzle migrations that create `inventory_movements`.
 
 - Add the `auth.users` FK on `user_id` (Drizzle can't model `auth.users`):
   `inventory_movements_user_id_auth_users_id_fk ... ON DELETE restrict`.
@@ -325,9 +325,10 @@ replication publication `powersync`. **Publication changes cannot run as
 Drizzle/Supabase migrations** (`ALTER PUBLICATION` is not safely
 migration-replayable) — they live under `supabase/manual/` and are run by hand
 per environment, exactly like `tenant_users` was in
-`supabase/manual/powersync-add-tenant-users-to-publication.sql`.
+`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`.
 
-Add an idempotent script `supabase/manual/powersync-add-inventory-movements-to-publication.sql`
+Add an idempotent script
+`supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql`
 mirroring the tenant_users one: skip if the `powersync` publication is missing,
 skip if `inventory_movements` is already published, else `ALTER PUBLICATION
 powersync ADD TABLE inventory_movements`. Run it in the Supabase SQL editor
