@@ -12,6 +12,8 @@ type DbProduct = {
   costCents: number | null;
   category: string;
   imagePath: string | null;
+  tracksInventory?: boolean | number | null;
+  lowStockThreshold?: number | null;
   archivedAt: Date | string | null;
   createdAt: Date | string;
   updatedAt: Date | string;
@@ -60,6 +62,8 @@ export function mapDbProductToProduct(product: DbProduct): Product {
       product.imagePath,
       `${product.id}-${product.category}`
     ),
+    tracksInventory: Boolean(product.tracksInventory),
+    lowStockThreshold: product.lowStockThreshold ?? null,
     archivedAt: product.archivedAt ? toIso(product.archivedAt) : null,
     createdAt: toIso(product.createdAt),
     updatedAt: toIso(product.updatedAt),

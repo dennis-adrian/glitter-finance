@@ -7,7 +7,7 @@ export async function findAuthUserByEmail(
   admin: SupabaseClient,
   email: string
 ): Promise<User | null> {
-  const normalized = email.toLowerCase();
+  const normalized = email.trim().toLowerCase();
   let page = 1;
 
   while (true) {

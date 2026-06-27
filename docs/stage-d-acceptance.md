@@ -12,7 +12,7 @@ Apply every step against the target Supabase project and matching PowerSync
 instance before manual QA:
 
 1. **Schema** — `npm run db:push` includes the `tenant_users.id` migration.
-2. **Publication** — run [`supabase/manual/powersync-add-tenant-users-to-publication.sql`](../supabase/manual/powersync-add-tenant-users-to-publication.sql) in the Supabase SQL editor (idempotent; skip on fresh bootstrap). Confirm `tenant_users` is in the `powersync` publication:
+2. **Publication** — run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](../supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) in the Supabase SQL editor (idempotent; skip on fresh bootstrap). Confirm `tenant_users` is in the `powersync` publication:
 
    ```sql
    SELECT tablename FROM pg_publication_tables

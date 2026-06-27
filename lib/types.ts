@@ -11,6 +11,8 @@ export type Product = {
   imagePath: string | null;
   imageUrl: string | null;
   imageTone: string;
+  tracksInventory: boolean;
+  lowStockThreshold: number | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -23,6 +25,8 @@ export type ProductInput = {
   category: string;
   imageTone?: string;
   imagePath?: string | null;
+  tracksInventory?: boolean;
+  lowStockThreshold?: number | null;
 };
 
 export type CartLine = {

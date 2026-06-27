@@ -102,7 +102,7 @@ export function mergeTenantMembersFromWatch(
   const { allowMemberShrink = false, replicationConfirmed = false } = options;
   const mayAcceptShrink = allowMemberShrink || replicationConfirmed;
 
-  if (mapped.length === 0 && previous.length > 0) {
+  if (mapped.length === 0 && previous.length > 0 && !mayAcceptShrink) {
     return previous;
   }
   // Partial replication delivers a strict subset of members before the full

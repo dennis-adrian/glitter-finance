@@ -171,7 +171,7 @@ async function setTenantClaim(userId: string, tenantId: string) {
 
 async function main() {
   const tenantId = requireEnv("TENANT_ID");
-  const email = requireEnv("INVITE_EMAIL");
+  const email = requireEnv("INVITE_EMAIL").trim();
   const password = requireEnv("INVITE_PASSWORD");
   const displayName =
     process.env.INVITE_DISPLAY_NAME?.trim() || defaultDisplayName(email);

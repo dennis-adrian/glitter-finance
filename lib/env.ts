@@ -1,6 +1,7 @@
 type PublicEnv = {
   supabaseUrl: string;
   supabasePublishableKey: string;
+  /** Empty when unset — local dev can omit PowerSync and use server actions only. */
   powersyncUrl: string;
 };
 
@@ -16,12 +17,14 @@ function requireValue(name: string, value: string | undefined) {
   return value;
 }
 
-// IMPORTANT: every NEXT_PUBLIC_* lookup below MUST use a literal
-// `process.env.NEXT_PUBLIC_FOO` reference. Next.js inlines those statically at
-// build time so they survive into the browser bundle; dynamic lookups like
-// `process.env[name]` are invisible to the bundler and resolve to undefined
-// on the client. Server-side both work because process.env is a real object
-// in Node.
+// `process.env.NEXT_PUBLIC_*` lookups below MUST use literal property names so
+// Next.js inlines them into the browser bundle.
+
+/** True when a PowerSync Cloud endpoint is configured (staging/prod). */
+export function isPowerSyncConfigured(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_POWERSYNC_URL?.trim());
+}
+
 export function getPublicEnv(): PublicEnv {
   return {
     supabaseUrl: requireValue(
@@ -32,10 +35,7 @@ export function getPublicEnv(): PublicEnv {
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
     ),
-    powersyncUrl: requireValue(
-      "NEXT_PUBLIC_POWERSYNC_URL",
-      process.env.NEXT_PUBLIC_POWERSYNC_URL
-    ),
+    powersyncUrl: process.env.NEXT_PUBLIC_POWERSYNC_URL?.trim() ?? "",
   };
 }
 

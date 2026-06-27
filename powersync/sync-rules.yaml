@@ -32,3 +32,5 @@ streams:
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
       - SELECT * FROM tenant_users
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+      - SELECT * FROM inventory_movements
+        WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
