@@ -10,10 +10,26 @@ type BottomNavProps = {
 
 export function BottomNav({ view, setView }: BottomNavProps) {
   const items: { view: View; label: string; icon: ReactNode }[] = [
-    { view: "sell", label: "Vender", icon: <ShoppingBag className="size-[22px]" /> },
-    { view: "reports", label: "Reportes", icon: <BarChart3 className="size-[22px]" /> },
-    { view: "products", label: "Productos", icon: <Box className="size-[22px]" /> },
-    { view: "settings", label: "Ajustes", icon: <Settings className="size-[22px]" /> },
+    {
+      view: "sell",
+      label: "Vender",
+      icon: <ShoppingBag className="size-[22px]" />,
+    },
+    {
+      view: "reports",
+      label: "Reportes",
+      icon: <BarChart3 className="size-[22px]" />,
+    },
+    {
+      view: "products",
+      label: "Productos",
+      icon: <Box className="size-[22px]" />,
+    },
+    {
+      view: "settings",
+      label: "Ajustes",
+      icon: <Settings className="size-[22px]" />,
+    },
   ];
 
   return (

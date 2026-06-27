@@ -1,5 +1,7 @@
-import clsx from "clsx";
 import { TriangleAlert } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { formatBs } from "@/lib/money";
 import {
   type ProductStock,
@@ -24,30 +26,49 @@ export function ProductCatalogCard({
   restoreProduct,
 }: ProductCatalogCardProps) {
   return (
-    <article className={clsx("catalog-card", product.archivedAt && "archived")}>
-      <button className="catalog-card-main" onClick={() => openEditor(product)}>
+    <article
+      className={cn(
+        "relative flex flex-col overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10",
+        product.archivedAt && "opacity-55"
+      )}
+    >
+      <button
+        type="button"
+        className="block flex-1 text-left transition-transform active:scale-[0.985]"
+        onClick={() => openEditor(product)}
+      >
         <ProductArt product={product} />
         {stock ? (
-          <span
-            className={clsx("stock-badge", stock.state)}
+          <Badge
+            variant={stock.state === "oversold" ? "destructive" : "secondary"}
+            className="absolute top-2 left-2 h-6 gap-1 rounded-full font-semibold"
             aria-label={stockAriaLabel(stock)}
           >
             {stockNeedsGlyph(stock.state) ? (
-              <TriangleAlert size={11} aria-hidden="true" />
+              <TriangleAlert aria-hidden="true" />
             ) : null}
             {stockBadgeLabel(stock)}
-          </span>
+          </Badge>
         ) : null}
-        <span>{product.name}</span>
-        <strong>{formatBs(product.priceCents, true)}</strong>
+        <div className="px-3 pt-2.5 pb-3.5">
+          <span className="block text-[15px] leading-tight text-foreground">
+            {product.name}
+          </span>
+          <strong className="mt-1 block text-xl leading-none font-bold text-primary">
+            {formatBs(product.priceCents, true)}
+          </strong>
+        </div>
       </button>
       {product.archivedAt ? (
-        <button
-          className="restore-chip"
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="mx-1 mb-2 justify-start"
           onClick={() => restoreProduct(product.id)}
         >
           Restaurar
-        </button>
+        </Button>
       ) : null}
     </article>
   );

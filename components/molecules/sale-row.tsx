@@ -1,5 +1,6 @@
 import { QrCode, ShoppingBag } from "lucide-react";
-import clsx from "clsx";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { relativeTime } from "@/lib/dates";
 import { formatBs } from "@/lib/money";
 import { paymentLabels, saleNetCents } from "@/lib/sales";
@@ -27,53 +28,66 @@ export function SaleRow({
 
   return (
     <article
-      className={clsx("sale-row", sale.status === "voided" && "muted-row")}
+      className={cn(
+        "grid cursor-pointer grid-cols-[46px_1fr_auto] gap-x-2.5 gap-y-2 border-b border-border py-3.5 last:border-b-0",
+        sale.status === "voided" && "opacity-60"
+      )}
       onClick={() => openSale(sale.id)}
     >
-      <span className="sale-icon">
+      <span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
         {sale.paymentMethod === "cash" ? (
           <ShoppingBag size={20} />
         ) : (
           <QrCode size={20} />
         )}
       </span>
-      <div>
-        <strong>
+      <div className="min-w-0">
+        <strong className="block text-base">
           {isRefundRecord ? "Reembolso" : `#${sale.id.slice(-5)}`}
         </strong>
-        <span>
+        <span className="block text-sm text-muted-foreground">
           {relativeTime(sale.createdAt)} · {paymentLabels[sale.paymentMethod]}
           {sale.status === "voided" ? " · Anulada" : ""}
         </span>
-        <small>
+        <small className="block max-w-[190px] truncate text-sm text-muted-foreground">
           {sale.lines
             .map((line) => `${line.quantity}x ${line.productName}`)
             .join(", ")}
         </small>
       </div>
-      <b>{formatBs(amount, true)}</b>
-      <div className="sale-actions">
-        {canVoid ? (
-          <button
-            onClick={(event) => {
-              event.stopPropagation();
-              voidSale(sale.id);
-            }}
-          >
-            Anular
-          </button>
-        ) : null}
-        {canRefund ? (
-          <button
-            onClick={(event) => {
-              event.stopPropagation();
-              refundSale(sale.id);
-            }}
-          >
-            Reembolso
-          </button>
-        ) : null}
-      </div>
+      <b className="text-base whitespace-nowrap tabular-nums">
+        {formatBs(amount, true)}
+      </b>
+      {canVoid || canRefund ? (
+        <div className="col-start-2 col-end-4 flex gap-2">
+          {canVoid ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={(event) => {
+                event.stopPropagation();
+                voidSale(sale.id);
+              }}
+            >
+              Anular
+            </Button>
+          ) : null}
+          {canRefund ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={(event) => {
+                event.stopPropagation();
+                refundSale(sale.id);
+              }}
+            >
+              Reembolso
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }

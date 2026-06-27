@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Label } from "@/components/ui/label";
 
 type FormFieldProps = {
   label: string;
@@ -8,12 +9,14 @@ type FormFieldProps = {
 
 export function FormField({ label, hint, children }: FormFieldProps) {
   return (
-    <label className="form-field">
-      <span>
+    <div className="mt-3.5 grid gap-1.5">
+      <Label className="flex items-center justify-between text-sm font-medium">
         {label}
-        {hint ? <em>{hint}</em> : null}
-      </span>
+        {hint ? (
+          <span className="font-normal text-muted-foreground">{hint}</span>
+        ) : null}
+      </Label>
       {children}
-    </label>
+    </div>
   );
 }

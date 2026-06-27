@@ -142,14 +142,14 @@ export function CartLineItem({
             onChange={(event) => setDiscountInput(event.target.value)}
             inputMode="decimal"
             placeholder="Descuento"
-            aria-label="Descuento"
+            aria-label={`Descuento de ${product.name}`}
             className="rounded-xl"
           />
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             placeholder="Motivo opcional"
-            aria-label="Motivo opcional"
+            aria-label={`Motivo opcional del descuento de ${product.name}`}
             className="rounded-xl"
           />
           <Button type="button" size="sm" onClick={applyDiscount}>

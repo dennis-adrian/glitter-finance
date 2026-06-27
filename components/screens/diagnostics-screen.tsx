@@ -6,9 +6,12 @@
 // the queue) and a "Copiar diagnóstico" action that dumps everything as
 // JSON to the clipboard. Per PRD §8 + §14.
 
-import { ChevronRight, RefreshCw, ClipboardCopy } from "lucide-react";
+import { ChevronLeft, RefreshCw, ClipboardCopy } from "lucide-react";
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { Header } from "@/components/atoms/header";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   useOptionalPowerSyncDb,
   usePowerSyncControls,
@@ -223,18 +226,22 @@ export function DiagnosticsScreen({
   }
 
   return (
-    <section className="screen diagnostics-screen">
+    <section className="screen">
       <Header
         title="Diagnósticos"
         left={
-          <button className="icon-button" onClick={back} aria-label="Volver">
-            <ChevronRight className="flip dark" size={24} />
-          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={back}
+            aria-label="Volver"
+          >
+            <ChevronLeft className="size-6" />
+          </Button>
         }
       />
 
-      <section className="panel">
-        <h2>Sincronización</h2>
+      <DiagPanel title="Sincronización">
         <DiagRow label="Conectado" value={yesNo(snapshot.connected)} />
         <DiagRow label="Sincronizado" value={yesNo(snapshot.hasSynced)} />
         <DiagRow
@@ -254,10 +261,9 @@ export function DiagnosticsScreen({
             mono
           />
         ) : null}
-      </section>
+      </DiagPanel>
 
-      <section className="panel">
-        <h2>Cola de subida</h2>
+      <DiagPanel title="Cola de subida">
         <DiagRow
           label="Operaciones pendientes"
           value={String(snapshot.pendingCount)}
@@ -266,10 +272,9 @@ export function DiagnosticsScreen({
           label="Tamaño aproximado"
           value={formatBytes(snapshot.pendingBytes)}
         />
-      </section>
+      </DiagPanel>
 
-      <section className="panel">
-        <h2>Identidad</h2>
+      <DiagPanel title="Identidad">
         <DiagRow label="Tenant" value={tenantContext.tenant?.id ?? "—"} mono />
         <DiagRow
           label="Nombre del tenant"
@@ -278,10 +283,9 @@ export function DiagnosticsScreen({
         <DiagRow label="Usuario" value={tenantContext.user.id} mono />
         <DiagRow label="Nombre" value={tenantContext.user.displayName} />
         <DiagRow label="Email" value={tenantContext.user.email ?? "—"} />
-      </section>
+      </DiagPanel>
 
-      <section className="panel">
-        <h2>Dispositivo</h2>
+      <DiagPanel title="Dispositivo">
         <DiagRow
           label="Conexión"
           value={device.online ? "Online" : "Offline"}
@@ -290,22 +294,45 @@ export function DiagnosticsScreen({
         <DiagRow label="Pantalla" value={device.viewport} />
         <DiagRow label="Almacenamiento" value={device.storage} />
         <DiagRow label="User Agent" value={device.userAgent} mono small />
-      </section>
+      </DiagPanel>
 
-      <div className="diagnostics-actions">
-        <button
-          className="primary-action"
+      <div className="mt-4 grid gap-2.5">
+        <Button
+          size="lg"
+          className="rounded-2xl"
           onClick={handleReconnect}
           disabled={!controls || reconnecting}
         >
-          <RefreshCw size={18} />
+          <RefreshCw className="size-[18px]" />
           {reconnecting ? "Reconectando…" : "Forzar sincronización"}
-        </button>
-        <button className="secondary-action" onClick={handleCopy}>
-          <ClipboardCopy size={18} />
+        </Button>
+        <Button
+          variant="outline"
+          size="lg"
+          className="rounded-2xl"
+          onClick={handleCopy}
+        >
+          <ClipboardCopy className="size-[18px]" />
           {copyConfirmed ? "Copiado" : "Copiar diagnóstico"}
-        </button>
+        </Button>
       </div>
+    </section>
+  );
+}
+
+function DiagPanel({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mt-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+      <h2 className="mb-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+        {title}
+      </h2>
+      {children}
     </section>
   );
 }
@@ -319,12 +346,14 @@ type DiagRowProps = {
 
 function DiagRow({ label, value, mono, small }: DiagRowProps) {
   return (
-    <div className="diag-row">
-      <span className="diag-row-label">{label}</span>
+    <div className="flex items-baseline justify-between gap-3 border-b border-border/60 py-1.5 last:border-b-0">
+      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
       <span
-        className={["diag-row-value", mono ? "mono" : "", small ? "small" : ""]
-          .filter(Boolean)
-          .join(" ")}
+        className={cn(
+          "break-all text-right text-sm font-medium text-foreground",
+          mono && "font-mono text-xs font-normal",
+          small && "text-[11px] font-normal"
+        )}
       >
         {value}
       </span>
