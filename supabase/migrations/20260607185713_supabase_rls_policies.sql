@@ -18,27 +18,7 @@ ALTER TABLE "refunds"
   FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE restrict;
 --> statement-breakpoint
 
--- Domain check constraints. Money and quantities are non-negative; line items
--- always have positive quantity. The void columns are coupled: either both
--- set or both null, never a half-voided row.
-ALTER TABLE "products"
-  ADD CONSTRAINT "products_price_cents_nonnegative_check" CHECK ("price_cents" >= 0),
-  ADD CONSTRAINT "products_cost_cents_nonnegative_check" CHECK ("cost_cents" IS NULL OR "cost_cents" >= 0);
---> statement-breakpoint
-ALTER TABLE "sales"
-  ADD CONSTRAINT "sales_discount_cents_nonnegative_check" CHECK ("sale_discount_cents" >= 0),
-  ADD CONSTRAINT "sales_void_coherence_check" CHECK (
-    ("voided_at" IS NULL AND "voided_by_user_id" IS NULL)
-    OR ("voided_at" IS NOT NULL AND "voided_by_user_id" IS NOT NULL)
-  );
---> statement-breakpoint
-ALTER TABLE "sale_lines"
-  ADD CONSTRAINT "sale_lines_quantity_positive_check" CHECK ("quantity" > 0),
-  ADD CONSTRAINT "sale_lines_unit_price_cents_nonnegative_check" CHECK ("unit_price_cents" >= 0),
-  ADD CONSTRAINT "sale_lines_unit_cost_cents_nonnegative_check" CHECK ("unit_cost_cents" IS NULL OR "unit_cost_cents" >= 0),
-  ADD CONSTRAINT "sale_lines_discount_cents_nonnegative_check" CHECK ("line_discount_cents" >= 0),
-  ADD CONSTRAINT "sale_lines_total_cents_nonnegative_check" CHECK ("line_total_cents" >= 0);
---> statement-breakpoint
+-- Domain check constraints live in lib/db/schema.ts (Drizzle-generated).
 
 -- Enable row level security on every domain table. The policies below grant
 -- back only what tenant members are allowed to do.

@@ -10,6 +10,8 @@ import type { Product } from "@/lib/types";
 
 type SellScreenProps = {
   products: Product[];
+  stockByProduct: Map<string, number>;
+  inventoryStockReady: boolean;
   cartCount: number;
   cartSubtotal: number;
   cart: { productId: string; quantity: number }[];
@@ -68,6 +70,8 @@ export function SellScreen(props: SellScreenProps) {
               <ProductTile
                 key={product.id}
                 product={product}
+                stockByProduct={props.stockByProduct}
+                inventoryStockReady={props.inventoryStockReady}
                 quantity={quantity}
                 add={() => props.addToCart(product.id)}
                 decrement={() => props.decrementCart(product.id)}

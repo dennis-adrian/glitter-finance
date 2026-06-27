@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { relativeTime } from "@/lib/dates";
+import { isPowerSyncConfigured } from "@/lib/env";
 import { useSyncStatus } from "@/lib/powersync/use-sync-status";
 
 const stateLabels: Record<ReturnType<typeof useSyncStatus>["state"], string> = {
@@ -20,13 +21,16 @@ const stateLabels: Record<ReturnType<typeof useSyncStatus>["state"], string> = {
 
 export function SyncStatusPill() {
   const { state, lastSyncedAt, pendingCount } = useSyncStatus();
-  // Re-render every 30s so the "hace X" timestamp stays roughly fresh
-  // without flooding the React tree on every tick.
   const [, setNow] = useState(0);
+
   useEffect(() => {
     const id = window.setInterval(() => setNow((n) => n + 1), 30_000);
     return () => window.clearInterval(id);
   }, []);
+
+  if (!isPowerSyncConfigured()) {
+    return null;
+  }
 
   const showTimestamp = state === "synced" && lastSyncedAt;
   const showPending = pendingCount > 0;

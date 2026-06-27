@@ -45,9 +45,15 @@ Copy `.env.example` to `.env.local` and fill in:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-- `NEXT_PUBLIC_POWERSYNC_URL`
 - `SUPABASE_SECRET_KEY`
 - `DATABASE_URL`
+
+**Local-only (no PowerSync):** leave `NEXT_PUBLIC_POWERSYNC_URL` empty. The app
+loads products and sales from Supabase on the server and uses server actions for
+writes. The sync pill is hidden and no local SQLite store is opened.
+
+**Staging / production:** set `NEXT_PUBLIC_POWERSYNC_URL` to the PowerSync Cloud
+instance URL for that environment (see [PowerSync setup](#powersync-setup) below).
 
 `DATABASE_URL` should point at the Supabase Transaction Pooler (port `6543`). The runtime Drizzle client in `lib/db/index.ts` is configured with `prepare: false` to be compatible with it.
 
@@ -82,15 +88,17 @@ In the target project's Supabase dashboard, open the SQL editor and run:
 CREATE ROLE powersync_role WITH REPLICATION BYPASSRLS LOGIN PASSWORD '<per-env-secret>';
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
-CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds;
+CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds, tenant_users, inventory_movements;
 ```
 
 Notes:
 
 - Generate a fresh `<per-env-secret>` for each environment (e.g. `openssl rand -base64 32`) and store it in a password manager. Do not reuse across staging and prod.
 - The role has `REPLICATION BYPASSRLS` — it can read every row in every tenant, bypassing RLS. Treat the credential like a service-role key.
-- The publication is targeted at exactly the four synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
-- Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
+- The publication is targeted at exactly the six synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
+- **Existing environments (Stage D):** if `powersync` was created before `tenant_users` was added to the table list above, run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) in the SQL editor after `npm run db:push`. It is idempotent and skips quietly when the publication is missing (e.g. local `db:reset` before bootstrap).
+- **Existing environments (inventory):** if `powersync` was created before `inventory_movements` was added, run [`supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql`](supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql) after `npm run db:push`.
+- Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Confirm `inventory_movements` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'inventory_movements';`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
 
 Then configure the matching PowerSync Cloud instance. Each Supabase environment
 must have its own PowerSync instance or a carefully separated configuration;
@@ -140,7 +148,7 @@ project used for the JWKS URI, and the `kid` must appear in that JWKS response.
 ```sql
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
-CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds;
+CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds, tenant_users, inventory_movements;
 ```
 
 Also pass `--no-seed` when resetting any cloud project — the `supabase/seed.sql` script is local-only (creates a demo auth user with a known password, and assumes `pgcrypto` is enabled). It has no business running against staging or prod.
@@ -161,18 +169,42 @@ NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
 npm run db:seed:qa             # append `-- --reset` to wipe catalog + sales and reseed
 ```
 
+### Invite a tenant member (Stage D)
+
+During closed testing, additional booth helpers are provisioned manually — not through in-app invite UI. `npm run db:invite:tenant-user` creates (or refreshes) an auth user, inserts a `tenant_users` row on the target tenant, and sets `app_metadata.tenant_id` so PowerSync scopes replication correctly.
+
+Before inviting:
+
+1. Apply pending migrations (`npm run db:push`) so `tenant_users.id` exists, then run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) if the environment predates Stage D (see PowerSync setup notes).
+2. Redeploy updated sync rules from `powersync/sync-rules.yaml` in PowerSync Cloud.
+
+Then invite the helper:
+
+```bash
+TENANT_ID=7a000000-0000-4000-8000-000000000001 \
+INVITE_EMAIL=helper@glitterfinance.app INVITE_PASSWORD=... \
+INVITE_DISPLAY_NAME="Helper Booth" \
+NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
+npm run db:invite:tenant-user
+```
+
+After inviting, have the user sign in on their device. Settings → Equipo should list every member; reports should attribute sales by display name once both devices have synced.
+
 ### Stage B staging checklist
 
 Before running Stage B acceptance on staging:
 
 - Supabase migrations are applied to `glitter-finance-staging`.
 - `powersync_role` exists with a per-environment password stored outside git.
-- The `powersync` publication includes `products`, `sales`, `sale_lines`, and `refunds`.
+- The `powersync` publication includes `products`, `sales`, `sale_lines`, `refunds`, `tenant_users`, and `inventory_movements`.
 - PowerSync Client Auth uses the staging Supabase JWKS URI and accepts JWT audience `authenticated`.
 - PowerSync sync rules from `powersync/sync-rules.yaml` are validated, deployed, and scoped by the authenticated tenant.
 - `NEXT_PUBLIC_POWERSYNC_URL` points at the staging PowerSync instance.
 - The QA account is seeded with `npm run db:seed:qa`.
 - The installed PWA has been launched once online and the sync pill has reached the synced state before offline relaunch testing.
+
+See [`docs/stage-d-acceptance.md`](docs/stage-d-acceptance.md) for multi-user /
+`tenant_users` replication verification after Stage D deploys.
 
 ## Drizzle and Supabase: who owns what
 
@@ -191,7 +223,11 @@ Drizzle does **not** apply migrations in this project, and does **not** own the 
 
 - **Migration runner.** `supabase db push` applies the SQL files in `supabase/migrations/` against the linked cloud project, tracked in `supabase_migrations.schema_migrations`. `supabase db reset` rebuilds the local database from migrations + seed.
 - **Local development stack.** `supabase start` boots Postgres, Auth, Storage, and the rest of the stack locally via Docker. The project is initialized via `supabase/config.toml`.
-- **Things Drizzle cannot model.** RLS policies, `auth.users` foreign keys, `SECURITY DEFINER` functions, triggers, and grants are hand-written SQL files in `supabase/migrations/`, sitting next to the Drizzle-generated ones. The CLI applies them all in lexicographic (timestamp) order — the file's origin does not matter to the runner.
+- **Things Drizzle cannot model.** RLS policies, `auth.users` foreign keys,
+  storage policies, `ALTER PUBLICATION`, triggers, and grants are timestamped
+  hand-written SQL under `supabase/manual/` and run in the SQL editor after
+  `db:push` (see Hand-written SQL below). Legacy hand-written files still in
+  `supabase/migrations/` from before this split are left as-applied history.
 
 ### Daily commands
 
@@ -210,15 +246,11 @@ npm run db:stop         # supabase stop
 
 Do not run `drizzle-kit migrate`. The Drizzle `__drizzle_migrations` journal is not maintained; `supabase_migrations.schema_migrations` is the only journal that matters.
 
-### Hand-written SQL migrations
+### Hand-written SQL (`supabase/manual/`)
 
-For anything Drizzle's schema cannot express (RLS, auth FKs, triggers, grants), create a new file in `supabase/migrations/` with a fresh timestamp prefix. Example:
-
-```bash
-touch supabase/migrations/$(date -u +%Y%m%d%H%M%S)_my_change.sql
-```
-
-These files are first-class migrations and are applied by `supabase db push` alongside Drizzle-generated ones.
+For anything Drizzle's schema cannot express (RLS, `auth.users` FKs, storage
+policies, `ALTER PUBLICATION`), add a timestamp-prefixed file under
+`supabase/manual/` and run it in the SQL editor after `npm run db:push`:
 
 ### Runtime data access
 

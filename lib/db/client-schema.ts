@@ -15,9 +15,6 @@
 //
 // Not yet synced:
 // - tenants — single row per tenant; not worth a sync bucket.
-// - tenant_users — composite PK in Postgres, needs either an `id` column or a
-//   projected one in the sync rules. Until then, user display names are loaded
-//   server-side.
 
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
@@ -29,6 +26,8 @@ export const products = sqliteTable("products", {
   costCents: integer("cost_cents"),
   category: text("category").notNull(),
   imagePath: text("image_path"),
+  tracksInventory: integer("tracks_inventory").notNull().default(0),
+  lowStockThreshold: integer("low_stock_threshold"),
   archivedAt: text("archived_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
@@ -73,6 +72,26 @@ export const refunds = sqliteTable("refunds", {
   clientCreatedAt: text("client_created_at").notNull(),
 });
 
+export const tenantUsers = sqliteTable("tenant_users", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  userId: text("user_id").notNull(),
+  displayName: text("display_name").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const inventoryMovements = sqliteTable("inventory_movements", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  productId: text("product_id").notNull(),
+  userId: text("user_id").notNull(),
+  delta: integer("delta").notNull(),
+  reason: text("reason").notNull(),
+  note: text("note"),
+  createdAt: text("created_at").notNull(),
+  clientCreatedAt: text("client_created_at").notNull(),
+});
+
 export const draftCart = sqliteTable("draft_cart", {
   id: text("id").primaryKey(),
   linesJson: text("lines_json").notNull(),
@@ -84,6 +103,8 @@ export const clientSchema = {
   sales,
   saleLines,
   refunds,
+  tenantUsers,
+  inventoryMovements,
   draftCart: {
     tableDefinition: draftCart,
     options: { localOnly: true },

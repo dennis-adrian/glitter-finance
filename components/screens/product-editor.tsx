@@ -8,11 +8,18 @@ import {
   Check,
   ChevronRight,
   Edit3,
+  Minus,
+  Plus,
 } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { FormField } from "@/components/atoms/form-field";
 import { Header } from "@/components/atoms/header";
 import { ProductArt } from "@/components/atoms/product-art";
+import {
+  getProductStock,
+  stockValueLabel,
+  type InventoryMovementReason,
+} from "@/lib/inventory";
 import { parseBolivianos } from "@/lib/money";
 import {
   productImageMaxBytes,
@@ -21,10 +28,13 @@ import {
 import { emptyProduct } from "@/lib/products";
 import { categories } from "@/lib/sample-data";
 import type { Product } from "@/lib/types";
-import { hasValidProductForm } from "@/components/screens/product-editor.helpers";
+import { hasValidProductForm, parsePositiveInteger, parseSignedInteger } from "@/components/screens/product-editor.helpers";
 
 type ProductEditorProps = {
   product: Product | null;
+  stockByProduct: Map<string, number>;
+  inventoryStockReady: boolean;
+  hasInitialMovement: boolean;
   back: () => void;
   save: (input: {
     name: string;
@@ -34,14 +44,26 @@ type ProductEditorProps = {
     imageTone: string;
     imagePath?: string | null;
     imageFile?: File | null;
+    tracksInventory: boolean;
+    initialStock?: number;
+  }) => Promise<void> | void;
+  onInventoryMovement: (input: {
+    productId: string;
+    delta: number;
+    reason: InventoryMovementReason;
+    note?: string;
   }) => Promise<void> | void;
   archive: (productId: string) => void;
 };
 
 export function ProductEditor({
   product,
+  stockByProduct,
+  inventoryStockReady,
+  hasInitialMovement,
   back,
   save,
+  onInventoryMovement,
   archive,
 }: ProductEditorProps) {
   const [name, setName] = useState(product?.name ?? "");
@@ -53,15 +75,46 @@ export function ProductEditor({
   );
   const [category, setCategory] = useState(product?.category ?? "Stickers");
   const [imageTone, setImageTone] = useState(product?.imageTone ?? "violet");
+  const [tracksInventory, setTracksInventory] = useState(
+    product?.tracksInventory ?? false
+  );
+  const [initialStock, setInitialStock] = useState("");
+  const [restockAmount, setRestockAmount] = useState("");
+  const [adjustmentAmount, setAdjustmentAmount] = useState("");
+  const [adjustmentNote, setAdjustmentNote] = useState("");
+  const [lossAmount, setLossAmount] = useState("");
+  const [lossNote, setLossNote] = useState("");
+  const [giftAmount, setGiftAmount] = useState("");
+  const [giftNote, setGiftNote] = useState("");
+  const [showMoreActions, setShowMoreActions] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [inventoryActionError, setInventoryActionError] = useState<
+    string | null
+  >(null);
+  const [inventoryMovementSubmitting, setInventoryMovementSubmitting] =
+    useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canSave = hasValidProductForm(name, price);
+  const trackingPersisted = product?.tracksInventory ?? false;
+  const trackingDirty =
+    Boolean(product) && tracksInventory !== trackingPersisted;
+  const showInitialStockField =
+    tracksInventory && (!product || !hasInitialMovement);
+  const currentStock =
+    product && trackingPersisted && inventoryStockReady
+      ? getProductStock(product, stockByProduct)
+      : null;
+  const canRestock = parsePositiveInteger(restockAmount) != null;
+  const canAdjust = parseSignedInteger(adjustmentAmount) != null;
+  const canLoss = parsePositiveInteger(lossAmount) != null;
+  const canGift = parsePositiveInteger(giftAmount) != null;
   const previewProduct = {
     ...(product ?? emptyProduct),
     name: name || "Producto",
     imageTone,
+    tracksInventory,
     imagePath: product?.imagePath ?? emptyProduct.imagePath,
     imageUrl: imagePreviewUrl ?? product?.imageUrl ?? null,
   };
@@ -102,6 +155,71 @@ export function ProductEditor({
     }
 
     setImageFile(file);
+  }
+
+  async function submitMovement(
+    reason: InventoryMovementReason,
+    rawAmount: string,
+    options?: { signed?: boolean; note?: string }
+  ) {
+    if (inventoryMovementSubmitting) {
+      return;
+    }
+    if (!product) {
+      return;
+    }
+    if (!product.tracksInventory) {
+      setInventoryActionError(
+        "Guarda el producto con inventario activado antes de ajustar stock."
+      );
+      return;
+    }
+    const amount = options?.signed
+      ? parseSignedInteger(rawAmount)
+      : parsePositiveInteger(rawAmount);
+    if (amount == null) {
+      if (rawAmount.trim()) {
+        setInventoryActionError(
+          "Usa un número entero sin decimales ni texto extra."
+        );
+      }
+      return;
+    }
+    const delta =
+      reason === "loss" || reason === "gift" ? -Math.abs(amount) : amount;
+    setInventoryMovementSubmitting(true);
+    try {
+      await onInventoryMovement({
+        productId: product.id,
+        delta,
+        reason,
+        note: options?.note,
+      });
+      setInventoryActionError(null);
+      if (reason === "restock") {
+        setRestockAmount("");
+      }
+      if (reason === "adjustment") {
+        setAdjustmentAmount("");
+        setAdjustmentNote("");
+      }
+      if (reason === "loss") {
+        setLossAmount("");
+        setLossNote("");
+      }
+      if (reason === "gift") {
+        setGiftAmount("");
+        setGiftNote("");
+      }
+    } catch (error) {
+      setInventoryActionError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar el inventario."
+      );
+    } finally {
+      setInventoryMovementSubmitting(false);
+    }
   }
 
   return (
@@ -201,6 +319,183 @@ export function ProductEditor({
             ))}
         </select>
       </FormField>
+
+      <section className="inventory-panel">
+        <label className="inventory-toggle">
+          <span>
+            <strong>Rastrear inventario</strong>
+            <small>Cuenta unidades disponibles; nunca bloquea una venta.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={tracksInventory}
+            onChange={(event) => setTracksInventory(event.target.checked)}
+          />
+        </label>
+
+        {showInitialStockField ? (
+          <FormField label="Stock inicial">
+            <input
+              value={initialStock}
+              onChange={(event) => {
+                setInitialStock(event.target.value);
+                setInventoryActionError(null);
+              }}
+              inputMode="numeric"
+              placeholder="10"
+            />
+          </FormField>
+        ) : null}
+
+        {trackingDirty ? (
+          <p className="field-help">
+            Guarda los cambios para activar los ajustes de inventario.
+          </p>
+        ) : null}
+
+        {product && trackingPersisted ? (
+          <div className="inventory-actions">
+            {currentStock != null ? (
+              <p className="inventory-current">
+                En mano: <strong>{stockValueLabel(currentStock)}</strong>
+              </p>
+            ) : null}
+
+            <div className="inventory-action-row">
+              <label>Reabastecer</label>
+              <div className="inventory-action-controls">
+                <input
+                  value={restockAmount}
+                  onChange={(event) => setRestockAmount(event.target.value)}
+                  inputMode="numeric"
+                  placeholder="+5"
+                />
+                <button
+                  type="button"
+                  className="inventory-action-button"
+                  disabled={!canRestock || inventoryMovementSubmitting}
+                  aria-label="Registrar reabastecimiento"
+                  onClick={() =>
+                    void submitMovement("restock", restockAmount)
+                  }
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="inventory-more-toggle"
+              aria-expanded={showMoreActions}
+              onClick={() => setShowMoreActions((value) => !value)}
+            >
+              {showMoreActions ? "Menos acciones" : "Más acciones"}
+            </button>
+
+            {showMoreActions ? (
+              <>
+                <div className="inventory-action-row">
+                  <label>Ajuste</label>
+                  <div className="inventory-action-controls stacked">
+                    <input
+                      value={adjustmentAmount}
+                      onChange={(event) =>
+                        setAdjustmentAmount(event.target.value)
+                      }
+                      placeholder="±2"
+                    />
+                    <input
+                      value={adjustmentNote}
+                      onChange={(event) =>
+                        setAdjustmentNote(event.target.value)
+                      }
+                      placeholder="Nota opcional"
+                    />
+                    <button
+                      type="button"
+                      className="inventory-action-button"
+                      disabled={!canAdjust || inventoryMovementSubmitting}
+                      onClick={() =>
+                        void submitMovement("adjustment", adjustmentAmount, {
+                          signed: true,
+                          note: adjustmentNote,
+                        })
+                      }
+                    >
+                      Ajustar
+                    </button>
+                  </div>
+                </div>
+
+                <div className="inventory-action-row">
+                  <label>Pérdida</label>
+                  <div className="inventory-action-controls stacked">
+                    <input
+                      value={lossAmount}
+                      onChange={(event) => setLossAmount(event.target.value)}
+                      inputMode="numeric"
+                      placeholder="2"
+                    />
+                    <input
+                      value={lossNote}
+                      onChange={(event) => setLossNote(event.target.value)}
+                      placeholder="Nota opcional"
+                    />
+                    <button
+                      type="button"
+                      className="inventory-action-button"
+                      disabled={!canLoss || inventoryMovementSubmitting}
+                      aria-label="Registrar pérdida"
+                      onClick={() =>
+                        void submitMovement("loss", lossAmount, {
+                          note: lossNote,
+                        })
+                      }
+                    >
+                      <Minus size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="inventory-action-row">
+                  <label>Regalo</label>
+                  <div className="inventory-action-controls stacked">
+                    <input
+                      value={giftAmount}
+                      onChange={(event) => setGiftAmount(event.target.value)}
+                      inputMode="numeric"
+                      placeholder="1"
+                    />
+                    <input
+                      value={giftNote}
+                      onChange={(event) => setGiftNote(event.target.value)}
+                      placeholder="Nota opcional"
+                    />
+                    <button
+                      type="button"
+                      className="inventory-action-button"
+                      disabled={!canGift || inventoryMovementSubmitting}
+                      aria-label="Registrar regalo"
+                      onClick={() =>
+                        void submitMovement("gift", giftAmount, {
+                          note: giftNote,
+                        })
+                      }
+                    >
+                      <Minus size={16} />
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        {inventoryActionError ? (
+          <p className="field-help error">{inventoryActionError}</p>
+        ) : null}
+      </section>
+
       {product ? (
         <button className="archive-button" onClick={() => archive(product.id)}>
           <ArchiveRestore size={18} />
@@ -211,7 +506,17 @@ export function ProductEditor({
       <button
         className="save-dock"
         disabled={!canSave}
-        onClick={() =>
+        onClick={() => {
+          if (
+            showInitialStockField &&
+            initialStock.trim() &&
+            parsePositiveInteger(initialStock) == null
+          ) {
+            setInventoryActionError(
+              "El stock inicial debe ser un número entero sin decimales."
+            );
+            return;
+          }
           save({
             name: name.trim(),
             priceCents: parseBolivianos(price),
@@ -220,8 +525,12 @@ export function ProductEditor({
             imageTone,
             imagePath: product?.imagePath ?? null,
             imageFile,
-          })
-        }
+            tracksInventory,
+            initialStock: showInitialStockField
+              ? parsePositiveInteger(initialStock) ?? undefined
+              : undefined,
+          });
+        }}
       >
         GUARDAR CAMBIOS
       </button>

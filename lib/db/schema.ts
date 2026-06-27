@@ -1,10 +1,12 @@
+import { sql } from "drizzle-orm";
 import {
+  boolean,
+  check,
   foreignKey,
   index,
   integer,
   pgEnum,
   pgTable,
-  primaryKey,
   text,
   timestamp,
   unique,
@@ -16,6 +18,14 @@ import { relations } from "drizzle-orm";
 export const paymentMethodEnum = pgEnum("payment_method", [
   "cash",
   "qr_transfer",
+]);
+
+export const inventoryMovementReasonEnum = pgEnum("inventory_movement_reason", [
+  "initial",
+  "restock",
+  "adjustment",
+  "loss",
+  "gift",
 ]);
 
 export const tenants = pgTable("tenants", {
@@ -34,11 +44,14 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   products: many(products),
   sales: many(sales),
   refunds: many(refunds),
+  inventoryMovements: many(inventoryMovements),
 }));
 
 export const tenantUsers = pgTable(
   "tenant_users",
   {
+    // Single-column PK so PowerSync can replicate membership rows to devices.
+    id: uuid("id").primaryKey().defaultRandom(),
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
@@ -49,8 +62,12 @@ export const tenantUsers = pgTable(
       .defaultNow(),
   },
   (table) => [
-    primaryKey({ columns: [table.tenantId, table.userId] }),
+    unique("tenant_users_tenant_id_user_id_unique").on(
+      table.tenantId,
+      table.userId
+    ),
     index("tenant_users_user_id_idx").on(table.userId),
+    index("tenant_users_tenant_id_idx").on(table.tenantId),
   ]
 );
 
@@ -73,6 +90,8 @@ export const products = pgTable(
     costCents: integer("cost_cents"),
     category: text("category").notNull(),
     imagePath: text("image_path"),
+    tracksInventory: boolean("tracks_inventory").notNull().default(false),
+    lowStockThreshold: integer("low_stock_threshold"),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -87,15 +106,93 @@ export const products = pgTable(
     // Target for the tenant-scoped composite FK on sale_lines.product_id.
     // (id) is already unique as the PK; this pair makes the composite FK legal.
     unique("products_id_tenant_id_unique").on(table.id, table.tenantId),
+    check(
+      "products_price_cents_nonnegative_check",
+      sql`${table.priceCents} >= 0`
+    ),
+    check(
+      "products_cost_cents_nonnegative_check",
+      sql`${table.costCents} IS NULL OR ${table.costCents} >= 0`
+    ),
+    check(
+      "products_low_stock_threshold_nonnegative_check",
+      sql`${table.lowStockThreshold} IS NULL OR ${table.lowStockThreshold} >= 0`
+    ),
   ]
 );
 
-export const productsRelations = relations(products, ({ one }) => ({
+export const productsRelations = relations(products, ({ one, many }) => ({
   tenant: one(tenants, {
     fields: [products.tenantId],
     references: [tenants.id],
   }),
+  inventoryMovements: many(inventoryMovements),
 }));
+
+export const inventoryMovements = pgTable(
+  "inventory_movements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "restrict" }),
+    productId: uuid("product_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    delta: integer("delta").notNull(),
+    reason: inventoryMovementReasonEnum("reason").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    clientCreatedAt: timestamp("client_created_at", {
+      withTimezone: true,
+    }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: "inventory_movements_product_id_tenant_id_products_id_tenant_id_fk",
+      columns: [table.productId, table.tenantId],
+      foreignColumns: [products.id, products.tenantId],
+    }).onDelete("restrict"),
+    index("inventory_movements_tenant_product_idx").on(
+      table.tenantId,
+      table.productId
+    ),
+    index("inventory_movements_tenant_created_at_idx").on(
+      table.tenantId,
+      table.createdAt
+    ),
+    uniqueIndex("inventory_movements_one_initial_per_product_idx")
+      .on(table.tenantId, table.productId)
+      .where(sql`${table.reason} = 'initial'`),
+    check(
+      "inventory_movements_delta_nonzero_check",
+      sql`${table.delta} <> 0`
+    ),
+    check(
+      "inventory_movements_sign_discipline_check",
+      sql`(
+        (${table.reason} IN ('initial', 'restock') AND ${table.delta} > 0)
+        OR (${table.reason} IN ('loss', 'gift') AND ${table.delta} < 0)
+        OR (${table.reason} = 'adjustment')
+      )`
+    ),
+  ]
+);
+
+export const inventoryMovementsRelations = relations(
+  inventoryMovements,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [inventoryMovements.tenantId],
+      references: [tenants.id],
+    }),
+    product: one(products, {
+      fields: [inventoryMovements.productId],
+      references: [products.id],
+    }),
+  })
+);
 
 export const sales = pgTable(
   "sales",
@@ -123,6 +220,17 @@ export const sales = pgTable(
     // Target for the tenant-scoped composite FKs on sale_lines and refunds.
     // (id) is already unique as the PK; this pair makes the composite FK legal.
     unique("sales_id_tenant_id_unique").on(table.id, table.tenantId),
+    check(
+      "sales_discount_cents_nonnegative_check",
+      sql`${table.saleDiscountCents} >= 0`
+    ),
+    check(
+      "sales_void_coherence_check",
+      sql`(
+        (${table.voidedAt} IS NULL AND ${table.voidedByUserId} IS NULL)
+        OR (${table.voidedAt} IS NOT NULL AND ${table.voidedByUserId} IS NOT NULL)
+      )`
+    ),
   ]
 );
 
@@ -177,6 +285,26 @@ export const saleLines = pgTable(
       columns: [table.productId, table.tenantId],
       foreignColumns: [products.id, products.tenantId],
     }).onDelete("restrict"),
+    check(
+      "sale_lines_quantity_positive_check",
+      sql`${table.quantity} > 0`
+    ),
+    check(
+      "sale_lines_unit_price_cents_nonnegative_check",
+      sql`${table.unitPriceCents} >= 0`
+    ),
+    check(
+      "sale_lines_unit_cost_cents_nonnegative_check",
+      sql`${table.unitCostCents} IS NULL OR ${table.unitCostCents} >= 0`
+    ),
+    check(
+      "sale_lines_discount_cents_nonnegative_check",
+      sql`${table.lineDiscountCents} >= 0`
+    ),
+    check(
+      "sale_lines_total_cents_nonnegative_check",
+      sql`${table.lineTotalCents} >= 0`
+    ),
   ]
 );
 

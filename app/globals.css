@@ -143,6 +143,33 @@ button {
   flex: 0 0 auto;
 }
 
+.avatar.small {
+  width: 34px;
+  height: 34px;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.settings-member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-team-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.settings-team-sync-warning {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 .flip {
   transform: rotate(180deg);
 }
@@ -376,6 +403,142 @@ button {
   color: #fff;
   font-size: 13px;
   font-weight: 800;
+}
+
+.stock-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 999px;
+  background: rgba(33, 23, 52, 0.08);
+  color: rgba(33, 23, 52, 0.72);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stock-badge.low {
+  background: rgba(181, 122, 18, 0.16);
+  color: #8a5a00;
+}
+
+.stock-badge.out {
+  background: rgba(33, 23, 52, 0.12);
+  color: rgba(33, 23, 52, 0.72);
+  text-transform: lowercase;
+}
+
+.stock-badge.oversold {
+  background: rgba(176, 48, 72, 0.16);
+  color: #9b1c3d;
+}
+
+.product-tile.stock-out,
+.product-tile.stock-oversold {
+  border-color: rgba(176, 48, 72, 0.28);
+}
+
+.inventory-panel {
+  margin-top: 8px;
+  padding: 16px;
+  border: 1px solid rgba(223, 217, 232, 0.92);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: var(--soft-shadow);
+}
+
+.inventory-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.inventory-toggle strong {
+  display: block;
+  font-size: 15px;
+}
+
+.inventory-toggle small {
+  display: block;
+  margin-top: 4px;
+  color: rgba(33, 23, 52, 0.62);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.inventory-toggle input {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+}
+
+.inventory-actions {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.inventory-current {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(33, 23, 52, 0.72);
+}
+
+.inventory-action-row label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(33, 23, 52, 0.72);
+}
+
+.inventory-action-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.inventory-action-controls.stacked {
+  flex-direction: column;
+}
+
+.inventory-action-controls input {
+  flex: 1;
+  min-height: 56px;
+  border: 1px solid rgba(223, 217, 232, 0.92);
+  border-radius: 12px;
+  padding: 0 12px;
+}
+
+.inventory-action-button {
+  min-width: 56px;
+  min-height: 56px;
+  border: 1px solid rgba(223, 217, 232, 0.92);
+  border-radius: 12px;
+  background: #faf8fc;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inventory-action-button:disabled {
+  opacity: 0.45;
+}
+
+.inventory-more-toggle {
+  align-self: flex-start;
+  padding: 8px 0;
+  background: none;
+  border: 0;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .checkout-dock {

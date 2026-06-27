@@ -29,6 +29,27 @@
       "when": 1781054583535,
       "tag": "20260610012303_product_image_upload_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782435925928,
+      "tag": "20260626010525_perpetual_gideon",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782449574695,
+      "tag": "20260626045254_wide_cargill",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782482375211,
+      "tag": "20260626135935_parallel_shape",
+      "breakpoints": true
     }
   ]
 }

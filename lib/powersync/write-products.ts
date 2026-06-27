@@ -48,8 +48,8 @@ export async function createProductLocal(
   await db.execute(
     `INSERT INTO products
       (id, tenant_id, name, price_cents, cost_cents, category, image_path,
-       created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       tracks_inventory, low_stock_threshold, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       productId,
       input.tenantId,
@@ -58,6 +58,8 @@ export async function createProductLocal(
       input.product.costCents,
       input.product.category,
       resolveInputImagePath(input.product),
+      input.product.tracksInventory ? 1 : 0,
+      input.product.lowStockThreshold ?? null,
       now,
       now,
     ]
@@ -72,7 +74,8 @@ export async function updateProductLocal(
   await db.execute(
     `UPDATE products
        SET name = ?, price_cents = ?, cost_cents = ?, category = ?,
-           image_path = ?, updated_at = ?
+           image_path = ?, tracks_inventory = ?, low_stock_threshold = ?,
+           updated_at = ?
      WHERE id = ? AND tenant_id = ?`,
     [
       input.product.name,
@@ -80,6 +83,8 @@ export async function updateProductLocal(
       input.product.costCents,
       input.product.category,
       resolveInputImagePath(input.product),
+      input.product.tracksInventory ? 1 : 0,
+      input.product.lowStockThreshold ?? null,
       nowIso(),
       input.productId,
       input.tenantId,

@@ -33,17 +33,26 @@ import {
   type LocalSaleLineRow,
   type LocalSaleRow,
 } from "@/lib/powersync/sales-from-local";
+import {
+  buildUserNameMap,
+  isTeamReplicationConfirmed,
+  mapTenantUserRow,
+  mergeTenantMembersFromWatch,
+  type LocalTenantUserRow,
+} from "@/lib/powersync/tenant-users-from-local";
 import { usePosStore } from "@/lib/store";
 import type {
   CartLine,
   PaymentMethod,
   Product,
   Sale,
+  TenantMember,
   ToastMessage,
 } from "@/lib/types";
 import type { View } from "@/lib/views";
 import type { UserTenantContext } from "@/lib/auth/user-context";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
+import { isPowerSyncConfigured } from "@/lib/env";
 import { SyncStatusPill } from "@/components/molecules/sync-status-pill";
 import {
   createSaleLocal,
@@ -63,8 +72,14 @@ import {
   migrateLegacyDraftCartLocal,
   saveDraftCartLocal,
 } from "@/lib/powersync/draft-cart";
-import { hasCompletedInitialSync } from "@/lib/powersync/initial-sync";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  computeStockByProduct,
+  productHasInitialMovement,
+  type InventoryMovement,
+  type InventoryMovementReason,
+} from "@/lib/inventory";
+import { addInventoryMovement, productHasInitialMovementLocal } from "@/lib/powersync/write-inventory";
 import { formatBs } from "@/lib/money";
 
 // Shape of a row coming back from the local SQLite store. Column names are
@@ -77,9 +92,23 @@ type ProductRow = {
   cost_cents: number | null;
   category: string;
   image_path: string | null;
+  tracks_inventory: number | null;
+  low_stock_threshold: number | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type InventoryMovementRow = {
+  id: string;
+  tenant_id: string;
+  product_id: string;
+  user_id: string;
+  delta: number;
+  reason: InventoryMovementReason;
+  note: string | null;
+  created_at: string;
+  client_created_at: string;
 };
 
 function rowToProduct(row: ProductRow): Product {
@@ -90,22 +119,42 @@ function rowToProduct(row: ProductRow): Product {
     costCents: row.cost_cents,
     category: row.category,
     imagePath: row.image_path,
+    tracksInventory: row.tracks_inventory,
+    lowStockThreshold: row.low_stock_threshold,
     archivedAt: row.archived_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
 }
 
+function rowToInventoryMovement(row: InventoryMovementRow): InventoryMovement {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    productId: row.product_id,
+    userId: row.user_id,
+    delta: row.delta,
+    reason: row.reason,
+    note: row.note,
+    createdAt: row.created_at,
+    clientCreatedAt: row.client_created_at,
+  };
+}
+
 type GlitterPosAppProps = {
   tenantContext: UserTenantContext;
   initialProducts: Product[];
   initialSales: Sale[];
+  initialTenantMembers: TenantMember[];
+  initialInventoryMovements: InventoryMovement[];
 };
 
 export function GlitterPosApp({
   tenantContext,
   initialProducts,
   initialSales,
+  initialTenantMembers,
+  initialInventoryMovements,
 }: GlitterPosAppProps) {
   const products = usePosStore((state) => state.products);
   const cart = usePosStore((state) => state.cart);
@@ -132,6 +181,21 @@ export function GlitterPosApp({
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [tenantMembers, setTenantMembers] =
+    useState<TenantMember[]>(initialTenantMembers);
+  const [inventoryMovements, setInventoryMovements] = useState<
+    InventoryMovement[]
+  >(initialInventoryMovements);
+  const [editorHasInitialMovement, setEditorHasInitialMovement] =
+    useState(false);
+  const [inventoryWatchReady, setInventoryWatchReady] = useState(
+    () => !isPowerSyncConfigured() || initialInventoryMovements.length > 0
+  );
+  const [teamSyncConfirmed, setTeamSyncConfirmed] = useState(
+    () => initialTenantMembers.length === 0
+  );
+  const initialTenantMembersRef = useRef(initialTenantMembers);
+  const teamSyncEverConfirmedRef = useRef(false);
   const draftCartReadyRef = useRef(false);
   const cartRef = useRef(cart);
   const cartUpdatedAtRef = useRef<string | null>(null);
@@ -170,10 +234,47 @@ export function GlitterPosApp({
     ? (sales.find((sale) => sale.id === selectedSaleId) ?? null)
     : null;
 
+  // Fall back to server-hydrated members while tenant_users is still
+  // replicating — avoids "Vendedor" regressions in reports on upgrade.
+  const membersForNames = useMemo(
+    () => (tenantMembers.length > 0 ? tenantMembers : initialTenantMembers),
+    [tenantMembers, initialTenantMembers]
+  );
+  const userNameById = useMemo(
+    () => buildUserNameMap(membersForNames),
+    [membersForNames]
+  );
+  const stockByProduct = useMemo(
+    () => computeStockByProduct(inventoryMovements, sales),
+    [inventoryMovements, sales]
+  );
+  const activeTenantId = tenantContext.tenant?.id ?? null;
+
+  useEffect(() => {
+    initialTenantMembersRef.current = initialTenantMembers;
+    teamSyncEverConfirmedRef.current = false;
+    setTeamSyncConfirmed(initialTenantMembers.length === 0);
+  }, [initialTenantMembers]);
+
   useEffect(() => {
     hydrateProducts(initialProducts);
     hydrateSales(initialSales);
-  }, [hydrateProducts, hydrateSales, initialProducts, initialSales]);
+    setTenantMembers(initialTenantMembers);
+    setInventoryMovements(initialInventoryMovements);
+    if (!isPowerSyncConfigured()) {
+      setInventoryWatchReady(Boolean(activeTenantId));
+    } else {
+      setInventoryWatchReady(initialInventoryMovements.length > 0);
+    }
+  }, [
+    hydrateProducts,
+    hydrateSales,
+    initialProducts,
+    initialSales,
+    initialTenantMembers,
+    initialInventoryMovements,
+    activeTenantId,
+  ]);
 
   useEffect(() => {
     cartRef.current = cart;
@@ -191,7 +292,59 @@ export function GlitterPosApp({
   // filter the read in case a race or a future code path leaves stale
   // rows on disk under a different tenant_id.
   const powerSyncDb = useOptionalPowerSyncDb();
-  const activeTenantId = tenantContext.tenant?.id ?? null;
+  const inventoryStockReady = inventoryWatchReady;
+
+  useEffect(() => {
+    if (!editingProduct) {
+      setEditorHasInitialMovement(false);
+      return;
+    }
+
+    let cancelled = false;
+    const productId = editingProduct.id;
+    const productTracksInventory = editingProduct.tracksInventory;
+
+    async function loadEditorInitialMovementState() {
+      if (productHasInitialMovement(productId, inventoryMovements)) {
+        if (!cancelled) {
+          setEditorHasInitialMovement(true);
+        }
+        return;
+      }
+
+      if (
+        powerSyncDb?.currentStatus?.hasSynced &&
+        inventoryWatchReady
+      ) {
+        const hasInitial = await productHasInitialMovementLocal(
+          powerSyncDb,
+          productId
+        );
+        if (!cancelled) {
+          setEditorHasInitialMovement(hasInitial);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setEditorHasInitialMovement(
+          !inventoryWatchReady && productTracksInventory
+        );
+      }
+    }
+
+    void loadEditorInitialMovementState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    editingProduct,
+    powerSyncDb,
+    inventoryMovements,
+    inventoryWatchReady,
+  ]);
+
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
 
@@ -204,6 +357,9 @@ export function GlitterPosApp({
         [activeTenantId],
         {
           onResult: (results) => {
+            if (!db.currentStatus?.hasSynced) {
+              return;
+            }
             const rows = ((results.rows as unknown as { _array?: ProductRow[] })
               ?._array ?? []) as ProductRow[];
             hydrateProducts(rows.map(rowToProduct));
@@ -216,7 +372,7 @@ export function GlitterPosApp({
       );
     }
 
-    if (powerSyncDb.currentStatus?.hasSynced || hasCompletedInitialSync()) {
+    if (powerSyncDb.currentStatus?.hasSynced) {
       startWatching(powerSyncDb);
     } else {
       unregister = powerSyncDb.registerListener({
@@ -236,12 +392,127 @@ export function GlitterPosApp({
     };
   }, [powerSyncDb, hydrateProducts, activeTenantId]);
 
+  useEffect(() => {
+    if (!powerSyncDb || !activeTenantId) return;
+
+    const controller = new AbortController();
+    let unregister: (() => void) | undefined;
+
+    function startWatching(db: NonNullable<typeof powerSyncDb>) {
+      db.watch(
+        "SELECT * FROM inventory_movements WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
+        [activeTenantId],
+        {
+          onResult: (results) => {
+            if (!db.currentStatus?.hasSynced) {
+              return;
+            }
+            const rows = ((
+              results.rows as unknown as { _array?: InventoryMovementRow[] }
+            )?._array ?? []) as InventoryMovementRow[];
+            setInventoryMovements(rows.map(rowToInventoryMovement));
+            setInventoryWatchReady(true);
+          },
+          onError: (error) => {
+            console.error("[PowerSync] inventory_movements watch error", error);
+          },
+        },
+        { signal: controller.signal }
+      );
+    }
+
+    if (powerSyncDb.currentStatus?.hasSynced) {
+      startWatching(powerSyncDb);
+    } else {
+      unregister = powerSyncDb.registerListener({
+        statusChanged: (status) => {
+          if (status.hasSynced && !controller.signal.aborted) {
+            startWatching(powerSyncDb);
+            unregister?.();
+            unregister = undefined;
+          }
+        },
+      });
+    }
+
+    return () => {
+      controller.abort();
+      unregister?.();
+    };
+  }, [powerSyncDb, activeTenantId]);
+
+  useEffect(() => {
+    if (!powerSyncDb || !activeTenantId) return;
+
+    setTeamSyncConfirmed(initialTenantMembersRef.current.length === 0);
+    teamSyncEverConfirmedRef.current = false;
+    const controller = new AbortController();
+    let unregister: (() => void) | undefined;
+
+    function startWatching(db: NonNullable<typeof powerSyncDb>) {
+      db.watch(
+        "SELECT * FROM tenant_users WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
+        [activeTenantId],
+        {
+          onResult: (results) => {
+            const rows = ((
+              results.rows as unknown as { _array?: LocalTenantUserRow[] }
+            )?._array ?? []) as LocalTenantUserRow[];
+            const mapped = rows.map(mapTenantUserRow);
+            const serverMembers = initialTenantMembersRef.current;
+            const hasSynced = db.currentStatus?.hasSynced ?? false;
+            const confirmed = isTeamReplicationConfirmed(
+              mapped,
+              serverMembers,
+              hasSynced
+            );
+            if (confirmed) {
+              teamSyncEverConfirmedRef.current = true;
+            }
+            setTeamSyncConfirmed(confirmed);
+            setTenantMembers((prev) =>
+              mergeTenantMembersFromWatch(prev, mapped, {
+                allowMemberShrink: teamSyncEverConfirmedRef.current,
+                replicationConfirmed: confirmed,
+              })
+            );
+          },
+          onError: (error) => {
+            console.error("[PowerSync] tenant_users watch error", error);
+          },
+        },
+        { signal: controller.signal }
+      );
+    }
+
+    // Require hasSynced on this connection — do not use hasCompletedInitialSync()
+    // here. The localStorage flag can be true from a prior app version that did
+    // not replicate tenant_users yet.
+    if (powerSyncDb.currentStatus?.hasSynced) {
+      startWatching(powerSyncDb);
+    } else {
+      unregister = powerSyncDb.registerListener({
+        statusChanged: (status) => {
+          if (status.hasSynced && !controller.signal.aborted) {
+            startWatching(powerSyncDb);
+            unregister?.();
+            unregister = undefined;
+          }
+        },
+      });
+    }
+
+    return () => {
+      controller.abort();
+      unregister?.();
+    };
+  }, [powerSyncDb, activeTenantId]);
+
   // Subscribe to sales + sale_lines + refunds. PowerSync's onChange fires
   // whenever any of the three tables mutates; we requery all three and
   // rebuild the in-memory Sale[] (same shape as the server-side
-  // getSalesForTenant returns). User display names are resolved from the
-  // current session — sales rung up by other tenant members fall back to a
-  // generic label until tenant_users sync lands (see lib/powersync/sales-from-local.ts).
+  // getSalesForTenant returns). User display names come from synced
+  // tenant_users rows (see the watch above).
   const currentUserId = tenantContext.user.id;
   const currentUserName = tenantContext.user.displayName;
   useEffect(() => {
@@ -251,10 +522,16 @@ export function GlitterPosApp({
     let unregister: (() => void) | undefined;
 
     function resolveUserName(userId: string) {
-      return userId === currentUserId ? currentUserName : "Vendedor";
+      return (
+        userNameById.get(userId) ??
+        (userId === currentUserId ? currentUserName : "Vendedor")
+      );
     }
 
     async function rebuildSales(db: NonNullable<typeof powerSyncDb>) {
+      if (!db.currentStatus?.hasSynced) {
+        return;
+      }
       try {
         // Tenant-scoped reads: see the note on the products watch above.
         const [saleRows, lineRows, refundRows] = await Promise.all([
@@ -298,7 +575,7 @@ export function GlitterPosApp({
       );
     }
 
-    if (powerSyncDb.currentStatus?.hasSynced || hasCompletedInitialSync()) {
+    if (powerSyncDb.currentStatus?.hasSynced) {
       startWatching(powerSyncDb);
     } else {
       unregister = powerSyncDb.registerListener({
@@ -322,6 +599,7 @@ export function GlitterPosApp({
     currentUserId,
     currentUserName,
     activeTenantId,
+    userNameById,
   ]);
 
   useEffect(() => {
@@ -419,6 +697,8 @@ export function GlitterPosApp({
     imageTone: string;
     imagePath?: string | null;
     imageFile?: File | null;
+    tracksInventory: boolean;
+    initialStock?: number;
   }) {
     if (!tenantContext.tenant) {
       showToast("Tu cuenta aún no tiene un tenant.", "danger");
@@ -426,12 +706,43 @@ export function GlitterPosApp({
     }
     try {
       let uploadFailed = false;
+      let hasInitial = false;
+      if (editingProduct) {
+        if (productHasInitialMovement(editingProduct.id, inventoryMovements)) {
+          hasInitial = true;
+        } else if (
+          powerSyncDb?.currentStatus?.hasSynced &&
+          inventoryWatchReady
+        ) {
+          hasInitial = await productHasInitialMovementLocal(
+            powerSyncDb,
+            editingProduct.id
+          );
+        } else if (!inventoryWatchReady && editingProduct.tracksInventory) {
+          hasInitial = true;
+        }
+      }
+      const needsInitialMovement =
+        input.tracksInventory &&
+        input.initialStock != null &&
+        input.initialStock > 0 &&
+        !hasInitial;
+
+      const inventoryPersistenceRequired =
+        !powerSyncDb &&
+        input.tracksInventory &&
+        (needsInitialMovement ||
+          !editingProduct ||
+          !editingProduct.tracksInventory);
+      if (inventoryPersistenceRequired) {
+        showToast(
+          "Conecta para guardar productos con inventario activado.",
+          "info"
+        );
+        return;
+      }
 
       if (powerSyncDb) {
-        // Local-first path. Metadata writes go through the local SQLite
-        // store; image upload goes browser-side to Supabase Storage using
-        // the user's JWT and falls back gracefully if the network is down
-        // (the product is still saved without an image, per PRD §7.1).
         const productId = editingProduct
           ? (await updateProductLocal(powerSyncDb, {
               tenantId: tenantContext.tenant.id,
@@ -445,6 +756,16 @@ export function GlitterPosApp({
                 product: input,
               })
             ).productId;
+
+        if (needsInitialMovement) {
+          await addInventoryMovement(powerSyncDb, {
+            tenantId: tenantContext.tenant.id,
+            userId: tenantContext.user.id,
+            productId,
+            delta: input.initialStock!,
+            reason: "initial",
+          });
+        }
 
         if (input.imageFile) {
           try {
@@ -462,8 +783,6 @@ export function GlitterPosApp({
           }
         }
       } else {
-        // Fallback: server actions during the brief window before
-        // PowerSync is ready.
         let product = editingProduct
           ? await updateProductAction(editingProduct.id, input)
           : await createProduct(input);
@@ -499,6 +818,41 @@ export function GlitterPosApp({
           : "No se pudo guardar el producto",
         "danger"
       );
+    }
+  }
+
+  async function handleInventoryMovement(input: {
+    productId: string;
+    delta: number;
+    reason: InventoryMovementReason;
+    note?: string;
+  }) {
+    if (!tenantContext.tenant) {
+      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+      return;
+    }
+    if (!powerSyncDb) {
+      showToast("Conecta para ajustar el inventario.", "info");
+      return;
+    }
+    try {
+      await addInventoryMovement(powerSyncDb, {
+        tenantId: tenantContext.tenant.id,
+        userId: tenantContext.user.id,
+        productId: input.productId,
+        delta: input.delta,
+        reason: input.reason,
+        note: input.note,
+      });
+      showToast("Inventario actualizado", "success");
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar el inventario",
+        "danger"
+      );
+      throw error;
     }
   }
 
@@ -637,6 +991,8 @@ export function GlitterPosApp({
     sell: (
       <SellScreen
         products={activeProducts}
+        stockByProduct={stockByProduct}
+        inventoryStockReady={inventoryStockReady}
         cartCount={cartCount}
         cartSubtotal={cartSubtotal}
         cart={cart}
@@ -654,6 +1010,9 @@ export function GlitterPosApp({
     reports: (
       <ReportsScreen
         sales={sales}
+        products={activeProducts}
+        stockByProduct={stockByProduct}
+        inventoryStockReady={inventoryStockReady}
         openSale={openSaleDetail}
         voidSale={(saleId) => {
           void handleVoidSale(saleId);
@@ -666,6 +1025,8 @@ export function GlitterPosApp({
     products: (
       <ProductsScreen
         products={products}
+        stockByProduct={stockByProduct}
+        inventoryStockReady={inventoryStockReady}
         category={catalogCategory}
         query={catalogQuery}
         setCategory={setCatalogCategory}
@@ -701,6 +1062,10 @@ export function GlitterPosApp({
     settings: (
       <SettingsScreen
         tenantContext={tenantContext}
+        tenantMembers={membersForNames}
+        teamSyncPending={
+          !teamSyncConfirmed && initialTenantMembers.length > 0
+        }
         productCount={activeProducts.length}
         saleCount={sales.filter((sale) => sale.status === "completed").length}
         pendingCount={sales.length}
@@ -742,6 +1107,10 @@ export function GlitterPosApp({
     editor: (
       <ProductEditor
         product={editingProduct}
+        stockByProduct={stockByProduct}
+        inventoryStockReady={inventoryStockReady}
+        hasInitialMovement={editorHasInitialMovement}
+        onInventoryMovement={handleInventoryMovement}
         back={() =>
           setView(previousView === "sell" ? "products" : previousView)
         }

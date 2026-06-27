@@ -6,11 +6,8 @@
 // (mapSaleRowsForTenant + mapRefundRows). Kept as a pure function so it can
 // be called from a watch handler without React glue.
 //
-// Limitation: tenant_users is NOT currently synced to the device (its
-// composite PK doesn't fit PowerSync's `id`-column requirement). User
-// display names must be resolved by the caller, typically using the current
-// session's user as the only known mapping — sales rung up by other tenant
-// members fall back to a generic label until tenant_users sync lands.
+// Caller supplies display names from synced tenant_users rows (see
+// lib/powersync/tenant-users-from-local.ts).
 
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
 
