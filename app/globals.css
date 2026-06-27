@@ -190,6 +190,11 @@ button {
   padding-bottom: 26px;
 }
 
+/* Cart keeps an absolute checkout dock (CartSummary), not the bottom nav. */
+.cart-screen {
+  padding-bottom: 230px;
+}
+
 /* Brand glyph used in headers and the auth screen. */
 .brand-mark {
   width: 34px;

@@ -221,10 +221,13 @@ The primary-color decision is out of scope here and unchanged. The actual shadcn
 Do not change these (or any other theme/brand color tokens) as part of this work
 without a separate go-ahead. Two related observations to flag, not fix here:
 
-- Brand purple has been removed app-wide in favor of the crimson above.
-  `layout.tsx` and `manifest.webmanifest` `theme_color`, the app icons, and the
-  page backdrop/glow are now crimson (`#c70036`). Dark mode will further replace
-  the single static `theme-color` with per-mode surface colors (§5.6).
+- Brand purple has been removed app-wide in favor of the crimson above for
+  `--primary` and app icons. PWA shell chrome is separate: `app/layout.tsx`
+  `viewport.themeColor` and `manifest.webmanifest` `theme_color` use neutral
+  per-mode surface colors from `SHELL_THEME_COLORS` (aligned with each mode's
+  `--bg`), not the brand crimson; `ThemeColorSync` overrides `theme-color` when
+  the user forces Claro/Oscuro against the OS (§5.6). The page backdrop/glow
+  stays a subtle `color-mix` tint from `--primary`, not a solid crimson fill.
 - The original product PRD still names the brand as `#6822E2` (purple); that is
   now superseded by the crimson `--primary` going forward. The decorative
   `product-art` tone palette (incl. the per-product `violet`/`aurora` tones) and

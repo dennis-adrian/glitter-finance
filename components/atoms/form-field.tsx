@@ -17,7 +17,10 @@ type FormFieldProps = {
 
 export function FormField({ label, hint, id: idProp, children }: FormFieldProps) {
   const generatedId = useId();
-  const id = idProp ?? generatedId;
+  const childId = isValidElement(children)
+    ? (children.props as { id?: string }).id
+    : undefined;
+  const id = idProp ?? childId ?? generatedId;
 
   return (
     <div className="mt-3.5 grid gap-1.5">
@@ -31,9 +34,7 @@ export function FormField({ label, hint, id: idProp, children }: FormFieldProps)
         ) : null}
       </Label>
       {isValidElement(children)
-        ? cloneElement(children as ReactElement<{ id?: string }>, {
-            id: (children.props as { id?: string }).id ?? id,
-          })
+        ? cloneElement(children as ReactElement<{ id?: string }>, { id })
         : children}
     </div>
   );
