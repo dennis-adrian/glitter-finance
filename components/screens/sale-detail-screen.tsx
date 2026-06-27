@@ -1,6 +1,6 @@
 import {
   AlertTriangle,
-  ChevronRight,
+  ChevronLeft,
   Info,
   QrCode,
   ReceiptText,
@@ -11,6 +11,7 @@ import {
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { DetailRow } from "@/components/atoms/detail-row";
 import { Header } from "@/components/atoms/header";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { SaleLineDetail } from "@/components/molecules/sale-line-detail";
 import { formatBs } from "@/lib/money";
@@ -40,6 +41,22 @@ type SaleDetailScreenProps = {
   refundSale: (saleId: string) => void;
 };
 
+const dateFormatter = new Intl.DateTimeFormat("es-BO", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function BackButton({ back }: { back: () => void }) {
+  return (
+    <Button variant="ghost" size="icon" onClick={back} aria-label="Volver">
+      <ChevronLeft className="size-6" />
+    </Button>
+  );
+}
+
 export function SaleDetailScreen({
   sale,
   sales,
@@ -49,15 +66,8 @@ export function SaleDetailScreen({
 }: SaleDetailScreenProps) {
   if (!sale) {
     return (
-      <section className="screen sale-detail-screen">
-        <Header
-          title="Detalle"
-          left={
-            <button className="icon-button" onClick={back} aria-label="Volver">
-              <ChevronRight className="flip dark" size={24} />
-            </button>
-          }
-        />
+      <section className="screen">
+        <Header title="Detalle" left={<BackButton back={back} />} />
         <EmptyState
           icon={<ReceiptText size={46} />}
           title="Venta no encontrada"
@@ -82,32 +92,30 @@ export function SaleDetailScreen({
   const refundRecord = sales.find((item) => item.refundOfSaleId === sale.id);
 
   return (
-    <section className="screen sale-detail-screen">
+    <section className="screen">
       <Header
         title="Detalle de venta"
-        left={
-          <button className="icon-button" onClick={back} aria-label="Volver">
-            <ChevronRight className="flip dark" size={24} />
-          </button>
-        }
+        left={<BackButton back={back} />}
         right={<BrandMark size="small" />}
       />
-      <section className="sale-detail-hero">
-        <span className="sale-status-chip">{saleStatusLabel(sale)}</span>
-        <h2>{saleReferenceLabel(sale)}</h2>
-        <strong>{formatBs(net, true)}</strong>
-        <p>
-          {new Intl.DateTimeFormat("es-BO", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          }).format(new Date(sale.createdAt))}
+
+      <section className="mb-3.5 rounded-2xl bg-card p-4 text-center ring-1 ring-foreground/10">
+        <span className="inline-flex min-h-7 items-center rounded-full bg-primary/10 px-3 text-sm font-bold text-primary">
+          {saleStatusLabel(sale)}
+        </span>
+        <h2 className="mt-2.5 text-lg font-semibold">
+          {saleReferenceLabel(sale)}
+        </h2>
+        <strong className="my-2 block text-4xl leading-none font-bold text-primary tabular-nums">
+          {formatBs(net, true)}
+        </strong>
+        <p className="text-sm text-muted-foreground">
+          {dateFormatter.format(new Date(sale.createdAt))}
         </p>
       </section>
-      <section className="panel sale-detail-panel">
-        <h2>Registro</h2>
+
+      <section className="mt-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+        <h2 className="mb-2 text-lg font-semibold">Registro</h2>
         <DetailRow
           label="Referencia"
           value={saleReferenceLabel(sale)}
@@ -130,24 +138,12 @@ export function SaleDetailScreen({
         ) : null}
         <DetailRow
           label="Creada"
-          value={new Intl.DateTimeFormat("es-BO", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          }).format(new Date(sale.createdAt))}
+          value={dateFormatter.format(new Date(sale.createdAt))}
         />
         {sale.clientCreatedAt ? (
           <DetailRow
             label="Hora local"
-            value={new Intl.DateTimeFormat("es-BO", {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            }).format(new Date(sale.clientCreatedAt))}
+            value={dateFormatter.format(new Date(sale.clientCreatedAt))}
           />
         ) : null}
         <DetailRow label="Registró" value={sale.userName} />
@@ -159,23 +155,18 @@ export function SaleDetailScreen({
         {sale.voidedAt ? (
           <DetailRow
             label="Anulada"
-            value={new Intl.DateTimeFormat("es-BO", {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            }).format(new Date(sale.voidedAt))}
+            value={dateFormatter.format(new Date(sale.voidedAt))}
             tone="danger"
           />
         ) : null}
       </section>
-      <section className="panel sale-detail-panel">
-        <h2>Pago</h2>
+
+      <section className="mt-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+        <h2 className="mb-2 text-lg font-semibold">Pago</h2>
         <DetailRow
           label="Método"
           value={
-            <span className="detail-icon-value">
+            <span className="inline-flex items-center gap-1.5 text-foreground">
               {sale.paymentMethod === "cash" ? (
                 <Wallet size={18} />
               ) : (
@@ -186,16 +177,18 @@ export function SaleDetailScreen({
           }
         />
       </section>
-      <section className="panel sale-detail-panel">
-        <h2>Productos</h2>
-        <div className="sale-line-stack">
+
+      <section className="mt-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+        <h2 className="mb-3 text-lg font-semibold">Productos</h2>
+        <div className="grid gap-2.5">
           {sale.lines.map((line) => (
             <SaleLineDetail key={line.id} line={line} />
           ))}
         </div>
       </section>
-      <section className="panel sale-detail-panel">
-        <h2>Totales</h2>
+
+      <section className="mt-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+        <h2 className="mb-2 text-lg font-semibold">Totales</h2>
         <DetailRow label="Subtotal bruto" value={formatBs(gross, true)} />
         <DetailRow
           label="Descuento líneas"
@@ -220,33 +213,39 @@ export function SaleDetailScreen({
           tone={profit >= 0 ? "success" : "danger"}
         />
       </section>
+
       {hasUnknownCost ? (
-        <div className="cost-warning sale-detail-warning">
-          <Info size={17} />
+        <div className="mt-3 flex gap-2 rounded-xl border border-[var(--amber)]/35 bg-[var(--amber-surface)] p-3 text-sm text-[var(--amber)]">
+          <Info className="size-[17px] shrink-0" />
           La ganancia es un máximo estimado porque al menos un producto no tiene
           costo registrado.
         </div>
       ) : null}
-      <section className="sale-detail-actions">
-        <button
-          className="secondary-action"
+
+      <section className="mt-4 mb-2 grid gap-2.5">
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
           disabled={!canVoid}
           onClick={() => voidSale(sale.id)}
         >
-          <Trash2 size={18} />
+          <Trash2 className="size-[18px]" />
           Anular venta
-        </button>
-        <button
-          className="secondary-action"
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
           disabled={!canRefund}
           onClick={() => refundSale(sale.id)}
         >
-          <RotateCcw size={18} />
+          <RotateCcw className="size-[18px]" />
           Reembolsar venta
-        </button>
+        </Button>
         {!canVoid && !canRefund ? (
-          <p>
-            <AlertTriangle size={15} />
+          <p className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
+            <AlertTriangle className="size-[15px]" />
             Esta venta queda solo como registro. No hay acciones correctivas
             disponibles.
           </p>

@@ -8,10 +8,12 @@ type HeaderProps = {
 
 export function Header({ title, left, right }: HeaderProps) {
   return (
-    <header className="top-bar">
-      <div>{left}</div>
-      <h1>{title}</h1>
-      <div>{right}</div>
+    <header className="mb-3.5 grid h-11 grid-cols-[44px_1fr_44px] items-center">
+      <div className="flex items-center">{left}</div>
+      <h1 className="text-center font-heading text-xl font-extrabold text-primary">
+        {title}
+      </h1>
+      <div className="flex items-center justify-end">{right}</div>
     </header>
   );
 }

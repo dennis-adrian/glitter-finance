@@ -1,4 +1,7 @@
 import { signInWithPassword, signUpWithPassword } from "@/app/auth/actions";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 type LoginPageProps = {
   searchParams: Promise<{
@@ -11,57 +14,89 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
 
   return (
-    <main className="auth-shell">
-      <section className="auth-panel">
-        <span className="brand-mark auth-mark">G</span>
-        <h1>Glitter POS</h1>
-        <p>
+    <main className="grid min-h-dvh place-items-center p-6">
+      <section className="w-full max-w-[420px] rounded-2xl bg-card p-6 ring-1 ring-foreground/10">
+        <span className="brand-mark">G</span>
+        <h1 className="mt-2 text-2xl font-bold text-primary">Glitter POS</h1>
+        <p className="mt-2 mb-4 leading-snug text-muted-foreground">
           Ingresa con tu cuenta de prueba para sincronizar catálogo y ventas con
           Supabase.
         </p>
-        {params.error ? <div className="auth-error">{params.error}</div> : null}
-        {params.message ? (
-          <div className="auth-message">{params.message}</div>
+        {params.error ? (
+          <div className="mb-3.5 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+            {params.error}
+          </div>
         ) : null}
-        <form action={signInWithPassword} className="auth-form">
-          <label>
+        {params.message ? (
+          <div className="mb-3.5 rounded-xl border border-[var(--green)]/30 bg-[var(--green)]/10 px-3 py-2.5 text-sm text-[var(--green)]">
+            {params.message}
+          </div>
+        ) : null}
+        <form action={signInWithPassword} className="mt-4 grid gap-3">
+          <Label className="grid gap-1.5">
             Email
-            <input name="email" type="email" autoComplete="email" required />
-          </label>
-          <label>
+            <Input
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              className="h-12 rounded-xl"
+            />
+          </Label>
+          <Label className="grid gap-1.5">
             Contraseña
-            <input
+            <Input
               name="password"
               type="password"
               autoComplete="current-password"
               required
+              className="h-12 rounded-xl"
             />
-          </label>
-          <button className="primary-action" type="submit">
+          </Label>
+          <Button size="lg" type="submit" className="rounded-2xl">
             Iniciar sesión
-          </button>
+          </Button>
         </form>
-        <form action={signUpWithPassword} className="auth-form auth-signup">
-          <label>
+        <form
+          action={signUpWithPassword}
+          className="mt-6 grid gap-3 border-t border-border pt-5"
+        >
+          <Label className="grid gap-1.5">
             Nombre
-            <input name="displayName" autoComplete="name" />
-          </label>
-          <label>
+            <Input
+              name="displayName"
+              autoComplete="name"
+              className="h-12 rounded-xl"
+            />
+          </Label>
+          <Label className="grid gap-1.5">
             Email
-            <input name="email" type="email" autoComplete="email" required />
-          </label>
-          <label>
+            <Input
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              className="h-12 rounded-xl"
+            />
+          </Label>
+          <Label className="grid gap-1.5">
             Contraseña
-            <input
+            <Input
               name="password"
               type="password"
               autoComplete="new-password"
               required
+              className="h-12 rounded-xl"
             />
-          </label>
-          <button className="secondary-action" type="submit">
+          </Label>
+          <Button
+            variant="outline"
+            size="lg"
+            type="submit"
+            className="rounded-2xl"
+          >
             Crear cuenta de prueba
-          </button>
+          </Button>
         </form>
       </section>
     </main>

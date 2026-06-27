@@ -10,18 +10,24 @@ export function SaleLineDetail({ line }: SaleLineDetailProps) {
     line.unitPriceCents * line.quantity - line.lineDiscountCents;
 
   return (
-    <article className="sale-line-detail">
+    <article className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 rounded-xl bg-muted/50 p-3 ring-1 ring-foreground/5">
       <div>
-        <strong>{line.productName}</strong>
-        <span>{line.category}</span>
+        <strong className="block text-sm font-semibold">
+          {line.productName}
+        </strong>
+        <span className="block text-xs text-muted-foreground">
+          {line.category}
+        </span>
       </div>
-      <div className="sale-line-money">
-        <strong>{formatBs(lineTotal, true)}</strong>
-        <span>
+      <div className="text-right">
+        <strong className="block text-sm font-semibold text-primary tabular-nums">
+          {formatBs(lineTotal, true)}
+        </strong>
+        <span className="block text-xs text-muted-foreground tabular-nums">
           {line.quantity} x {formatBs(line.unitPriceCents, true)}
         </span>
       </div>
-      <small>
+      <small className="col-span-2 text-xs text-muted-foreground">
         Costo snapshoteado:{" "}
         {line.unitCostCents == null
           ? "Desconocido"
