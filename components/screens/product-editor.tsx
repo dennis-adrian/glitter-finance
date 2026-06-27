@@ -93,6 +93,8 @@ export function ProductEditor({
   const [inventoryActionError, setInventoryActionError] = useState<
     string | null
   >(null);
+  const [inventoryMovementSubmitting, setInventoryMovementSubmitting] =
+    useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canSave = hasValidProductForm(name, price);
   const trackingPersisted = product?.tracksInventory ?? false;
@@ -160,6 +162,9 @@ export function ProductEditor({
     rawAmount: string,
     options?: { signed?: boolean; note?: string }
   ) {
+    if (inventoryMovementSubmitting) {
+      return;
+    }
     if (!product) {
       return;
     }
@@ -182,6 +187,7 @@ export function ProductEditor({
     }
     const delta =
       reason === "loss" || reason === "gift" ? -Math.abs(amount) : amount;
+    setInventoryMovementSubmitting(true);
     try {
       await onInventoryMovement({
         productId: product.id,
@@ -211,6 +217,8 @@ export function ProductEditor({
           ? error.message
           : "No se pudo actualizar el inventario."
       );
+    } finally {
+      setInventoryMovementSubmitting(false);
     }
   }
 
@@ -365,7 +373,7 @@ export function ProductEditor({
                 <button
                   type="button"
                   className="inventory-action-button"
-                  disabled={!canRestock}
+                  disabled={!canRestock || inventoryMovementSubmitting}
                   aria-label="Registrar reabastecimiento"
                   onClick={() =>
                     void submitMovement("restock", restockAmount)
@@ -407,7 +415,7 @@ export function ProductEditor({
                     <button
                       type="button"
                       className="inventory-action-button"
-                      disabled={!canAdjust}
+                      disabled={!canAdjust || inventoryMovementSubmitting}
                       onClick={() =>
                         void submitMovement("adjustment", adjustmentAmount, {
                           signed: true,
@@ -437,7 +445,7 @@ export function ProductEditor({
                     <button
                       type="button"
                       className="inventory-action-button"
-                      disabled={!canLoss}
+                      disabled={!canLoss || inventoryMovementSubmitting}
                       aria-label="Registrar pérdida"
                       onClick={() =>
                         void submitMovement("loss", lossAmount, {
@@ -467,7 +475,7 @@ export function ProductEditor({
                     <button
                       type="button"
                       className="inventory-action-button"
-                      disabled={!canGift}
+                      disabled={!canGift || inventoryMovementSubmitting}
                       aria-label="Registrar regalo"
                       onClick={() =>
                         void submitMovement("gift", giftAmount, {

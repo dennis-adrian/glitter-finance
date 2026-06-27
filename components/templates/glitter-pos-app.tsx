@@ -146,6 +146,7 @@ type GlitterPosAppProps = {
   initialProducts: Product[];
   initialSales: Sale[];
   initialTenantMembers: TenantMember[];
+  initialInventoryMovements: InventoryMovement[];
 };
 
 export function GlitterPosApp({
@@ -153,6 +154,7 @@ export function GlitterPosApp({
   initialProducts,
   initialSales,
   initialTenantMembers,
+  initialInventoryMovements,
 }: GlitterPosAppProps) {
   const products = usePosStore((state) => state.products);
   const cart = usePosStore((state) => state.cart);
@@ -283,12 +285,20 @@ export function GlitterPosApp({
   const inventoryStockReady = inventoryWatchReady;
 
   useEffect(() => {
-    if (!isPowerSyncConfigured()) {
-      setInventoryWatchReady(true);
+    if (isPowerSyncConfigured()) {
+      setInventoryWatchReady(false);
       return;
     }
-    setInventoryWatchReady(false);
-  }, [powerSyncDb, activeTenantId]);
+
+    if (!activeTenantId) {
+      setInventoryMovements([]);
+      setInventoryWatchReady(false);
+      return;
+    }
+
+    setInventoryMovements(initialInventoryMovements);
+    setInventoryWatchReady(true);
+  }, [activeTenantId, initialInventoryMovements]);
 
   useEffect(() => {
     if (!editingProduct) {
@@ -323,7 +333,9 @@ export function GlitterPosApp({
       }
 
       if (!cancelled) {
-        setEditorHasInitialMovement(productTracksInventory);
+        setEditorHasInitialMovement(
+          !inventoryWatchReady && productTracksInventory
+        );
       }
     }
 
@@ -712,7 +724,7 @@ export function GlitterPosApp({
             powerSyncDb,
             editingProduct.id
           );
-        } else if (editingProduct.tracksInventory) {
+        } else if (!inventoryWatchReady && editingProduct.tracksInventory) {
           hasInitial = true;
         }
       }

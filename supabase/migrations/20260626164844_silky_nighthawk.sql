@@ -1,1 +1,0 @@
-DROP INDEX "inventory_movements_one_initial_per_product_idx";
