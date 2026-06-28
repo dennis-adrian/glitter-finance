@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { ensureMembership } from "@/lib/auth/user-context";
 import { db } from "@/lib/db";
 import { tenantInvitations, tenants } from "@/lib/db/schema";
@@ -127,35 +127,65 @@ export async function getActiveInvitationForTenant(
   return row ? mapInvitation(row) : null;
 }
 
-export async function insertInvitation(input: {
+const invitationColumns = {
+  id: tenantInvitations.id,
+  tenantId: tenantInvitations.tenantId,
+  token: tenantInvitations.token,
+  createdByUserId: tenantInvitations.createdByUserId,
+  expiresAt: tenantInvitations.expiresAt,
+  revokedAt: tenantInvitations.revokedAt,
+  createdAt: tenantInvitations.createdAt,
+};
+
+// Returns the tenant's current active invitation, creating one (with the
+// supplied candidate token/expiry) only if none exists. A per-tenant advisory
+// lock serializes concurrent generators so two requests can't each insert a
+// fresh valid link — they reuse the single active one instead. Mirrors the
+// bootstrap advisory-lock pattern in lib/auth/user-context.ts.
+export async function getOrCreateActiveInvitation(input: {
   tenantId: string;
-  token: string;
   createdByUserId: string;
+  token: string;
   expiresAt: Date;
 }): Promise<TenantInvitation> {
-  const [row] = await db
-    .insert(tenantInvitations)
-    .values({
-      tenantId: input.tenantId,
-      token: input.token,
-      createdByUserId: input.createdByUserId,
-      expiresAt: input.expiresAt,
-    })
-    .returning({
-      id: tenantInvitations.id,
-      tenantId: tenantInvitations.tenantId,
-      token: tenantInvitations.token,
-      createdByUserId: tenantInvitations.createdByUserId,
-      expiresAt: tenantInvitations.expiresAt,
-      revokedAt: tenantInvitations.revokedAt,
-      createdAt: tenantInvitations.createdAt,
-    });
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${"invitation_create:" + input.tenantId}))`
+    );
 
-  if (!row) {
-    throw new Error("Unable to create invitation.");
-  }
+    const [existing] = await tx
+      .select(invitationColumns)
+      .from(tenantInvitations)
+      .where(
+        and(
+          eq(tenantInvitations.tenantId, input.tenantId),
+          isNull(tenantInvitations.revokedAt),
+          gt(tenantInvitations.expiresAt, new Date())
+        )
+      )
+      .orderBy(desc(tenantInvitations.createdAt))
+      .limit(1);
 
-  return mapInvitation(row);
+    if (existing) {
+      return mapInvitation(existing);
+    }
+
+    const [row] = await tx
+      .insert(tenantInvitations)
+      .values({
+        tenantId: input.tenantId,
+        token: input.token,
+        createdByUserId: input.createdByUserId,
+        expiresAt: input.expiresAt,
+      })
+      .returning(invitationColumns);
+
+    if (!row) {
+      throw new Error("Unable to create invitation.");
+    }
+
+    return mapInvitation(row);
+  });
 }
 
 export async function revokeInvitationById(

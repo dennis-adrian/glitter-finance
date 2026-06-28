@@ -18,8 +18,9 @@ function formatAbsoluteExpiry(expiresAt: string) {
   }).format(new Date(expiresAt));
 }
 
-// Computed only after mount (depends on `Date.now()`), so it never causes an
-// SSR/hydration mismatch.
+// Both expiry formatters run only after mount (relative depends on `Date.now()`,
+// absolute on the runtime time zone), so neither causes an SSR/hydration
+// mismatch — see the `mounted` gate in the render.
 function formatRelativeExpiry(expiresAt: string): string | null {
   const ms = new Date(expiresAt).getTime() - Date.now();
   if (ms <= 0) {
@@ -152,10 +153,12 @@ export function InviteTeamCard({
           <p className="break-all rounded-xl bg-muted px-3 py-2.5 text-sm">
             {inviteLink}
           </p>
-          <p className="text-xs text-muted-foreground">
-            {relativeExpiry ? `${relativeExpiry} · ` : "Caduca el "}
-            {formatAbsoluteExpiry(invitation.expiresAt)}
-          </p>
+          {mounted ? (
+            <p className="text-xs text-muted-foreground">
+              {relativeExpiry ? `${relativeExpiry} · ` : "Caduca el "}
+              {formatAbsoluteExpiry(invitation.expiresAt)}
+            </p>
+          ) : null}
 
           {confirmingRevoke ? (
             <div className="grid gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">

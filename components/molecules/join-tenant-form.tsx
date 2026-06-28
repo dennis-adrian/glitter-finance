@@ -21,22 +21,30 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
     }
     setJoining(true);
     setError(null);
+
+    // Only acceptInvitation drives the failure UI — it is the step that decides
+    // whether the join succeeded.
     try {
       await acceptInvitation(token);
-      try {
-        await powerSyncControls?.clearLocal();
-      } catch (clearError) {
-        console.error("[join] clearLocal failed", clearError);
-      }
-      const supabase = createClient();
-      await supabase.auth.refreshSession();
-      window.location.assign("/");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "No se pudo unir a esta cuenta."
       );
       setJoining(false);
+      return;
     }
+
+    // Joined + committed. Local teardown + session refresh are best-effort; a
+    // failure here must not appear as a failed join. Redirect regardless so the
+    // app reconciles to the new tenant on reload.
+    try {
+      await powerSyncControls?.clearLocal();
+      const supabase = createClient();
+      await supabase.auth.refreshSession();
+    } catch (cleanupError) {
+      console.error("[join] post-accept cleanup failed", cleanupError);
+    }
+    window.location.assign("/");
   }
 
   return (

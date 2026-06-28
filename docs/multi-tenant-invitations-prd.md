@@ -604,10 +604,11 @@ with the parent PRD's dual-platform gate.
    if festival use wants longer (e.g. 30 days) or a per-link choice. _(Decided:
    reusable-until-revoked **with** a fixed auto-expiry; exact duration is the only
    knob left.)_
-2. **Switch-while-dirty guard.** Block the switcher until sync is settled, or
-   warn-and-proceed. Recommend: disable switch while
-   `uploading`/`downloading`/pending, reusing the existing sync-status signal.
-   _(Open.)_
+2. **Switch-while-dirty guard.** _(Resolved — implemented.)_ The switcher
+   enforces a **hard** sync-settled gate: `SettingsScreen`'s `canSwitchTenant`
+   (`useSyncStatus`: `state === "synced" && pendingCount === 0`) disables both
+   switching and account creation until sync is fully settled with zero pending
+   uploads, consistent with §5.4. Not a warn-and-proceed; the action is blocked.
 3. **Member removal / leave-tenant.** Out of scope here; likely the very next
    feature. Requires a `tenant_users` DELETE path (server-side) and re-resolving
    the active tenant if a user leaves the active one. _(Deferred.)_

@@ -8,8 +8,7 @@ import {
 } from "@/lib/auth/user-context";
 import { DEFAULT_INVITE_TTL_MS } from "@/lib/invitations/constants";
 import {
-  getActiveInvitationForTenant,
-  insertInvitation,
+  getOrCreateActiveInvitation,
   redeemInvitation,
   revokeInvitationById,
 } from "@/lib/invitations/repository";
@@ -29,22 +28,13 @@ export async function createInvitation() {
   const origin = await getRequestOrigin();
 
   // Reuse the current active link instead of stacking up valid invitations for
-  // the same tenant (the UI hides "Generar" while one is active, but a second
-  // device or a stale tab could still get here).
-  const existing = await getActiveInvitationForTenant(context.tenant.id);
-  if (existing) {
-    return {
-      link: `${origin}/join/${existing.token}`,
-      invitation: existing,
-    };
-  }
-
-  const expiresAt = new Date(Date.now() + DEFAULT_INVITE_TTL_MS);
-  const invitation = await insertInvitation({
+  // the same tenant. Serialized per-tenant inside the repository so concurrent
+  // generators (a second device, a stale tab) can't each insert a fresh link.
+  const invitation = await getOrCreateActiveInvitation({
     tenantId: context.tenant.id,
-    token: generateInviteToken(),
     createdByUserId: context.user.id,
-    expiresAt,
+    token: generateInviteToken(),
+    expiresAt: new Date(Date.now() + DEFAULT_INVITE_TTL_MS),
   });
 
   return {
@@ -86,5 +76,13 @@ export async function acceptInvitation(token: string) {
   // "valid" and "joined". Only after the membership is durably committed do we
   // flip the active-tenant claim.
   const { tenantId } = await redeemInvitation(token, user.id, displayName);
-  await setActiveTenantClaim(user, tenantId);
+
+  // The membership is already committed — joining succeeded. A failure flipping
+  // the active-tenant claim must NOT surface as "accept failed" (matching
+  // createTenant). The next ensureUserTenantContext reconciles the claim.
+  try {
+    await setActiveTenantClaim(user, tenantId);
+  } catch (error) {
+    console.error("[acceptInvitation] setActiveTenantClaim failed", error);
+  }
 }

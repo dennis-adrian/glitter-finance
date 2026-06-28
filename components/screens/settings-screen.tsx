@@ -327,10 +327,12 @@ export function SettingsScreen({
         <ThemePicker />
       </section>
 
-      <InviteTeamCard
-        initialInvitation={activeInvitation}
-        origin={inviteOrigin}
-      />
+      {tenantContext.tenant ? (
+        <InviteTeamCard
+          initialInvitation={activeInvitation}
+          origin={inviteOrigin}
+        />
+      ) : null}
 
       <section className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
         <h2 className="mb-3 text-lg font-semibold">Equipo</h2>

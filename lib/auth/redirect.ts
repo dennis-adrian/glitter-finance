@@ -4,12 +4,11 @@ export function sanitizeRedirectPath(
 ): string {
   const fallback = "/";
 
-  if (
-    !next ||
-    !next.startsWith("/") ||
-    next.startsWith("//") ||
-    next.includes("://")
-  ) {
+  // Block missing values, non-root-relative paths, and protocol-relative URLs
+  // (`//host`). We intentionally do NOT reject paths merely containing "://"
+  // (e.g. `/login?next=https://...`): the same-origin check below is the real
+  // guard, and the broad reject also discards legitimate in-app query params.
+  if (!next || !next.startsWith("/") || next.startsWith("//")) {
     return fallback;
   }
 
