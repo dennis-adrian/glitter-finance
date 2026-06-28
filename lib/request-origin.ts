@@ -3,12 +3,13 @@ import { headers } from "next/headers";
 // Resolves the request origin for building absolute links (auth callbacks,
 // invitation links).
 //
-// SECURITY: prefer a configured public origin; otherwise use proxy-set
-// `x-forwarded-host` / `x-forwarded-proto` (falling back to `Host`), NOT the
-// client-supplied `Origin` header. The host must pass an allow-list before it
-// is used. When no trusted host is present, returns "" so callers do not build
-// absolute URLs from an unsafe fallback. `x-forwarded-proto` is validated to
-// http/https before use.
+// SECURITY: prefer a configured public origin; on Vercel preview deployments
+// prefer branch/deployment URLs so invite links match the current deployment.
+// Otherwise use proxy-set `x-forwarded-host` / `x-forwarded-proto` (falling back
+// to `Host`), NOT the client-supplied `Origin` header. The host must pass an
+// allow-list before it is used. When no trusted host is present, returns "" so
+// callers do not build absolute URLs from an unsafe fallback.
+// `x-forwarded-proto` is validated to http/https before use.
 export async function getRequestOrigin(): Promise<string> {
   const configured = configuredPublicOrigin();
   if (configured) {
@@ -36,32 +37,76 @@ export async function getRequestOrigin(): Promise<string> {
 }
 
 function configuredPublicOrigin(): string | null {
+  if (process.env.VERCEL_ENV === "preview") {
+    return (
+      originFromEnvHost("VERCEL_BRANCH_URL") ??
+      originFromEnvHost("VERCEL_URL") ??
+      originFromExplicitAppUrl()
+    );
+  }
+
+  return (
+    originFromExplicitAppUrl() ??
+    originFromEnvHost("VERCEL_PROJECT_PRODUCTION_URL") ??
+    originFromEnvHost("VERCEL_URL")
+  );
+}
+
+function originFromExplicitAppUrl(): string | null {
   for (const key of ["NEXT_PUBLIC_APP_URL", "APP_URL"] as const) {
-    const raw = process.env[key]?.trim();
-    if (!raw) {
-      continue;
-    }
-    try {
-      const url = new URL(raw);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        continue;
-      }
-      const host = normalizeHost(url.host);
-      if (!host || !isAllowedHost(host)) {
-        continue;
-      }
-      const port = url.port;
-      const hostWithPort = port ? `${host}:${port}` : host;
-      return `${url.protocol}//${hostWithPort}`;
-    } catch {
-      continue;
+    const origin = originFromUrlEnv(key);
+    if (origin) {
+      return origin;
     }
   }
   return null;
 }
 
+function originFromUrlEnv(key: string): string | null {
+  const raw = process.env[key]?.trim();
+  if (!raw) {
+    return null;
+  }
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+    const host = normalizeHost(url.host);
+    if (!host || !isAllowedHost(host)) {
+      return null;
+    }
+    if (url.protocol === "http:" && !isLoopbackHost(host)) {
+      return null;
+    }
+    const port = url.port;
+    const hostWithPort = port ? `${host}:${port}` : host;
+    return `${url.protocol}//${hostWithPort}`;
+  } catch {
+    return null;
+  }
+}
+
+function originFromEnvHost(key: string): string | null {
+  const raw = process.env[key]?.trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (raw.includes("://")) {
+    return originFromUrlEnv(key);
+  }
+
+  const parsed = parseHostHeader(raw);
+  if (!parsed || !isAllowedHost(parsed.host)) {
+    return null;
+  }
+  return `https://${parsed.hostWithPort}`;
+}
+
 function allowedHosts(): Set<string> {
   const hosts = new Set<string>();
+
   for (const key of ["NEXT_PUBLIC_APP_URL", "APP_URL"] as const) {
     const raw = process.env[key]?.trim();
     if (!raw) {
@@ -76,6 +121,26 @@ function allowedHosts(): Set<string> {
       continue;
     }
   }
+
+  for (const key of [
+    "VERCEL_BRANCH_URL",
+    "VERCEL_URL",
+    "VERCEL_PROJECT_PRODUCTION_URL",
+  ] as const) {
+    const raw = process.env[key]?.trim();
+    if (!raw) {
+      continue;
+    }
+    try {
+      const host = normalizeHost(raw.includes("://") ? new URL(raw).host : raw);
+      if (host) {
+        hosts.add(host);
+      }
+    } catch {
+      continue;
+    }
+  }
+
   return hosts;
 }
 
