@@ -24,6 +24,8 @@ declare const self: ServiceWorkerGlobalScope;
 
 const isSupabaseOrPowerSync = ({ url }: { url: URL }) =>
   /(?:supabase\.co|powersync\.(?:com|journeyapps\.com))$/i.test(url.hostname);
+const isManifestRequest = (pathname: string) =>
+  /\.webmanifest$/i.test(pathname);
 
 const runtimeCaching: RuntimeCaching[] = [
   {
@@ -56,9 +58,8 @@ const runtimeCaching: RuntimeCaching[] = [
     matcher: ({ sameOrigin, url }) =>
       sameOrigin &&
       (url.pathname.startsWith("/_next/static/") ||
-        /\.(?:css|js|svg|png|jpg|jpeg|webp|ico|webmanifest)$/i.test(
-          url.pathname
-        )),
+        (/\.(?:css|js|svg|png|jpg|jpeg|webp|ico)$/i.test(url.pathname) &&
+          !isManifestRequest(url.pathname))),
     handler: new StaleWhileRevalidate({
       cacheName: "glitter-pos-static",
       plugins: [

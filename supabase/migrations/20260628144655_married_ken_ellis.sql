@@ -1,0 +1,1 @@
+ALTER TABLE "tenant_invitations" ALTER COLUMN "created_by_user_id" DROP NOT NULL;

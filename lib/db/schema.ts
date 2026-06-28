@@ -31,6 +31,7 @@ export const inventoryMovementReasonEnum = pgEnum("inventory_movement_reason", [
 export const tenants = pgTable("tenants", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
+  createdByUserId: uuid("created_by_user_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -41,11 +42,49 @@ export const tenants = pgTable("tenants", {
 
 export const tenantsRelations = relations(tenants, ({ many }) => ({
   users: many(tenantUsers),
+  invitations: many(tenantInvitations),
   products: many(products),
   sales: many(sales),
   refunds: many(refunds),
   inventoryMovements: many(inventoryMovements),
 }));
+
+export const tenantInvitations = pgTable(
+  "tenant_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    // AES-GCM ciphertext of the raw bearer token for link re-display; lookup
+    // uses the HMAC hash in `token`. Nullable for rows created before delivery
+    // encryption existed (those links must be rotated to recover).
+    tokenDeliveryCiphertext: text("token_delivery_ciphertext"),
+    // Nullable so the hand-written auth.users FK can ON DELETE SET NULL (the
+    // value is kept as an audit field); the app always sets it on insert.
+    createdByUserId: uuid("created_by_user_id"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("tenant_invitations_token_unique").on(table.token),
+    index("tenant_invitations_tenant_id_idx").on(table.tenantId),
+  ]
+);
+
+export const tenantInvitationsRelations = relations(
+  tenantInvitations,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [tenantInvitations.tenantId],
+      references: [tenants.id],
+    }),
+  })
+);
 
 export const tenantUsers = pgTable(
   "tenant_users",
@@ -165,10 +204,7 @@ export const inventoryMovements = pgTable(
     uniqueIndex("inventory_movements_one_initial_per_product_idx")
       .on(table.tenantId, table.productId)
       .where(sql`${table.reason} = 'initial'`),
-    check(
-      "inventory_movements_delta_nonzero_check",
-      sql`${table.delta} <> 0`
-    ),
+    check("inventory_movements_delta_nonzero_check", sql`${table.delta} <> 0`),
     check(
       "inventory_movements_sign_discipline_check",
       sql`(
@@ -285,10 +321,7 @@ export const saleLines = pgTable(
       columns: [table.productId, table.tenantId],
       foreignColumns: [products.id, products.tenantId],
     }).onDelete("restrict"),
-    check(
-      "sale_lines_quantity_positive_check",
-      sql`${table.quantity} > 0`
-    ),
+    check("sale_lines_quantity_positive_check", sql`${table.quantity} > 0`),
     check(
       "sale_lines_unit_price_cents_nonnegative_check",
       sql`${table.unitPriceCents} >= 0`

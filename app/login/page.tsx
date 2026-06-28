@@ -2,16 +2,27 @@ import { signInWithPassword, signUpWithPassword } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { sanitizeRedirectPath } from "@/lib/auth/redirect";
+import { getRequestOrigin } from "@/lib/request-origin";
 
 type LoginPageProps = {
   searchParams: Promise<{
     error?: string;
     message?: string;
+    next?: string | string[];
   }>;
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
+  const origin = await getRequestOrigin();
+  const nextRaw = Array.isArray(params.next) ? params.next[0] : params.next;
+  const isRelativeNext =
+    !!nextRaw && nextRaw.startsWith("/") && !nextRaw.startsWith("//");
+  const next =
+    origin || isRelativeNext
+      ? sanitizeRedirectPath(nextRaw ?? null, origin || "http://localhost")
+      : "/";
 
   return (
     <main className="grid min-h-dvh place-items-center p-6">
@@ -33,6 +44,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </div>
         ) : null}
         <form action={signInWithPassword} className="mt-4 grid gap-3">
+          <input type="hidden" name="next" value={next} />
           <Label className="grid gap-1.5">
             Email
             <Input
@@ -61,6 +73,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           action={signUpWithPassword}
           className="mt-6 grid gap-3 border-t border-border pt-5"
         >
+          <input type="hidden" name="next" value={next} />
           <Label className="grid gap-1.5">
             Nombre
             <Input

@@ -77,6 +77,21 @@ export type TenantMember = {
   createdAt: string;
 };
 
+export type TenantSummary = {
+  id: string;
+  name: string;
+};
+
+export type TenantInvitation = {
+  id: string;
+  tenantId: string;
+  token: string;
+  createdByUserId: string | null;
+  expiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+};
+
 export type ToastMessage = {
   id: string;
   text: string;
