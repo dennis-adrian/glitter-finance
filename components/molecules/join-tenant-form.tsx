@@ -39,10 +39,17 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
     // app reconciles to the new tenant on reload.
     try {
       await powerSyncControls?.clearLocal();
+    } catch (error) {
+      console.error("[join] clearLocal failed", error);
+    }
+    try {
       const supabase = createClient();
-      await supabase.auth.refreshSession();
-    } catch (cleanupError) {
-      console.error("[join] post-accept cleanup failed", cleanupError);
+      const { error } = await supabase.auth.refreshSession();
+      if (error) {
+        console.error("[join] refreshSession failed", error);
+      }
+    } catch (error) {
+      console.error("[join] refreshSession failed", error);
     }
     window.location.assign("/");
   }

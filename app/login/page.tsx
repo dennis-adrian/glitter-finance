@@ -9,7 +9,7 @@ type LoginPageProps = {
   searchParams: Promise<{
     error?: string;
     message?: string;
-    next?: string;
+    next?: string | string[];
   }>;
 };
 
@@ -19,7 +19,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const origin =
     headerStore.get("origin") ??
     `https://${headerStore.get("x-forwarded-host") ?? headerStore.get("host")}`;
-  const next = sanitizeRedirectPath(params.next ?? null, origin);
+  const nextRaw = Array.isArray(params.next) ? params.next[0] : params.next;
+  const next = sanitizeRedirectPath(nextRaw ?? null, origin);
 
   return (
     <main className="grid min-h-dvh place-items-center p-6">

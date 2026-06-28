@@ -43,7 +43,7 @@ export default async function Home() {
         initialTenantMembers={initialTenantMembers}
         initialInventoryMovements={initialInventoryMovements}
         activeInvitation={activeInvitation}
-        inviteOrigin={inviteOrigin}
+        inviteOrigin={inviteOrigin ?? ""}
       />
     </PowerSyncProvider>
   );

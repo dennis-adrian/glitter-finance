@@ -12,6 +12,10 @@ import {
   redeemInvitation,
   revokeInvitationById,
 } from "@/lib/invitations/repository";
+import {
+  INVITE_ORIGIN_UNAVAILABLE_MESSAGE,
+  buildInviteLink,
+} from "@/lib/invitations/validation";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -26,6 +30,9 @@ export async function createInvitation() {
   }
 
   const origin = await getRequestOrigin();
+  if (!origin) {
+    throw new Error(INVITE_ORIGIN_UNAVAILABLE_MESSAGE);
+  }
 
   const rawToken = generateInviteToken();
   const invitation = await getOrCreateActiveInvitation({
@@ -41,8 +48,13 @@ export async function createInvitation() {
     );
   }
 
+  const link = buildInviteLink(origin, invitation.token);
+  if (!link) {
+    throw new Error(INVITE_ORIGIN_UNAVAILABLE_MESSAGE);
+  }
+
   return {
-    link: `${origin}/join/${invitation.token}`,
+    link,
     invitation,
   };
 }

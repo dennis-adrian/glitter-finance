@@ -18,13 +18,13 @@ export async function getRequestOrigin(): Promise<string> {
   const headerStore = await headers();
   const rawHost =
     headerStore.get("x-forwarded-host") ?? headerStore.get("host");
-  const host = normalizeHost(rawHost);
+  const parsed = parseHostHeader(rawHost);
 
-  if (!host || !isAllowedHost(host)) {
+  if (!parsed || !isAllowedHost(parsed.host)) {
     return "";
   }
 
-  const isLocal = isLoopbackHost(host);
+  const isLocal = isLoopbackHost(parsed.host);
   const forwardedProto = headerStore.get("x-forwarded-proto");
   const proto =
     forwardedProto === "http" || forwardedProto === "https"
@@ -32,7 +32,7 @@ export async function getRequestOrigin(): Promise<string> {
       : isLocal
         ? "http"
         : "https";
-  return `${proto}://${host}`;
+  return `${proto}://${parsed.hostWithPort}`;
 }
 
 function configuredPublicOrigin(): string | null {
@@ -79,7 +79,9 @@ function allowedHosts(): Set<string> {
   return hosts;
 }
 
-function normalizeHost(raw: string | null): string | null {
+function parseHostHeader(
+  raw: string | null,
+): { host: string; hostWithPort: string } | null {
   if (!raw) {
     return null;
   }
@@ -87,12 +89,25 @@ function normalizeHost(raw: string | null): string | null {
   if (!primary) {
     return null;
   }
-  const withoutPort = primary.replace(/:\d+$/, "");
-  const host = withoutPort.toLowerCase();
+  const portMatch = primary.match(/:(\d+)$/);
+  const port = portMatch?.[1];
+  const hostPart = port ? primary.slice(0, -(port.length + 1)) : primary;
+  const host = hostPart.toLowerCase();
   if (!/^[a-z0-9.-]+$/.test(host)) {
     return null;
   }
-  return host;
+  if (port) {
+    const portNum = Number(port);
+    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+      return null;
+    }
+  }
+  const hostWithPort = port ? `${host}:${port}` : host;
+  return { host, hostWithPort };
+}
+
+function normalizeHost(raw: string | null): string | null {
+  return parseHostHeader(raw)?.host ?? null;
 }
 
 function isLoopbackHost(host: string): boolean {

@@ -1,28 +1,33 @@
 import {
   createCipheriv,
   createDecipheriv,
-  createHash,
   createHmac,
   randomBytes,
 } from "crypto";
 import { getServerEnv } from "@/lib/env";
 
 function requireSecretKey(): string {
-  const secret = getServerEnv().supabaseSecretKey;
+  const secret = getServerEnv().invitationSecretKey;
   if (!secret) {
-    throw new Error("Missing required environment variable: SUPABASE_SECRET_KEY");
+    throw new Error("Missing required environment variable: INVITATION_SECRET_KEY");
   }
   return secret;
 }
 
+function deriveKey(info: string): Buffer {
+  return createHmac("sha256", info).update(requireSecretKey()).digest();
+}
+
 function encryptionKey(): Buffer {
-  return createHash("sha256").update(requireSecretKey()).digest();
+  return deriveKey("invitation-delivery-encrypt-v1");
+}
+
+function hmacKey(): Buffer {
+  return deriveKey("invitation-token-hash-v1");
 }
 
 export function hashInvitationToken(rawToken: string): string {
-  return createHmac("sha256", requireSecretKey())
-    .update(rawToken)
-    .digest("base64url");
+  return createHmac("sha256", hmacKey()).update(rawToken).digest("base64url");
 }
 
 export function encryptInvitationDeliveryToken(rawToken: string): string {

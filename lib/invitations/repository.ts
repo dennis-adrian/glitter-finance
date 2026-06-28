@@ -197,6 +197,19 @@ export async function getOrCreateActiveInvitation(input: {
       if (deliveryToken) {
         return mapInvitation(existing, deliveryToken);
       }
+
+      // Active row but undeliverable token (missing ciphertext or decrypt
+      // failure). Revoke before inserting a replacement so two valid links
+      // cannot coexist for the same tenant.
+      await tx
+        .update(tenantInvitations)
+        .set({ revokedAt: new Date() })
+        .where(
+          and(
+            eq(tenantInvitations.id, existing.id),
+            isNull(tenantInvitations.revokedAt)
+          )
+        );
     }
 
     const [row] = await tx

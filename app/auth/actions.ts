@@ -6,6 +6,10 @@ import {
   sanitizeRedirectPath,
 } from "@/lib/auth/redirect";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
+import {
+  INVITE_ORIGIN_UNAVAILABLE_MESSAGE,
+  isAbsoluteHttpUrl,
+} from "@/lib/invitations/validation";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,22 +38,26 @@ function loginRedirectUrl(
   return `/login?${search.toString()}`;
 }
 
-async function getAuthCallbackUrl(next?: string) {
-  const origin = await getRequestOrigin();
-  const base = `${origin}/auth/callback`;
-  if (!next || next === "/") {
-    return base;
+function getAuthCallbackUrl(origin: string, next?: string): string | null {
+  const trimmedOrigin = origin.trim().replace(/\/+$/, "");
+  if (!trimmedOrigin) {
+    return null;
   }
-  return `${base}?next=${encodeURIComponent(next)}`;
+  const base = `${trimmedOrigin}/auth/callback`;
+  const url =
+    !next || next === "/"
+      ? base
+      : `${base}?next=${encodeURIComponent(next)}`;
+  return isAbsoluteHttpUrl(url) ? url : null;
 }
 
 export async function signInWithPassword(formData: FormData) {
   const email = getFormString(formData, "email");
   const password = getFormString(formData, "password");
-  const next = sanitizeRedirectPath(
-    getFormString(formData, "next") || null,
-    await getRequestOrigin()
-  );
+  const origin = await getRequestOrigin();
+  const next = origin
+    ? sanitizeRedirectPath(getFormString(formData, "next") || null, origin)
+    : "/";
   const supabase = await createClient();
 
   const { error } = await supabase.auth.signInWithPassword({
@@ -80,17 +88,23 @@ export async function signUpWithPassword(formData: FormData) {
   const email = getFormString(formData, "email");
   const password = getFormString(formData, "password");
   const displayName = getFormString(formData, "displayName") || email;
-  const next = sanitizeRedirectPath(
-    getFormString(formData, "next") || null,
-    await getRequestOrigin()
-  );
+  const origin = await getRequestOrigin();
+  const next = origin
+    ? sanitizeRedirectPath(getFormString(formData, "next") || null, origin)
+    : "/";
+  const callbackUrl = origin ? getAuthCallbackUrl(origin, next) : null;
+  if (!callbackUrl) {
+    redirect(
+      loginRedirectUrl({ error: INVITE_ORIGIN_UNAVAILABLE_MESSAGE }, "/")
+    );
+  }
   const supabase = await createClient();
 
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      emailRedirectTo: await getAuthCallbackUrl(next),
+      emailRedirectTo: callbackUrl,
       data: {
         display_name: displayName,
       },
