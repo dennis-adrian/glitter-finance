@@ -21,7 +21,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     !!nextRaw && nextRaw.startsWith("/") && !nextRaw.startsWith("//");
   const next =
     origin || isRelativeNext
-      ? sanitizeRedirectPath(nextRaw ?? null, origin ?? "http://localhost")
+      ? sanitizeRedirectPath(nextRaw ?? null, origin || "http://localhost")
       : "/";
 
   return (
