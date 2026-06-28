@@ -127,9 +127,17 @@ function allowedHosts(): Set<string> {
     "VERCEL_URL",
     "VERCEL_PROJECT_PRODUCTION_URL",
   ] as const) {
-    const host = normalizeHost(process.env[key] ?? null);
-    if (host) {
-      hosts.add(host);
+    const raw = process.env[key]?.trim();
+    if (!raw) {
+      continue;
+    }
+    try {
+      const host = normalizeHost(raw.includes("://") ? new URL(raw).host : raw);
+      if (host) {
+        hosts.add(host);
+      }
+    } catch {
+      continue;
     }
   }
 

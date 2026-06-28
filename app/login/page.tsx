@@ -17,9 +17,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
   const origin = await getRequestOrigin();
   const nextRaw = Array.isArray(params.next) ? params.next[0] : params.next;
-  const next = origin
-    ? sanitizeRedirectPath(nextRaw ?? null, origin)
-    : "/";
+  const isRelativeNext =
+    !!nextRaw && nextRaw.startsWith("/") && !nextRaw.startsWith("//");
+  const next =
+    origin || isRelativeNext
+      ? sanitizeRedirectPath(nextRaw ?? null, origin ?? "http://localhost")
+      : "/";
 
   return (
     <main className="grid min-h-dvh place-items-center p-6">
