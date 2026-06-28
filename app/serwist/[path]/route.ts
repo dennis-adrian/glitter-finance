@@ -5,7 +5,7 @@ export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
     swSrc: "app/sw.ts",
     globDirectory: ".",
     globPatterns: [
-      "public/**/*.{js,css,html,ico,png,svg,webmanifest}",
+      "public/**/*.{js,css,html,ico,png,svg}",
       ".next/static/**/*.{js,css}",
     ],
     globIgnores: [
@@ -17,6 +17,9 @@ export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
     ],
     additionalPrecacheEntries: [
       { url: "/~offline", revision: process.env.BUILD_ID || "1" },
+      // /manifest.webmanifest is intentionally NOT precached: it varies by
+      // Sec-CH-Prefers-Color-Scheme, so a single precache URL would freeze one
+      // color-scheme variant as the offline response for both themes.
     ],
     useNativeEsbuild: true,
     rebuildOnChange: true,
