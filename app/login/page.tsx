@@ -1,9 +1,9 @@
-import { headers } from "next/headers";
 import { signInWithPassword, signUpWithPassword } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { sanitizeRedirectPath } from "@/lib/auth/redirect";
+import { getRequestOrigin } from "@/lib/request-origin";
 
 type LoginPageProps = {
   searchParams: Promise<{
@@ -15,12 +15,11 @@ type LoginPageProps = {
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
-  const headerStore = await headers();
-  const origin =
-    headerStore.get("origin") ??
-    `https://${headerStore.get("x-forwarded-host") ?? headerStore.get("host")}`;
+  const origin = await getRequestOrigin();
   const nextRaw = Array.isArray(params.next) ? params.next[0] : params.next;
-  const next = sanitizeRedirectPath(nextRaw ?? null, origin);
+  const next = origin
+    ? sanitizeRedirectPath(nextRaw ?? null, origin)
+    : "/";
 
   return (
     <main className="grid min-h-dvh place-items-center p-6">
