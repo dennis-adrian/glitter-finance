@@ -65,6 +65,14 @@ export async function createTenant(name: string) {
     return createdTenant;
   });
 
-  await setActiveTenantClaim(user, tenant.id);
+  // The tenant + membership are already committed. A failure setting the active
+  // claim must NOT propagate as a failed create — otherwise a retry would
+  // create a duplicate tenant. The next ensureUserTenantContext reconciles the
+  // claim, and the client can still switch into the new tenant from the list.
+  try {
+    await setActiveTenantClaim(user, tenant.id);
+  } catch (error) {
+    console.error("[createTenant] setActiveTenantClaim failed", error);
+  }
   return tenant;
 }

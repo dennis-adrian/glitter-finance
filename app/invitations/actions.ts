@@ -1,34 +1,23 @@
 "use server";
 
 import { randomBytes } from "crypto";
-import { headers } from "next/headers";
 import {
-  ensureMembership,
   ensureUserTenantContext,
   getDisplayName,
   setActiveTenantClaim,
 } from "@/lib/auth/user-context";
-import { db } from "@/lib/db";
 import { DEFAULT_INVITE_TTL_MS } from "@/lib/invitations/constants";
 import {
   getActiveInvitationForTenant,
-  getInvitationByToken,
   insertInvitation,
-  isInvitationValid,
+  redeemInvitation,
   revokeInvitationById,
 } from "@/lib/invitations/repository";
+import { getRequestOrigin } from "@/lib/request-origin";
 import { createClient } from "@/lib/supabase/server";
 
 function generateInviteToken() {
   return randomBytes(32).toString("base64url");
-}
-
-async function getRequestOrigin() {
-  const headerStore = await headers();
-  return (
-    headerStore.get("origin") ??
-    `https://${headerStore.get("x-forwarded-host") ?? headerStore.get("host")}`
-  );
 }
 
 export async function createInvitation() {
@@ -87,20 +76,15 @@ export async function acceptInvitation(token: string) {
     throw new Error("Tu sesión expiró. Vuelve a iniciar sesión.");
   }
 
-  const invitation = await getInvitationByToken(token);
-  if (!invitation || !isInvitationValid(invitation)) {
-    throw new Error("Esta invitación ya no es válida.");
-  }
-
   const displayName = getDisplayName({
     email: user.email,
     user_metadata: user.user_metadata,
   });
 
-  await ensureMembership(db, {
-    tenantId: invitation.tenantId,
-    userId: user.id,
-    displayName,
-  });
-  await setActiveTenantClaim(user, invitation.tenantId);
+  // Validity check + membership write happen in one transaction (with the
+  // invitation row locked) so a concurrent revoke/expiry can't slip between
+  // "valid" and "joined". Only after the membership is durably committed do we
+  // flip the active-tenant claim.
+  const { tenantId } = await redeemInvitation(token, user.id, displayName);
+  await setActiveTenantClaim(user, tenantId);
 }

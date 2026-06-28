@@ -57,7 +57,9 @@ export const tenantInvitations = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
     token: text("token").notNull(),
-    createdByUserId: uuid("created_by_user_id").notNull(),
+    // Nullable so the hand-written auth.users FK can ON DELETE SET NULL (the
+    // value is kept as an audit field); the app always sets it on insert.
+    createdByUserId: uuid("created_by_user_id"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -198,10 +200,7 @@ export const inventoryMovements = pgTable(
     uniqueIndex("inventory_movements_one_initial_per_product_idx")
       .on(table.tenantId, table.productId)
       .where(sql`${table.reason} = 'initial'`),
-    check(
-      "inventory_movements_delta_nonzero_check",
-      sql`${table.delta} <> 0`
-    ),
+    check("inventory_movements_delta_nonzero_check", sql`${table.delta} <> 0`),
     check(
       "inventory_movements_sign_discipline_check",
       sql`(
@@ -318,10 +317,7 @@ export const saleLines = pgTable(
       columns: [table.productId, table.tenantId],
       foreignColumns: [products.id, products.tenantId],
     }).onDelete("restrict"),
-    check(
-      "sale_lines_quantity_positive_check",
-      sql`${table.quantity} > 0`
-    ),
+    check("sale_lines_quantity_positive_check", sql`${table.quantity} > 0`),
     check(
       "sale_lines_unit_price_cents_nonnegative_check",
       sql`${table.unitPriceCents} >= 0`

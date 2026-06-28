@@ -86,7 +86,7 @@ export type TenantInvitation = {
   id: string;
   tenantId: string;
   token: string;
-  createdByUserId: string;
+  createdByUserId: string | null;
   expiresAt: string;
   revokedAt: string | null;
   createdAt: string;

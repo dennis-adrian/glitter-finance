@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
 import type { User } from "@supabase/supabase-js";
 import { db } from "@/lib/db";
@@ -99,28 +99,22 @@ export async function ensureMembership(
     displayName: string;
   }
 ): Promise<{ created: boolean }> {
-  const [existingMembership] = await client
-    .select({ id: tenantUsers.id })
-    .from(tenantUsers)
-    .where(
-      and(
-        eq(tenantUsers.tenantId, input.tenantId),
-        eq(tenantUsers.userId, input.userId)
-      )
-    )
-    .limit(1);
+  // Single atomic insert: concurrent redemptions can't both pass a pre-check
+  // and then collide on tenant_users_tenant_id_user_id_unique. ON CONFLICT DO
+  // NOTHING returns no row when the membership already exists.
+  const inserted = await client
+    .insert(tenantUsers)
+    .values({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      displayName: input.displayName,
+    })
+    .onConflictDoNothing({
+      target: [tenantUsers.tenantId, tenantUsers.userId],
+    })
+    .returning({ id: tenantUsers.id });
 
-  if (existingMembership) {
-    return { created: false };
-  }
-
-  await client.insert(tenantUsers).values({
-    tenantId: input.tenantId,
-    userId: input.userId,
-    displayName: input.displayName,
-  });
-
-  return { created: true };
+  return { created: inserted.length > 0 };
 }
 
 export async function assertUserIsMember(userId: string, tenantId: string) {

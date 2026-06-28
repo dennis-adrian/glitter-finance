@@ -17,7 +17,9 @@ export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
     ],
     additionalPrecacheEntries: [
       { url: "/~offline", revision: process.env.BUILD_ID || "1" },
-      { url: "/manifest.webmanifest", revision: process.env.BUILD_ID || "1" },
+      // /manifest.webmanifest is intentionally NOT precached: it varies by
+      // Sec-CH-Prefers-Color-Scheme, so a single precache URL would freeze one
+      // color-scheme variant as the offline response for both themes.
     ],
     useNativeEsbuild: true,
     rebuildOnChange: true,

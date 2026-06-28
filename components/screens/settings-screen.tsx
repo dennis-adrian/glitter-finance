@@ -73,6 +73,22 @@ export function SettingsScreen({
     null
   );
 
+  // Best-effort local teardown after the active tenant changed server-side:
+  // clear the previous tenant's local store, refresh the JWT so it carries the
+  // new claim, then hard-reload. Each step is guarded so a failure still lands
+  // on a reload (where the app reconciles to the new active tenant) rather than
+  // stranding the UI mid-switch.
+  async function runPostTenantChangeCleanup() {
+    try {
+      await powerSyncControls?.clearLocal();
+      const supabase = createClient();
+      await supabase.auth.refreshSession();
+    } catch (error) {
+      console.error("[tenant-change] post-change cleanup failed", error);
+    }
+    window.location.assign("/");
+  }
+
   async function handleTenantSwitch(tenantId: string) {
     if (
       switchingTenantId ||
@@ -86,17 +102,20 @@ export function SettingsScreen({
     setSwitchingTenantId(tenantId);
     try {
       await switchTenant(tenantId);
-      await powerSyncControls?.clearLocal();
-      const supabase = createClient();
-      await supabase.auth.refreshSession();
-      window.location.assign("/");
     } catch (error) {
       console.error("[switchTenant] failed", error);
       setTenantActionError(
         error instanceof Error ? error.message : "No se pudo cambiar de cuenta."
       );
       setSwitchingTenantId(null);
+      return;
     }
+
+    // The active tenant has already changed server-side. Local cleanup is
+    // best-effort: even if it fails, navigate so ensureUserTenantContext +
+    // PowerSync reconcile to the new tenant on reload. Never revert to an
+    // error state here — the switch succeeded.
+    await runPostTenantChangeCleanup();
   }
 
   async function handleCreateTenant() {
@@ -109,17 +128,18 @@ export function SettingsScreen({
     setCreatingTenant(true);
     try {
       await createTenant(trimmedName);
-      await powerSyncControls?.clearLocal();
-      const supabase = createClient();
-      await supabase.auth.refreshSession();
-      window.location.assign("/");
     } catch (error) {
       console.error("[createTenant] failed", error);
       setTenantActionError(
         error instanceof Error ? error.message : "No se pudo crear la cuenta."
       );
       setCreatingTenant(false);
+      return;
     }
+
+    // Account created (and committed). Run best-effort cleanup + reload; a
+    // cleanup failure must not revert the successful creation.
+    await runPostTenantChangeCleanup();
   }
 
   async function handleSignOut(_formData: FormData) {

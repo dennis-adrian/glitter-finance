@@ -34,7 +34,7 @@ flow, the tenant-switch flow, security, and acceptance criteria.
 
 There are **no roles** in this release. Every member of a tenant has identical
 permissions — effectively all members are admins. The one piece of ownership we
-*do* record is **who created the tenant** (`tenants.created_by_user_id`), as data
+_do_ record is **who created the tenant** (`tenants.created_by_user_id`), as data
 for future features (billing, "owner can delete tenant", role introduction). It
 grants no special permission today.
 
@@ -81,7 +81,7 @@ What already exists and is reusable:
 - **RLS is already membership-based, not claim-based.**
   `current_user_has_tenant(tenant_id)` consults `tenant_users` for `auth.uid()`
   (`supabase/migrations/...rls_policies.sql`). So Postgres already authorizes a
-  user across *every* tenant they belong to — multi-tenant authz needs **no RLS
+  user across _every_ tenant they belong to — multi-tenant authz needs **no RLS
   change**.
 - **Server reads run on a trusted Drizzle connection.** Repositories
   (`lib/products/repository.ts`, etc.) and `lib/auth/*` query via `lib/db` over
@@ -90,7 +90,7 @@ What already exists and is reusable:
   use this same trusted path.
 - **A CLI invite already wires the mechanics** (`scripts/invite-tenant-user.ts`):
   create/find the auth user, ensure a `tenant_users` row, set the tenant claim.
-  We reuse the *membership* and *claim* mechanics and drop the rest.
+  We reuse the _membership_ and _claim_ mechanics and drop the rest.
 - **PowerSync clear/reconnect controls exist.** `usePowerSyncControls()` exposes
   `clearLocal()` (`disconnectAndClear`) and `reconnect()`
   (`components/providers/powersync-provider.tsx`) — already used by sign-out. The
@@ -104,10 +104,10 @@ What is hard-coded single-tenant and must change:
   `ensureAppMetadataTenantId` (`lib/auth/user-context.ts`) and read by the
   PowerSync sync rules (`powersync/sync-rules.yaml`) and the connector
   (`lib/powersync/connector.ts`). This claim becomes the **active** tenant — kept
-  single-valued (PowerSync scopes one tenant per connection) but now *mutable* on
+  single-valued (PowerSync scopes one tenant per connection) but now _mutable_ on
   switch.
 - **`loadMembership()` does `.limit(1)`** (`lib/auth/user-context.ts:31`) —
-  arbitrarily picks one membership and ignores the rest. Must load *all*
+  arbitrarily picks one membership and ignores the rest. Must load _all_
   memberships and resolve the active one.
 - **The bootstrap path auto-creates a tenant** for any user with no membership.
   Correct for an organic first sign-up (their first booth), but it must **not**
@@ -141,18 +141,18 @@ A new `uuid` column on `tenants` recording the creator.
 
 One row per shareable invitation link.
 
-| Field                | Type                    | Notes                                                                 |
-| -------------------- | ----------------------- | --------------------------------------------------------------------- |
-| `id`                 | uuid PK                 | `defaultRandom()`.                                                     |
-| `tenant_id`          | uuid                    | FK → `tenants(id) ON DELETE cascade`. The tenant the link joins.       |
-| `token`              | text, **unique**        | Opaque high-entropy secret (§7.1), embedded in the link. Not a uuid.  |
-| `created_by_user_id` | uuid                    | FK → `auth.users` (hand-written). Who generated the link.             |
-| `expires_at`         | timestamptz, **not null** | Hard expiry. Default window in §5.1.                                 |
-| `revoked_at`         | timestamptz, nullable   | Set when revoked. `NULL` = active.                                     |
-| `created_at`         | timestamptz, not null   | `defaultNow()`.                                                        |
+| Field                | Type                      | Notes                                                                                                                                                                                 |
+| -------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                 | uuid PK                   | `defaultRandom()`.                                                                                                                                                                    |
+| `tenant_id`          | uuid                      | FK → `tenants(id) ON DELETE cascade`. The tenant the link joins.                                                                                                                      |
+| `token`              | text, **unique**          | The **raw** opaque high-entropy secret (§7.1), embedded in the link. Stored **in plaintext** so the active link can be re-displayed (§5.1); see the at-rest note in §6.6. Not a uuid. |
+| `created_by_user_id` | uuid, nullable            | FK → `auth.users` (hand-written, `ON DELETE SET NULL`). Who generated the link; nulled if that auth user is later deleted.                                                            |
+| `expires_at`         | timestamptz, **not null** | Hard expiry. Default window in §5.1.                                                                                                                                                  |
+| `revoked_at`         | timestamptz, nullable     | Set when revoked. `NULL` = active.                                                                                                                                                    |
+| `created_at`         | timestamptz, not null     | `defaultNow()`.                                                                                                                                                                       |
 
 - **No per-acceptance columns.** Because the link is reusable, the record of
-  *who joined* is the `tenant_users` rows themselves — there is no single
+  _who joined_ is the `tenant_users` rows themselves — there is no single
   "accepted_by". An invitation is a long-lived, revocable join secret.
 - **Validity predicate:** `revoked_at IS NULL AND expires_at > now()`.
 - Indexes: `unique(token)` (lookup on redeem) and an index on `tenant_id` (list
@@ -166,7 +166,7 @@ One row per shareable invitation link.
 
 ### 4.3 No new role column
 
-Stated for emphasis: `tenant_users` is unchanged except in how it is *read*
+Stated for emphasis: `tenant_users` is unchanged except in how it is _read_
 (all memberships, not one). No `role`, no `is_admin`.
 
 ## 5. Functional Requirements
@@ -179,13 +179,22 @@ In **Settings**, a member sees an "Invitar al equipo" card for the active tenant
   runs the `createInvitation` server action, which inserts a `tenant_invitations`
   row (`expires_at = now() + DEFAULT_INVITE_TTL`) and returns the link
   `${origin}/join/${token}`.
-- **Active link present:** show the link, a **Copiar** button (Clipboard API),
-  the expiry ("Caduca el …"), and a **Revocar** button. Revoking sets
+- **Active link present:** show the link, a **Copiar** button (Clipboard API), a
+  native **Compartir** button (Web Share API, where supported), the expiry
+  ("Caduca …"), and a **Revocar** button (with a confirm step). Revoking sets
   `revoked_at`; the card returns to the generate state. Generating again issues a
   fresh token.
+- **The active link persists and is re-displayed (approved behavior).** On
+  opening Settings, the tenant's current valid invitation is server-loaded
+  (`getActiveInvitationForTenant` → `initialInvitation`) and rendered, so a
+  member can re-copy or re-share the **same** link in a later session without
+  generating a new one — and `createInvitation` returns the existing active link
+  rather than stacking up duplicates. This deliberately requires the **raw
+  token** to be retrievable from storage, which is why the token is persisted in
+  plaintext; see the at-rest security note in §6.6.
 - The link is plain text — shareable by pasting into email, WhatsApp, etc. There
   is no email step.
-- **Reuse semantics:** while valid, the link admits *any number* of users.
+- **Reuse semantics:** while valid, the link admits _any number_ of users.
   Revoke (or expiry) cuts it off. This is the WhatsApp-group-invite model and is
   intentional; it is documented in the card's helper copy ("Cualquiera con este
   enlace puede unirse hasta que lo revoques o caduque").
@@ -202,7 +211,7 @@ A new route `app/join/[token]/page.tsx`:
      válida" screen with a link to the app. No tenant details leaked.
 2. **Not authenticated** → redirect to `/login?next=/join/${token}`. After the
    user signs in or signs up, the auth flow returns them here (§5.5).
-3. **Authenticated** → show "Unirte a *{tenant name}*" with an **Unirme**
+3. **Authenticated** → show "Unirte a _{tenant name}_" with an **Unirme**
    button. Pressing it runs the `acceptInvitation` server action:
    - Re-validate the invitation server-side (defense against a stale page).
    - **Idempotent membership upsert:** if the user is already a member, no-op;
@@ -247,6 +256,13 @@ Selecting a different tenant runs `switchTenant(tenantId)`:
 1. **Server action:** assert the user is a member of `tenantId` (membership
    check), then write `app_metadata.tenant_id = tenantId` via the admin client.
 2. **Client orchestration** (the switcher is a client component, like sign-out):
+   - **Precondition — sync settled:** switching is hard-blocked unless the
+     client is fully synced with **zero** pending uploads. The switcher gates on
+     the existing sync-status signal (`useSyncStatus` —
+     `state === "synced" && pendingCount === 0`) and the buttons stay disabled
+     otherwise. This runs _before_ `clearLocal()`, because clearing wipes the
+     upload queue — switching mid-flush would silently drop the previous
+     tenant's unsynced writes.
    - `await powerSyncControls.clearLocal()` — wipe the previous tenant's local
      SQLite + upload queue (must happen while the connection is live, exactly as
      sign-out does).
@@ -292,12 +308,12 @@ between sign-up and the `acceptInvitation` action. To avoid minting a stray
 personal tenant for them:
 
 - The invite path **skips the bootstrap** (sign-in/sign-up with `next=/join/...`
-  redirect to the join page *before* `ensureUserTenantContext` runs its
+  redirect to the join page _before_ `ensureUserTenantContext` runs its
   create branch), and `acceptInvitation` creates the membership.
 - By the time `app/page.tsx` calls `ensureUserTenantContext`, the membership
   exists, so the create branch is not taken.
 - An invite-only user who abandons the join page and navigates to `/` directly
-  still has zero memberships and *would* get a personal tenant bootstrapped —
+  still has zero memberships and _would_ get a personal tenant bootstrapped —
   acceptable and self-consistent (they simply get their own first booth, and can
   still redeem the link later to also join the inviter's tenant). Noted as an
   edge, not a blocker (§9, §13).
@@ -383,13 +399,44 @@ Lighter than the inventory feature because there is no new synced table:
 3. Ship the app build (server actions, `/join` route, Settings UI). No PowerSync
    Cloud sync-rule deploy, no publication change.
 
+### 6.6 Invitation token at rest (plaintext, by design)
+
+The `token` is a **bearer secret** — whoever holds it can join the tenant — and
+it is stored **in plaintext**, not hashed. This is a conscious tradeoff, recorded
+here so it is not "fixed" by accident later.
+
+- **Why not hash it.** Hashing a bearer token at rest (storing `sha256(token)`,
+  comparing a hash on redeem) is the textbook hardening. It is **incompatible
+  with the approved re-displayable-link feature** (§5.1): a hash is one-way, so
+  the raw link can never be reconstructed to show/copy it again after creation.
+  Hashing would force the link to be shown **once** at generation and never
+  again, turning every "show me our invite link" into "revoke + regenerate" — and
+  breaking the single-active-link, group-invite model. We keep the feature; we
+  store the token plaintext.
+- **What contains the blast radius instead:**
+  - **High entropy** — 32 random bytes (`crypto.randomBytes(32)`, §7.1); not
+    guessable or enumerable.
+  - **Revocable + expiring** — `revoked_at` and a hard `expires_at` (§4.2, §5.1)
+    bound the window a leaked token is usable.
+  - **Not synced, server-only** — the table is never in the PowerSync
+    publication/sync rules and is read/written only over the trusted server
+    connection (§4.2, §6.4); it never lands in device SQLite.
+  - **RLS defense-in-depth** (§6.2) limits any future PostgREST exposure to
+    tenant members, who can already mint invitations anyway.
+  - **HTTPS transport** — links are only meaningful over TLS in production.
+- **If at-rest secrecy is later required** (e.g. compliance), the
+  feature-preserving path is **encrypted-at-rest** (reversible, server-held key)
+  rather than hashing — so the raw link can still be decrypted for re-display.
+  Tracked in §14.
+
 ## 7. Implementation Details
 
 ### 7.1 Token generation
 
 - `crypto.randomBytes(32)` → base64url (Node server action context). High-entropy
   opaque secret; **not** a uuid (uuids are lower-entropy and read as guessable
-  IDs). Stored verbatim in `token` (unique).
+  IDs). Stored verbatim (plaintext) in `token` (unique); see §6.6 for why it is
+  not hashed.
 - The link is `${origin}/join/${token}` where `origin` is derived as in
   `app/auth/actions.ts:getAuthCallbackUrl` (origin / `x-forwarded-host`).
 
@@ -506,6 +553,7 @@ Validated on real installed PWAs (iPhone Safari + Android Chrome), consistent
 with the parent PRD's dual-platform gate.
 
 **Invitation happy path (the decisive test)**
+
 - User A (tenant "Booth 1") generates an invitation link in Settings and copies
   it.
 - On a second device, User B opens the link, signs up (or signs in) with **their
@@ -515,11 +563,13 @@ with the parent PRD's dual-platform gate.
 - The **same link** still works for a User C (reusable-until-revoked).
 
 **Revoke / expiry**
+
 - A revokes the link; opening it now shows the invalid-invitation screen and
   does not add a member.
 - (If feasible to test) a link past `expires_at` is rejected the same way.
 
 **Multi-tenant, one login**
+
 - User A creates a second tenant "Booth 2" from the switcher.
 - A switches between Booth 1 and Booth 2: each shows only its own products and
   sales; switching re-syncs and never shows the other booth's data.
@@ -527,20 +577,24 @@ with the parent PRD's dual-platform gate.
 - A helper invited to Booth 1 only does **not** see Booth 2.
 
 **A helper across two booths**
+
 - A invites User B to both Booth 1 and Booth 2 (two links, or the same flow
   twice).
 - B's switcher lists both; B switches and registers sales in each; each sale is
   attributed to B in the correct tenant.
 
 **Switch safety**
+
 - Switching after sync has settled loses no data; the previous tenant's local
   store is cleared and the new tenant fully re-syncs.
 
 **Bootstrap isolation**
+
 - A brand-new user who signs up via an invite link ends up **only** in the
   inviter's tenant — no stray personal tenant is created (§5.6).
 
 **`created_by` recorded**
+
 - The tenant created by the bootstrap and by `createTenant` both carry the
   creator's `user_id` in `tenants.created_by_user_id`.
 
@@ -575,6 +629,10 @@ with the parent PRD's dual-platform gate.
 - **Named/seat-limited invitations** would add columns to `tenant_invitations`
   (`email`, `max_uses`, a redemptions log) without disturbing the reusable-link
   default.
+- **Token at rest** can move to **encrypted-at-rest** (reversible, server-held
+  key) if compliance ever requires hiding the secret in the database — without
+  losing the re-displayable link (§6.6). Hashing is ruled out because it is
+  one-way and would break that feature.
 
 ---
 

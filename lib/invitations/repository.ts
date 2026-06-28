@@ -1,4 +1,5 @@
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { ensureMembership } from "@/lib/auth/user-context";
 import { db } from "@/lib/db";
 import { tenantInvitations, tenants } from "@/lib/db/schema";
 import type { TenantInvitation } from "@/lib/types";
@@ -11,7 +12,7 @@ function mapInvitation(row: {
   id: string;
   tenantId: string;
   token: string;
-  createdByUserId: string;
+  createdByUserId: string | null;
   expiresAt: Date;
   revokedAt: Date | null;
   createdAt: Date;
@@ -32,6 +33,41 @@ export function isInvitationValid(invitation: TenantInvitation): boolean {
     return false;
   }
   return new Date(invitation.expiresAt).getTime() > Date.now();
+}
+
+// Atomically validate an invitation and create the membership. The invitation
+// row is locked FOR UPDATE so a concurrent revoke (which UPDATEs the same row)
+// serializes behind us: either we join while it is still valid, or we observe
+// the revoke/expiry and reject. Returns the tenant the caller just joined.
+export async function redeemInvitation(
+  token: string,
+  userId: string,
+  displayName: string
+): Promise<{ tenantId: string }> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({
+        tenantId: tenantInvitations.tenantId,
+        expiresAt: tenantInvitations.expiresAt,
+        revokedAt: tenantInvitations.revokedAt,
+      })
+      .from(tenantInvitations)
+      .where(eq(tenantInvitations.token, token))
+      .for("update")
+      .limit(1);
+
+    if (!row || row.revokedAt || row.expiresAt.getTime() <= Date.now()) {
+      throw new Error("Esta invitación ya no es válida.");
+    }
+
+    await ensureMembership(tx, {
+      tenantId: row.tenantId,
+      userId,
+      displayName,
+    });
+
+    return { tenantId: row.tenantId };
+  });
 }
 
 export async function getInvitationByToken(
