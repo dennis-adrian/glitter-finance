@@ -9,7 +9,33 @@ import { db } from "@/lib/db";
 import { tenantUsers, tenants } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
 
+const TENANT_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseTenantId(tenantId: unknown): string {
+  if (typeof tenantId !== "string") {
+    throw new Error("Identificador de cuenta inválido.");
+  }
+  const normalized = tenantId.trim();
+  if (!TENANT_ID_RE.test(normalized)) {
+    throw new Error("Identificador de cuenta inválido.");
+  }
+  return normalized;
+}
+
+function parseTenantName(name: unknown): string {
+  if (typeof name !== "string") {
+    throw new Error("El nombre de la cuenta es obligatorio.");
+  }
+  const trimmedName = name.trim();
+  if (!trimmedName) {
+    throw new Error("El nombre de la cuenta es obligatorio.");
+  }
+  return trimmedName;
+}
+
 export async function switchTenant(tenantId: string) {
+  const normalizedTenantId = parseTenantId(tenantId);
   const supabase = await createClient();
   const {
     data: { user },
@@ -19,15 +45,12 @@ export async function switchTenant(tenantId: string) {
     throw new Error("Not authenticated.");
   }
 
-  await assertUserIsMember(user.id, tenantId);
-  await setActiveTenantClaim(user, tenantId);
+  await assertUserIsMember(user.id, normalizedTenantId);
+  await setActiveTenantClaim(user, normalizedTenantId);
 }
 
 export async function createTenant(name: string) {
-  const trimmedName = name.trim();
-  if (!trimmedName) {
-    throw new Error("El nombre de la cuenta es obligatorio.");
-  }
+  const trimmedName = parseTenantName(name);
 
   const supabase = await createClient();
   const {

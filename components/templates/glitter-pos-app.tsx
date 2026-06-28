@@ -181,6 +181,8 @@ export function GlitterPosApp({
   const upsertProduct = usePosStore((state) => state.upsertProduct);
 
   const [view, setView] = useState<View>("sell");
+  const [activeInvitationState, setActiveInvitationState] =
+    useState(activeInvitation);
   const [previousView, setPreviousView] = useState<View>("products");
   const [category, setCategory] = useState("Todos");
   const [catalogCategory, setCatalogCategory] = useState("Todos");
@@ -739,7 +741,7 @@ export function GlitterPosApp({
       if (inventoryPersistenceRequired) {
         showToast(
           "Conecta para guardar productos con inventario activado.",
-          "info"
+          "danger"
         );
         return;
       }
@@ -1066,8 +1068,9 @@ export function GlitterPosApp({
         tenantContext={tenantContext}
         tenantMembers={membersForNames}
         teamSyncPending={!teamSyncConfirmed && initialTenantMembers.length > 0}
-        activeInvitation={activeInvitation}
+        activeInvitation={activeInvitationState}
         inviteOrigin={inviteOrigin}
+        onInvitationChange={setActiveInvitationState}
         productCount={activeProducts.length}
         saleCount={sales.filter((sale) => sale.status === "completed").length}
         pendingCount={sales.length}

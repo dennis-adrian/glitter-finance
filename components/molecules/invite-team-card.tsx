@@ -9,6 +9,7 @@ import type { TenantInvitation } from "@/lib/types";
 type InviteTeamCardProps = {
   initialInvitation: TenantInvitation | null;
   origin: string;
+  onInvitationChange?: (invitation: TenantInvitation | null) => void;
 };
 
 function formatAbsoluteExpiry(expiresAt: string) {
@@ -38,10 +39,13 @@ function formatRelativeExpiry(expiresAt: string): string | null {
 export function InviteTeamCard({
   initialInvitation,
   origin,
+  onInvitationChange,
 }: InviteTeamCardProps) {
   const [invitation, setInvitation] = useState(initialInvitation);
   const [inviteLink, setInviteLink] = useState(
-    initialInvitation ? `${origin}/join/${initialInvitation.token}` : ""
+    initialInvitation?.token
+      ? `${origin}/join/${initialInvitation.token}`
+      : ""
   );
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +72,7 @@ export function InviteTeamCard({
       const result = await createInvitation();
       setInvitation(result.invitation);
       setInviteLink(result.link);
+      onInvitationChange?.(result.invitation);
     } catch (err) {
       setError(
         err instanceof Error
@@ -89,6 +94,7 @@ export function InviteTeamCard({
       await revokeInvitation(invitation.id);
       setInvitation(null);
       setInviteLink("");
+      onInvitationChange?.(null);
       setConfirmingRevoke(false);
       setCopied(false);
     } catch (err) {

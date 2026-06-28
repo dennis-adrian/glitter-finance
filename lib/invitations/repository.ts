@@ -2,25 +2,29 @@ import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { ensureMembership } from "@/lib/auth/user-context";
 import { db } from "@/lib/db";
 import { tenantInvitations, tenants } from "@/lib/db/schema";
+import { hashInvitationToken } from "@/lib/invitations/token";
 import type { TenantInvitation } from "@/lib/types";
 
 export type InvitationWithTenant = TenantInvitation & {
   tenantName: string;
 };
 
-function mapInvitation(row: {
-  id: string;
-  tenantId: string;
-  token: string;
-  createdByUserId: string | null;
-  expiresAt: Date;
-  revokedAt: Date | null;
-  createdAt: Date;
-}): TenantInvitation {
+function mapInvitation(
+  row: {
+    id: string;
+    tenantId: string;
+    token: string;
+    createdByUserId: string | null;
+    expiresAt: Date;
+    revokedAt: Date | null;
+    createdAt: Date;
+  },
+  deliveryToken?: string
+): TenantInvitation {
   return {
     id: row.id,
     tenantId: row.tenantId,
-    token: row.token,
+    token: deliveryToken ?? "",
     createdByUserId: row.createdByUserId,
     expiresAt: row.expiresAt.toISOString(),
     revokedAt: row.revokedAt?.toISOString() ?? null,
@@ -44,6 +48,7 @@ export async function redeemInvitation(
   userId: string,
   displayName: string
 ): Promise<{ tenantId: string }> {
+  const tokenHash = hashInvitationToken(token);
   return db.transaction(async (tx) => {
     const [row] = await tx
       .select({
@@ -52,7 +57,7 @@ export async function redeemInvitation(
         revokedAt: tenantInvitations.revokedAt,
       })
       .from(tenantInvitations)
-      .where(eq(tenantInvitations.token, token))
+      .where(eq(tenantInvitations.token, tokenHash))
       .for("update")
       .limit(1);
 
@@ -73,6 +78,7 @@ export async function redeemInvitation(
 export async function getInvitationByToken(
   token: string
 ): Promise<InvitationWithTenant | null> {
+  const tokenHash = hashInvitationToken(token);
   const [row] = await db
     .select({
       id: tenantInvitations.id,
@@ -86,7 +92,7 @@ export async function getInvitationByToken(
     })
     .from(tenantInvitations)
     .innerJoin(tenants, eq(tenantInvitations.tenantId, tenants.id))
-    .where(eq(tenantInvitations.token, token))
+    .where(eq(tenantInvitations.token, tokenHash))
     .limit(1);
 
   if (!row) {
@@ -174,7 +180,7 @@ export async function getOrCreateActiveInvitation(input: {
       .insert(tenantInvitations)
       .values({
         tenantId: input.tenantId,
-        token: input.token,
+        token: hashInvitationToken(input.token),
         createdByUserId: input.createdByUserId,
         expiresAt: input.expiresAt,
       })
@@ -184,7 +190,7 @@ export async function getOrCreateActiveInvitation(input: {
       throw new Error("Unable to create invitation.");
     }
 
-    return mapInvitation(row);
+    return mapInvitation(row, input.token);
   });
 }
 

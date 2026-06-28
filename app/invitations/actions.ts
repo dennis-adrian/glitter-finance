@@ -27,15 +27,30 @@ export async function createInvitation() {
 
   const origin = await getRequestOrigin();
 
-  // Reuse the current active link instead of stacking up valid invitations for
-  // the same tenant. Serialized per-tenant inside the repository so concurrent
-  // generators (a second device, a stale tab) can't each insert a fresh link.
-  const invitation = await getOrCreateActiveInvitation({
+  const rawToken = generateInviteToken();
+  let invitation = await getOrCreateActiveInvitation({
     tenantId: context.tenant.id,
     createdByUserId: context.user.id,
-    token: generateInviteToken(),
+    token: rawToken,
     expiresAt: new Date(Date.now() + DEFAULT_INVITE_TTL_MS),
   });
+
+  // Active invitations store only a hash; rotate when we cannot recover the
+  // bearer token for link delivery (existing row from a prior session/device).
+  if (!invitation.token) {
+    await revokeInvitationById(invitation.id, context.tenant.id);
+    const freshToken = generateInviteToken();
+    invitation = await getOrCreateActiveInvitation({
+      tenantId: context.tenant.id,
+      createdByUserId: context.user.id,
+      token: freshToken,
+      expiresAt: new Date(Date.now() + DEFAULT_INVITE_TTL_MS),
+    });
+  }
+
+  if (!invitation.token) {
+    throw new Error("No se pudo generar el enlace de invitación.");
+  }
 
   return {
     link: `${origin}/join/${invitation.token}`,

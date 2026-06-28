@@ -35,6 +35,7 @@ type SettingsScreenProps = {
   teamSyncPending?: boolean;
   activeInvitation: TenantInvitation | null;
   inviteOrigin: string;
+  onInvitationChange?: (invitation: TenantInvitation | null) => void;
   productCount: number;
   saleCount: number;
   pendingCount: number;
@@ -47,6 +48,7 @@ export function SettingsScreen({
   teamSyncPending = false,
   activeInvitation,
   inviteOrigin,
+  onInvitationChange,
   productCount,
   saleCount,
   pendingCount,
@@ -81,10 +83,14 @@ export function SettingsScreen({
   async function runPostTenantChangeCleanup() {
     try {
       await powerSyncControls?.clearLocal();
+    } catch (error) {
+      console.error("[tenant-change] clearLocal failed", error);
+    }
+    try {
       const supabase = createClient();
       await supabase.auth.refreshSession();
     } catch (error) {
-      console.error("[tenant-change] post-change cleanup failed", error);
+      console.error("[tenant-change] refreshSession failed", error);
     }
     window.location.assign("/");
   }
@@ -331,6 +337,7 @@ export function SettingsScreen({
         <InviteTeamCard
           initialInvitation={activeInvitation}
           origin={inviteOrigin}
+          onInvitationChange={onInvitationChange}
         />
       ) : null}
 
