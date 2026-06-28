@@ -85,6 +85,10 @@ export function SettingsScreen({
       await powerSyncControls?.clearLocal();
     } catch (error) {
       console.error("[tenant-change] clearLocal failed", error);
+      setTenantActionError(
+        "No se pudo limpiar los datos locales. Cierra sesión y vuelve a entrar, o recarga la página."
+      );
+      return;
     }
     try {
       const supabase = createClient();
@@ -94,12 +98,14 @@ export function SettingsScreen({
         setTenantActionError(
           "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
         );
+        return;
       }
     } catch (error) {
       console.error("[tenant-change] refreshSession failed", error);
       setTenantActionError(
         "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
       );
+      return;
     }
     window.location.assign("/");
   }

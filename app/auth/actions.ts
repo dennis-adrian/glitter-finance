@@ -45,19 +45,26 @@ function getAuthCallbackUrl(origin: string, next?: string): string | null {
   }
   const base = `${trimmedOrigin}/auth/callback`;
   const url =
-    !next || next === "/"
-      ? base
-      : `${base}?next=${encodeURIComponent(next)}`;
+    !next || next === "/" ? base : `${base}?next=${encodeURIComponent(next)}`;
   return isAbsoluteHttpUrl(url) ? url : null;
+}
+
+function resolveNextRedirect(nextRaw: string | null, origin: string): string {
+  const isRelativeNext =
+    !!nextRaw && nextRaw.startsWith("/") && !nextRaw.startsWith("//");
+  return origin || isRelativeNext
+    ? sanitizeRedirectPath(nextRaw, origin || "http://localhost")
+    : "/";
 }
 
 export async function signInWithPassword(formData: FormData) {
   const email = getFormString(formData, "email");
   const password = getFormString(formData, "password");
   const origin = await getRequestOrigin();
-  const next = origin
-    ? sanitizeRedirectPath(getFormString(formData, "next") || null, origin)
-    : "/";
+  const next = resolveNextRedirect(
+    getFormString(formData, "next") || null,
+    origin
+  );
   const supabase = await createClient();
 
   const { error } = await supabase.auth.signInWithPassword({
@@ -89,13 +96,14 @@ export async function signUpWithPassword(formData: FormData) {
   const password = getFormString(formData, "password");
   const displayName = getFormString(formData, "displayName") || email;
   const origin = await getRequestOrigin();
-  const next = origin
-    ? sanitizeRedirectPath(getFormString(formData, "next") || null, origin)
-    : "/";
+  const next = resolveNextRedirect(
+    getFormString(formData, "next") || null,
+    origin
+  );
   const callbackUrl = origin ? getAuthCallbackUrl(origin, next) : null;
   if (!callbackUrl) {
     redirect(
-      loginRedirectUrl({ error: INVITE_ORIGIN_UNAVAILABLE_MESSAGE }, "/")
+      loginRedirectUrl({ error: INVITE_ORIGIN_UNAVAILABLE_MESSAGE }, next)
     );
   }
   const supabase = await createClient();
