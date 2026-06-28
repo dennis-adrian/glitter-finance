@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, Copy, Link2, Share2 } from "lucide-react";
 import { createInvitation, revokeInvitation } from "@/app/invitations/actions";
 import { Button } from "@/components/ui/button";
-import { isInvitationValid } from "@/lib/invitations/repository";
+import { isInvitationValid } from "@/lib/invitations/validation";
 import type { TenantInvitation } from "@/lib/types";
 
 type InviteTeamCardProps = {

@@ -7,7 +7,10 @@ import {
   encryptInvitationDeliveryToken,
   hashInvitationToken,
 } from "@/lib/invitations/token";
+import { isInvitationValid } from "@/lib/invitations/validation";
 import type { TenantInvitation } from "@/lib/types";
+
+export { isInvitationValid };
 
 export type InvitationWithTenant = TenantInvitation & {
   tenantName: string;
@@ -44,13 +47,6 @@ function mapInvitation(
     revokedAt: row.revokedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
-}
-
-export function isInvitationValid(invitation: TenantInvitation): boolean {
-  if (invitation.revokedAt) {
-    return false;
-  }
-  return new Date(invitation.expiresAt).getTime() > Date.now();
 }
 
 // Atomically validate an invitation and create the membership. The invitation
