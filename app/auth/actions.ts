@@ -2,6 +2,10 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import {
+  isInviteRedirectPath,
+  sanitizeRedirectPath,
+} from "@/lib/auth/redirect";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import { createClient } from "@/lib/supabase/server";
 
@@ -10,18 +14,30 @@ function getFormString(formData: FormData, key: string) {
   return typeof value === "string" ? value : "";
 }
 
-async function getAuthCallbackUrl() {
+async function getRequestOrigin() {
   const headerStore = await headers();
-  const origin =
+  return (
     headerStore.get("origin") ??
-    `https://${headerStore.get("x-forwarded-host") ?? headerStore.get("host")}`;
+    `https://${headerStore.get("x-forwarded-host") ?? headerStore.get("host")}`
+  );
+}
 
-  return `${origin}/auth/callback`;
+async function getAuthCallbackUrl(next?: string) {
+  const origin = await getRequestOrigin();
+  const base = `${origin}/auth/callback`;
+  if (!next || next === "/") {
+    return base;
+  }
+  return `${base}?next=${encodeURIComponent(next)}`;
 }
 
 export async function signInWithPassword(formData: FormData) {
   const email = getFormString(formData, "email");
   const password = getFormString(formData, "password");
+  const next = sanitizeRedirectPath(
+    getFormString(formData, "next") || null,
+    await getRequestOrigin()
+  );
   const supabase = await createClient();
 
   const { error } = await supabase.auth.signInWithPassword({
@@ -33,6 +49,10 @@ export async function signInWithPassword(formData: FormData) {
     redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
 
+  if (isInviteRedirectPath(next)) {
+    redirect(next);
+  }
+
   try {
     await ensureUserTenantContext();
   } catch (err) {
@@ -41,20 +61,24 @@ export async function signInWithPassword(formData: FormData) {
     redirect(`/login?error=${encodeURIComponent(message)}`);
   }
 
-  redirect("/");
+  redirect(next);
 }
 
 export async function signUpWithPassword(formData: FormData) {
   const email = getFormString(formData, "email");
   const password = getFormString(formData, "password");
   const displayName = getFormString(formData, "displayName") || email;
+  const next = sanitizeRedirectPath(
+    getFormString(formData, "next") || null,
+    await getRequestOrigin()
+  );
   const supabase = await createClient();
 
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      emailRedirectTo: await getAuthCallbackUrl(),
+      emailRedirectTo: await getAuthCallbackUrl(next),
       data: {
         display_name: displayName,
       },
@@ -66,9 +90,18 @@ export async function signUpWithPassword(formData: FormData) {
   }
 
   if (!data.session) {
-    redirect(
-      `/login?message=${encodeURIComponent("Cuenta creada. Revisa tu email para confirmar tu cuenta y luego inicia sesión.")}`
-    );
+    const loginParams = new URLSearchParams({
+      message:
+        "Cuenta creada. Revisa tu email para confirmar tu cuenta y luego inicia sesión.",
+    });
+    if (next !== "/") {
+      loginParams.set("next", next);
+    }
+    redirect(`/login?${loginParams.toString()}`);
+  }
+
+  if (isInviteRedirectPath(next)) {
+    redirect(next);
   }
 
   try {
@@ -79,7 +112,7 @@ export async function signUpWithPassword(formData: FormData) {
     redirect(`/login?error=${encodeURIComponent(message)}`);
   }
 
-  redirect("/");
+  redirect(next);
 }
 
 export async function signOut() {

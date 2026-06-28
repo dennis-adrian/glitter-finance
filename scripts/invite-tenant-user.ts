@@ -1,6 +1,6 @@
-// Provisions an additional auth user on an existing tenant for closed testing.
-// Each invited user signs in on their own device and records sales against the
-// shared tenant; PowerSync sync rules scope replication by app_metadata.tenant_id.
+// QA convenience for provisioning auth users on a tenant during closed testing.
+// Superseded by the in-app shareable invitation links in Settings for real use.
+// Still useful to set passwords or backfill memberships without the UI.
 //
 // Required env:
 //   NEXT_PUBLIC_SUPABASE_URL
@@ -47,21 +47,6 @@ function createAdminClient() {
 function defaultDisplayName(email: string) {
   const local = email.split("@")[0]?.trim();
   return local || "Vendedor";
-}
-
-async function assertUserCanJoinTenant(userId: string, tenantId: string) {
-  const memberships = await db
-    .select({ tenantId: tenantUsers.tenantId })
-    .from(tenantUsers)
-    .where(eq(tenantUsers.userId, userId));
-
-  const conflicting = memberships.find((m) => m.tenantId !== tenantId);
-  if (conflicting) {
-    throw new Error(
-      `User already belongs to tenant ${conflicting.tenantId}. ` +
-        "Remove that membership first before inviting to another tenant."
-    );
-  }
 }
 
 async function updateAuthUserForInvite(
@@ -179,9 +164,6 @@ async function main() {
   const tenant = await ensureTenantExists(tenantId);
   const admin = createAdminClient();
   const existing = await findAuthUserByEmail(admin, email);
-  if (existing) {
-    await assertUserCanJoinTenant(existing.id, tenantId);
-  }
 
   const authUser = existing
     ? await updateAuthUserForInvite(existing, password, displayName)

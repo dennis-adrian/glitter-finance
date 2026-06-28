@@ -5,7 +5,7 @@ export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
     swSrc: "app/sw.ts",
     globDirectory: ".",
     globPatterns: [
-      "public/**/*.{js,css,html,ico,png,svg,webmanifest}",
+      "public/**/*.{js,css,html,ico,png,svg}",
       ".next/static/**/*.{js,css}",
     ],
     globIgnores: [
@@ -17,6 +17,7 @@ export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
     ],
     additionalPrecacheEntries: [
       { url: "/~offline", revision: process.env.BUILD_ID || "1" },
+      { url: "/manifest.webmanifest", revision: process.env.BUILD_ID || "1" },
     ],
     useNativeEsbuild: true,
     rebuildOnChange: true,

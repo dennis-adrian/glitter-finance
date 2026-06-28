@@ -47,6 +47,7 @@ import type {
   PaymentMethod,
   Product,
   Sale,
+  TenantInvitation,
   TenantMember,
   ToastMessage,
 } from "@/lib/types";
@@ -151,6 +152,8 @@ type GlitterPosAppProps = {
   initialSales: Sale[];
   initialTenantMembers: TenantMember[];
   initialInventoryMovements: InventoryMovement[];
+  activeInvitation: TenantInvitation | null;
+  inviteOrigin: string;
 };
 
 export function GlitterPosApp({
@@ -159,6 +162,8 @@ export function GlitterPosApp({
   initialSales,
   initialTenantMembers,
   initialInventoryMovements,
+  activeInvitation,
+  inviteOrigin,
 }: GlitterPosAppProps) {
   const products = usePosStore((state) => state.products);
   const cart = usePosStore((state) => state.cart);
@@ -1061,6 +1066,8 @@ export function GlitterPosApp({
         tenantContext={tenantContext}
         tenantMembers={membersForNames}
         teamSyncPending={!teamSyncConfirmed && initialTenantMembers.length > 0}
+        activeInvitation={activeInvitation}
+        inviteOrigin={inviteOrigin}
         productCount={activeProducts.length}
         saleCount={sales.filter((sale) => sale.status === "completed").length}
         pendingCount={sales.length}

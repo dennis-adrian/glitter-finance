@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
 import type { User } from "@supabase/supabase-js";
 import { db } from "@/lib/db";
@@ -8,6 +8,14 @@ import { createClient } from "@/lib/supabase/server";
 
 type DbOrTx = typeof db | PgTransaction<any, any, any>;
 
+export type MembershipRow = {
+  tenantId: string;
+  tenantName: string;
+  tenantCreatedByUserId: string | null;
+  displayName: string;
+  membershipCreatedAt: Date;
+};
+
 // PowerSync's sync rules read tenant_id from the JWT via
 // `request.jwt() -> 'app_metadata' ->> 'tenant_id'`, so the claim has to be
 // present in every authenticated token. Supabase embeds `app_metadata` as a
@@ -15,7 +23,7 @@ type DbOrTx = typeof db | PgTransaction<any, any, any>;
 // (or backfilled for users created before we started writing it). The
 // updated claim only appears on the *next* token refresh, not the current
 // one, so the first sync attempt after bootstrap may still miss it.
-async function ensureAppMetadataTenantId(user: User, tenantId: string) {
+export async function setActiveTenantClaim(user: User, tenantId: string) {
   if (user.app_metadata?.tenant_id === tenantId) {
     return;
   }
@@ -28,33 +36,45 @@ async function ensureAppMetadataTenantId(user: User, tenantId: string) {
   }
 }
 
-async function loadMembership(client: DbOrTx, userId: string) {
-  const [row] = await client
+export async function loadAllMemberships(
+  client: DbOrTx,
+  userId: string
+): Promise<MembershipRow[]> {
+  return client
     .select({
       tenantId: tenants.id,
       tenantName: tenants.name,
+      tenantCreatedByUserId: tenants.createdByUserId,
       displayName: tenantUsers.displayName,
+      membershipCreatedAt: tenantUsers.createdAt,
     })
     .from(tenantUsers)
     .innerJoin(tenants, eq(tenantUsers.tenantId, tenants.id))
     .where(eq(tenantUsers.userId, userId))
-    .limit(1);
-  return row;
+    .orderBy(asc(tenantUsers.createdAt));
 }
 
-export type UserTenantContext = {
-  user: {
-    id: string;
-    email: string | null;
-    displayName: string;
-  };
-  tenant: {
-    id: string;
-    name: string;
-  } | null;
-};
+export function resolveActiveMembership(
+  memberships: MembershipRow[],
+  claimedTenantId: string | undefined
+): MembershipRow | null {
+  if (memberships.length === 0) {
+    return null;
+  }
 
-function getDisplayName(user: {
+  if (claimedTenantId) {
+    const byClaim = memberships.find(
+      (membership) => membership.tenantId === claimedTenantId
+    );
+    if (byClaim) {
+      return byClaim;
+    }
+  }
+
+  return memberships[0];
+}
+
+export function getDisplayName(user: {
   email?: string;
   user_metadata?: Record<string, unknown>;
 }) {
@@ -71,6 +91,91 @@ function getDisplayName(user: {
   return "Vendedor";
 }
 
+export async function ensureMembership(
+  client: DbOrTx,
+  input: {
+    tenantId: string;
+    userId: string;
+    displayName: string;
+  }
+): Promise<{ created: boolean }> {
+  const [existingMembership] = await client
+    .select({ id: tenantUsers.id })
+    .from(tenantUsers)
+    .where(
+      and(
+        eq(tenantUsers.tenantId, input.tenantId),
+        eq(tenantUsers.userId, input.userId)
+      )
+    )
+    .limit(1);
+
+  if (existingMembership) {
+    return { created: false };
+  }
+
+  await client.insert(tenantUsers).values({
+    tenantId: input.tenantId,
+    userId: input.userId,
+    displayName: input.displayName,
+  });
+
+  return { created: true };
+}
+
+export async function assertUserIsMember(userId: string, tenantId: string) {
+  const memberships = await loadAllMemberships(db, userId);
+  if (!memberships.some((membership) => membership.tenantId === tenantId)) {
+    throw new Error("You are not a member of this account.");
+  }
+}
+
+export type UserTenantContext = {
+  user: {
+    id: string;
+    email: string | null;
+    displayName: string;
+  };
+  tenant: {
+    id: string;
+    name: string;
+    createdByUserId: string | null;
+  } | null;
+  tenants: {
+    id: string;
+    name: string;
+  }[];
+};
+
+function toTenantSummaries(memberships: MembershipRow[]) {
+  return memberships.map((membership) => ({
+    id: membership.tenantId,
+    name: membership.tenantName,
+  }));
+}
+
+function toUserTenantContext(
+  user: User,
+  memberships: MembershipRow[],
+  active: MembershipRow | null
+): UserTenantContext {
+  return {
+    user: {
+      id: user.id,
+      email: user.email ?? null,
+      displayName: active?.displayName ?? getDisplayName(user),
+    },
+    tenant: active
+      ? {
+          id: active.tenantId,
+          name: active.tenantName,
+          createdByUserId: active.tenantCreatedByUserId,
+        }
+      : null,
+    tenants: toTenantSummaries(memberships),
+  };
+}
+
 export async function ensureUserTenantContext(): Promise<UserTenantContext | null> {
   const supabase = await createClient();
   const {
@@ -81,19 +186,17 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
     return null;
   }
 
-  // Fast path: most requests come from already-bootstrapped users, so do the
-  // membership lookup without opening a transaction.
-  const existing = await loadMembership(db, user.id);
-  if (existing) {
-    await ensureAppMetadataTenantId(user, existing.tenantId);
-    return {
-      user: {
-        id: user.id,
-        email: user.email ?? null,
-        displayName: existing.displayName,
-      },
-      tenant: { id: existing.tenantId, name: existing.tenantName },
-    };
+  const claimedTenantId =
+    typeof user.app_metadata?.tenant_id === "string"
+      ? user.app_metadata.tenant_id
+      : undefined;
+
+  const memberships = await loadAllMemberships(db, user.id);
+  const active = resolveActiveMembership(memberships, claimedTenantId);
+
+  if (active) {
+    await setActiveTenantClaim(user, active.tenantId);
+    return toUserTenantContext(user, memberships, active);
   }
 
   const displayName = getDisplayName({
@@ -112,21 +215,21 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
       sql`SELECT pg_advisory_xact_lock(hashtext(${"user_tenant_bootstrap:" + user.id}))`
     );
 
-    const raced = await loadMembership(tx, user.id);
-    if (raced) {
-      return {
-        user: {
-          id: user.id,
-          email: user.email ?? null,
-          displayName: raced.displayName,
-        },
-        tenant: { id: raced.tenantId, name: raced.tenantName },
-      };
+    const racedMemberships = await loadAllMemberships(tx, user.id);
+    const racedActive = resolveActiveMembership(
+      racedMemberships,
+      claimedTenantId
+    );
+    if (racedActive) {
+      return toUserTenantContext(user, racedMemberships, racedActive);
     }
 
     const [tenant] = await tx
       .insert(tenants)
-      .values({ name: `Cuenta de ${displayName}` })
+      .values({
+        name: `Cuenta de ${displayName}`,
+        createdByUserId: user.id,
+      })
       .returning({ id: tenants.id, name: tenants.name });
 
     if (!tenant) {
@@ -139,16 +242,23 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
       displayName,
     });
 
-    return {
-      user: { id: user.id, email: user.email ?? null, displayName },
-      tenant,
+    const bootstrappedMembership: MembershipRow = {
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      tenantCreatedByUserId: user.id,
+      displayName,
+      membershipCreatedAt: new Date(),
     };
+
+    return toUserTenantContext(
+      user,
+      [bootstrappedMembership],
+      bootstrappedMembership
+    );
   });
 
-  // Persist the tenant_id claim on the auth user. Done after the tx commits
-  // so a failed admin call rolls back the JWT update, not the membership.
   if (context.tenant) {
-    await ensureAppMetadataTenantId(user, context.tenant.id);
+    await setActiveTenantClaim(user, context.tenant.id);
   }
 
   return context;

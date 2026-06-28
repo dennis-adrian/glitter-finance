@@ -31,6 +31,7 @@ export const inventoryMovementReasonEnum = pgEnum("inventory_movement_reason", [
 export const tenants = pgTable("tenants", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
+  createdByUserId: uuid("created_by_user_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -41,11 +42,43 @@ export const tenants = pgTable("tenants", {
 
 export const tenantsRelations = relations(tenants, ({ many }) => ({
   users: many(tenantUsers),
+  invitations: many(tenantInvitations),
   products: many(products),
   sales: many(sales),
   refunds: many(refunds),
   inventoryMovements: many(inventoryMovements),
 }));
+
+export const tenantInvitations = pgTable(
+  "tenant_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    createdByUserId: uuid("created_by_user_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("tenant_invitations_token_unique").on(table.token),
+    index("tenant_invitations_tenant_id_idx").on(table.tenantId),
+  ]
+);
+
+export const tenantInvitationsRelations = relations(
+  tenantInvitations,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [tenantInvitations.tenantId],
+      references: [tenants.id],
+    }),
+  })
+);
 
 export const tenantUsers = pgTable(
   "tenant_users",
