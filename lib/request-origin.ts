@@ -76,6 +76,9 @@ function originFromUrlEnv(key: string): string | null {
     if (!host || !isAllowedHost(host)) {
       return null;
     }
+    if (url.protocol === "http:" && !isLoopbackHost(host)) {
+      return null;
+    }
     const port = url.port;
     const hostWithPort = port ? `${host}:${port}` : host;
     return `${url.protocol}//${hostWithPort}`;
@@ -168,16 +171,9 @@ function isLoopbackHost(host: string): boolean {
   return host === "localhost" || host === "127.0.0.1";
 }
 
-function isVercelAppHost(host: string): boolean {
-  return host === "vercel.app" || host.endsWith(".vercel.app");
-}
-
 function isAllowedHost(host: string): boolean {
   if (isLoopbackHost(host)) {
     return true;
   }
-  if (allowedHosts().has(host)) {
-    return true;
-  }
-  return process.env.VERCEL === "1" && isVercelAppHost(host);
+  return allowedHosts().has(host);
 }

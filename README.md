@@ -201,7 +201,7 @@ Before running Stage B acceptance on staging:
 - PowerSync sync rules from `powersync/sync-rules.yaml` are validated, deployed, and scoped by the authenticated tenant.
 - `NEXT_PUBLIC_POWERSYNC_URL` points at the staging PowerSync instance.
 - Supabase Auth **Redirect URLs** include the staging deployment URL(s) and
-  `https://*.vercel.app/**` if you test branch previews (see below).
+  `https://*-glitter-pos.vercel.app/**` if you test branch previews (see below).
 - `NEXT_PUBLIC_APP_URL` is set only when staging uses a fixed custom domain;
   Vercel preview deployments resolve the URL from `VERCEL_BRANCH_URL` /
   `VERCEL_URL` automatically.
@@ -228,10 +228,11 @@ domain.
 
 **Supabase** (`glitter-finance-staging` → Authentication → URL configuration):
 
-1. **Site URL** — your main staging URL (fixed domain or primary `*.vercel.app`
-   deployment).
-2. **Redirect URLs** — add each fixed URL plus a wildcard for previews, e.g.
-   `https://*.vercel.app/**` and `https://your-staging-domain.com/**`.
+1. **Site URL** — your main staging URL (fixed domain or primary
+   `*-glitter-pos.vercel.app` deployment).
+2. **Redirect URLs** — add each fixed URL plus a project-scoped wildcard for
+   previews, e.g. `https://*-glitter-pos.vercel.app/**` and
+   `https://your-staging-domain.com/**`.
 
 Without the wildcard, sign-up email confirmation and OAuth callbacks fail on
 branch deployments because Supabase rejects the dynamic preview origin.
