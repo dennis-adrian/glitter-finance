@@ -2,18 +2,32 @@ import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { ensureMembership } from "@/lib/auth/user-context";
 import { db } from "@/lib/db";
 import { tenantInvitations, tenants } from "@/lib/db/schema";
-import { hashInvitationToken } from "@/lib/invitations/token";
+import {
+  decryptInvitationDeliveryToken,
+  encryptInvitationDeliveryToken,
+  hashInvitationToken,
+} from "@/lib/invitations/token";
 import type { TenantInvitation } from "@/lib/types";
 
 export type InvitationWithTenant = TenantInvitation & {
   tenantName: string;
 };
 
+function deliveryTokenFromRow(row: {
+  tokenDeliveryCiphertext: string | null;
+}): string | undefined {
+  if (!row.tokenDeliveryCiphertext) {
+    return undefined;
+  }
+  return decryptInvitationDeliveryToken(row.tokenDeliveryCiphertext) ?? undefined;
+}
+
 function mapInvitation(
   row: {
     id: string;
     tenantId: string;
     token: string;
+    tokenDeliveryCiphertext: string | null;
     createdByUserId: string | null;
     expiresAt: Date;
     revokedAt: Date | null;
@@ -84,6 +98,7 @@ export async function getInvitationByToken(
       id: tenantInvitations.id,
       tenantId: tenantInvitations.tenantId,
       token: tenantInvitations.token,
+      tokenDeliveryCiphertext: tenantInvitations.tokenDeliveryCiphertext,
       createdByUserId: tenantInvitations.createdByUserId,
       expiresAt: tenantInvitations.expiresAt,
       revokedAt: tenantInvitations.revokedAt,
@@ -114,6 +129,7 @@ export async function getActiveInvitationForTenant(
       id: tenantInvitations.id,
       tenantId: tenantInvitations.tenantId,
       token: tenantInvitations.token,
+      tokenDeliveryCiphertext: tenantInvitations.tokenDeliveryCiphertext,
       createdByUserId: tenantInvitations.createdByUserId,
       expiresAt: tenantInvitations.expiresAt,
       revokedAt: tenantInvitations.revokedAt,
@@ -130,13 +146,16 @@ export async function getActiveInvitationForTenant(
     .orderBy(desc(tenantInvitations.createdAt))
     .limit(1);
 
-  return row ? mapInvitation(row) : null;
+  return row
+    ? mapInvitation(row, deliveryTokenFromRow(row))
+    : null;
 }
 
 const invitationColumns = {
   id: tenantInvitations.id,
   tenantId: tenantInvitations.tenantId,
   token: tenantInvitations.token,
+  tokenDeliveryCiphertext: tenantInvitations.tokenDeliveryCiphertext,
   createdByUserId: tenantInvitations.createdByUserId,
   expiresAt: tenantInvitations.expiresAt,
   revokedAt: tenantInvitations.revokedAt,
@@ -173,7 +192,7 @@ export async function getOrCreateActiveInvitation(input: {
       .limit(1);
 
     if (existing) {
-      return mapInvitation(existing);
+      return mapInvitation(existing, deliveryTokenFromRow(existing));
     }
 
     const [row] = await tx
@@ -181,6 +200,7 @@ export async function getOrCreateActiveInvitation(input: {
       .values({
         tenantId: input.tenantId,
         token: hashInvitationToken(input.token),
+        tokenDeliveryCiphertext: encryptInvitationDeliveryToken(input.token),
         createdByUserId: input.createdByUserId,
         expiresAt: input.expiresAt,
       })

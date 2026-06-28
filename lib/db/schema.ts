@@ -57,6 +57,10 @@ export const tenantInvitations = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
     token: text("token").notNull(),
+    // AES-GCM ciphertext of the raw bearer token for link re-display; lookup
+    // uses the HMAC hash in `token`. Nullable for rows created before delivery
+    // encryption existed (those links must be rotated to recover).
+    tokenDeliveryCiphertext: text("token_delivery_ciphertext"),
     // Nullable so the hand-written auth.users FK can ON DELETE SET NULL (the
     // value is kept as an audit field); the app always sets it on insert.
     createdByUserId: uuid("created_by_user_id"),

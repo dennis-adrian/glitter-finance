@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, Copy, Link2, Share2 } from "lucide-react";
 import { createInvitation, revokeInvitation } from "@/app/invitations/actions";
 import { Button } from "@/components/ui/button";
+import { isInvitationValid } from "@/lib/invitations/repository";
 import type { TenantInvitation } from "@/lib/types";
 
 type InviteTeamCardProps = {
@@ -62,8 +63,44 @@ export function InviteTeamCard({
     );
   }, []);
 
+  useEffect(() => {
+    if (!invitation || isInvitationValid(invitation)) {
+      return;
+    }
+
+    setInvitation(null);
+    setInviteLink("");
+    onInvitationChange?.(null);
+  }, [invitation, onInvitationChange]);
+
+  useEffect(() => {
+    if (!invitation) {
+      return;
+    }
+
+    const ms = new Date(invitation.expiresAt).getTime() - Date.now();
+    if (ms <= 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setInvitation(null);
+      setInviteLink("");
+      onInvitationChange?.(null);
+    }, ms);
+
+    return () => window.clearTimeout(timer);
+  }, [invitation, onInvitationChange]);
+
   const relativeExpiry =
     mounted && invitation ? formatRelativeExpiry(invitation.expiresAt) : null;
+
+  const isShareable =
+    invitation !== null &&
+    Boolean(inviteLink) &&
+    isInvitationValid(invitation);
+  const needsRotation =
+    invitation !== null && isInvitationValid(invitation) && !inviteLink;
 
   async function handleGenerate() {
     setError(null);
@@ -154,7 +191,7 @@ export function InviteTeamCard({
         Compártelo por WhatsApp, email o el canal que prefieras.
       </p>
       {error ? <p className="mb-3 text-sm text-destructive">{error}</p> : null}
-      {invitation && inviteLink ? (
+      {isShareable && invitation ? (
         <div className="grid gap-3">
           <p className="break-all rounded-xl bg-muted px-3 py-2.5 text-sm">
             {inviteLink}
@@ -238,6 +275,50 @@ export function InviteTeamCard({
               </div>
             </div>
           )}
+        </div>
+      ) : needsRotation ? (
+        <div className="grid gap-3">
+          <p className="text-sm text-muted-foreground">
+            Ya hay un enlace activo, pero no se puede mostrar de nuevo. Revócalo
+            para generar uno nuevo.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full rounded-2xl"
+            onClick={() => setConfirmingRevoke(true)}
+            disabled={isBusy}
+          >
+            Revocar enlace activo
+          </Button>
+          {confirmingRevoke ? (
+            <div className="grid gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-sm text-muted-foreground">
+                ¿Revocar este enlace? Quienes ya lo tengan dejarán de poder
+                unirse.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-2xl"
+                  onClick={() => setConfirmingRevoke(false)}
+                  disabled={isRevoking}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="rounded-2xl"
+                  onClick={() => void handleRevoke()}
+                  disabled={isRevoking}
+                >
+                  {isRevoking ? "Revocando…" : "Sí, revocar"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : (
         <Button

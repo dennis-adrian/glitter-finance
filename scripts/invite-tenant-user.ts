@@ -8,7 +8,8 @@
 //   DATABASE_URL
 //   TENANT_ID              target tenant uuid
 //   INVITE_EMAIL           login email for the new member
-//   INVITE_PASSWORD        login password
+//   INVITE_PASSWORD        login password (required for new users)
+//   INVITE_RESET_PASSWORD  set to "true" to reset an existing user's password
 //   INVITE_DISPLAY_NAME    optional display name (defaults from email local-part)
 //
 // Usage:
@@ -51,12 +52,12 @@ function defaultDisplayName(email: string) {
 
 async function updateAuthUserForInvite(
   user: User,
-  password: string,
-  displayName: string
+  displayName: string,
+  password?: string
 ) {
   const admin = createAdminClient();
   const { error } = await admin.auth.admin.updateUserById(user.id, {
-    password,
+    ...(password ? { password } : {}),
     user_metadata: {
       ...(user.user_metadata ?? {}),
       display_name: displayName,
@@ -157,17 +158,23 @@ async function setTenantClaim(userId: string, tenantId: string) {
 async function main() {
   const tenantId = requireEnv("TENANT_ID");
   const email = requireEnv("INVITE_EMAIL").trim();
-  const password = requireEnv("INVITE_PASSWORD");
   const displayName =
     process.env.INVITE_DISPLAY_NAME?.trim() || defaultDisplayName(email);
+  const resetPassword =
+    process.env.INVITE_RESET_PASSWORD?.trim().toLowerCase() === "true";
 
   const tenant = await ensureTenantExists(tenantId);
   const admin = createAdminClient();
   const existing = await findAuthUserByEmail(admin, email);
 
-  const authUser = existing
-    ? await updateAuthUserForInvite(existing, password, displayName)
-    : await createAuthUserForInvite(email, password, displayName);
+  let authUser: { id: string; created: boolean };
+  if (existing) {
+    const password = resetPassword ? requireEnv("INVITE_PASSWORD") : undefined;
+    authUser = await updateAuthUserForInvite(existing, displayName, password);
+  } else {
+    const password = requireEnv("INVITE_PASSWORD");
+    authUser = await createAuthUserForInvite(email, password, displayName);
+  }
 
   const membership = await ensureMembership({
     tenantId,

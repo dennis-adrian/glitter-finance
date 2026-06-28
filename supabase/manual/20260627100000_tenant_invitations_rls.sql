@@ -58,6 +58,9 @@ WITH CHECK (
 DROP POLICY IF EXISTS "tenant members can update tenant invitations"
   ON "tenant_invitations";
 
+DROP POLICY IF EXISTS "tenant members can revoke tenant invitations"
+  ON "tenant_invitations";
+
 CREATE POLICY "tenant members can revoke tenant invitations"
 ON "tenant_invitations" FOR UPDATE
 USING (
@@ -75,9 +78,16 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
   IF NEW."token" IS DISTINCT FROM OLD."token"
+     OR NEW."token_delivery_ciphertext" IS DISTINCT FROM OLD."token_delivery_ciphertext"
      OR NEW."expires_at" IS DISTINCT FROM OLD."expires_at"
      OR NEW."tenant_id" IS DISTINCT FROM OLD."tenant_id"
-     OR NEW."created_by_user_id" IS DISTINCT FROM OLD."created_by_user_id"
+     OR (
+       NEW."created_by_user_id" IS DISTINCT FROM OLD."created_by_user_id"
+       AND NOT (
+         OLD."created_by_user_id" IS NOT NULL
+         AND NEW."created_by_user_id" IS NULL
+       )
+     )
      OR NEW."created_at" IS DISTINCT FROM OLD."created_at"
      OR NEW."id" IS DISTINCT FROM OLD."id"
   THEN

@@ -25,8 +25,9 @@ const manifest = {
 };
 
 export async function GET(request: Request) {
+  const rawScheme = request.headers.get("sec-ch-prefers-color-scheme");
   const prefersDark =
-    request.headers.get("sec-ch-prefers-color-scheme") === "dark";
+    rawScheme?.replace(/^"|"$/g, "").trim().toLowerCase() === "dark";
   const shellColor = shellThemeColorForScheme(prefersDark);
 
   return NextResponse.json(

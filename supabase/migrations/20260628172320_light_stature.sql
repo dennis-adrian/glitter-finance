@@ -1,0 +1,1 @@
+ALTER TABLE "tenant_invitations" ADD COLUMN "token_delivery_ciphertext" text;

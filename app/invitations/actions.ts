@@ -28,28 +28,17 @@ export async function createInvitation() {
   const origin = await getRequestOrigin();
 
   const rawToken = generateInviteToken();
-  let invitation = await getOrCreateActiveInvitation({
+  const invitation = await getOrCreateActiveInvitation({
     tenantId: context.tenant.id,
     createdByUserId: context.user.id,
     token: rawToken,
     expiresAt: new Date(Date.now() + DEFAULT_INVITE_TTL_MS),
   });
 
-  // Active invitations store only a hash; rotate when we cannot recover the
-  // bearer token for link delivery (existing row from a prior session/device).
   if (!invitation.token) {
-    await revokeInvitationById(invitation.id, context.tenant.id);
-    const freshToken = generateInviteToken();
-    invitation = await getOrCreateActiveInvitation({
-      tenantId: context.tenant.id,
-      createdByUserId: context.user.id,
-      token: freshToken,
-      expiresAt: new Date(Date.now() + DEFAULT_INVITE_TTL_MS),
-    });
-  }
-
-  if (!invitation.token) {
-    throw new Error("No se pudo generar el enlace de invitación.");
+    throw new Error(
+      "Ya hay un enlace activo, pero no se puede recuperar. Revócalo y genera uno nuevo."
+    );
   }
 
   return {

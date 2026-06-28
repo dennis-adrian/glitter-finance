@@ -145,7 +145,8 @@ One row per shareable invitation link.
 | -------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id`                 | uuid PK                   | `defaultRandom()`.                                                                                                                                                                    |
 | `tenant_id`          | uuid                      | FK → `tenants(id) ON DELETE cascade`. The tenant the link joins.                                                                                                                      |
-| `token`              | text, **unique**          | The **raw** opaque high-entropy secret (§7.1), embedded in the link. Stored **in plaintext** so the active link can be re-displayed (§5.1); see the at-rest note in §6.6. Not a uuid. |
+| `token`              | text, **unique**          | HMAC-SHA256 hash of the raw bearer token (§7.1). Used for redeem lookup only; the raw secret is never stored in plaintext. |
+| `token_delivery_ciphertext` | text, nullable   | AES-256-GCM ciphertext of the raw bearer token, encrypted with a server-held key. Enables re-display of the active link in Settings; nullable for legacy rows that must be rotated. |
 | `created_by_user_id` | uuid, nullable            | FK → `auth.users` (hand-written, `ON DELETE SET NULL`). Who generated the link; nulled if that auth user is later deleted.                                                            |
 | `expires_at`         | timestamptz, **not null** | Hard expiry. Default window in §5.1.                                                                                                                                                  |
 | `revoked_at`         | timestamptz, nullable     | Set when revoked. `NULL` = active.                                                                                                                                                    |
@@ -184,14 +185,17 @@ In **Settings**, a member sees an "Invitar al equipo" card for the active tenant
   ("Caduca …"), and a **Revocar** button (with a confirm step). Revoking sets
   `revoked_at`; the card returns to the generate state. Generating again issues a
   fresh token.
-- **The active link persists and is re-displayed (approved behavior).** On
-  opening Settings, the tenant's current valid invitation is server-loaded
-  (`getActiveInvitationForTenant` → `initialInvitation`) and rendered, so a
-  member can re-copy or re-share the **same** link in a later session without
-  generating a new one — and `createInvitation` returns the existing active link
-  rather than stacking up duplicates. This deliberately requires the **raw
-  token** to be retrievable from storage, which is why the token is persisted in
-  plaintext; see the at-rest security note in §6.6.
+- **The active link persists across sessions when recoverable.** On opening
+  Settings, the tenant's current valid invitation is server-loaded
+  (`getActiveInvitationForTenant` → `initialInvitation`) and rendered when the
+  encrypted delivery ciphertext can be decrypted. The raw bearer token is shown
+  only at creation time; later sessions re-display the same link only when
+  `token_delivery_ciphertext` is present. If an active row exists but the raw
+  token cannot be recovered (legacy row or missing ciphertext), the card prompts
+  the member to **revoke and regenerate** rather than silently rotating the link.
+- `createInvitation` reuses the single active invitation when one exists; it does
+  **not** implicitly revoke and replace an active link when the bearer token is
+  unavailable.
 - The link is plain text — shareable by pasting into email, WhatsApp, etc. There
   is no email step.
 - **Reuse semantics:** while valid, the link admits _any number_ of users.
@@ -399,21 +403,26 @@ Lighter than the inventory feature because there is no new synced table:
 3. Ship the app build (server actions, `/join` route, Settings UI). No PowerSync
    Cloud sync-rule deploy, no publication change.
 
-### 6.6 Invitation token at rest (plaintext, by design)
+### 6.6 Invitation token at rest (hashed lookup + encrypted delivery)
 
-The `token` is a **bearer secret** — whoever holds it can join the tenant — and
-it is stored **in plaintext**, not hashed. This is a conscious tradeoff, recorded
-here so it is not "fixed" by accident later.
+The bearer secret is protected at rest in two parts:
 
-- **Why not hash it.** Hashing a bearer token at rest (storing `sha256(token)`,
-  comparing a hash on redeem) is the textbook hardening. It is **incompatible
-  with the approved re-displayable-link feature** (§5.1): a hash is one-way, so
-  the raw link can never be reconstructed to show/copy it again after creation.
-  Hashing would force the link to be shown **once** at generation and never
-  again, turning every "show me our invite link" into "revoke + regenerate" — and
-  breaking the single-active-link, group-invite model. We keep the feature; we
-  store the token plaintext.
-- **What contains the blast radius instead:**
+- **`token` (hash):** HMAC-SHA256 of the raw token using a server-held secret.
+  Redeem lookups compare against this hash; a database leak does not expose
+  usable join links.
+- **`token_delivery_ciphertext` (optional):** AES-256-GCM ciphertext of the raw
+  token, encrypted with the same server secret. Enables re-display of the active
+  link in Settings without storing the bearer token in plaintext. Nullable for
+  legacy rows — those links must be explicitly revoked and regenerated.
+
+**Re-display semantics:** the raw link is returned once at creation and can be
+shown again in later sessions only when decryption succeeds. There is no
+guarantee of re-display for rows missing delivery ciphertext; members must revoke
+and generate a new link in that case. Silent rotation of an active invitation
+when the bearer token is unavailable is **not** permitted.
+
+**What contains the blast radius:**
+
   - **High entropy** — 32 random bytes (`crypto.randomBytes(32)`, §7.1); not
     guessable or enumerable.
   - **Revocable + expiring** — `revoked_at` and a hard `expires_at` (§4.2, §5.1)
@@ -424,10 +433,6 @@ here so it is not "fixed" by accident later.
   - **RLS defense-in-depth** (§6.2) limits any future PostgREST exposure to
     tenant members, who can already mint invitations anyway.
   - **HTTPS transport** — links are only meaningful over TLS in production.
-- **If at-rest secrecy is later required** (e.g. compliance), the
-  feature-preserving path is **encrypted-at-rest** (reversible, server-held key)
-  rather than hashing — so the raw link can still be decrypted for re-display.
-  Tracked in §14.
 
 ## 7. Implementation Details
 
@@ -435,10 +440,11 @@ here so it is not "fixed" by accident later.
 
 - `crypto.randomBytes(32)` → base64url (Node server action context). High-entropy
   opaque secret; **not** a uuid (uuids are lower-entropy and read as guessable
-  IDs). Stored verbatim (plaintext) in `token` (unique); see §6.6 for why it is
-  not hashed.
-- The link is `${origin}/join/${token}` where `origin` is derived as in
-  `app/auth/actions.ts:getAuthCallbackUrl` (origin / `x-forwarded-host`).
+  IDs). Persist `HMAC-SHA256(rawToken)` in `token` for lookup; persist
+  `AES-256-GCM(rawToken)` in `token_delivery_ciphertext` for re-display (§6.6).
+- The link is `${origin}/join/${rawToken}` where `origin` is derived from a
+  configured `NEXT_PUBLIC_APP_URL` / `APP_URL`, or validated request headers
+  (`lib/request-origin.ts`).
 
 ### 7.2 Server actions (new, in `app/` — `"use server"`)
 
@@ -630,10 +636,8 @@ with the parent PRD's dual-platform gate.
 - **Named/seat-limited invitations** would add columns to `tenant_invitations`
   (`email`, `max_uses`, a redemptions log) without disturbing the reusable-link
   default.
-- **Token at rest** can move to **encrypted-at-rest** (reversible, server-held
-  key) if compliance ever requires hiding the secret in the database — without
-  losing the re-displayable link (§6.6). Hashing is ruled out because it is
-  one-way and would break that feature.
+- **Token at rest** uses hashed lookup plus encrypted delivery ciphertext (§6.6).
+  Legacy plaintext-only rows, if any, require explicit revoke + regenerate.
 
 ---
 
