@@ -94,18 +94,12 @@ export function SettingsScreen({
         setTenantActionError(
           "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
         );
-        setSwitchingTenantId(null);
-        setCreatingTenant(false);
-        return;
       }
     } catch (error) {
       console.error("[tenant-change] refreshSession failed", error);
       setTenantActionError(
         "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
       );
-      setSwitchingTenantId(null);
-      setCreatingTenant(false);
-      return;
     }
     window.location.assign("/");
   }

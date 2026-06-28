@@ -24,7 +24,7 @@ export async function getRequestOrigin(): Promise<string> {
     return "";
   }
 
-  const isLocal = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  const isLocal = isLoopbackHost(host);
   const forwardedProto = headerStore.get("x-forwarded-proto");
   const proto =
     forwardedProto === "http" || forwardedProto === "https"
@@ -50,7 +50,9 @@ function configuredPublicOrigin(): string | null {
       if (!host || !isAllowedHost(host)) {
         continue;
       }
-      return `${url.protocol}//${host}`;
+      const port = url.port;
+      const hostWithPort = port ? `${host}:${port}` : host;
+      return `${url.protocol}//${hostWithPort}`;
     } catch {
       continue;
     }
@@ -93,8 +95,12 @@ function normalizeHost(raw: string | null): string | null {
   return host;
 }
 
+function isLoopbackHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1";
+}
+
 function isAllowedHost(host: string): boolean {
-  if (host === "localhost" || host.startsWith("127.0.0.1")) {
+  if (isLoopbackHost(host)) {
     return true;
   }
   return allowedHosts().has(host);

@@ -33,10 +33,12 @@ flow, the tenant-switch flow, security, and acceptance criteria.
 ### Roles (explicitly out)
 
 There are **no roles** in this release. Every member of a tenant has identical
-permissions — effectively all members are admins. The one piece of ownership we
-_do_ record is **who created the tenant** (`tenants.created_by_user_id`), as data
-for future features (billing, "owner can delete tenant", role introduction). It
-grants no special permission today.
+permissions — effectively all members are admins. Any owner/seller labels shown
+in the Settings UI are **presentation-only** and do not introduce permission
+differences. The one piece of ownership we _do_ record is **who created the
+tenant** (`tenants.created_by_user_id`), stored only for future features
+(billing, "owner can delete tenant", role introduction). That field grants no
+special permission today; all members still have identical permissions.
 
 ## 2. Goals and Non-Goals
 

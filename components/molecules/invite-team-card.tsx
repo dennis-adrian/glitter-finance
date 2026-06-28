@@ -29,8 +29,8 @@ function formatRelativeExpiry(expiresAt: string): string | null {
     return "Caducado";
   }
   const rtf = new Intl.RelativeTimeFormat("es", { numeric: "auto" });
-  const days = Math.round(ms / 86_400_000);
-  if (days >= 1) {
+  if (ms >= 86_400_000) {
+    const days = Math.round(ms / 86_400_000);
     return `Caduca ${rtf.format(days, "day")}`;
   }
   const hours = Math.max(1, Math.round(ms / 3_600_000));

@@ -16,14 +16,19 @@ type ProductsScreenProps = {
   inventoryStockReady: boolean;
   category: string;
   query: string;
+  userDisplayName?: string;
+  userEmail?: string | null;
   setCategory: (value: string) => void;
   setQuery: (value: string) => void;
   openEditor: (product: Product | null) => void;
   restoreProduct: (productId: string) => void;
-  onImport?: () => void;
+  onImport: () => void;
 };
 
 export function ProductsScreen(props: ProductsScreenProps) {
+  const identity = props.userDisplayName || props.userEmail || null;
+  const initials = identity ? identity.slice(0, 2).toUpperCase() : "?";
+
   const filtered = props.products.filter((product) => {
     const matchesCategory =
       props.category === "Todos" || product.category === props.category;
@@ -41,9 +46,9 @@ export function ProductsScreen(props: ProductsScreenProps) {
         right={
           <span
             className="grid size-10 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary"
-            aria-label="Perfil"
+            aria-label={identity ? `Perfil de ${identity}` : "Perfil"}
           >
-            JD
+            {initials}
           </span>
         }
       />
@@ -103,17 +108,15 @@ export function ProductsScreen(props: ProductsScreenProps) {
       >
         <Plus className="size-8" />
       </Button>
-      {props.onImport ? (
-        <Button
-          type="button"
-          variant="ghost"
-          className="absolute bottom-[88px] left-1/2 -translate-x-1/2 text-primary hover:text-primary"
-          onClick={props.onImport}
-        >
-          <Download className="size-4" />
-          Importar desde Excel
-        </Button>
-      ) : null}
+      <Button
+        type="button"
+        variant="ghost"
+        className="absolute bottom-[88px] left-1/2 -translate-x-1/2 text-primary hover:text-primary"
+        onClick={props.onImport}
+      >
+        <Download className="size-4" />
+        Importar desde Excel
+      </Button>
     </section>
   );
 }

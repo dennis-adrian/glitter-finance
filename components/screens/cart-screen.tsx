@@ -30,7 +30,7 @@ export function CartScreen(props: CartScreenProps) {
   );
 
   return (
-    <section className="screen detail-screen">
+    <section className="screen cart-screen">
       <Header
         title="Tu Carrito"
         left={

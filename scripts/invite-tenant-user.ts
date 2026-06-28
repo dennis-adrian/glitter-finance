@@ -8,8 +8,10 @@
 //   DATABASE_URL
 //   TENANT_ID              target tenant uuid
 //   INVITE_EMAIL           login email for the new member
-//   INVITE_PASSWORD        login password (required for new users)
+//   INVITE_PASSWORD        login password (required for new users; also required
+//                          when INVITE_RESET_PASSWORD=true)
 //   INVITE_RESET_PASSWORD  set to "true" to reset an existing user's password
+//                          (requires INVITE_PASSWORD)
 //   INVITE_DISPLAY_NAME    optional display name (defaults from email local-part)
 //
 // Usage:
@@ -52,16 +54,23 @@ function defaultDisplayName(email: string) {
 
 async function updateAuthUserForInvite(
   user: User,
-  displayName: string,
-  password?: string
+  password?: string,
+  displayName?: string
 ) {
+  if (!password && !displayName) {
+    return { id: user.id, created: false };
+  }
   const admin = createAdminClient();
   const { error } = await admin.auth.admin.updateUserById(user.id, {
     ...(password ? { password } : {}),
-    user_metadata: {
-      ...(user.user_metadata ?? {}),
-      display_name: displayName,
-    },
+    ...(displayName
+      ? {
+          user_metadata: {
+            ...(user.user_metadata ?? {}),
+            display_name: displayName,
+          },
+        }
+      : {}),
   });
   if (error) {
     throw new Error(`Could not update invited user: ${error.message}`);
@@ -158,8 +167,8 @@ async function setTenantClaim(userId: string, tenantId: string) {
 async function main() {
   const tenantId = requireEnv("TENANT_ID");
   const email = requireEnv("INVITE_EMAIL").trim();
-  const displayName =
-    process.env.INVITE_DISPLAY_NAME?.trim() || defaultDisplayName(email);
+  const explicitDisplayName = process.env.INVITE_DISPLAY_NAME?.trim() || undefined;
+  const displayName = explicitDisplayName || defaultDisplayName(email);
   const resetPassword =
     process.env.INVITE_RESET_PASSWORD?.trim().toLowerCase() === "true";
 
@@ -170,7 +179,11 @@ async function main() {
   let authUser: { id: string; created: boolean };
   if (existing) {
     const password = resetPassword ? requireEnv("INVITE_PASSWORD") : undefined;
-    authUser = await updateAuthUserForInvite(existing, displayName, password);
+    authUser = await updateAuthUserForInvite(
+      existing,
+      password,
+      explicitDisplayName
+    );
   } else {
     const password = requireEnv("INVITE_PASSWORD");
     authUser = await createAuthUserForInvite(email, password, displayName);

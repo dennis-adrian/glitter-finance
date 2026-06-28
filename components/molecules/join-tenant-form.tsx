@@ -49,7 +49,11 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
 
   return (
     <div className="mt-5">
-      {error ? <p className="mb-3 text-sm text-destructive">{error}</p> : null}
+      {error ? (
+        <p role="alert" className="mb-3 text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
       <Button
         type="button"
         size="lg"

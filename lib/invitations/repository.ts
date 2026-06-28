@@ -146,9 +146,14 @@ export async function getActiveInvitationForTenant(
     .orderBy(desc(tenantInvitations.createdAt))
     .limit(1);
 
-  return row
-    ? mapInvitation(row, deliveryTokenFromRow(row))
-    : null;
+  if (!row) {
+    return null;
+  }
+  const deliveryToken = deliveryTokenFromRow(row);
+  if (!deliveryToken) {
+    return null;
+  }
+  return mapInvitation(row, deliveryToken);
 }
 
 const invitationColumns = {
@@ -192,7 +197,10 @@ export async function getOrCreateActiveInvitation(input: {
       .limit(1);
 
     if (existing) {
-      return mapInvitation(existing, deliveryTokenFromRow(existing));
+      const deliveryToken = deliveryTokenFromRow(existing);
+      if (deliveryToken) {
+        return mapInvitation(existing, deliveryToken);
+      }
     }
 
     const [row] = await tx

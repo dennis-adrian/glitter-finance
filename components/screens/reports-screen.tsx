@@ -275,7 +275,7 @@ export function ReportsScreen({
         <ReportList
           empty="Aún no hay productos vendidos en este rango."
           rows={productTotals.slice(0, 6).map((item) => ({
-            key: item.productName,
+            key: item.productId,
             title: item.productName,
             subtitle: `${item.quantity} unidades`,
             value: formatBs(item.total, true),
@@ -312,7 +312,7 @@ export function ReportsScreen({
         <ReportList
           empty="Aún no hay vendedores con ventas en este rango."
           rows={userTotals.map((item) => ({
-            key: item.userName,
+            key: item.userId,
             title: item.userName,
             subtitle: `${item.transactionCount} ventas`,
             value: formatBs(item.total, true),

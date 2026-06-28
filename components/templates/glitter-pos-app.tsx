@@ -693,6 +693,10 @@ export function GlitterPosApp({
     setView("editor");
   }
 
+  function openImport() {
+    showToast("La importación desde Excel aún no está disponible.", "info");
+  }
+
   async function handleSaveProduct(input: {
     name: string;
     priceCents: number;
@@ -1033,9 +1037,12 @@ export function GlitterPosApp({
         inventoryStockReady={inventoryStockReady}
         category={catalogCategory}
         query={catalogQuery}
+        userDisplayName={tenantContext.user.displayName}
+        userEmail={tenantContext.user.email}
         setCategory={setCatalogCategory}
         setQuery={setCatalogQuery}
         openEditor={openEditor}
+        onImport={openImport}
         restoreProduct={async (productId) => {
           if (!tenantContext.tenant) {
             showToast("Tu cuenta aún no tiene un tenant.", "danger");
