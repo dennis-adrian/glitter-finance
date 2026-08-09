@@ -100,6 +100,27 @@ Notes:
 - **Existing environments (inventory):** if `powersync` was created before `inventory_movements` was added, run [`supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql`](supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql) after `npm run db:push`.
 - Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Confirm `inventory_movements` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'inventory_movements';`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
 
+#### Atomic financial uploads
+
+Before deploying an app build containing the atomic PowerSync uploader, run
+[`supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql`](supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql)
+in the target Supabase SQL editor. Apply it to staging first, run
+[`docs/sync-atomicity-acceptance.md`](docs/sync-atomicity-acceptance.md), then
+repeat against production before deploying the app there.
+
+The SQL installs authenticated RPCs for sale + lines, void, and refund; revokes
+direct authenticated writes to those financial tables; and adds a trigger that
+enforces the void window in Postgres. Deploying the app first is safe from data
+loss—the missing-RPC error remains queued—but checkout uploads will remain
+blocked until the SQL is installed.
+
+Permanent upload errors remain in the PowerSync CRUD queue and are also stored
+in the device-local `sync_failures` table. The sync pill turns red, tenant
+switching/sign-out are blocked, and Diagnostics includes the complete operation
+payload. After the underlying problem is fixed, **Forzar sincronización** retries
+the same transaction; a successful atomic commit resolves the failure marker
+automatically. Do not clear browser/PWA storage while a failure is unresolved.
+
 Then configure the matching PowerSync Cloud instance. Each Supabase environment
 must have its own PowerSync instance or a carefully separated configuration;
 do not point staging app env vars at a prod PowerSync instance, or vice versa.
@@ -216,10 +237,10 @@ See [`docs/stage-d-acceptance.md`](docs/stage-d-acceptance.md) for multi-user /
 Invite links and sign-up email callbacks need a trusted public origin.
 `lib/request-origin.ts` picks it automatically:
 
-| Environment | Source (in order) |
-|---|---|
-| Vercel preview | `VERCEL_BRANCH_URL` → `VERCEL_URL` → `NEXT_PUBLIC_APP_URL` |
-| Production | `NEXT_PUBLIC_APP_URL` → `VERCEL_PROJECT_PRODUCTION_URL` → `VERCEL_URL` |
+| Environment    | Source (in order)                                                      |
+| -------------- | ---------------------------------------------------------------------- |
+| Vercel preview | `VERCEL_BRANCH_URL` → `VERCEL_URL` → `NEXT_PUBLIC_APP_URL`             |
+| Production     | `NEXT_PUBLIC_APP_URL` → `VERCEL_PROJECT_PRODUCTION_URL` → `VERCEL_URL` |
 
 **Vercel** — no extra env vars needed for branch previews. Ensure **Settings →
 Environment Variables → “Automatically expose System Environment Variables”** is
@@ -239,6 +260,13 @@ branch deployments because Supabase rejects the dynamic preview origin.
 
 **Deploy** — push and redeploy so `lib/request-origin.ts` and the login page
 changes are live on staging.
+
+### Production observability
+
+Sentry captures browser, server, edge, and permanent PowerSync upload errors
+with privacy-safe defaults. Configure the runtime DSN, source-map token, email
+alerts, and uptime monitor using
+[`docs/production-observability.md`](docs/production-observability.md).
 
 ## Drizzle and Supabase: who owns what
 

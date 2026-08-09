@@ -7,13 +7,11 @@
 //   Client Auth panel). The token's `app_metadata.tenant_id` claim is what
 //   the sync streams use to scope each device's data.
 //
-// - uploadData: drains PowerSync's local CRUD queue and applies each
-//   change to Supabase via PostgREST. RLS enforces tenant scoping on the
-//   way in (the user's JWT is the only credential). Fatal Postgres errors
-//   (data exception, constraint violation, RLS denial) discard the whole
-//   transaction so a single bad row can't permanently wedge the queue;
-//   transient errors are re-thrown so PowerSync retries with backoff.
-//   Pattern ported from PowerSync's official Supabase example.
+// - uploadData: drains PowerSync's local CRUD queue. Sale, void, and refund
+//   transactions go through authenticated Postgres RPCs so the remote commit is
+//   atomic. Other supported transactions contain exactly one row operation.
+//   Permanent errors are copied into a local-only dead-letter table while the
+//   transaction remains queued; all errors are re-thrown for PowerSync backoff.
 
 import {
   type AbstractPowerSyncDatabase,
@@ -24,10 +22,19 @@ import {
 } from "@powersync/web";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicEnv } from "@/lib/env";
+import { reportPermanentSyncFailure } from "@/lib/observability/report-sync-failure";
+import {
+  recordSyncFailure,
+  resolveSyncFailure,
+} from "@/lib/powersync/sync-failures";
+import {
+  createUploadPlan,
+  InvalidUploadTransactionError,
+} from "@/lib/powersync/upload-plan";
 
 // Postgres response codes we cannot recover from by retrying. Matching one
-// of these means the bad write gets discarded from the queue so it can't
-// block subsequent writes.
+// stores the complete local transaction for explicit recovery. The transaction
+// remains queued and blocks later writes until a retry succeeds.
 const FATAL_RESPONSE_CODES = [
   // Class 22 — Data Exception (type mismatch, range, etc.)
   /^22\d{3}$/,
@@ -38,6 +45,7 @@ const FATAL_RESPONSE_CODES = [
 ];
 
 function isFatalError(error: unknown): boolean {
+  if (error instanceof InvalidUploadTransactionError) return true;
   if (!error || typeof error !== "object") return false;
   const code = (error as { code?: unknown }).code;
   if (typeof code !== "string") return false;
@@ -149,65 +157,115 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
 
     let lastOp: CrudEntry | null = null;
     try {
-      for (const op of transaction.crud) {
-        lastOp = op;
-        const table = this.supabase.from(op.table);
-        let result;
+      lastOp = transaction.crud.at(-1) ?? null;
+      const plan = createUploadPlan(transaction.crud);
 
-        switch (op.op) {
-          case UpdateType.PUT: {
-            // Plain INSERT, not upsert. PostgREST upsert requires UPDATE
-            // privilege on every column it might touch on conflict, and our
-            // sales table revokes UPDATE on everything except the void
-            // columns (see supabase/migrations/...rls_policies.sql).
-            const record = { ...op.opData, id: op.id };
-            result = await table.insert(record);
-            // A primary-key 23505 means this exact row is already on the
-            // server, usually because a previous upload committed this op
-            // before a later op failed transiently. Treat only that case as
-            // idempotent; business unique constraints such as
-            // refunds(original_sale_id) should still surface as fatal upload
-            // errors instead of silently clearing the queue.
-            if (isPrimaryKeyUniqueViolation(result.error, op.table)) {
-              console.info(
-                "[PowerSync] PUT row already on server, treating as success",
-                { table: op.table, id: op.id }
-              );
-              continue;
-            }
-            break;
-          }
-          case UpdateType.PATCH: {
-            result = await table.update(op.opData ?? {}).eq("id", op.id);
-            break;
-          }
-          case UpdateType.DELETE: {
-            result = await table.delete().eq("id", op.id);
-            break;
-          }
-          default:
-            continue;
+      if (plan.kind === "create-sale") {
+        const result = await this.supabase.rpc("powersync_create_sale", {
+          sale_row: plan.sale,
+          sale_line_rows: plan.lines,
+        });
+        if (result.error) throw result.error;
+      } else if (plan.kind === "void-sale") {
+        const result = await this.supabase.rpc("powersync_void_sale", {
+          sale_id: plan.saleId,
+          voided_by_user_id: plan.voidedByUserId,
+          voided_at_value: plan.voidedAt,
+        });
+        if (result.error) throw result.error;
+      } else if (plan.kind === "create-refund") {
+        const result = await this.supabase.rpc("powersync_create_refund", {
+          refund_row: plan.refund,
+        });
+        if (result.error) throw result.error;
+      } else if (plan.kind === "multi-operation") {
+        for (const operation of plan.operations) {
+          await this.uploadSingleOperation(operation);
         }
-
-        if (result.error) {
-          // Re-throw so the catch below decides discard-vs-retry.
-          throw result.error;
-        }
+      } else {
+        await this.uploadSingleOperation(plan.operation);
       }
 
       await transaction.complete();
+      try {
+        await resolveSyncFailure(database, {
+          transactionId: transaction.transactionId,
+          operations: transaction.crud,
+        });
+      } catch (resolutionError) {
+        console.error("[PowerSync] failed to resolve sync failure marker", {
+          transactionId: transaction.transactionId,
+          error: resolutionError,
+        });
+      }
     } catch (error) {
       if (isFatalError(error)) {
         console.error(
-          "[PowerSync] fatal upload error — discarding transaction",
+          "[PowerSync] permanent upload error — preserving for recovery",
           { op: lastOp, error }
         );
-        await transaction.complete();
-      } else {
-        // Transient (network, 5xx, lock contention, etc.) — re-throw so
-        // PowerSync retries with backoff. The queue stays intact.
-        throw error;
+        // Try to capture the complete transaction for recovery. The CRUD
+        // transaction remains queued even if this local write fails.
+        try {
+          await recordSyncFailure(database, {
+            transactionId: transaction.transactionId,
+            operations: transaction.crud,
+            error,
+          });
+        } catch (recordingError) {
+          console.error("[PowerSync] failed to record permanent upload error", {
+            transactionId: transaction.transactionId,
+            error: recordingError,
+          });
+        }
+        try {
+          reportPermanentSyncFailure({
+            error,
+            transactionId: transaction.transactionId,
+            operations: transaction.crud,
+          });
+        } catch (reportingError) {
+          console.error("[PowerSync] failed to report permanent upload error", {
+            transactionId: transaction.transactionId,
+            error: reportingError,
+          });
+        }
       }
+      // Network/5xx failures are not dead-lettered, but all failures remain in
+      // the CRUD queue and use PowerSync's retry/backoff behavior.
+      throw error;
+    }
+  }
+
+  private async uploadSingleOperation(op: CrudEntry): Promise<void> {
+    const table = this.supabase.from(op.table);
+    let result;
+
+    switch (op.op) {
+      case UpdateType.PUT: {
+        const record = { ...op.opData, id: op.id };
+        result = await table.insert(record);
+        if (isPrimaryKeyUniqueViolation(result.error, op.table)) {
+          console.info(
+            "[PowerSync] PUT row already on server, treating as success",
+            { table: op.table, id: op.id }
+          );
+          return;
+        }
+        break;
+      }
+      case UpdateType.PATCH:
+        result = await table.update(op.opData ?? {}).eq("id", op.id);
+        break;
+      case UpdateType.DELETE:
+        result = await table.delete().eq("id", op.id);
+        break;
+      default:
+        return;
+    }
+
+    if (result.error) {
+      throw result.error;
     }
   }
 }

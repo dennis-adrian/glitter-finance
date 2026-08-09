@@ -6,9 +6,14 @@
 // the queue) and a "Copiar diagnóstico" action that dumps everything as
 // JSON to the clipboard. Per PRD §8 + §14.
 
-import { ChevronLeft, RefreshCw, ClipboardCopy } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronLeft,
+  RefreshCw,
+  ClipboardCopy,
+} from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -17,6 +22,10 @@ import {
   usePowerSyncControls,
 } from "@/components/providers/powersync-provider";
 import type { UserTenantContext } from "@/lib/auth/user-context";
+import {
+  getUnresolvedSyncFailures,
+  type SyncFailure,
+} from "@/lib/powersync/sync-failures";
 
 type Snapshot = {
   connected: boolean;
@@ -28,6 +37,7 @@ type Snapshot = {
   downloadError: string | null;
   pendingCount: number;
   pendingBytes: number | null;
+  failures: SyncFailure[];
 };
 
 const emptySnapshot: Snapshot = {
@@ -40,6 +50,7 @@ const emptySnapshot: Snapshot = {
   downloadError: null,
   pendingCount: 0,
   pendingBytes: null,
+  failures: [],
 };
 
 function formatBytes(bytes: number | null): string {
@@ -89,6 +100,7 @@ export function DiagnosticsScreen({
   const db = useOptionalPowerSyncDb();
   const controls = usePowerSyncControls();
   const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot);
+  const lastFailuresRef = useRef<SyncFailure[]>([]);
   const [device, setDevice] = useState<DeviceInfo>(readDeviceInfoSync);
   const [reconnecting, setReconnecting] = useState(false);
   const [copyConfirmed, setCopyConfirmed] = useState(false);
@@ -96,6 +108,7 @@ export function DiagnosticsScreen({
   // Sync state — re-fetch on status changes plus a 2s poll for the queue
   // count, which isn't part of the status event stream.
   useEffect(() => {
+    lastFailuresRef.current = [];
     if (!db) {
       setSnapshot(emptySnapshot);
       return;
@@ -107,14 +120,20 @@ export function DiagnosticsScreen({
       const status = db.currentStatus;
       let pendingCount = 0;
       let pendingBytes: number | null = null;
-      try {
-        const stats = await db.getUploadQueueStats(true);
-        pendingCount = stats.count;
-        pendingBytes = stats.size;
-      } catch {
-        // Transient init/query failure — leave at defaults.
-      }
+      let failures = lastFailuresRef.current;
+      const [statsResult, failuresResult] = await Promise.allSettled([
+        db.getUploadQueueStats(true),
+        getUnresolvedSyncFailures(db),
+      ]);
       if (cancelled) return;
+      if (statsResult.status === "fulfilled") {
+        pendingCount = statsResult.value.count;
+        pendingBytes = statsResult.value.size;
+      }
+      if (failuresResult.status === "fulfilled") {
+        failures = failuresResult.value;
+        lastFailuresRef.current = failures;
+      }
       setSnapshot({
         connected: status?.connected ?? false,
         hasSynced: status?.hasSynced ?? false,
@@ -135,6 +154,7 @@ export function DiagnosticsScreen({
           : null,
         pendingCount,
         pendingBytes,
+        failures,
       });
     }
 
@@ -241,6 +261,23 @@ export function DiagnosticsScreen({
         }
       />
 
+      {snapshot.failures.length ? (
+        <div
+          className="mt-3 flex gap-2 rounded-xl border border-destructive/35 bg-destructive/10 p-3 text-sm text-destructive"
+          role="alert"
+        >
+          <AlertTriangle className="mt-0.5 size-[17px] shrink-0" />
+          <span>
+            {snapshot.failures.length === 1
+              ? "1 operación no llegó a la nube."
+              : `${snapshot.failures.length} operaciones no llegaron a la nube.`}{" "}
+            Copia este diagnóstico y no cierres sesión ni cambies de cuenta
+            hasta{" "}
+            {snapshot.failures.length === 1 ? "recuperarla" : "recuperarlas"}.
+          </span>
+        </div>
+      ) : null}
+
       <DiagPanel title="Sincronización">
         <DiagRow label="Conectado" value={yesNo(snapshot.connected)} />
         <DiagRow label="Sincronizado" value={yesNo(snapshot.hasSynced)} />
@@ -272,6 +309,24 @@ export function DiagnosticsScreen({
           label="Tamaño aproximado"
           value={formatBytes(snapshot.pendingBytes)}
         />
+        <DiagRow
+          label="Operaciones fallidas"
+          value={String(snapshot.failures.length)}
+        />
+        {snapshot.failures[0] ? (
+          <>
+            <DiagRow
+              label="Último código"
+              value={snapshot.failures[0].errorCode ?? "—"}
+              mono
+            />
+            <DiagRow
+              label="Último error"
+              value={snapshot.failures[0].errorMessage}
+              mono
+            />
+          </>
+        ) : null}
       </DiagPanel>
 
       <DiagPanel title="Identidad">

@@ -98,6 +98,21 @@ export const draftCart = sqliteTable("draft_cart", {
   updatedAt: text("updated_at").notNull(),
 });
 
+// Durable local dead-letter records. A rejected upload is removed from the
+// PowerSync CRUD queue only after its complete payload and error are captured
+// here, so financial sync failures are visible and recoverable instead of
+// disappearing into console output.
+export const syncFailures = sqliteTable("sync_failures", {
+  id: text("id").primaryKey(),
+  transactionId: integer("transaction_id"),
+  tenantId: text("tenant_id"),
+  operationsJson: text("operations_json").notNull(),
+  errorCode: text("error_code"),
+  errorMessage: text("error_message").notNull(),
+  createdAt: text("created_at").notNull(),
+  resolvedAt: text("resolved_at"),
+});
+
 export const clientSchema = {
   products,
   sales,
@@ -107,6 +122,10 @@ export const clientSchema = {
   inventoryMovements,
   draftCart: {
     tableDefinition: draftCart,
+    options: { localOnly: true },
+  },
+  syncFailures: {
+    tableDefinition: syncFailures,
     options: { localOnly: true },
   },
 };

@@ -37,6 +37,7 @@ const runtimeCaching: RuntimeCaching[] = [
       sameOrigin &&
       (url.pathname.startsWith("/api/") ||
         url.pathname.startsWith("/auth/") ||
+        url.pathname === "/monitoring" ||
         url.pathname.startsWith("/serwist/")),
     handler: new NetworkOnly(),
   },
