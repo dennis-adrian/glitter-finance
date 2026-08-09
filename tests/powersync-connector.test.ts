@@ -91,6 +91,61 @@ test("uploads a sale transaction through one RPC before completing", async () =>
   assert.deepEqual(events, ["remote-commit", "complete", "resolve-marker"]);
 });
 
+test("uploads non-financial transaction operations sequentially", async () => {
+  const events: string[] = [];
+  const operations = [
+    operation({
+      clientId: 4,
+      table: "products",
+      id: "product-1",
+      op: UpdateType.PATCH,
+      data: { name: "Updated" },
+    }),
+    operation({
+      clientId: 5,
+      table: "inventory_movements",
+      id: "movement-1",
+      op: UpdateType.PUT,
+      data: { product_id: "product-1", delta: 1 },
+    }),
+  ];
+  const supabase = {
+    from: (table: string) => ({
+      update: () => ({
+        eq: async () => {
+          events.push(`uploaded:${table}`);
+          return { error: null };
+        },
+      }),
+      insert: async () => {
+        events.push(`uploaded:${table}`);
+        return { error: null };
+      },
+    }),
+  } as unknown as SupabaseClient;
+  const db = {
+    getNextCrudTransaction: async () => ({
+      crud: operations,
+      transactionId: 22,
+      complete: async () => {
+        events.push("complete");
+      },
+    }),
+    execute: async () => {
+      events.push("resolve-marker");
+    },
+  } as unknown as AbstractPowerSyncDatabase;
+
+  await new SupabaseConnector(supabase).uploadData(db);
+
+  assert.deepEqual(events, [
+    "uploaded:products",
+    "uploaded:inventory_movements",
+    "complete",
+    "resolve-marker",
+  ]);
+});
+
 test("advances the queue when resolving a local failure marker fails", async () => {
   let completeCount = 0;
   const operations = saleTransaction();

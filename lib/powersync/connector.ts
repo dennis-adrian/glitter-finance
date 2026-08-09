@@ -178,6 +178,10 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
           refund_row: plan.refund,
         });
         if (result.error) throw result.error;
+      } else if (plan.kind === "multi-operation") {
+        for (const operation of plan.operations) {
+          await this.uploadSingleOperation(operation);
+        }
       } else {
         await this.uploadSingleOperation(plan.operation);
       }
@@ -208,15 +212,22 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
             operations: transaction.crud,
             error,
           });
+        } catch (recordingError) {
+          console.error("[PowerSync] failed to record permanent upload error", {
+            transactionId: transaction.transactionId,
+            error: recordingError,
+          });
+        }
+        try {
           reportPermanentSyncFailure({
             error,
             transactionId: transaction.transactionId,
             operations: transaction.crud,
           });
-        } catch (recordingError) {
-          console.error("[PowerSync] failed to record permanent upload error", {
+        } catch (reportingError) {
+          console.error("[PowerSync] failed to report permanent upload error", {
             transactionId: transaction.transactionId,
-            error: recordingError,
+            error: reportingError,
           });
         }
       }

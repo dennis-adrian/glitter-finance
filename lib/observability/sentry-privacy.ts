@@ -4,6 +4,8 @@ type SpanJSON = NonNullable<Event["spans"]>[number];
 type TransactionEvent = Event & { type: "transaction" };
 
 const INVITATION_PATH = /\/join\/[^/?#]+/g;
+const ABSOLUTE_URL = /^[a-z][a-z\d+.-]*:\/\//i;
+const EMBEDDED_URL = /(?:[a-z][a-z\d+.-]*:\/\/|\/)[^\s]+/gi;
 const SPAN_URL_FIELDS = [
   "url",
   "http.url",
@@ -21,8 +23,21 @@ function sanitizeUrl(value: string): string {
     return `${methodAndUrl[1]} ${sanitizeUrl(methodAndUrl[2])}`;
   }
 
-  if (!value.startsWith("/") && !/^[a-z][a-z\d+.-]*:\/\//i.test(value)) {
-    return value.replace(INVITATION_PATH, "/join/[redacted]");
+  const isRelativeUrl =
+    !value.startsWith("/") &&
+    !ABSOLUTE_URL.test(value) &&
+    !value.includes(" ") &&
+    /[?#]/.test(value);
+  if (!value.startsWith("/") && !ABSOLUTE_URL.test(value) && !isRelativeUrl) {
+    return value
+      .replace(EMBEDDED_URL, (url) => sanitizeUrl(url))
+      .replace(INVITATION_PATH, "/join/[redacted]");
+  }
+
+  if (isRelativeUrl) {
+    return value
+      .split(/[?#]/, 1)[0]
+      .replace(INVITATION_PATH, "/join/[redacted]");
   }
 
   try {

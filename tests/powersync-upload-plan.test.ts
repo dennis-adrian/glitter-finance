@@ -121,14 +121,39 @@ test("fails closed for unsupported financial transactions", () => {
   );
 });
 
-test("rejects unrecognized multi-row transactions before remote writes", () => {
+test("plans non-financial multi-row transactions as separate operations", () => {
+  const operations = [
+    operation({
+      table: "products",
+      id: "product-1",
+      op: UpdateType.PATCH,
+    }),
+    operation({
+      table: "inventory_movements",
+      id: "movement-1",
+      op: UpdateType.PUT,
+    }),
+  ];
+
+  const plan = createUploadPlan(operations);
+
+  assert.deepEqual(plan, { kind: "multi-operation", operations });
+});
+
+test("rejects inventory writes mixed into a sale transaction", () => {
   assert.throws(
     () =>
       createUploadPlan([
         operation({
-          table: "products",
-          id: "product-1",
-          op: UpdateType.PATCH,
+          table: "sales",
+          id: "sale-1",
+          op: UpdateType.PUT,
+        }),
+        operation({
+          table: "sale_lines",
+          id: "line-1",
+          op: UpdateType.PUT,
+          data: { sale_id: "sale-1" },
         }),
         operation({
           table: "inventory_movements",

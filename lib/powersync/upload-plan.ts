@@ -21,6 +21,10 @@ export type UploadPlan =
   | {
       kind: "single-operation";
       operation: CrudEntry;
+    }
+  | {
+      kind: "multi-operation";
+      operations: CrudEntry[];
     };
 
 export class InvalidUploadTransactionError extends Error {
@@ -115,10 +119,8 @@ export function createUploadPlan(operations: CrudEntry[]): UploadPlan {
     );
   }
 
-  if (operations.length !== 1) {
-    throw new InvalidUploadTransactionError(
-      "Non-financial upload transactions must contain exactly one operation."
-    );
+  if (operations.length > 1) {
+    return { kind: "multi-operation", operations };
   }
 
   return { kind: "single-operation", operation: operations[0] };

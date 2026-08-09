@@ -111,3 +111,31 @@ test("removes invitation tokens from transaction names and child-span URLs", () 
   );
   assert.equal(sanitizedSpan.data["http.query"], undefined);
 });
+
+test("removes query strings from relative and embedded URLs", () => {
+  const event = {
+    type: undefined,
+    exception: {
+      values: [
+        {
+          type: "Error",
+          value: "Request failed for https://host/path?token=secret",
+        },
+      ],
+    },
+    breadcrumbs: [
+      {
+        category: "navigation",
+        data: { from: "login?token=secret" },
+      },
+    ],
+  } as ErrorEvent;
+
+  const sanitized = sanitizeSentryEvent(event);
+
+  assert.equal(
+    sanitized.exception?.values?.[0].value,
+    "Request failed for https://host/path"
+  );
+  assert.equal(sanitized.breadcrumbs?.[0].data?.from, "login");
+});

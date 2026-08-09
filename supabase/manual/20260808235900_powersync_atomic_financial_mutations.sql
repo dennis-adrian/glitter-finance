@@ -119,6 +119,10 @@ BEGIN
 
     IF line_sale_id_value IS DISTINCT FROM sale_id_value
        OR line_tenant_id_value IS DISTINCT FROM tenant_id_value
+       OR line_quantity_value IS NULL
+       OR line_unit_price_value IS NULL
+       OR line_discount_value IS NULL
+       OR line_total_value IS NULL
        OR line_quantity_value <= 0
        OR line_unit_price_value < 0
        OR (line_unit_cost_value IS NOT NULL AND line_unit_cost_value < 0)
