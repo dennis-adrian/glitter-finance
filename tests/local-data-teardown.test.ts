@@ -4,6 +4,7 @@ import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { signOutAfterLocalTeardown } from "@/lib/auth/client-logout";
 import {
   onLocalDataCleared,
+  onLocalDataTeardownFailed,
   onLocalDataTeardownStarting,
   readLocalDataIdentity,
   saveLocalDataIdentity,
@@ -15,6 +16,7 @@ import type { Product, Sale } from "@/lib/types";
 
 class MemoryStorage {
   private values = new Map<string, string>();
+  private failedRemovalKey: string | null = null;
 
   getItem(key: string) {
     return this.values.get(key) ?? null;
@@ -25,7 +27,14 @@ class MemoryStorage {
   }
 
   removeItem(key: string) {
+    if (key === this.failedRemovalKey) {
+      throw new Error(`Failed to remove ${key}`);
+    }
     this.values.delete(key);
+  }
+
+  failRemovalFor(key: string) {
+    this.failedRemovalKey = key;
   }
 }
 
@@ -175,6 +184,66 @@ test("a teardown failure prevents server sign-out", async () => {
   });
 });
 
+test("a post-destructive failure clears memory and prevents server sign-out", async () => {
+  await withBrowser(async (storage) => {
+    const events: string[] = [];
+    let serverSignOutCalled = false;
+    const db = {
+      getOptional: async () => ({ count: 0 }),
+      disconnectAndClear: async () => {
+        events.push("clear-powersync");
+      },
+    } as unknown as AbstractPowerSyncDatabase;
+
+    window.addEventListener("glitter-pos-local-data-cleared", () => {
+      events.push("clear-memory");
+    });
+    window.addEventListener("glitter-pos-local-data-teardown-failed", () => {
+      events.push("teardown-failed");
+    });
+    saveLocalDataIdentity({ userId: "user-a", tenantId: "tenant-a" });
+    storage.failRemovalFor("glitter-pos-local-data-identity-v1");
+    usePosStore.setState({
+      products: [{} as Product],
+      cart: [{ productId: "product-a", quantity: 1 }],
+      sales: [{} as Sale],
+    });
+
+    await assert.rejects(
+      signOutAfterLocalTeardown(
+        () =>
+          teardownLocalUserData({
+            db,
+            powerSyncRequired: true,
+            refuseWhenSyncFailuresExist: true,
+            cacheStorage: {
+              keys: async () => [],
+              delete: async () => true,
+            },
+          }),
+        async () => {
+          serverSignOutCalled = true;
+        }
+      ),
+      /No se pudo limpiar el almacenamiento local/
+    );
+
+    assert.deepEqual(events, [
+      "clear-powersync",
+      "clear-memory",
+      "teardown-failed",
+    ]);
+    assert.equal(serverSignOutCalled, false);
+    assert.notEqual(
+      storage.getItem("glitter-pos-local-data-identity-v1"),
+      null
+    );
+    assert.deepEqual(usePosStore.getState().products, []);
+    assert.deepEqual(usePosStore.getState().cart, []);
+    assert.deepEqual(usePosStore.getState().sales, []);
+  });
+});
+
 test("teardown succeeds when Cache Storage is unsupported", async () => {
   await withBrowser(async () => {
     await teardownLocalUserData({
@@ -232,6 +301,42 @@ test("tenant work resumes only after replacement tenant data is ready", async ()
     } finally {
       stopTenantWork();
       keepTenantWorkStopped();
+    }
+  });
+});
+
+test("tenant work resumes for the existing identity after teardown fails", async () => {
+  await withBrowser(async () => {
+    const identity = { userId: "user-a", tenantId: "tenant-a" };
+    const tenantWork = new TenantWorkController(identity);
+    const staleWork = tenantWork.begin();
+    const stopTenantWork = onLocalDataTeardownStarting(() =>
+      tenantWork.cancel()
+    );
+    const resumeTenantWork = onLocalDataTeardownFailed(() =>
+      tenantWork.resumeAfterFailedTeardown()
+    );
+
+    try {
+      await assert.rejects(
+        teardownLocalUserData({
+          db: null,
+          powerSyncRequired: false,
+          refuseWhenSyncFailuresExist: false,
+          cacheStorage: {
+            keys: async () => ["glitter-pos-pages"],
+            delete: async () => false,
+          },
+        }),
+        /No se pudieron borrar los datos almacenados/
+      );
+
+      assert.equal(staleWork.isCurrent(), false);
+      assert.equal(tenantWork.resumeForReadyIdentity(identity), false);
+      assert.doesNotThrow(() => tenantWork.begin().assertCurrent());
+    } finally {
+      stopTenantWork();
+      resumeTenantWork();
     }
   });
 });

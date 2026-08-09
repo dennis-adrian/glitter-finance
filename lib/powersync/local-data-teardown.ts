@@ -184,6 +184,15 @@ export function onLocalDataTeardownStarting(listener: () => void) {
     window.removeEventListener(localDataTeardownStartingEvent, listener);
 }
 
+export function onLocalDataTeardownFailed(listener: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  window.addEventListener(localDataTeardownFailedEvent, listener);
+  return () =>
+    window.removeEventListener(localDataTeardownFailedEvent, listener);
+}
+
 export function onLocalDataCleared(listener: () => void) {
   if (typeof window === "undefined") {
     return () => {};
@@ -255,6 +264,21 @@ export async function teardownLocalUserData(input: {
     throw error;
   }
 
-  clearBrowserLocalData();
-  clearInMemoryLocalData();
+  let postDestructiveError: unknown = null;
+  try {
+    clearBrowserLocalData();
+  } catch (error) {
+    postDestructiveError = error;
+  }
+
+  try {
+    clearInMemoryLocalData();
+  } catch (error) {
+    postDestructiveError ??= error;
+  }
+
+  if (postDestructiveError) {
+    notifyLocalDataTeardownFailed();
+    throw postDestructiveError;
+  }
 }

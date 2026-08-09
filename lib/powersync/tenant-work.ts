@@ -41,6 +41,15 @@ export class TenantWorkController {
     this.generation += 1;
   }
 
+  resumeAfterFailedTeardown() {
+    if (!this.abortController.signal.aborted) {
+      return false;
+    }
+
+    this.abortController = new AbortController();
+    return true;
+  }
+
   resumeForReadyIdentity(identity: LocalDataIdentity) {
     if (identitiesMatch(this.identity, identity)) {
       return false;

@@ -76,6 +76,7 @@ import {
 } from "@/lib/powersync/draft-cart";
 import {
   onLocalDataCleared,
+  onLocalDataTeardownFailed,
   onLocalDataTeardownStarting,
 } from "@/lib/powersync/local-data-teardown";
 import { TenantWorkController } from "@/lib/powersync/tenant-work";
@@ -281,6 +282,9 @@ export function GlitterPosApp({
       cancelTenantWork();
       setIsCheckingOut(false);
     });
+    const resumeTenantWork = onLocalDataTeardownFailed(() => {
+      tenantWorkControllerRef.current?.resumeAfterFailedTeardown();
+    });
     const clearTenantState = onLocalDataCleared(() => {
       cancelTenantWork();
       draftCartReadyRef.current = false;
@@ -303,6 +307,7 @@ export function GlitterPosApp({
 
     return () => {
       stopTenantWork();
+      resumeTenantWork();
       clearTenantState();
     };
   }, []);

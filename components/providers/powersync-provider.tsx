@@ -247,7 +247,10 @@ export function PowerSyncProvider({
     await db.disconnect();
     await db.connect(connectorRef.current);
   };
-  async function teardown(refuseWhenSyncFailuresExist: boolean) {
+  async function teardown(
+    refuseWhenSyncFailuresExist: boolean,
+    reinitialize: boolean
+  ) {
     if (teardownPromiseRef.current) {
       return teardownPromiseRef.current;
     }
@@ -278,7 +281,9 @@ export function PowerSyncProvider({
       connectorRef.current = null;
       localDataWasJustClearedRef.current = true;
       setLocalDataReadyIdentity(null);
-      setInitializationAttempt((attempt) => attempt + 1);
+      if (reinitialize) {
+        setInitializationAttempt((attempt) => attempt + 1);
+      }
     })();
     teardownPromiseRef.current = teardownPromise;
 
@@ -288,11 +293,15 @@ export function PowerSyncProvider({
       teardownPromiseRef.current = null;
     }
   }
-  const teardownForIdentityChange = () => teardown(true);
+  const teardownForIdentityChange = (reinitialize: boolean) =>
+    teardown(true, reinitialize);
   // Keep both domain names: callers use them to make the authenticated action
-  // explicit, while both deliberately share the same local safety contract.
-  controlsRef.current.teardownForLogout = teardownForIdentityChange;
-  controlsRef.current.teardownForTenantChange = teardownForIdentityChange;
+  // explicit. Logout must stay disconnected until server sign-out, while a
+  // tenant change rebuilds the provider if its server-side action fails.
+  controlsRef.current.teardownForLogout = () =>
+    teardownForIdentityChange(false);
+  controlsRef.current.teardownForTenantChange = () =>
+    teardownForIdentityChange(true);
 
   const localDataReady = localDataIdentityMatches(
     localDataReadyIdentity,
@@ -316,8 +325,9 @@ export function PowerSyncProvider({
                 ? "grid w-full place-items-center py-4"
                 : "grid min-h-dvh place-items-center p-6"
             }
-            role="status"
-            aria-live="polite"
+            role={localDataError ? "alert" : "status"}
+            aria-live={localDataError ? "assertive" : "polite"}
+            aria-atomic="true"
           >
             <section
               className={
