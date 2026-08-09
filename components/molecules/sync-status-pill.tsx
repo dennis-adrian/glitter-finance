@@ -17,10 +17,11 @@ const stateLabels: Record<ReturnType<typeof useSyncStatus>["state"], string> = {
   offline: "Sin conexión",
   syncing: "Sincronizando…",
   synced: "Sincronizado",
+  blocked: "Error de sincronización",
 };
 
 export function SyncStatusPill() {
-  const { state, lastSyncedAt, pendingCount } = useSyncStatus();
+  const { state, lastSyncedAt, pendingCount, failureCount } = useSyncStatus();
   const [, setNow] = useState(0);
 
   useEffect(() => {
@@ -34,12 +35,17 @@ export function SyncStatusPill() {
 
   const showTimestamp = state === "synced" && lastSyncedAt;
   const showPending = pendingCount > 0;
+  const showFailures = failureCount > 0;
 
   return (
     <div className={`sync-pill sync-pill-${state}`}>
       <span className="sync-pill-dot" />
       <span className="sync-pill-label">{stateLabels[state]}</span>
-      {showPending ? (
+      {showFailures ? (
+        <span className="sync-pill-meta">
+          · {failureCount} fallida{failureCount === 1 ? "" : "s"}
+        </span>
+      ) : showPending ? (
         <span className="sync-pill-meta">
           · {pendingCount} pendiente{pendingCount === 1 ? "" : "s"}
         </span>

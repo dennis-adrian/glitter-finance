@@ -11,13 +11,20 @@
 
 import { useEffect, useState } from "react";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
+import { getUnresolvedSyncFailureCount } from "@/lib/powersync/sync-failures";
 
-export type SyncState = "initializing" | "offline" | "syncing" | "synced";
+export type SyncState =
+  | "initializing"
+  | "offline"
+  | "syncing"
+  | "synced"
+  | "blocked";
 
 export type SyncStatusSnapshot = {
   state: SyncState;
   lastSyncedAt: Date | null;
   pendingCount: number;
+  failureCount: number;
 };
 
 const QUEUE_POLL_INTERVAL_MS = 5000;
@@ -28,6 +35,7 @@ export function useSyncStatus(): SyncStatusSnapshot {
     state: "initializing",
     lastSyncedAt: null,
     pendingCount: 0,
+    failureCount: 0,
   });
 
   useEffect(() => {
@@ -36,6 +44,7 @@ export function useSyncStatus(): SyncStatusSnapshot {
         state: "initializing",
         lastSyncedAt: null,
         pendingCount: 0,
+        failureCount: 0,
       });
       return;
     }
@@ -46,12 +55,20 @@ export function useSyncStatus(): SyncStatusSnapshot {
       if (cancelled || !db) return;
       const status = db.currentStatus;
       let pendingCount = 0;
-      try {
-        const stats = await db.getUploadQueueStats(false);
-        pendingCount = stats.count;
-      } catch {
-        // Queue stats can fail transiently during init; treat as zero.
+      let failureCount = 0;
+      // Settle each counter independently so one transient failure cannot
+      // discard a valid result from the other (failed query stays at 0).
+      const [statsResult, failuresResult] = await Promise.allSettled([
+        db.getUploadQueueStats(false),
+        getUnresolvedSyncFailureCount(db),
+      ]);
+      if (statsResult.status === "fulfilled") {
+        pendingCount = statsResult.value.count;
       }
+      if (failuresResult.status === "fulfilled") {
+        failureCount = failuresResult.value;
+      }
+      // Rejected queries retry on the next status event/poll.
       if (cancelled) return;
 
       const connected = status?.connected ?? false;
@@ -66,7 +83,9 @@ export function useSyncStatus(): SyncStatusSnapshot {
       // local store doesn't yet have everything. Until hasSynced flips true
       // for the first time, fall through to "syncing".
       let state: SyncState;
-      if (!connected) {
+      if (failureCount > 0) {
+        state = "blocked";
+      } else if (!connected) {
         state = "offline";
       } else if (uploading || downloading || !hasSynced) {
         state = "syncing";
@@ -78,6 +97,7 @@ export function useSyncStatus(): SyncStatusSnapshot {
         state,
         lastSyncedAt: status?.lastSyncedAt ?? null,
         pendingCount,
+        failureCount,
       });
     }
 

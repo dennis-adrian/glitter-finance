@@ -1,7 +1,7 @@
 "use client";
 
 import { type CSSProperties } from "react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@wrksz/themes/client";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 import {
   CircleCheckIcon,

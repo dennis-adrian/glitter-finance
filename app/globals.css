@@ -443,6 +443,15 @@ button {
   box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22);
 }
 
+.sync-pill-blocked {
+  background: color-mix(in srgb, var(--destructive) 92%, #17151d);
+}
+
+.sync-pill-blocked .sync-pill-dot {
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.2);
+}
+
 .sync-pill-initializing .sync-pill-dot {
   background: #94a3b8;
   box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.22);

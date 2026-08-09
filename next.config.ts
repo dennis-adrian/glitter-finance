@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { withSerwist } from "@serwist/turbopack";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -24,4 +25,23 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withSerwist(nextConfig);
+const sentrySourceMapsEnabled = Boolean(process.env.SENTRY_AUTH_TOKEN);
+
+export default withSentryConfig(withSerwist(nextConfig), {
+  org: process.env.SENTRY_ORG ?? "glitter-v2",
+  project: process.env.SENTRY_PROJECT ?? "javascript-nextjs",
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  telemetry: false,
+  silent: !process.env.CI,
+  widenClientFileUpload: true,
+  tunnelRoute: "/monitoring",
+  sourcemaps: {
+    disable: !sentrySourceMapsEnabled,
+    deleteSourcemapsAfterUpload: true,
+  },
+  webpack: {
+    treeshake: {
+      removeDebugLogging: true,
+    },
+  },
+});

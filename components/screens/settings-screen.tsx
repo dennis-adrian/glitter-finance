@@ -60,10 +60,16 @@ export function SettingsScreen({
     "Glitter Finance";
   const initials = identity.slice(0, 2).toUpperCase();
   const powerSyncControls = usePowerSyncControls();
-  const { state: syncState, pendingCount: syncPendingCount } = useSyncStatus();
+  const {
+    state: syncState,
+    pendingCount: syncPendingCount,
+    failureCount: syncFailureCount,
+  } = useSyncStatus();
   const canSwitchTenant =
     !isPowerSyncConfigured() ||
-    (syncState === "synced" && syncPendingCount === 0);
+    (syncState === "synced" &&
+      syncPendingCount === 0 &&
+      syncFailureCount === 0);
   const [signingOut, setSigningOut] = useState(false);
   const [switchingTenantId, setSwitchingTenantId] = useState<string | null>(
     null
@@ -165,6 +171,14 @@ export function SettingsScreen({
 
   async function handleSignOut(_formData: FormData) {
     if (signingOut) return;
+    if (syncFailureCount > 0) {
+      setTenantActionError(
+        syncFailureCount === 1
+          ? "Hay una operación que no llegó a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión."
+          : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión.`
+      );
+      return;
+    }
     setSigningOut(true);
     try {
       await powerSyncControls?.clearLocal();
@@ -218,7 +232,12 @@ export function SettingsScreen({
           </div>
         </div>
 
-        {!canSwitchTenant ? (
+        {syncFailureCount > 0 ? (
+          <p className="mb-3 text-xs leading-relaxed text-destructive">
+            La sincronización requiere recuperación. Abre Diagnósticos antes de
+            cambiar de cuenta o cerrar sesión.
+          </p>
+        ) : !canSwitchTenant ? (
           <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
             Espera a que termine la sincronización antes de cambiar de cuenta.
           </p>
@@ -408,7 +427,7 @@ export function SettingsScreen({
           variant="outline"
           size="lg"
           type="submit"
-          disabled={signingOut}
+          disabled={signingOut || syncFailureCount > 0}
           className="w-full"
         >
           {signingOut ? "Cerrando sesión…" : "Cerrar sesión"}
