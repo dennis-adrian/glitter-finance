@@ -75,7 +75,8 @@ export function PowerSyncProvider({
   identity,
 }: PowerSyncProviderProps) {
   const [db, setDb] = useState<AbstractPowerSyncDatabase | null>(null);
-  const [localDataReady, setLocalDataReady] = useState(false);
+  const [localDataReadyIdentity, setLocalDataReadyIdentity] =
+    useState<LocalDataIdentity | null>(null);
   const [localDataError, setLocalDataError] = useState<string | null>(null);
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const connectorRef = useRef<PowerSyncBackendConnector | null>(null);
@@ -89,7 +90,7 @@ export function PowerSyncProvider({
     let instance: AbstractPowerSyncDatabase | null = null;
 
     async function init() {
-      setLocalDataReady(false);
+      setLocalDataReadyIdentity(null);
       setLocalDataError(null);
       setDb(null);
 
@@ -112,7 +113,7 @@ export function PowerSyncProvider({
         }
         if (cancelled) return;
         saveLocalDataIdentity(currentIdentity);
-        setLocalDataReady(true);
+        setLocalDataReadyIdentity(currentIdentity);
         return;
       }
 
@@ -199,7 +200,7 @@ export function PowerSyncProvider({
       }
 
       setDb(instance);
-      setLocalDataReady(true);
+      setLocalDataReadyIdentity(currentIdentity);
     }
 
     init().catch((error) => {
@@ -251,6 +252,11 @@ export function PowerSyncProvider({
   controlsRef.current.teardownForTenantChange = async () => {
     await teardown(true);
   };
+
+  const localDataReady = localDataIdentityMatches(
+    localDataReadyIdentity,
+    identity
+  );
 
   // Always render children inside the OptionalPowerSyncContext so
   // useOptionalPowerSyncDb() resolves to null (not "outside provider")

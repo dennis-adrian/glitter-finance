@@ -10,6 +10,7 @@ const localDataIdentityKey = "glitter-pos-local-data-identity-v1";
 const pageCacheName = "glitter-pos-pages";
 const localDataTeardownStartingEvent =
   "glitter-pos-local-data-teardown-starting";
+const localDataTeardownFailedEvent = "glitter-pos-local-data-teardown-failed";
 const localDataClearedEvent = "glitter-pos-local-data-cleared";
 
 export type LocalDataIdentity = {
@@ -18,6 +19,11 @@ export type LocalDataIdentity = {
 };
 
 type CacheStorageLike = Pick<CacheStorage, "delete" | "keys">;
+
+const unavailableCacheStorage: CacheStorageLike = {
+  delete: async () => false,
+  keys: async () => [],
+};
 
 export class LocalDataTeardownError extends Error {
   constructor(
@@ -45,10 +51,7 @@ function getCacheStorage(cacheStorage?: CacheStorageLike): CacheStorageLike {
     return cacheStorage;
   }
   if (typeof window === "undefined" || !("caches" in window)) {
-    throw new LocalDataTeardownError(
-      "cache",
-      "No se puede acceder a la caché del dispositivo."
-    );
+    return unavailableCacheStorage;
   }
   return window.caches;
 }
@@ -166,6 +169,12 @@ function notifyLocalDataTeardownStarting() {
   }
 }
 
+function notifyLocalDataTeardownFailed() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(localDataTeardownFailedEvent));
+  }
+}
+
 export function onLocalDataTeardownStarting(listener: () => void) {
   if (typeof window === "undefined") {
     return () => {};
@@ -227,18 +236,23 @@ export async function teardownLocalUserData(input: {
   // helpers re-check their assertion inside write transactions, preventing an
   // operation that was already awaiting from committing after this point.
   notifyLocalDataTeardownStarting();
-  await clearUserDataCaches(input.cacheStorage);
+  try {
+    await clearUserDataCaches(input.cacheStorage);
 
-  if (db) {
-    try {
-      await db.disconnectAndClear();
-    } catch (error) {
-      throw new LocalDataTeardownError(
-        "powersync",
-        "No se pudo borrar la base local de este dispositivo.",
-        { cause: error }
-      );
+    if (db) {
+      try {
+        await db.disconnectAndClear();
+      } catch (error) {
+        throw new LocalDataTeardownError(
+          "powersync",
+          "No se pudo borrar la base local de este dispositivo.",
+          { cause: error }
+        );
+      }
     }
+  } catch (error) {
+    notifyLocalDataTeardownFailed();
+    throw error;
   }
 
   clearBrowserLocalData();

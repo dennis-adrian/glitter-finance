@@ -3,10 +3,13 @@ import test from "node:test";
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { signOutAfterLocalTeardown } from "@/lib/auth/client-logout";
 import {
+  onLocalDataCleared,
+  onLocalDataTeardownStarting,
   readLocalDataIdentity,
   saveLocalDataIdentity,
   teardownLocalUserData,
 } from "@/lib/powersync/local-data-teardown";
+import { TenantWorkController } from "@/lib/powersync/tenant-work";
 import { usePosStore } from "@/lib/store";
 import type { Product, Sale } from "@/lib/types";
 
@@ -136,6 +139,7 @@ test("teardown purges local user data before calling server sign-out", async () 
 
 test("a teardown failure prevents server sign-out", async () => {
   await withBrowser(async () => {
+    let teardownFailed = false;
     let serverSignOutCalled = false;
     const db = {
       getOptional: async () => ({ count: 0 }),
@@ -143,6 +147,9 @@ test("a teardown failure prevents server sign-out", async () => {
         throw new Error("database clear failed");
       },
     } as unknown as AbstractPowerSyncDatabase;
+    window.addEventListener("glitter-pos-local-data-teardown-failed", () => {
+      teardownFailed = true;
+    });
 
     await assert.rejects(
       signOutAfterLocalTeardown(
@@ -163,7 +170,69 @@ test("a teardown failure prevents server sign-out", async () => {
       /No se pudo borrar la base local/
     );
 
+    assert.equal(teardownFailed, true);
     assert.equal(serverSignOutCalled, false);
+  });
+});
+
+test("teardown succeeds when Cache Storage is unsupported", async () => {
+  await withBrowser(async () => {
+    await teardownLocalUserData({
+      db: null,
+      powerSyncRequired: false,
+      refuseWhenSyncFailuresExist: false,
+    });
+  });
+});
+
+test("tenant work resumes only after replacement tenant data is ready", async () => {
+  await withBrowser(async () => {
+    const tenantWork = new TenantWorkController({
+      userId: "user-a",
+      tenantId: "tenant-a",
+    });
+    const staleWork = tenantWork.begin();
+    const stopTenantWork = onLocalDataTeardownStarting(() =>
+      tenantWork.cancel()
+    );
+    const keepTenantWorkStopped = onLocalDataCleared(() => tenantWork.cancel());
+
+    try {
+      await teardownLocalUserData({
+        db: null,
+        powerSyncRequired: false,
+        refuseWhenSyncFailuresExist: false,
+        cacheStorage: {
+          keys: async () => [],
+          delete: async () => true,
+        },
+      });
+
+      assert.equal(staleWork.isCurrent(), false);
+      assert.equal(
+        tenantWork.resumeForReadyIdentity({
+          userId: "user-a",
+          tenantId: "tenant-a",
+        }),
+        false
+      );
+      assert.throws(
+        () => tenantWork.begin().assertCurrent(),
+        /Tenant work was cancelled/
+      );
+
+      assert.equal(
+        tenantWork.resumeForReadyIdentity({
+          userId: "user-a",
+          tenantId: "tenant-b",
+        }),
+        true
+      );
+      assert.doesNotThrow(() => tenantWork.begin().assertCurrent());
+    } finally {
+      stopTenantWork();
+      keepTenantWorkStopped();
+    }
   });
 });
 
@@ -171,12 +240,16 @@ test("a cache deletion failure prevents database clearing and server sign-out", 
   await withBrowser(async () => {
     let databaseCleared = false;
     let serverSignOutCalled = false;
+    let teardownFailed = false;
     const db = {
       getOptional: async () => ({ count: 0 }),
       disconnectAndClear: async () => {
         databaseCleared = true;
       },
     } as unknown as AbstractPowerSyncDatabase;
+    window.addEventListener("glitter-pos-local-data-teardown-failed", () => {
+      teardownFailed = true;
+    });
 
     await assert.rejects(
       signOutAfterLocalTeardown(
@@ -200,6 +273,7 @@ test("a cache deletion failure prevents database clearing and server sign-out", 
     );
 
     assert.equal(databaseCleared, false);
+    assert.equal(teardownFailed, true);
     assert.equal(serverSignOutCalled, false);
   });
 });

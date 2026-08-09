@@ -80,6 +80,11 @@ const runtimeCaching: RuntimeCaching[] = [
       ],
     }),
   },
+  {
+    matcher: ({ sameOrigin, url }) =>
+      sameOrigin && isIdentitySensitivePath(url.pathname),
+    handler: new NetworkOnly(),
+  },
   ...defaultCache,
 ];
 

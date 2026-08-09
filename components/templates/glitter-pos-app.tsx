@@ -78,6 +78,7 @@ import {
   onLocalDataCleared,
   onLocalDataTeardownStarting,
 } from "@/lib/powersync/local-data-teardown";
+import { TenantWorkController } from "@/lib/powersync/tenant-work";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   computeStockByProduct,
@@ -119,13 +120,6 @@ type InventoryMovementRow = {
   created_at: string;
   client_created_at: string;
 };
-
-class TenantWorkCancelledError extends Error {
-  constructor() {
-    super("Tenant work was cancelled.");
-    this.name = "TenantWorkCancelledError";
-  }
-}
 
 function rowToProduct(row: ProductRow): Product {
   return mapDbProductToProduct({
@@ -218,7 +212,13 @@ export function GlitterPosApp({
   const initialTenantMembersRef = useRef(initialTenantMembers);
   const teamSyncEverConfirmedRef = useRef(false);
   const tenantWorkGenerationRef = useRef(0);
-  const tenantWorkAbortControllerRef = useRef(new AbortController());
+  const tenantWorkControllerRef = useRef<TenantWorkController | null>(null);
+  if (!tenantWorkControllerRef.current) {
+    tenantWorkControllerRef.current = new TenantWorkController({
+      userId: tenantContext.user.id,
+      tenantId: tenantContext.tenant?.id ?? null,
+    });
+  }
   const draftCartReadyRef = useRef(false);
   const cartRef = useRef(cart);
   const cartUpdatedAtRef = useRef<string | null>(null);
@@ -320,6 +320,17 @@ export function GlitterPosApp({
     } else {
       setInventoryWatchReady(initialInventoryMovements.length > 0);
     }
+
+    // PowerSyncProvider only renders this tree once this exact identity's
+    // local store is ready. Resume after its server-hydrated data is installed.
+    const resumed =
+      tenantWorkControllerRef.current?.resumeForReadyIdentity({
+        userId: tenantContext.user.id,
+        tenantId: activeTenantId,
+      }) ?? false;
+    if (resumed) {
+      tenantWorkGenerationRef.current += 1;
+    }
   }, [
     hydrateProducts,
     hydrateSales,
@@ -328,6 +339,7 @@ export function GlitterPosApp({
     initialTenantMembers,
     initialInventoryMovements,
     activeTenantId,
+    tenantContext.user.id,
   ]);
 
   useEffect(() => {
@@ -349,21 +361,11 @@ export function GlitterPosApp({
   const inventoryStockReady = inventoryWatchReady;
 
   function beginTenantWork() {
-    const generation = tenantWorkGenerationRef.current;
-    const signal = tenantWorkAbortControllerRef.current.signal;
-    const isCurrent = () =>
-      !signal.aborted && tenantWorkGenerationRef.current === generation;
-    const assertCurrent = () => {
-      if (!isCurrent()) {
-        throw new TenantWorkCancelledError();
-      }
-    };
-
-    return { isCurrent, assertCurrent };
+    return tenantWorkControllerRef.current!.begin();
   }
 
   function cancelTenantWork() {
-    tenantWorkAbortControllerRef.current.abort();
+    tenantWorkControllerRef.current?.cancel();
     tenantWorkGenerationRef.current += 1;
   }
 
