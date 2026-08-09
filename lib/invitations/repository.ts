@@ -22,7 +22,9 @@ function deliveryTokenFromRow(row: {
   if (!row.tokenDeliveryCiphertext) {
     return undefined;
   }
-  return decryptInvitationDeliveryToken(row.tokenDeliveryCiphertext) ?? undefined;
+  return (
+    decryptInvitationDeliveryToken(row.tokenDeliveryCiphertext) ?? undefined
+  );
 }
 
 function mapInvitation(

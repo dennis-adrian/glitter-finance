@@ -136,7 +136,7 @@ more devices in the same tenant stream.
 The two-device convergence test in §12 is, by construction, a two-**user** test:
 different `user_id`s, one `tenant_id`, one tenant stream.
 
-> What multi-user *does* change is operational, not architectural. Stage D
+> What multi-user _does_ change is operational, not architectural. Stage D
 > proved that a synced table only reaches other users' devices if it is in the
 > Postgres logical-replication publication — and that publication changes
 > **cannot be migrations**. §6.3 and §11 carry that requirement for
@@ -149,17 +149,17 @@ different `user_id`s, one `tenant_id`, one tenant stream.
 **`inventory_movements`** — a new append-only, synced table. One row per supply
 event for a tracked product.
 
-| Field              | Type                         | Notes                                                                 |
-| ------------------ | ---------------------------- | --------------------------------------------------------------------- |
-| `id`               | uuid (text in SQLite)        | Client-generated PK.                                                  |
-| `tenant_id`        | uuid                         | Tenant scope. Composite FK target with `product_id`.                  |
-| `product_id`       | uuid                         | Composite FK `(product_id, tenant_id) → products(id, tenant_id)`.     |
-| `user_id`          | uuid                         | Who recorded it. FK to `auth.users` (hand-written), self-attributed.  |
-| `delta`            | integer (signed, non-zero)   | Units added (+) or removed (−).                                       |
-| `reason`           | enum `inventory_movement_reason` | `initial` \| `restock` \| `adjustment` \| `loss` \| `gift`.       |
-| `note`             | text, nullable               | Optional free text (e.g. "caja dañada en transporte").                |
-| `created_at`       | timestamptz / text           | Server/display time.                                                  |
-| `client_created_at`| timestamptz / text           | Device clock at creation, for parity with sales/refunds.              |
+| Field               | Type                             | Notes                                                                |
+| ------------------- | -------------------------------- | -------------------------------------------------------------------- |
+| `id`                | uuid (text in SQLite)            | Client-generated PK.                                                 |
+| `tenant_id`         | uuid                             | Tenant scope. Composite FK target with `product_id`.                 |
+| `product_id`        | uuid                             | Composite FK `(product_id, tenant_id) → products(id, tenant_id)`.    |
+| `user_id`           | uuid                             | Who recorded it. FK to `auth.users` (hand-written), self-attributed. |
+| `delta`             | integer (signed, non-zero)       | Units added (+) or removed (−).                                      |
+| `reason`            | enum `inventory_movement_reason` | `initial` \| `restock` \| `adjustment` \| `loss` \| `gift`.          |
+| `note`              | text, nullable                   | Optional free text (e.g. "caja dañada en transporte").               |
+| `created_at`        | timestamptz / text               | Server/display time.                                                 |
+| `client_created_at` | timestamptz / text               | Device clock at creation, for parity with sales/refunds.             |
 
 Sign discipline (enforced by a CHECK, see §6.2):
 
@@ -242,7 +242,7 @@ No special inventory code is needed.
 - **Void:** a voided sale is excluded from the "sold" sum (its lines no longer
   count as out), so its units return to stock automatically.
 - **Refund:** the refund event adds its line quantities back via the `+ Σ
-  refunded` term, so a full refund returns the sale's units to stock
+refunded` term, so a full refund returns the sale's units to stock
   automatically.
 
 Both fall out of the existing `Sale.status` / `refundOfSaleId` model (see
@@ -286,8 +286,8 @@ Add the enum, the table, and the product column. Generate the migration with
 
 - `inventory_movements`: single-column `id` PK (PowerSync requires it); columns
   per §4; composite FK `(product_id, tenant_id) → products(id, tenant_id)
-  ON DELETE RESTRICT` mirroring `sale_lines`; indexes on `(tenant_id,
-  product_id)` (the per-product SUM) and `(tenant_id, created_at)`.
+ON DELETE RESTRICT` mirroring `sale_lines`; indexes on `(tenant_id,
+product_id)` (the per-product SUM) and `(tenant_id, created_at)`.
 - `pgEnum('inventory_movement_reason', ['initial','restock','adjustment','loss','gift'])`.
 - `products.tracksInventory boolean NOT NULL DEFAULT false`; optional
   `products.lowStockThreshold integer`.
@@ -362,8 +362,8 @@ Add one query to the `by_tenant` stream, mirroring the existing tables (same
 `auth.parameters()` form, no `::uuid` cast):
 
 ```yaml
-      - SELECT * FROM inventory_movements
-        WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+- SELECT * FROM inventory_movements
+  WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
 ```
 
 Deploy by pasting into the PowerSync Cloud Sync Streams editor → Validate →
@@ -371,7 +371,7 @@ Deploy.
 
 ### 6.5 Deploy ordering (all-or-nothing, per environment)
 
-Stage D showed a partial deploy fails *subtly*, not loudly. For inventory the
+Stage D showed a partial deploy fails _subtly_, not loudly. For inventory the
 failure modes are: schema-without-publication → movements never replicate, so
 other users' devices undercount stock; publication-without-sync-rules → rows
 replicate to PowerSync but never reach the client; sync-rules-without-client-schema
@@ -457,7 +457,7 @@ default constant).
   reconnect — no decrement is lost. This is the property the counter approach
   fails.
 - **`tracks_inventory` is itself LWW** (it's a product column). Acceptable: it's
-  a rare setup-time toggle, not a per-sale mutation. The *counts* are never LWW
+  a rare setup-time toggle, not a per-sale mutation. The _counts_ are never LWW
   because they live in the append-only ledger.
 - **Clock skew:** movements carry `client_created_at`; ordering of supply events
   does not affect the SUM (addition is commutative), so skew cannot corrupt the
@@ -494,6 +494,7 @@ Validated on real installed PWAs (iPhone Safari + Android Chrome), consistent
 with the parent PRD's dual-platform gate.
 
 **Single-device basics**
+
 - Enable tracking on a product, set initial 10. Tile shows 10.
 - Sell 3 → tile shows 7. Sell 7 more → tile shows 0 ("agotado"), still sellable.
 - Sell 1 more → tile shows −1 (oversold), still sellable.
@@ -517,12 +518,14 @@ each device — not one user on two devices.
    rejected counter model cannot produce.)
 
 **Cross-user supply visibility**
+
 - User A restocks +5 while User B sells 1, both online.
 - After sync, both devices agree on the same remaining count, with each other's
   movement and sale reflected. (Confirms supply edits, not just sales,
   replicate across members — mirrors the Stage D cross-device sales script.)
 
 **Replication wiring (catches the publication gap)**
+
 - After deploy, confirm `inventory_movements` is in the `powersync` publication
   (§6.3 query) and that a movement created on one user's device appears on
   another member's device. An empty `inventory_movements` on a second device
@@ -530,6 +533,7 @@ each device — not one user on two devices.
   sync-rule, not an app bug — the same diagnosis path as Stage D's `tenant_users`.
 
 **Mixed catalog**
+
 - An untracked product shows no stock UI and is always sellable, alongside
   tracked products, with no interference.
 

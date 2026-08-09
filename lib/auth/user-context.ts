@@ -192,10 +192,11 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
     try {
       await setActiveTenantClaim(user, active.tenantId);
     } catch (error) {
-      console.error(
-        "[ensureUserTenantContext] setActiveTenantClaim failed",
-        { userId: user.id, tenantId: active.tenantId, error }
-      );
+      console.error("[ensureUserTenantContext] setActiveTenantClaim failed", {
+        userId: user.id,
+        tenantId: active.tenantId,
+        error,
+      });
     }
     return toUserTenantContext(user, memberships, active);
   }
@@ -262,10 +263,11 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
     try {
       await setActiveTenantClaim(user, context.tenant.id);
     } catch (error) {
-      console.error(
-        "[ensureUserTenantContext] setActiveTenantClaim failed",
-        { userId: user.id, tenantId: context.tenant.id, error }
-      );
+      console.error("[ensureUserTenantContext] setActiveTenantClaim failed", {
+        userId: user.id,
+        tenantId: context.tenant.id,
+        error,
+      });
     }
   }
 

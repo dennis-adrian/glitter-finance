@@ -110,9 +110,7 @@ export function InviteTeamCard({
     Boolean(invitation.token) &&
     !isAbsoluteHttpUrl(inviteLink);
   const needsRotation =
-    invitation !== null &&
-    isInvitationValid(invitation) &&
-    !invitation.token;
+    invitation !== null && isInvitationValid(invitation) && !invitation.token;
 
   async function handleGenerate() {
     setError(null);

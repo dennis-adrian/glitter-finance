@@ -9,7 +9,9 @@ import { getServerEnv } from "@/lib/env";
 function requireSecretKey(): string {
   const secret = getServerEnv().invitationSecretKey;
   if (!secret) {
-    throw new Error("Missing required environment variable: INVITATION_SECRET_KEY");
+    throw new Error(
+      "Missing required environment variable: INVITATION_SECRET_KEY"
+    );
   }
   return secret;
 }
@@ -51,9 +53,10 @@ export function decryptInvitationDeliveryToken(
     const encrypted = packed.subarray(28);
     const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), iv);
     decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString(
-      "utf8"
-    );
+    return Buffer.concat([
+      decipher.update(encrypted),
+      decipher.final(),
+    ]).toString("utf8");
   } catch {
     return null;
   }

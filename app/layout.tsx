@@ -7,9 +7,9 @@ import { Inter, Geist } from "next/font/google";
 import { SHELL_THEME_COLORS } from "@/lib/shell-theme-colors";
 import { cn } from "@/lib/utils";
 
-const geistHeading = Geist({subsets:['latin'],variable:'--font-heading'});
+const geistHeading = Geist({ subsets: ["latin"], variable: "--font-heading" });
 
-const inter = Inter({subsets:['latin'],variable:'--font-sans'});
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "Glitter POS",

@@ -66,7 +66,7 @@ less battery on OLED phones.
   bespoke vars (`--bg`, `--ink`, `--hairline`, `--shadow`, `--soft-shadow`,
   `--green`, `--amber`, `--danger`, `--amber-surface`).
 - **The dark variant is wired for utilities.** `@custom-variant dark (&:is(.dark,
-  .dark *))` means any `dark:` Tailwind utility activates under a `.dark`
+.dark *))` means any `dark:` Tailwind utility activates under a `.dark`
   ancestor, and `@theme inline` maps the tokens to `--color-*`. Components built
   on semantic tokens (`bg-card`, `text-muted-foreground`, `border-border`,
   `bg-primary`, `ring-foreground/10`, …) flip automatically when `.dark` is
@@ -235,7 +235,7 @@ come from `@wrksz/themes` as planned.
    PWA and Android Chrome PWA; fix contrast issues. (§4.2, §6.5)
 6. **`manifest.webmanifest` install chrome** — per-mode `theme_color` /
    `background_color`. (§4.2, §6.6)
-7. *(Optional)* header quick-toggle, if chosen in §10.
+7. _(Optional)_ header quick-toggle, if chosen in §10.
 
 ## 9. Primary Color Note (cross-reference)
 

@@ -160,14 +160,17 @@ async function setTenantClaim(userId: string, tenantId: string) {
     },
   });
   if (error) {
-    throw new Error(`Could not set tenant_id on invited user: ${error.message}`);
+    throw new Error(
+      `Could not set tenant_id on invited user: ${error.message}`
+    );
   }
 }
 
 async function main() {
   const tenantId = requireEnv("TENANT_ID");
   const email = requireEnv("INVITE_EMAIL").trim();
-  const explicitDisplayName = process.env.INVITE_DISPLAY_NAME?.trim() || undefined;
+  const explicitDisplayName =
+    process.env.INVITE_DISPLAY_NAME?.trim() || undefined;
   const displayName = explicitDisplayName || defaultDisplayName(email);
   const resetPassword =
     process.env.INVITE_RESET_PASSWORD?.trim().toLowerCase() === "true";
@@ -199,7 +202,9 @@ async function main() {
   console.log("Invited tenant member:");
   console.log(`  tenant: ${tenant.name} (${tenant.id})`);
   console.log(`  display name: ${displayName}`);
-  console.log(`  auth user: ${authUser.id} (${authUser.created ? "created" : "existing"})`);
+  console.log(
+    `  auth user: ${authUser.id} (${authUser.created ? "created" : "existing"})`
+  );
   console.log(
     `  membership: ${membership.created ? "created" : "updated existing"}`
   );

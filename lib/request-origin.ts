@@ -145,7 +145,7 @@ function allowedHosts(): Set<string> {
 }
 
 function parseHostHeader(
-  raw: string | null,
+  raw: string | null
 ): { host: string; hostWithPort: string } | null {
   if (!raw) {
     return null;
