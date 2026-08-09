@@ -109,6 +109,16 @@ export async function clearDraftCartLocal(db: AbstractPowerSyncDatabase) {
   await db.execute(`DELETE FROM draft_cart WHERE id = ?`, [draftCartId]);
 }
 
+/** Remove the pre-PowerSync draft-cart data left in browser storage. */
+export function clearLegacyDraftCartStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(legacyStorageKey);
+  window.localStorage.removeItem(legacyMigrationKey);
+}
+
 function readLegacyDraftCart() {
   if (
     typeof window === "undefined" ||

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { signOut } from "@/app/auth/actions";
 import { createTenant, switchTenant } from "@/app/tenants/actions";
+import { signOutAfterLocalTeardown } from "@/lib/auth/client-logout";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
 import { InviteTeamCard } from "@/components/molecules/invite-team-card";
@@ -71,6 +72,7 @@ export function SettingsScreen({
       syncPendingCount === 0 &&
       syncFailureCount === 0);
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutFailed, setSignOutFailed] = useState(false);
   const [switchingTenantId, setSwitchingTenantId] = useState<string | null>(
     null
   );
@@ -85,21 +87,7 @@ export function SettingsScreen({
       ? "Hay una operación que no llegó a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión."
       : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión.`;
 
-  // Best-effort local teardown after the active tenant changed server-side:
-  // clear the previous tenant's local store, refresh the JWT so it carries the
-  // new claim, then hard-reload. Each step is guarded so a failure still lands
-  // on a reload (where the app reconciles to the new active tenant) rather than
-  // stranding the UI mid-switch.
-  async function runPostTenantChangeCleanup() {
-    try {
-      await powerSyncControls?.clearLocal();
-    } catch (error) {
-      console.error("[tenant-change] clearLocal failed", error);
-      setTenantActionError(
-        "No se pudo limpiar los datos locales. Cierra sesión y vuelve a entrar, o recarga la página."
-      );
-      return;
-    }
+  async function refreshTenantSessionAndReload() {
     try {
       const supabase = createClient();
       const { error } = await supabase.auth.refreshSession();
@@ -108,16 +96,24 @@ export function SettingsScreen({
         setTenantActionError(
           "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
         );
-        return;
+        return false;
       }
     } catch (error) {
       console.error("[tenant-change] refreshSession failed", error);
       setTenantActionError(
         "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
       );
-      return;
+      return false;
     }
     window.location.assign("/");
+    return true;
+  }
+
+  async function teardownForTenantChange() {
+    if (!powerSyncControls) {
+      throw new Error("La limpieza local aún no está disponible.");
+    }
+    await powerSyncControls.teardownForTenantChange();
   }
 
   async function handleTenantSwitch(tenantId: string) {
@@ -132,6 +128,21 @@ export function SettingsScreen({
     setTenantActionError(null);
     setSwitchingTenantId(tenantId);
     try {
+      // Do this before committing the server-side tenant change. If cleanup
+      // fails, the current authenticated session and tenant remain intact.
+      await teardownForTenantChange();
+    } catch (error) {
+      console.error("[switchTenant] local teardown failed", error);
+      setTenantActionError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo limpiar los datos locales ni cambiar de cuenta."
+      );
+      setSwitchingTenantId(null);
+      return;
+    }
+
+    try {
       await switchTenant(tenantId);
     } catch (error) {
       console.error("[switchTenant] failed", error);
@@ -139,14 +150,13 @@ export function SettingsScreen({
         error instanceof Error ? error.message : "No se pudo cambiar de cuenta."
       );
       setSwitchingTenantId(null);
+      window.location.assign("/");
       return;
     }
 
-    // The active tenant has already changed server-side. Local cleanup is
-    // best-effort: even if it fails, navigate so ensureUserTenantContext +
-    // PowerSync reconcile to the new tenant on reload. Never revert to an
-    // error state here — the switch succeeded.
-    await runPostTenantChangeCleanup();
+    if (!(await refreshTenantSessionAndReload())) {
+      setSwitchingTenantId(null);
+    }
   }
 
   async function handleCreateTenant() {
@@ -158,9 +168,9 @@ export function SettingsScreen({
     setTenantActionError(null);
     setCreatingTenant(true);
     try {
-      await createTenant(trimmedName);
+      await teardownForTenantChange();
     } catch (error) {
-      console.error("[createTenant] failed", error);
+      console.error("[createTenant] local teardown failed", error);
       setTenantActionError(
         error instanceof Error ? error.message : "No se pudo crear la cuenta."
       );
@@ -168,27 +178,47 @@ export function SettingsScreen({
       return;
     }
 
-    // Account created (and committed). Run best-effort cleanup + reload; a
-    // cleanup failure must not revert the successful creation.
-    await runPostTenantChangeCleanup();
+    try {
+      await createTenant(trimmedName);
+    } catch (error) {
+      console.error("[createTenant] failed", error);
+      setTenantActionError(
+        error instanceof Error ? error.message : "No se pudo crear la cuenta."
+      );
+      setCreatingTenant(false);
+      window.location.assign("/");
+      return;
+    }
+
+    if (!(await refreshTenantSessionAndReload())) {
+      setCreatingTenant(false);
+    }
   }
 
   async function handleSignOut(_formData: FormData) {
     if (signingOut) return;
+    setSignOutFailed(false);
     if (syncFailureCount > 0) {
       setTenantActionError(syncFailureExplanation);
       return;
     }
     setSigningOut(true);
     try {
-      await powerSyncControls?.clearLocal();
-    } catch (error) {
-      console.error("[signOut] clearLocal failed", error);
-    }
-    try {
-      await signOut();
+      if (!powerSyncControls) {
+        throw new Error("La limpieza local aún no está disponible.");
+      }
+      await signOutAfterLocalTeardown(
+        () => powerSyncControls.teardownForLogout(),
+        signOut
+      );
     } catch (error) {
       console.error("[signOut] signOut failed", error);
+      setSignOutFailed(true);
+      setTenantActionError(
+        error instanceof Error
+          ? `${error.message} Reintenta la limpieza segura antes de cerrar sesión.`
+          : "No se pudieron eliminar los datos locales. Reintenta la limpieza segura antes de cerrar sesión."
+      );
       setSigningOut(false);
     }
   }
@@ -210,7 +240,7 @@ export function SettingsScreen({
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="size-7 animate-spin text-primary" />
             <p className="text-sm font-medium">{switchOverlayLabel}</p>
-            <p className="max-w-[240px] text-center text-xs text-muted-foreground">
+            <p className="max-w-60 text-center text-xs text-muted-foreground">
               Sincronizando los datos de esta cuenta.
             </p>
           </div>
@@ -435,7 +465,11 @@ export function SettingsScreen({
           disabled={signingOut || syncFailureCount > 0}
           className="w-full"
         >
-          {signingOut ? "Cerrando sesión…" : "Cerrar sesión"}
+          {signingOut
+            ? "Cerrando sesión…"
+            : signOutFailed
+              ? "Reintentar limpieza y cerrar sesión"
+              : "Cerrar sesión"}
         </Button>
       </form>
     </section>
