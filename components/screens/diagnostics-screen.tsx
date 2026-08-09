@@ -266,11 +266,11 @@ export function DiagnosticsScreen({
           className="mt-3 flex gap-2 rounded-xl border border-destructive/35 bg-destructive/10 p-3 text-sm text-destructive"
           role="alert"
         >
-          <AlertTriangle className="mt-0.5 size-[17px] shrink-0" />
+          <AlertTriangle className="mt-0.5 size-4.25 shrink-0" />
           <span>
             {snapshot.failures.length === 1
-              ? "1 operación no llegó a la nube."
-              : `${snapshot.failures.length} operaciones no llegaron a la nube.`}{" "}
+              ? "1 transacción no llegó a la nube."
+              : `${snapshot.failures.length} transacciones no llegaron a la nube.`}{" "}
             Copia este diagnóstico y no cierres sesión ni cambies de cuenta
             hasta{" "}
             {snapshot.failures.length === 1 ? "recuperarla" : "recuperarlas"}.
@@ -310,7 +310,7 @@ export function DiagnosticsScreen({
           value={formatBytes(snapshot.pendingBytes)}
         />
         <DiagRow
-          label="Operaciones fallidas"
+          label="Transacciones fallidas"
           value={String(snapshot.failures.length)}
         />
         {snapshot.failures[0] ? (
@@ -365,11 +365,11 @@ export function DiagnosticsScreen({
           onClick={handleReconnect}
           disabled={!controls || reconnecting}
         >
-          <RefreshCw className="size-[18px]" />
+          <RefreshCw className="size-4.5" />
           {reconnecting ? "Reconectando…" : "Forzar sincronización"}
         </Button>
         <Button variant="outline" size="lg" onClick={handleCopy}>
-          <ClipboardCopy className="size-[18px]" />
+          <ClipboardCopy className="size-4.5" />
           {copyConfirmed ? "Copiado" : "Copiar diagnóstico"}
         </Button>
       </div>

@@ -20,16 +20,17 @@ PWA.
 ## Run locally
 
 ```bash
-npm install
-npm run db:start
-npm run db:reset
-npm run db:seed:buckets
-npm run dev
+corepack enable
+pnpm install
+pnpm db:start
+pnpm db:reset
+pnpm db:seed:buckets
+pnpm dev
 ```
 
 Then open `http://localhost:3000`.
 
-`npm run db:reset` loads `supabase/seed.sql`, which creates a reusable
+`pnpm db:reset` loads `supabase/seed.sql`, which creates a reusable
 development account:
 
 - Email: `demo@glitter-pos.local`
@@ -69,11 +70,11 @@ Only one project can be linked to the local checkout at a time. A developer reli
 ```bash
 # Working on a branch — point at staging:
 supabase link --project-ref <staging-project-ref>
-npm run db:push       # applies pending migrations to glitter-finance-staging
+pnpm db:push       # applies pending migrations to glitter-finance-staging
 
 # Ready to deploy — point at prod:
 supabase link --project-ref <prod-project-ref>
-npm run db:push       # applies the same migrations to glitter-finance
+pnpm db:push       # applies the same migrations to glitter-finance
 ```
 
 After relinking, update `.env.local` so `NEXT_PUBLIC_SUPABASE_URL`, the publishable and secret keys, and `DATABASE_URL` all match the now-linked project; otherwise the running app and the CLI will talk to different backends.
@@ -96,8 +97,8 @@ Notes:
 - Generate a fresh `<per-env-secret>` for each environment (e.g. `openssl rand -base64 32`) and store it in a password manager. Do not reuse across staging and prod.
 - The role has `REPLICATION BYPASSRLS` — it can read every row in every tenant, bypassing RLS. Treat the credential like a service-role key.
 - The publication is targeted at exactly the six synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
-- **Existing environments (Stage D):** if `powersync` was created before `tenant_users` was added to the table list above, run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) in the SQL editor after `npm run db:push`. It is idempotent and skips quietly when the publication is missing (e.g. local `db:reset` before bootstrap).
-- **Existing environments (inventory):** if `powersync` was created before `inventory_movements` was added, run [`supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql`](supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql) after `npm run db:push`.
+- **Existing environments (Stage D):** if `powersync` was created before `tenant_users` was added to the table list above, run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) in the SQL editor after `pnpm db:push`. It is idempotent and skips quietly when the publication is missing (e.g. local `db:reset` before bootstrap).
+- **Existing environments (inventory):** if `powersync` was created before `inventory_movements` was added, run [`supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql`](supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql) after `pnpm db:push`.
 - Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Confirm `inventory_movements` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'inventory_movements';`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
 
 #### Atomic financial uploads
@@ -180,23 +181,23 @@ supabase db reset --linked --no-seed
 
 ### QA seed
 
-`npm run db:seed:qa` creates (or refreshes) a stable QA account on the Supabase project the env vars point at — typically `glitter-finance-staging`. It provisions a dummy catalog, completed sales, a voided sale, and a refunded sale, attached to a fixed tenant id so re-runs are idempotent. The auth user and tenant are always preserved; `--reset` only wipes the catalog and sales.
+`pnpm db:seed:qa` creates (or refreshes) a stable QA account on the Supabase project the env vars point at — typically `glitter-finance-staging`. It provisions a dummy catalog, completed sales, a voided sale, and a refunded sale, attached to a fixed tenant id so re-runs are idempotent. The auth user and tenant are always preserved; `--reset` only wipes the catalog and sales.
 
 Pass the target credentials inline so the command always runs against the intended project:
 
 ```bash
 QA_EMAIL=qa@glitterfinance.app QA_PASSWORD=... \
 NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
-npm run db:seed:qa             # append `-- --reset` to wipe catalog + sales and reseed
+pnpm db:seed:qa             # append `-- --reset` to wipe catalog + sales and reseed
 ```
 
 ### Invite a tenant member (Stage D)
 
-During closed testing, additional booth helpers are provisioned manually — not through in-app invite UI. `npm run db:invite:tenant-user` creates (or refreshes) an auth user, inserts a `tenant_users` row on the target tenant, and sets `app_metadata.tenant_id` so PowerSync scopes replication correctly.
+During closed testing, additional booth helpers are provisioned manually — not through in-app invite UI. `pnpm db:invite:tenant-user` creates (or refreshes) an auth user, inserts a `tenant_users` row on the target tenant, and sets `app_metadata.tenant_id` so PowerSync scopes replication correctly.
 
 Before inviting:
 
-1. Apply pending migrations (`npm run db:push`) so `tenant_users.id` exists, then run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) if the environment predates Stage D (see PowerSync setup notes).
+1. Apply pending migrations (`pnpm db:push`) so `tenant_users.id` exists, then run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) if the environment predates Stage D (see PowerSync setup notes).
 2. Redeploy updated sync rules from `powersync/sync-rules.yaml` in PowerSync Cloud.
 
 Then invite the helper:
@@ -206,7 +207,7 @@ TENANT_ID=7a000000-0000-4000-8000-000000000001 \
 INVITE_EMAIL=helper@glitterfinance.app INVITE_PASSWORD=... \
 INVITE_DISPLAY_NAME="Helper Booth" \
 NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
-npm run db:invite:tenant-user
+pnpm db:invite:tenant-user
 ```
 
 After inviting, have the user sign in on their device. Settings → Equipo should list every member; reports should attribute sales by display name once both devices have synced.
@@ -226,7 +227,7 @@ Before running Stage B acceptance on staging:
 - `NEXT_PUBLIC_APP_URL` is set only when staging uses a fixed custom domain;
   Vercel preview deployments resolve the URL from `VERCEL_BRANCH_URL` /
   `VERCEL_URL` automatically.
-- The QA account is seeded with `npm run db:seed:qa`.
+- The QA account is seeded with `pnpm db:seed:qa`.
 - The installed PWA has been launched once online and the sync pill has reached the synced state before offline relaunch testing.
 
 See [`docs/stage-d-acceptance.md`](docs/stage-d-acceptance.md) for multi-user /
@@ -295,15 +296,15 @@ Drizzle does **not** apply migrations in this project, and does **not** own the 
 
 ```bash
 # Edit lib/db/schema.ts, then:
-npm run db:generate     # drizzle-kit generate — writes a new SQL file into supabase/migrations/
+pnpm db:generate     # drizzle-kit generate — writes a new SQL file into supabase/migrations/
 
 # Apply migrations:
-npm run db:push         # supabase db push — apply to the linked cloud project
-npm run db:reset        # supabase db reset — wipe and replay locally
+pnpm db:push         # supabase db push — apply to the linked cloud project
+pnpm db:reset        # supabase db reset — wipe and replay locally
 
 # Local dev stack:
-npm run db:start        # supabase start
-npm run db:stop         # supabase stop
+pnpm db:start        # supabase start
+pnpm db:stop         # supabase stop
 ```
 
 Do not run `drizzle-kit migrate`. The Drizzle `__drizzle_migrations` journal is not maintained; `supabase_migrations.schema_migrations` is the only journal that matters.
@@ -312,7 +313,7 @@ Do not run `drizzle-kit migrate`. The Drizzle `__drizzle_migrations` journal is 
 
 For anything Drizzle's schema cannot express (RLS, `auth.users` FKs, storage
 policies, `ALTER PUBLICATION`), add a timestamp-prefixed file under
-`supabase/manual/` and run it in the SQL editor after `npm run db:push`:
+`supabase/manual/` and run it in the SQL editor after `pnpm db:push`:
 
 ### Runtime data access
 

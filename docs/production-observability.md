@@ -8,8 +8,10 @@ Configure these in Vercel:
   is public and defaults production builds to the Glitter Sentry project. Use
   this override if an environment needs a separate project.
 - `SENTRY_AUTH_TOKEN` — build-only source-map upload token.
-- `SENTRY_ORG` and `SENTRY_PROJECT` — optional; the Glitter project defaults
-  are already in `next.config.ts`.
+- `SENTRY_ORG` and `SENTRY_PROJECT` — required when
+  `NEXT_PUBLIC_SENTRY_DSN` targets another project; set them to that project's
+  organization and project slugs. The Glitter defaults apply without a DSN
+  override.
 
 Never expose `SENTRY_AUTH_TOKEN` as a `NEXT_PUBLIC_*` variable.
 

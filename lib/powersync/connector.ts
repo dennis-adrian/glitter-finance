@@ -110,6 +110,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
   async fetchCredentials(): Promise<PowerSyncCredentials | null> {
     const { data, error } = await this.supabase.auth.getSession();
     if (error) {
+      console.error("[PowerSync] Supabase session fetch failed", error);
       throw new Error("No se pudo obtener la sesión.");
     }
     if (!data.session) {

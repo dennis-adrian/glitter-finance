@@ -269,8 +269,6 @@ BEGIN
 END;
 $$;
 
-DROP FUNCTION IF EXISTS public.powersync_void_sale(uuid, uuid);
-
 CREATE OR REPLACE FUNCTION public.powersync_void_sale(
   sale_id uuid,
   voided_by_user_id uuid,
@@ -344,6 +342,23 @@ BEGIN
 
   RETURN sale_record.id;
 END;
+$$;
+
+-- Keep the legacy overload while cached clients may still upload queued voids.
+CREATE OR REPLACE FUNCTION public.powersync_void_sale(
+  sale_id uuid,
+  voided_by_user_id uuid
+)
+RETURNS uuid
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+  SELECT public.powersync_void_sale(
+    sale_id,
+    voided_by_user_id,
+    clock_timestamp()
+  );
 $$;
 
 CREATE OR REPLACE FUNCTION public.powersync_create_refund(refund_row jsonb)
@@ -537,9 +552,11 @@ REVOKE UPDATE ON public.refunds FROM authenticated;
 REVOKE DELETE ON public.refunds FROM authenticated;
 
 REVOKE ALL ON FUNCTION public.powersync_create_sale(jsonb, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.powersync_void_sale(uuid, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.powersync_void_sale(uuid, uuid, timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.powersync_create_refund(jsonb) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION public.powersync_create_sale(jsonb, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.powersync_void_sale(uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.powersync_void_sale(uuid, uuid, timestamptz) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.powersync_create_refund(jsonb) TO authenticated;
