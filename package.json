@@ -7,7 +7,9 @@
     "node": "24.x"
   },
   "scripts": {
+    "predev": "powersync-web copy-assets -o public",
     "dev": "next dev",
+    "prebuild": "powersync-web copy-assets -o public",
     "build": "next build",
     "db:generate": "drizzle-kit generate",
     "db:local:migrate": "supabase migration up",

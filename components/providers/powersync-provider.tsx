@@ -22,6 +22,7 @@ import type {
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { markInitialSyncCompleted } from "@/lib/powersync/initial-sync";
+import { flushPendingSyncFailureTelemetry } from "@/lib/observability/report-sync-failure";
 import {
   LocalDataTeardownError,
   localDataIdentityMatches,
@@ -142,14 +143,25 @@ export function PowerSyncProvider({
         database: new WASQLiteOpenFactory({
           dbFilename: "glitter-pos.db",
           vfs: WASQLiteVFS.OPFSCoopSyncVFS,
+          // Turbopack cannot reliably bundle PowerSync's dynamic worker
+          // imports. The development/build scripts copy these prebuilt
+          // workers to public so deployed builds can load stable URLs.
+          worker: "/@powersync/worker/WASQLiteDB.umd.js",
         }),
         schema: AppSchema,
+        sync: {
+          worker: "/@powersync/worker/SharedSyncImplementation.umd.js",
+        },
       });
 
       // A device database belongs to exactly one authenticated user + active
       // tenant. An absent identity is deliberately treated as untrusted (for
       // upgrades from before this marker existed), so stale rows never render.
       if (!localDataIdentityMatches(readLocalDataIdentity(), currentIdentity)) {
+        // disconnectAndClear can remove browser-backed transport state. Give
+        // the permanent-upload report a bounded chance to leave the device
+        // first; failure must not prevent privacy cleanup or cancellation.
+        await flushPendingSyncFailureTelemetry();
         await teardownLocalUserData({
           db: instance,
           powerSyncRequired: true,

@@ -6,6 +6,7 @@ dist
 .env*
 !.env.example
 next-env.d.ts
+public/@powersync/
 
 # Sentry Config File
 .env.sentry-build-plugin
