@@ -37,7 +37,7 @@ import {
   productImageMimeTypes,
 } from "@/lib/product-image-config";
 import { emptyProduct } from "@/lib/products";
-import { categories } from "@/lib/sample-data";
+import { canonicalizeCategory, categories } from "@/lib/sample-data";
 import type { Product } from "@/lib/types";
 import {
   hasValidProductForm,
@@ -88,7 +88,9 @@ export function ProductEditor({
   const [cost, setCost] = useState(
     product?.costCents == null ? "" : String(product.costCents / 100)
   );
-  const [category, setCategory] = useState(product?.category ?? "Pegatinas");
+  const [category, setCategory] = useState(
+    canonicalizeCategory(product?.category ?? "Stickers")
+  );
   const [imageTone, setImageTone] = useState(product?.imageTone ?? "violet");
   const [tracksInventory, setTracksInventory] = useState(
     product?.tracksInventory ?? false

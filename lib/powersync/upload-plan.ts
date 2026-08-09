@@ -97,7 +97,7 @@ export function createUploadPlan(operations: CrudEntry[]): UploadPlan {
       typeof operation.opData?.voided_at !== "string"
     ) {
       throw new InvalidUploadTransactionError(
-        "A sale update must contain only a complete void transition."
+        "La actualización de una venta debe contener únicamente una transición de anulación completa."
       );
     }
     return {
@@ -117,7 +117,7 @@ export function createUploadPlan(operations: CrudEntry[]): UploadPlan {
   );
   if (touchesFinancialTable) {
     throw new InvalidUploadTransactionError(
-      "Financial writes must match a supported atomic upload transaction."
+      "Las escrituras financieras deben corresponder a una transacción de subida atómica compatible."
     );
   }
 

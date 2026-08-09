@@ -2,21 +2,34 @@ import type { Product } from "@/lib/types";
 
 export const categories = [
   "Todos",
-  "Pegatinas",
-  "Láminas",
+  "Stickers",
+  "Prints",
   "Pines",
   "Accesorios",
 ];
+
+const legacyCategoryMap: Record<string, string> = {
+  Pegatina: "Stickers",
+  Pegatinas: "Stickers",
+  Lámina: "Prints",
+  Láminas: "Prints",
+  Pins: "Pines",
+};
+
+/** Normaliza categorías históricas para que coincidan con los filtros actuales. */
+export function canonicalizeCategory(category: string) {
+  return legacyCategoryMap[category] ?? category;
+}
 
 const now = new Date().toISOString();
 
 export const starterProducts: Product[] = [
   {
     id: "prod-lamina-ilustrada",
-    name: "Lámina ilustrada",
+    name: "Print ilustrado",
     priceCents: 4000,
     costCents: 1500,
-    category: "Láminas",
+    category: "Prints",
     imagePath: "placeholder:aurora",
     imageUrl: null,
     imageTone: "aurora",
@@ -28,10 +41,10 @@ export const starterProducts: Product[] = [
   },
   {
     id: "prod-pegatina-mascota",
-    name: "Pegatina de mascota",
+    name: "Sticker de mascota",
     priceCents: 1500,
     costCents: 350,
-    category: "Pegatinas",
+    category: "Stickers",
     imagePath: "placeholder:coral",
     imageUrl: null,
     imageTone: "coral",

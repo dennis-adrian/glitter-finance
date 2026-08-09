@@ -5,7 +5,7 @@ export const emptyProduct: Product = {
   name: "Producto",
   priceCents: 0,
   costCents: null,
-  category: "Pegatinas",
+  category: "Stickers",
   imagePath: "placeholder:violet",
   imageUrl: null,
   imageTone: "violet",
