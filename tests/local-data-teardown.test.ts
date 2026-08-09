@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import type { AbstractPowerSyncDatabase, CrudEntry } from "@powersync/web";
 import { signOutAfterLocalTeardown } from "@/lib/auth/client-logout";
+import {
+  reportPermanentSyncFailure,
+  resetReportedSyncFailures,
+} from "@/lib/observability/report-sync-failure";
 import {
   onLocalDataCleared,
   onLocalDataTeardownFailed,
@@ -144,6 +148,33 @@ test("teardown purges local user data before calling server sign-out", async () 
     assert.deepEqual(usePosStore.getState().products, []);
     assert.deepEqual(usePosStore.getState().cart, []);
     assert.deepEqual(usePosStore.getState().sales, []);
+  });
+});
+
+test("teardown resets sync failure reporting after queue cleanup", async () => {
+  await withBrowser(async () => {
+    const input = {
+      error: { code: "23514" },
+      transactionId: 1,
+      operations: [
+        {
+          clientId: 1,
+          opData: { tenant_id: "tenant-a" },
+        } as unknown as CrudEntry,
+      ],
+    };
+    resetReportedSyncFailures();
+    assert.equal(reportPermanentSyncFailure(input), true);
+    assert.equal(reportPermanentSyncFailure(input), false);
+
+    await teardownLocalUserData({
+      db: null,
+      powerSyncRequired: false,
+      refuseWhenSyncFailuresExist: false,
+      cacheStorage: { keys: async () => [], delete: async () => true },
+    });
+
+    assert.equal(reportPermanentSyncFailure(input), true);
   });
 });
 

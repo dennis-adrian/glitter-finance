@@ -213,6 +213,87 @@ test("passes the local void timestamp to the atomic void RPC", async () => {
   ]);
 });
 
+test("reconciles a generated refund ID before completing", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const operations = [
+    operation({
+      clientId: 4,
+      table: "refunds",
+      id: "local-refund",
+      op: UpdateType.PUT,
+      data: { original_sale_id: "sale-1", tenant_id: "tenant-1" },
+    }),
+  ];
+  const supabase = {
+    rpc: async () => ({ data: "canonical-refund", error: null }),
+  } as unknown as SupabaseClient;
+  const db = {
+    getNextCrudTransaction: async () => ({
+      crud: operations,
+      transactionId: 23,
+      complete: async () => {
+        events.push("complete");
+      },
+    }),
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        execute: async (sql: string, params?: unknown[]) => {
+          localWrites.push({ sql, params });
+          events.push("reconcile");
+          return { rowsAffected: 1 };
+        },
+      } as unknown as Transaction),
+    execute: async () => {
+      events.push("resolve-marker");
+    },
+  } as unknown as AbstractPowerSyncDatabase;
+
+  await new SupabaseConnector(supabase).uploadData(db);
+
+  assert.equal(localWrites.length, 2);
+  assert.match(localWrites[0].sql, /UPDATE OR IGNORE ps_data__refunds/);
+  assert.deepEqual(localWrites[0].params, ["canonical-refund", "local-refund"]);
+  assert.match(localWrites[1].sql, /DELETE FROM ps_data__refunds/);
+  assert.deepEqual(events, [
+    "reconcile",
+    "reconcile",
+    "complete",
+    "resolve-marker",
+  ]);
+});
+
+test("keeps a newly inserted refund unchanged", async () => {
+  let reconciliationCount = 0;
+  const operations = [
+    operation({
+      clientId: 5,
+      table: "refunds",
+      id: "new-refund",
+      op: UpdateType.PUT,
+      data: { original_sale_id: "sale-1", tenant_id: "tenant-1" },
+    }),
+  ];
+  const supabase = {
+    rpc: async () => ({ data: "new-refund", error: null }),
+  } as unknown as SupabaseClient;
+  const db = {
+    getNextCrudTransaction: async () => ({
+      crud: operations,
+      transactionId: 24,
+      complete: async () => undefined,
+    }),
+    writeTransaction: async () => {
+      reconciliationCount += 1;
+    },
+    execute: async () => undefined,
+  } as unknown as AbstractPowerSyncDatabase;
+
+  await new SupabaseConnector(supabase).uploadData(db);
+
+  assert.equal(reconciliationCount, 0);
+});
+
 test("records a permanent RPC failure and leaves the transaction queued", async () => {
   const localWrites: string[] = [];
   const localReads: string[] = [];

@@ -178,6 +178,24 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
           refund_row: plan.refund,
         });
         if (result.error) throw result.error;
+        if (typeof result.data !== "string") {
+          throw new Error("The refund RPC did not return a canonical ID.");
+        }
+        if (result.data !== plan.refund.id) {
+          await database.writeTransaction(async (tx) => {
+            // Bypass the managed view so reconciliation does not enqueue a
+            // second mutation for a row that only ever existed locally.
+            await tx.execute(
+              `UPDATE OR IGNORE ps_data__refunds
+               SET id = ?
+               WHERE id = ?`,
+              [result.data, plan.refund.id]
+            );
+            await tx.execute(`DELETE FROM ps_data__refunds WHERE id = ?`, [
+              plan.refund.id,
+            ]);
+          });
+        }
       } else if (plan.kind === "multi-operation") {
         for (const operation of plan.operations) {
           await this.uploadSingleOperation(operation);

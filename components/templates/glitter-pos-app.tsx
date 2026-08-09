@@ -212,6 +212,7 @@ export function GlitterPosApp({
   );
   const initialTenantMembersRef = useRef(initialTenantMembers);
   const teamSyncEverConfirmedRef = useRef(false);
+  const [tenantWorkGeneration, setTenantWorkGeneration] = useState(0);
   const tenantWorkGenerationRef = useRef(0);
   const tenantWorkControllerRef = useRef<TenantWorkController | null>(null);
   if (!tenantWorkControllerRef.current) {
@@ -284,6 +285,7 @@ export function GlitterPosApp({
     });
     const resumeTenantWork = onLocalDataTeardownFailed(() => {
       tenantWorkControllerRef.current?.resumeAfterFailedTeardown();
+      bumpTenantWorkGeneration();
     });
     const clearTenantState = onLocalDataCleared(() => {
       cancelTenantWork();
@@ -337,7 +339,7 @@ export function GlitterPosApp({
         tenantId: activeTenantId,
       }) ?? false;
     if (resumed) {
-      tenantWorkGenerationRef.current += 1;
+      bumpTenantWorkGeneration();
     }
   }, [
     hydrateProducts,
@@ -374,7 +376,12 @@ export function GlitterPosApp({
 
   function cancelTenantWork() {
     tenantWorkControllerRef.current?.cancel();
+    bumpTenantWorkGeneration();
+  }
+
+  function bumpTenantWorkGeneration() {
     tenantWorkGenerationRef.current += 1;
+    setTenantWorkGeneration(tenantWorkGenerationRef.current);
   }
 
   useEffect(() => {
@@ -478,7 +485,7 @@ export function GlitterPosApp({
       controller.abort();
       unregister?.();
     };
-  }, [powerSyncDb, hydrateProducts, activeTenantId]);
+  }, [powerSyncDb, hydrateProducts, activeTenantId, tenantWorkGeneration]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
@@ -531,7 +538,7 @@ export function GlitterPosApp({
       controller.abort();
       unregister?.();
     };
-  }, [powerSyncDb, activeTenantId]);
+  }, [powerSyncDb, activeTenantId, tenantWorkGeneration]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
@@ -605,7 +612,7 @@ export function GlitterPosApp({
       controller.abort();
       unregister?.();
     };
-  }, [powerSyncDb, activeTenantId]);
+  }, [powerSyncDb, activeTenantId, tenantWorkGeneration]);
 
   // Subscribe to sales + sale_lines + refunds. PowerSync's onChange fires
   // whenever any of the three tables mutates; we requery all three and
@@ -703,6 +710,7 @@ export function GlitterPosApp({
     currentUserName,
     activeTenantId,
     userNameById,
+    tenantWorkGeneration,
   ]);
 
   useEffect(() => {
@@ -738,7 +746,7 @@ export function GlitterPosApp({
     return () => {
       cancelled = true;
     };
-  }, [powerSyncDb, hydrateCart]);
+  }, [powerSyncDb, hydrateCart, tenantWorkGeneration]);
 
   useEffect(() => {
     if (!powerSyncDb || !draftCartReadyRef.current) {
@@ -761,7 +769,7 @@ export function GlitterPosApp({
     }, 450);
 
     return () => window.clearTimeout(timeout);
-  }, [powerSyncDb, cart]);
+  }, [powerSyncDb, cart, tenantWorkGeneration]);
 
   useEffect(() => {
     const generation = tenantWorkGenerationRef.current;
@@ -794,7 +802,7 @@ export function GlitterPosApp({
       window.removeEventListener("pagehide", flushDraftCart);
       document.removeEventListener("visibilitychange", flushWhenHidden);
     };
-  }, [powerSyncDb]);
+  }, [powerSyncDb, tenantWorkGeneration]);
 
   function showToast(text: string, tone: ToastMessage["tone"] = "success") {
     if (tone === "danger") {

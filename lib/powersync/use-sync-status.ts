@@ -31,6 +31,7 @@ const QUEUE_POLL_INTERVAL_MS = 5000;
 
 export function useSyncStatus(): SyncStatusSnapshot {
   const db = useOptionalPowerSyncDb();
+  const lastPendingCountRef = useRef(0);
   const lastFailureCountRef = useRef(0);
   const [snapshot, setSnapshot] = useState<SyncStatusSnapshot>({
     state: "initializing",
@@ -41,6 +42,7 @@ export function useSyncStatus(): SyncStatusSnapshot {
 
   useEffect(() => {
     if (!db) {
+      lastPendingCountRef.current = 0;
       lastFailureCountRef.current = 0;
       setSnapshot({
         state: "initializing",
@@ -56,7 +58,7 @@ export function useSyncStatus(): SyncStatusSnapshot {
     async function refresh() {
       if (cancelled || !db) return;
       const status = db.currentStatus;
-      let pendingCount = 0;
+      let pendingCount = lastPendingCountRef.current;
       // Preserve the last known failure count when the query rejects so the
       // blocked-state guard fails closed instead of clearing mid-outage.
       let failureCount = lastFailureCountRef.current;
@@ -68,6 +70,7 @@ export function useSyncStatus(): SyncStatusSnapshot {
       ]);
       if (statsResult.status === "fulfilled") {
         pendingCount = statsResult.value.count;
+        lastPendingCountRef.current = pendingCount;
       }
       if (failuresResult.status === "fulfilled") {
         failureCount = failuresResult.value;
