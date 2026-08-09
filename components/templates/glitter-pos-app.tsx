@@ -207,6 +207,7 @@ export function GlitterPosApp({
   );
   const initialTenantMembersRef = useRef(initialTenantMembers);
   const teamSyncEverConfirmedRef = useRef(false);
+  const tenantWorkGenerationRef = useRef(0);
   const draftCartReadyRef = useRef(false);
   const cartRef = useRef(cart);
   const cartUpdatedAtRef = useRef<string | null>(null);
@@ -266,6 +267,7 @@ export function GlitterPosApp({
   // or a recovery screen cannot expose data from the previous account.
   useEffect(() => {
     return onLocalDataCleared(() => {
+      tenantWorkGenerationRef.current += 1;
       draftCartReadyRef.current = false;
       setView("sell");
       setPreviousView("products");
@@ -330,18 +332,21 @@ export function GlitterPosApp({
   const inventoryStockReady = inventoryWatchReady;
 
   useEffect(() => {
+    const generation = tenantWorkGenerationRef.current;
     if (!editingProduct) {
       setEditorHasInitialMovement(false);
       return;
     }
 
     let cancelled = false;
+    const isCurrent = () =>
+      !cancelled && tenantWorkGenerationRef.current === generation;
     const productId = editingProduct.id;
     const productTracksInventory = editingProduct.tracksInventory;
 
     async function loadEditorInitialMovementState() {
       if (productHasInitialMovement(productId, inventoryMovements)) {
-        if (!cancelled) {
+        if (isCurrent()) {
           setEditorHasInitialMovement(true);
         }
         return;
@@ -352,13 +357,13 @@ export function GlitterPosApp({
           powerSyncDb,
           productId
         );
-        if (!cancelled) {
+        if (isCurrent()) {
           setEditorHasInitialMovement(hasInitial);
         }
         return;
       }
 
-      if (!cancelled) {
+      if (isCurrent()) {
         setEditorHasInitialMovement(
           !inventoryWatchReady && productTracksInventory
         );
@@ -376,6 +381,10 @@ export function GlitterPosApp({
     if (!powerSyncDb || !activeTenantId) return;
 
     const controller = new AbortController();
+    const generation = tenantWorkGenerationRef.current;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      tenantWorkGenerationRef.current === generation;
     let unregister: (() => void) | undefined;
 
     function startWatching(db: NonNullable<typeof powerSyncDb>) {
@@ -384,7 +393,7 @@ export function GlitterPosApp({
         [activeTenantId],
         {
           onResult: (results) => {
-            if (!db.currentStatus?.hasSynced) {
+            if (!isCurrent() || !db.currentStatus?.hasSynced) {
               return;
             }
             const rows = ((results.rows as unknown as { _array?: ProductRow[] })
@@ -404,7 +413,7 @@ export function GlitterPosApp({
     } else {
       unregister = powerSyncDb.registerListener({
         statusChanged: (status) => {
-          if (status.hasSynced && !controller.signal.aborted) {
+          if (status.hasSynced && isCurrent()) {
             startWatching(powerSyncDb);
             unregister?.();
             unregister = undefined;
@@ -423,6 +432,10 @@ export function GlitterPosApp({
     if (!powerSyncDb || !activeTenantId) return;
 
     const controller = new AbortController();
+    const generation = tenantWorkGenerationRef.current;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      tenantWorkGenerationRef.current === generation;
     let unregister: (() => void) | undefined;
 
     function startWatching(db: NonNullable<typeof powerSyncDb>) {
@@ -431,7 +444,7 @@ export function GlitterPosApp({
         [activeTenantId],
         {
           onResult: (results) => {
-            if (!db.currentStatus?.hasSynced) {
+            if (!isCurrent() || !db.currentStatus?.hasSynced) {
               return;
             }
             const rows = ((
@@ -453,7 +466,7 @@ export function GlitterPosApp({
     } else {
       unregister = powerSyncDb.registerListener({
         statusChanged: (status) => {
-          if (status.hasSynced && !controller.signal.aborted) {
+          if (status.hasSynced && isCurrent()) {
             startWatching(powerSyncDb);
             unregister?.();
             unregister = undefined;
@@ -471,9 +484,13 @@ export function GlitterPosApp({
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
 
+    const generation = tenantWorkGenerationRef.current;
+    const controller = new AbortController();
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      tenantWorkGenerationRef.current === generation;
     setTeamSyncConfirmed(initialTenantMembersRef.current.length === 0);
     teamSyncEverConfirmedRef.current = false;
-    const controller = new AbortController();
     let unregister: (() => void) | undefined;
 
     function startWatching(db: NonNullable<typeof powerSyncDb>) {
@@ -482,6 +499,9 @@ export function GlitterPosApp({
         [activeTenantId],
         {
           onResult: (results) => {
+            if (!isCurrent()) {
+              return;
+            }
             const rows = ((
               results.rows as unknown as { _array?: LocalTenantUserRow[] }
             )?._array ?? []) as LocalTenantUserRow[];
@@ -520,7 +540,7 @@ export function GlitterPosApp({
     } else {
       unregister = powerSyncDb.registerListener({
         statusChanged: (status) => {
-          if (status.hasSynced && !controller.signal.aborted) {
+          if (status.hasSynced && isCurrent()) {
             startWatching(powerSyncDb);
             unregister?.();
             unregister = undefined;
@@ -546,6 +566,10 @@ export function GlitterPosApp({
     if (!powerSyncDb || !activeTenantId) return;
 
     const controller = new AbortController();
+    const generation = tenantWorkGenerationRef.current;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      tenantWorkGenerationRef.current === generation;
     let unregister: (() => void) | undefined;
 
     function resolveUserName(userId: string) {
@@ -556,7 +580,7 @@ export function GlitterPosApp({
     }
 
     async function rebuildSales(db: NonNullable<typeof powerSyncDb>) {
-      if (!db.currentStatus?.hasSynced) {
+      if (!isCurrent() || !db.currentStatus?.hasSynced) {
         return;
       }
       try {
@@ -575,12 +599,12 @@ export function GlitterPosApp({
             [activeTenantId]
           ),
         ]);
-        if (controller.signal.aborted) return;
+        if (!isCurrent()) return;
         hydrateSales(
           buildSalesFromLocal(saleRows, lineRows, refundRows, resolveUserName)
         );
       } catch (error) {
-        if (!controller.signal.aborted) {
+        if (isCurrent()) {
           console.error("[PowerSync] sales rebuild failed", error);
         }
       }
@@ -607,7 +631,7 @@ export function GlitterPosApp({
     } else {
       unregister = powerSyncDb.registerListener({
         statusChanged: (status) => {
-          if (status.hasSynced && !controller.signal.aborted) {
+          if (status.hasSynced && isCurrent()) {
             startWatching(powerSyncDb);
             unregister?.();
             unregister = undefined;
@@ -633,21 +657,27 @@ export function GlitterPosApp({
     if (!powerSyncDb) return;
     const db = powerSyncDb;
 
+    const generation = tenantWorkGenerationRef.current;
     let cancelled = false;
+    const isCurrent = () =>
+      !cancelled && tenantWorkGenerationRef.current === generation;
     draftCartReadyRef.current = false;
     const expectedCartRevision = usePosStore.getState().cartRevision;
 
     async function hydrateDraftCart() {
       try {
         await migrateLegacyDraftCartLocal(db);
+        if (!isCurrent()) return;
         const draft = await loadDraftCartLocal(db);
-        if (cancelled) return;
+        if (!isCurrent()) return;
 
         hydrateCart(draft.cart, draft.updatedAt, expectedCartRevision);
         draftCartReadyRef.current = true;
       } catch (error) {
-        console.error("[PowerSync] draft cart hydrate failed", error);
-        draftCartReadyRef.current = true;
+        if (isCurrent()) {
+          console.error("[PowerSync] draft cart hydrate failed", error);
+          draftCartReadyRef.current = true;
+        }
       }
     }
 
@@ -663,7 +693,14 @@ export function GlitterPosApp({
       return;
     }
 
+    const generation = tenantWorkGenerationRef.current;
     const timeout = window.setTimeout(() => {
+      if (
+        tenantWorkGenerationRef.current !== generation ||
+        !draftCartReadyRef.current
+      ) {
+        return;
+      }
       void saveDraftCartLocal(
         powerSyncDb,
         cart,
@@ -675,8 +712,13 @@ export function GlitterPosApp({
   }, [powerSyncDb, cart]);
 
   useEffect(() => {
+    const generation = tenantWorkGenerationRef.current;
     function flushDraftCart() {
-      if (!powerSyncDb || !draftCartReadyRef.current) {
+      if (
+        !powerSyncDb ||
+        !draftCartReadyRef.current ||
+        tenantWorkGenerationRef.current !== generation
+      ) {
         return;
       }
 

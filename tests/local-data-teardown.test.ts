@@ -57,6 +57,12 @@ test("teardown purges local user data before calling server sign-out", async () 
   await withBrowser(async (storage) => {
     const events: string[] = [];
     const deletedCaches: string[] = [];
+    const cacheNames = new Set([
+      "glitter-pos-pages",
+      "glitter-pos-api-v1",
+      "glitter-pos-static",
+      "glitter-pos-precache-v2",
+    ]);
     const db = {
       getOptional: async () => {
         events.push("check-sync-failures");
@@ -67,15 +73,12 @@ test("teardown purges local user data before calling server sign-out", async () 
       },
     } as unknown as AbstractPowerSyncDatabase;
     const cacheStorage = {
-      keys: async () => [
-        "glitter-pos-pages",
-        "glitter-pos-api-v1",
-        "glitter-pos-static",
-        "glitter-pos-precache-v2",
-      ],
+      keys: async () => [...cacheNames],
       delete: async (name: string) => {
         deletedCaches.push(name);
-        return true;
+        cacheNames.delete(name);
+        // CacheStorage.delete() may report false despite concurrent removal.
+        return name !== "glitter-pos-pages";
       },
     };
 
@@ -176,6 +179,8 @@ test("a cache deletion failure prevents database clearing and server sign-out", 
             powerSyncRequired: true,
             refuseWhenSyncFailuresExist: true,
             cacheStorage: {
+              // The entry remains after deletion, so teardown must fail even
+              // though CacheStorage.delete() alone is not authoritative.
               keys: async () => ["glitter-pos-pages"],
               delete: async () => false,
             },

@@ -81,6 +81,10 @@ export function PowerSyncProvider({
   const connectorRef = useRef<PowerSyncBackendConnector | null>(null);
 
   useEffect(() => {
+    const currentIdentity: LocalDataIdentity = {
+      userId: identity.userId,
+      tenantId: identity.tenantId,
+    };
     let cancelled = false;
     let instance: AbstractPowerSyncDatabase | null = null;
 
@@ -97,7 +101,9 @@ export function PowerSyncProvider({
           );
         }
 
-        if (!localDataIdentityMatches(readLocalDataIdentity(), identity)) {
+        if (
+          !localDataIdentityMatches(readLocalDataIdentity(), currentIdentity)
+        ) {
           await teardownLocalUserData({
             db: null,
             powerSyncRequired: false,
@@ -105,7 +111,7 @@ export function PowerSyncProvider({
           });
         }
         if (cancelled) return;
-        saveLocalDataIdentity(identity);
+        saveLocalDataIdentity(currentIdentity);
         setLocalDataReady(true);
         return;
       }
@@ -135,7 +141,7 @@ export function PowerSyncProvider({
       // A device database belongs to exactly one authenticated user + active
       // tenant. An absent identity is deliberately treated as untrusted (for
       // upgrades from before this marker existed), so stale rows never render.
-      if (!localDataIdentityMatches(readLocalDataIdentity(), identity)) {
+      if (!localDataIdentityMatches(readLocalDataIdentity(), currentIdentity)) {
         await teardownLocalUserData({
           db: instance,
           powerSyncRequired: true,
@@ -147,7 +153,7 @@ export function PowerSyncProvider({
         await instance.close();
         return;
       }
-      saveLocalDataIdentity(identity);
+      saveLocalDataIdentity(currentIdentity);
 
       const supabase = createSupabaseClient();
       const connector = new SupabaseConnector(supabase);
@@ -210,7 +216,7 @@ export function PowerSyncProvider({
       cancelled = true;
       instance?.close().catch(() => {});
     };
-  }, [identity, initializationAttempt]);
+  }, [identity.userId, identity.tenantId, initializationAttempt]);
 
   // Reconnect/teardown closures are kept on a stable ref so the controls
   // context value doesn't change identity and trigger spurious consumer

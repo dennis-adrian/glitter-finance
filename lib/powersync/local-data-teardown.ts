@@ -122,8 +122,9 @@ export async function clearUserDataCaches(cacheStorage?: CacheStorageLike) {
 
   for (const name of cacheNames.filter(isUserDataCache)) {
     try {
-      const deleted = await storage.delete(name);
-      if (!deleted) {
+      await storage.delete(name);
+      const remainingCacheNames = await storage.keys();
+      if (remainingCacheNames.includes(name)) {
         throw new Error(`Cache ${name} was not deleted`);
       }
     } catch (error) {

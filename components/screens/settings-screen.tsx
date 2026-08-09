@@ -72,6 +72,7 @@ export function SettingsScreen({
       syncPendingCount === 0 &&
       syncFailureCount === 0);
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutFailed, setSignOutFailed] = useState(false);
   const [switchingTenantId, setSwitchingTenantId] = useState<string | null>(
     null
   );
@@ -130,15 +131,26 @@ export function SettingsScreen({
       // Do this before committing the server-side tenant change. If cleanup
       // fails, the current authenticated session and tenant remain intact.
       await teardownForTenantChange();
-      await switchTenant(tenantId);
     } catch (error) {
-      console.error("[switchTenant] failed", error);
+      console.error("[switchTenant] local teardown failed", error);
       setTenantActionError(
         error instanceof Error
           ? error.message
           : "No se pudo limpiar los datos locales ni cambiar de cuenta."
       );
       setSwitchingTenantId(null);
+      return;
+    }
+
+    try {
+      await switchTenant(tenantId);
+    } catch (error) {
+      console.error("[switchTenant] failed", error);
+      setTenantActionError(
+        error instanceof Error ? error.message : "No se pudo cambiar de cuenta."
+      );
+      setSwitchingTenantId(null);
+      window.location.assign("/");
       return;
     }
 
@@ -157,6 +169,16 @@ export function SettingsScreen({
     setCreatingTenant(true);
     try {
       await teardownForTenantChange();
+    } catch (error) {
+      console.error("[createTenant] local teardown failed", error);
+      setTenantActionError(
+        error instanceof Error ? error.message : "No se pudo crear la cuenta."
+      );
+      setCreatingTenant(false);
+      return;
+    }
+
+    try {
       await createTenant(trimmedName);
     } catch (error) {
       console.error("[createTenant] failed", error);
@@ -164,6 +186,7 @@ export function SettingsScreen({
         error instanceof Error ? error.message : "No se pudo crear la cuenta."
       );
       setCreatingTenant(false);
+      window.location.assign("/");
       return;
     }
 
@@ -174,6 +197,7 @@ export function SettingsScreen({
 
   async function handleSignOut(_formData: FormData) {
     if (signingOut) return;
+    setSignOutFailed(false);
     if (syncFailureCount > 0) {
       setTenantActionError(syncFailureExplanation);
       return;
@@ -189,6 +213,7 @@ export function SettingsScreen({
       );
     } catch (error) {
       console.error("[signOut] signOut failed", error);
+      setSignOutFailed(true);
       setTenantActionError(
         error instanceof Error
           ? `${error.message} Reintenta la limpieza segura antes de cerrar sesión.`
@@ -215,7 +240,7 @@ export function SettingsScreen({
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="size-7 animate-spin text-primary" />
             <p className="text-sm font-medium">{switchOverlayLabel}</p>
-            <p className="max-w-[240px] text-center text-xs text-muted-foreground">
+            <p className="max-w-60 text-center text-xs text-muted-foreground">
               Sincronizando los datos de esta cuenta.
             </p>
           </div>
@@ -442,7 +467,7 @@ export function SettingsScreen({
         >
           {signingOut
             ? "Cerrando sesión…"
-            : tenantActionError
+            : signOutFailed
               ? "Reintentar limpieza y cerrar sesión"
               : "Cerrar sesión"}
         </Button>

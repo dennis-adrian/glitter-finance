@@ -47,6 +47,7 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
         err instanceof Error ? err.message : "No se pudo unir a esta cuenta."
       );
       setJoining(false);
+      window.location.assign("/");
       return;
     }
 
