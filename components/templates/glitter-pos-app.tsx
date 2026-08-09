@@ -277,7 +277,10 @@ export function GlitterPosApp({
   // state. Clear every tenant-derived value immediately so a failed navigation
   // or a recovery screen cannot expose data from the previous account.
   useEffect(() => {
-    const stopTenantWork = onLocalDataTeardownStarting(cancelTenantWork);
+    const stopTenantWork = onLocalDataTeardownStarting(() => {
+      cancelTenantWork();
+      setIsCheckingOut(false);
+    });
     const clearTenantState = onLocalDataCleared(() => {
       cancelTenantWork();
       draftCartReadyRef.current = false;

@@ -68,11 +68,14 @@ export function usePowerSyncControls(): PowerSyncControls | null {
 type PowerSyncProviderProps = {
   children: React.ReactNode;
   identity: LocalDataIdentity;
+  /** Use the parent card for preparation/recovery UI instead of a page shell. */
+  loadingLayout?: "page" | "parent";
 };
 
 export function PowerSyncProvider({
   children,
   identity,
+  loadingLayout = "page",
 }: PowerSyncProviderProps) {
   const [db, setDb] = useState<AbstractPowerSyncDatabase | null>(null);
   const [localDataReadyIdentity, setLocalDataReadyIdentity] =
@@ -80,6 +83,8 @@ export function PowerSyncProvider({
   const [localDataError, setLocalDataError] = useState<string | null>(null);
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const connectorRef = useRef<PowerSyncBackendConnector | null>(null);
+  const teardownPromiseRef = useRef<Promise<void> | null>(null);
+  const localDataWasJustClearedRef = useRef(false);
 
   useEffect(() => {
     const currentIdentity: LocalDataIdentity = {
@@ -113,6 +118,7 @@ export function PowerSyncProvider({
         }
         if (cancelled) return;
         saveLocalDataIdentity(currentIdentity);
+        localDataWasJustClearedRef.current = false;
         setLocalDataReadyIdentity(currentIdentity);
         return;
       }
@@ -200,6 +206,7 @@ export function PowerSyncProvider({
       }
 
       setDb(instance);
+      localDataWasJustClearedRef.current = false;
       setLocalDataReadyIdentity(currentIdentity);
     }
 
@@ -215,6 +222,9 @@ export function PowerSyncProvider({
 
     return () => {
       cancelled = true;
+      // The next identity render gates this instance immediately; clearing it
+      // here also prevents a closing instance from remaining in this context.
+      setDb((currentDb) => (currentDb === instance ? null : currentDb));
       instance?.close().catch(() => {});
     };
   }, [identity.userId, identity.tenantId, initializationAttempt]);
@@ -238,25 +248,59 @@ export function PowerSyncProvider({
     await db.connect(connectorRef.current);
   };
   async function teardown(refuseWhenSyncFailuresExist: boolean) {
-    await teardownLocalUserData({
-      db,
-      powerSyncRequired: isPowerSyncConfigured(),
-      refuseWhenSyncFailuresExist,
-    });
-    connectorRef.current = null;
-    setDb(null);
+    if (teardownPromiseRef.current) {
+      return teardownPromiseRef.current;
+    }
+
+    // A second request between a successful wipe and the replacement
+    // initialization is already safe: the prior local data is gone.
+    if (!db && localDataWasJustClearedRef.current) {
+      return;
+    }
+
+    const activeDb = db;
+    const teardownPromise = (async () => {
+      // Stop exposing the instance before disconnectAndClear can close it.
+      setDb(null);
+      try {
+        await teardownLocalUserData({
+          db: activeDb,
+          powerSyncRequired: isPowerSyncConfigured(),
+          refuseWhenSyncFailuresExist,
+        });
+      } catch (error) {
+        // Cache/sync-failure checks occur before destructive work. Restore the
+        // current instance so callers can show their existing retry message.
+        setDb(activeDb);
+        throw error;
+      }
+
+      connectorRef.current = null;
+      localDataWasJustClearedRef.current = true;
+      setLocalDataReadyIdentity(null);
+      setInitializationAttempt((attempt) => attempt + 1);
+    })();
+    teardownPromiseRef.current = teardownPromise;
+
+    try {
+      await teardownPromise;
+    } finally {
+      teardownPromiseRef.current = null;
+    }
   }
-  controlsRef.current.teardownForLogout = async () => {
-    await teardown(true);
-  };
-  controlsRef.current.teardownForTenantChange = async () => {
-    await teardown(true);
-  };
+  const teardownForIdentityChange = () => teardown(true);
+  // Keep both domain names: callers use them to make the authenticated action
+  // explicit, while both deliberately share the same local safety contract.
+  controlsRef.current.teardownForLogout = teardownForIdentityChange;
+  controlsRef.current.teardownForTenantChange = teardownForIdentityChange;
 
   const localDataReady = localDataIdentityMatches(
     localDataReadyIdentity,
     identity
   );
+  // An identity change makes the old instance unavailable during the render
+  // that precedes effect cleanup, rather than after close() has started.
+  const exposedDb = localDataReady ? db : null;
 
   // Always render children inside the OptionalPowerSyncContext so
   // useOptionalPowerSyncDb() resolves to null (not "outside provider")
@@ -264,14 +308,24 @@ export function PowerSyncProvider({
   // so @powersync/react hooks like useQuery/useStatus don't see undefined.
   return (
     <PowerSyncControlsContext.Provider value={controlsRef.current}>
-      <OptionalPowerSyncContext.Provider value={db}>
+      <OptionalPowerSyncContext.Provider value={exposedDb}>
         {!localDataReady ? (
           <div
-            className="grid min-h-dvh place-items-center p-6"
+            className={
+              loadingLayout === "parent"
+                ? "grid w-full place-items-center py-4"
+                : "grid min-h-dvh place-items-center p-6"
+            }
             role="status"
             aria-live="polite"
           >
-            <section className="w-full max-w-sm rounded-2xl bg-card p-6 text-center ring-1 ring-foreground/10">
+            <section
+              className={
+                loadingLayout === "parent"
+                  ? "w-full text-center"
+                  : "w-full max-w-sm rounded-2xl bg-card p-6 text-center ring-1 ring-foreground/10"
+              }
+            >
               <p className="text-sm text-muted-foreground">
                 {localDataError ?? "Preparando los datos locales…"}
               </p>
@@ -288,8 +342,8 @@ export function PowerSyncProvider({
               ) : null}
             </section>
           </div>
-        ) : db ? (
-          <PowerSyncContext.Provider value={db}>
+        ) : exposedDb ? (
+          <PowerSyncContext.Provider value={exposedDb}>
             {children}
           </PowerSyncContext.Provider>
         ) : (

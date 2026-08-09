@@ -67,6 +67,7 @@ export default async function JoinPage({ params }: JoinPageProps) {
             userId: context.user.id,
             tenantId: context.tenant?.id ?? null,
           }}
+          loadingLayout="parent"
         >
           <JoinTenantForm token={token} />
         </PowerSyncProvider>
