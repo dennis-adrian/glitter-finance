@@ -1,4 +1,4 @@
-# Glitter POS Implementation Notes
+# Billetera Ferial Implementation Notes
 
 ## Current Slice
 

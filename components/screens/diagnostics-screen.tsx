@@ -330,25 +330,33 @@ export function DiagnosticsScreen({
       </DiagPanel>
 
       <DiagPanel title="Identidad">
-        <DiagRow label="Tenant" value={tenantContext.tenant?.id ?? "—"} mono />
+        <DiagRow label="Cuenta" value={tenantContext.tenant?.id ?? "—"} mono />
         <DiagRow
-          label="Nombre del tenant"
+          label="Nombre de la cuenta"
           value={tenantContext.tenant?.name ?? "—"}
         />
         <DiagRow label="Usuario" value={tenantContext.user.id} mono />
         <DiagRow label="Nombre" value={tenantContext.user.displayName} />
-        <DiagRow label="Email" value={tenantContext.user.email ?? "—"} />
+        <DiagRow
+          label="Correo electrónico"
+          value={tenantContext.user.email ?? "—"}
+        />
       </DiagPanel>
 
       <DiagPanel title="Dispositivo">
         <DiagRow
           label="Conexión"
-          value={device.online ? "Online" : "Offline"}
+          value={device.online ? "En línea" : "Sin conexión"}
         />
         <DiagRow label="Modo PWA" value={yesNo(device.pwa)} />
         <DiagRow label="Pantalla" value={device.viewport} />
         <DiagRow label="Almacenamiento" value={device.storage} />
-        <DiagRow label="User Agent" value={device.userAgent} mono small />
+        <DiagRow
+          label="Agente de usuario"
+          value={device.userAgent}
+          mono
+          small
+        />
       </DiagPanel>
 
       <div className="mt-4 grid gap-2.5">

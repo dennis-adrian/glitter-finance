@@ -1,4 +1,4 @@
-# PowerSync Sync Streams for Glitter POS (edition 3).
+# PowerSync Sync Streams for Billetera Ferial (edition 3).
 #
 # Every authenticated user belongs to a single tenant. The user's tenant_id
 # is written to Supabase Auth's `app_metadata` (set in the bootstrap path in

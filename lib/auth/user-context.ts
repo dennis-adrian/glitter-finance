@@ -32,7 +32,7 @@ export async function setActiveTenantClaim(user: User, tenantId: string) {
     app_metadata: { ...(user.app_metadata ?? {}), tenant_id: tenantId },
   });
   if (error) {
-    throw new Error(`Could not set tenant_id on user: ${error.message}`);
+    throw new Error("No se pudo actualizar la cuenta activa.");
   }
 }
 
@@ -120,7 +120,7 @@ export async function ensureMembership(
 export async function assertUserIsMember(userId: string, tenantId: string) {
   const memberships = await loadAllMemberships(db, userId);
   if (!memberships.some((membership) => membership.tenantId === tenantId)) {
-    throw new Error("You are not a member of this account.");
+    throw new Error("No perteneces a esta cuenta.");
   }
 }
 
@@ -235,7 +235,9 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
       .returning({ id: tenants.id, name: tenants.name });
 
     if (!tenant) {
-      throw new Error("Unable to create tenant for authenticated user.");
+      throw new Error(
+        "No se pudo crear una cuenta para el usuario autenticado."
+      );
     }
 
     await tx.insert(tenantUsers).values({

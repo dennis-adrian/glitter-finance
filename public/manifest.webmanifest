@@ -1,7 +1,8 @@
 {
-  "name": "Glitter POS",
-  "short_name": "Glitter POS",
-  "description": "POS offline-first para vendedores de ferias y convenciones.",
+  "lang": "es-BO",
+  "name": "Billetera Ferial",
+  "short_name": "Billetera Ferial",
+  "description": "Punto de venta sin conexión para vendedores de ferias y convenciones.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#fbfafc",

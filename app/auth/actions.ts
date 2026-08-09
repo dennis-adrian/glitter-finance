@@ -73,7 +73,15 @@ export async function signInWithPassword(formData: FormData) {
   });
 
   if (error) {
-    redirect(loginRedirectUrl({ error: error.message }, next));
+    redirect(
+      loginRedirectUrl(
+        {
+          error:
+            "No se pudo iniciar sesión. Verifica tu correo electrónico y contraseña.",
+        },
+        next
+      )
+    );
   }
 
   if (isInviteRedirectPath(next)) {
@@ -84,7 +92,7 @@ export async function signInWithPassword(formData: FormData) {
     await ensureUserTenantContext();
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : "Unable to initialize account.";
+      err instanceof Error ? err.message : "No se pudo preparar la cuenta.";
     redirect(loginRedirectUrl({ error: message }, next));
   }
 
@@ -120,7 +128,15 @@ export async function signUpWithPassword(formData: FormData) {
   });
 
   if (error) {
-    redirect(loginRedirectUrl({ error: error.message }, next));
+    redirect(
+      loginRedirectUrl(
+        {
+          error:
+            "No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.",
+        },
+        next
+      )
+    );
   }
 
   if (!data.session) {
@@ -128,7 +144,7 @@ export async function signUpWithPassword(formData: FormData) {
       loginRedirectUrl(
         {
           message:
-            "Cuenta creada. Revisa tu email para confirmar tu cuenta y luego inicia sesión.",
+            "Cuenta creada. Revisa tu correo electrónico para confirmarla y luego inicia sesión.",
         },
         next
       )
@@ -143,7 +159,7 @@ export async function signUpWithPassword(formData: FormData) {
     await ensureUserTenantContext();
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : "Unable to initialize account.";
+      err instanceof Error ? err.message : "No se pudo preparar la cuenta.";
     redirect(loginRedirectUrl({ error: message }, next));
   }
 

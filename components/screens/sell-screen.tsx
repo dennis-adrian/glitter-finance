@@ -40,7 +40,7 @@ export function SellScreen(props: SellScreenProps) {
 
   return (
     <section className="screen">
-      <Header title="Glitter POS" left={<BrandMark />} />
+      <Header title="Billetera Ferial" left={<BrandMark />} />
 
       <CategoryRail
         active={props.category}

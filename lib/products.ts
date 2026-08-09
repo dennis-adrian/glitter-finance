@@ -5,7 +5,7 @@ export const emptyProduct: Product = {
   name: "Producto",
   priceCents: 0,
   costCents: null,
-  category: "Stickers",
+  category: "Pegatinas",
   imagePath: "placeholder:violet",
   imageUrl: null,
   imageTone: "violet",
@@ -17,5 +17,5 @@ export const emptyProduct: Product = {
 };
 
 export function getProductInitial(name: string) {
-  return name.trim().charAt(0).toUpperCase() || "G";
+  return name.trim().charAt(0).toUpperCase() || "P";
 }

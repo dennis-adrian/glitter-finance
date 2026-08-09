@@ -51,7 +51,9 @@ function isPut(operation: CrudEntry, table: string) {
  */
 export function createUploadPlan(operations: CrudEntry[]): UploadPlan {
   if (operations.length === 0) {
-    throw new InvalidUploadTransactionError("The upload transaction is empty.");
+    throw new InvalidUploadTransactionError(
+      "La transacción de subida está vacía."
+    );
   }
 
   const saleCreates = operations.filter((operation) =>
@@ -74,7 +76,7 @@ export function createUploadPlan(operations: CrudEntry[]): UploadPlan {
       )
     ) {
       throw new InvalidUploadTransactionError(
-        "Every sale line must reference the sale in its upload transaction."
+        "Cada línea de venta debe referenciar la venta de su transacción de subida."
       );
     }
     return { kind: "create-sale", sale, lines };

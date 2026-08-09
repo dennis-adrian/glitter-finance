@@ -1,4 +1,4 @@
-# Glitter POS
+# Billetera Ferial
 
 Offline-first point-of-sale PWA for Bolivian festival vendors.
 

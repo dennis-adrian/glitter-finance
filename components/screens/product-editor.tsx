@@ -88,7 +88,7 @@ export function ProductEditor({
   const [cost, setCost] = useState(
     product?.costCents == null ? "" : String(product.costCents / 100)
   );
-  const [category, setCategory] = useState(product?.category ?? "Stickers");
+  const [category, setCategory] = useState(product?.category ?? "Pegatinas");
   const [imageTone, setImageTone] = useState(product?.imageTone ?? "violet");
   const [tracksInventory, setTracksInventory] = useState(
     product?.tracksInventory ?? false
@@ -280,7 +280,7 @@ export function ProductEditor({
           <strong>
             {previewProduct.imageUrl ? "Cambiar imagen" : "Subir imagen"}
           </strong>
-          <span>Formatos JPG, PNG (Max 5MB)</span>
+          <span>Formatos JPG y PNG (máx. 5 MB)</span>
         </button>
         <button
           type="button"
@@ -294,7 +294,7 @@ export function ProductEditor({
       {imageError ? (
         <p className="mt-1.5 text-sm text-destructive">{imageError}</p>
       ) : null}
-      <div className="tone-picker" aria-label="Color de placeholder">
+      <div className="tone-picker" aria-label="Color del marcador de posición">
         {["aurora", "coral", "linen", "violet", "warm"].map((tone) => (
           <button
             key={tone}
@@ -310,7 +310,7 @@ export function ProductEditor({
         <Input
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Mascot Sticker"
+          placeholder="Ej. Llaveros artesanales"
           className="h-12 rounded-xl"
         />
       </FormField>

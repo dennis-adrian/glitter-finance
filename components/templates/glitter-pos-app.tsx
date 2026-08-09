@@ -829,7 +829,7 @@ export function GlitterPosApp({
   }) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+      showToast("Tu cuenta aún no está configurada.", "danger");
       return;
     }
     const work = beginTenantWork();
@@ -975,7 +975,7 @@ export function GlitterPosApp({
   }) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+      showToast("Tu cuenta aún no está configurada.", "danger");
       return;
     }
     const db = powerSyncDb;
@@ -1021,7 +1021,7 @@ export function GlitterPosApp({
     }
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+      showToast("Tu cuenta aún no está configurada.", "danger");
       return;
     }
 
@@ -1098,7 +1098,7 @@ export function GlitterPosApp({
   async function handleVoidSale(saleId: string) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+      showToast("Tu cuenta aún no está configurada.", "danger");
       return false;
     }
     const work = beginTenantWork();
@@ -1136,7 +1136,7 @@ export function GlitterPosApp({
   async function handleRefundSale(saleId: string) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+      showToast("Tu cuenta aún no está configurada.", "danger");
       return false;
     }
     const work = beginTenantWork();
@@ -1229,7 +1229,7 @@ export function GlitterPosApp({
         restoreProduct={async (productId) => {
           const tenant = tenantContext.tenant;
           if (!tenant) {
-            showToast("Tu cuenta aún no tiene un tenant.", "danger");
+            showToast("Tu cuenta aún no está configurada.", "danger");
             return;
           }
           const work = beginTenantWork();
@@ -1324,7 +1324,7 @@ export function GlitterPosApp({
         archive={async (productId) => {
           const tenant = tenantContext.tenant;
           if (!tenant) {
-            showToast("Tu cuenta aún no tiene un tenant.", "danger");
+            showToast("Tu cuenta aún no está configurada.", "danger");
             return;
           }
           const work = beginTenantWork();

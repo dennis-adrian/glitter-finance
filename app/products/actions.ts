@@ -74,7 +74,7 @@ export async function uploadProductImage(
     });
 
   if (error) {
-    throw new Error(`No se pudo subir la imagen: ${error.message}`);
+    throw new Error("No se pudo subir la imagen.");
   }
 
   return updateProductImageForTenant(tenantId, productId, objectPath);

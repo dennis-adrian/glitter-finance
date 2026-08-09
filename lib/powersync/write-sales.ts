@@ -46,16 +46,18 @@ function normalizeAndPriceLines(
   lines: CreateSaleLocalLine[]
 ) {
   if (lines.length === 0) {
-    throw new Error("A sale needs at least one product.");
+    throw new Error("La venta necesita al menos un producto.");
   }
 
   const byProduct = new Map<string, CreateSaleLocalLine>();
   for (const line of lines) {
     if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
-      throw new Error("Sale line quantities must be positive whole numbers.");
+      throw new Error("Las cantidades deben ser números enteros positivos.");
     }
     if (line.product.archivedAt) {
-      throw new Error("One or more products are archived and cannot be sold.");
+      throw new Error(
+        "Uno o más productos están archivados y no se pueden vender."
+      );
     }
     const existing = byProduct.get(line.product.id);
     if (existing) {
@@ -186,17 +188,17 @@ export async function voidSaleLocal(
     );
     const sale = rows[0];
     if (!sale || sale.tenant_id !== input.tenantId) {
-      throw new Error("Sale not found.");
+      throw new Error("No se encontró la venta.");
     }
     if (sale.voided_at) {
-      throw new Error("This sale has already been voided.");
+      throw new Error("Esta venta ya fue anulada.");
     }
 
     const minutesSince =
       (Date.now() - new Date(sale.created_at).getTime()) / 60000;
     if (minutesSince > VOID_WINDOW_MINUTES) {
       throw new Error(
-        `Sales can only be voided within ${VOID_WINDOW_MINUTES} minutes.`
+        `Las ventas solo se pueden anular dentro de los primeros ${VOID_WINDOW_MINUTES} minutos.`
       );
     }
 
@@ -205,7 +207,7 @@ export async function voidSaleLocal(
       [input.saleId]
     );
     if (existingRefund.length) {
-      throw new Error("A refunded sale cannot be voided.");
+      throw new Error("No se puede anular una venta reembolsada.");
     }
 
     input.assertCurrent?.();
@@ -245,10 +247,10 @@ export async function refundSaleLocal(
     ]);
     const sale = saleRows[0];
     if (!sale || sale.tenant_id !== input.tenantId) {
-      throw new Error("Sale not found.");
+      throw new Error("No se encontró la venta.");
     }
     if (sale.voided_at) {
-      throw new Error("A voided sale cannot be refunded.");
+      throw new Error("No se puede reembolsar una venta anulada.");
     }
 
     const existingRefund = await tx.getAll<{ id: string }>(
@@ -256,7 +258,7 @@ export async function refundSaleLocal(
       [input.saleId]
     );
     if (existingRefund.length) {
-      throw new Error("This sale has already been refunded.");
+      throw new Error("Esta venta ya fue reembolsada.");
     }
 
     const now = nowIso();

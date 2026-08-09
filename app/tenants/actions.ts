@@ -42,7 +42,7 @@ export async function switchTenant(tenantId: string) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    throw new Error("Not authenticated.");
+    throw new Error("No has iniciado sesión.");
   }
 
   await assertUserIsMember(user.id, normalizedTenantId);
@@ -58,7 +58,7 @@ export async function createTenant(name: string) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    throw new Error("Not authenticated.");
+    throw new Error("No has iniciado sesión.");
   }
 
   const displayName = getDisplayName({
@@ -76,7 +76,7 @@ export async function createTenant(name: string) {
       .returning({ id: tenants.id, name: tenants.name });
 
     if (!createdTenant) {
-      throw new Error("Unable to create account.");
+      throw new Error("No se pudo crear la cuenta.");
     }
 
     await tx.insert(tenantUsers).values({

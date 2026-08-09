@@ -15,7 +15,7 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <html lang="es">
+    <html lang="es-BO">
       <body
         style={{
           alignItems: "center",

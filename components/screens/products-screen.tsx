@@ -41,7 +41,7 @@ export function ProductsScreen(props: ProductsScreenProps) {
   return (
     <section className="screen">
       <Header
-        title="Glitter POS"
+        title="Billetera Ferial"
         left={<BrandMark />}
         right={
           <span

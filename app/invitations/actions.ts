@@ -26,7 +26,7 @@ function generateInviteToken() {
 export async function createInvitation() {
   const context = await ensureUserTenantContext();
   if (!context?.tenant) {
-    throw new Error("No active account found.");
+    throw new Error("No se encontró una cuenta activa.");
   }
 
   const origin = await getRequestOrigin();
@@ -62,7 +62,7 @@ export async function createInvitation() {
 export async function revokeInvitation(invitationId: string) {
   const context = await ensureUserTenantContext();
   if (!context?.tenant) {
-    throw new Error("No active account found.");
+    throw new Error("No se encontró una cuenta activa.");
   }
 
   await revokeInvitationById(invitationId, context.tenant.id);
