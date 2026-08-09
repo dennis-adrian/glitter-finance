@@ -27,7 +27,7 @@ function InvalidInvitationScreen() {
           href="/"
           className="mt-5 inline-flex h-12 w-full items-center justify-center rounded-2xl bg-primary px-4 text-base font-medium text-primary-foreground"
         >
-          Ir a Glitter POS
+          Ir a Billetera Ferial
         </Link>
       </section>
     </main>

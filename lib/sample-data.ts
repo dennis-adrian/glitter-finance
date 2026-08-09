@@ -1,13 +1,32 @@
 import type { Product } from "@/lib/types";
 
-export const categories = ["Todos", "Stickers", "Prints", "Pins", "Accesorios"];
+export const categories = [
+  "Todos",
+  "Stickers",
+  "Prints",
+  "Pines",
+  "Accesorios",
+];
+
+const legacyCategoryMap: Record<string, string> = {
+  Pegatina: "Stickers",
+  Pegatinas: "Stickers",
+  Lámina: "Prints",
+  Láminas: "Prints",
+  Pins: "Pines",
+};
+
+/** Normaliza categorías históricas para que coincidan con los filtros actuales. */
+export function canonicalizeCategory(category: string) {
+  return legacyCategoryMap[category] ?? category;
+}
 
 const now = new Date().toISOString();
 
 export const starterProducts: Product[] = [
   {
-    id: "prod-glitter-print",
-    name: "Glitter Print",
+    id: "prod-lamina-ilustrada",
+    name: "Print ilustrado",
     priceCents: 4000,
     costCents: 1500,
     category: "Prints",
@@ -21,8 +40,8 @@ export const starterProducts: Product[] = [
     updatedAt: now,
   },
   {
-    id: "prod-mascot-sticker",
-    name: "Mascot Sticker",
+    id: "prod-pegatina-mascota",
+    name: "Sticker de mascota",
     priceCents: 1500,
     costCents: 350,
     category: "Stickers",
@@ -36,8 +55,8 @@ export const starterProducts: Product[] = [
     updatedAt: now,
   },
   {
-    id: "prod-character-keychain",
-    name: "Character Keychain",
+    id: "prod-llavero-personaje",
+    name: "Llavero de personaje",
     priceCents: 2500,
     costCents: 900,
     category: "Accesorios",
@@ -52,10 +71,10 @@ export const starterProducts: Product[] = [
   },
   {
     id: "prod-accesorio-pin",
-    name: "Accesorio Pin",
+    name: "Pin decorativo",
     priceCents: 1200,
     costCents: null,
-    category: "Pins",
+    category: "Pines",
     imagePath: "placeholder:violet",
     imageUrl: null,
     imageTone: "violet",
@@ -66,8 +85,8 @@ export const starterProducts: Product[] = [
     updatedAt: now,
   },
   {
-    id: "prod-festival-tote",
-    name: "Festival Tote",
+    id: "prod-bolsa-feria",
+    name: "Bolsa de feria",
     priceCents: 12000,
     costCents: 5200,
     category: "Accesorios",

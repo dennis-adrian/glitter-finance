@@ -169,7 +169,7 @@ export async function uploadProductImageLocal(
     });
 
   if (error) {
-    throw new Error(`No se pudo subir la imagen: ${error.message}`);
+    throw new Error("No se pudo subir la imagen.");
   }
 
   try {

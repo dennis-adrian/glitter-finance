@@ -47,7 +47,7 @@ export async function createProductForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("Unable to create product.");
+    throw new Error("No se pudo crear el producto.");
   }
 
   return mapDbProductToProduct(product);
@@ -90,7 +90,7 @@ export async function updateProductForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("Product not found.");
+    throw new Error("No se encontró el producto.");
   }
 
   return mapDbProductToProduct(product);
@@ -111,7 +111,7 @@ export async function updateProductImageForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("Product not found.");
+    throw new Error("No se encontró el producto.");
   }
 
   return mapDbProductToProduct(product);
@@ -131,7 +131,7 @@ export async function archiveProductForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("Product not found.");
+    throw new Error("No se encontró el producto.");
   }
 
   return mapDbProductToProduct(product);
@@ -151,7 +151,7 @@ export async function restoreProductForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("Product not found.");
+    throw new Error("No se encontró el producto.");
   }
 
   return mapDbProductToProduct(product);

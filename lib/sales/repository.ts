@@ -153,13 +153,13 @@ async function getSaleForTenant(tenantId: string, saleId: string) {
     .limit(1);
 
   if (!sale) {
-    throw new Error("Sale not found.");
+    throw new Error("No se encontró la venta.");
   }
 
   const [mappedSale] = await mapSaleRowsForTenant(tenantId, [sale]);
 
   if (!mappedSale) {
-    throw new Error("Sale not found.");
+    throw new Error("No se encontró la venta.");
   }
 
   return mappedSale;
@@ -199,11 +199,11 @@ function normalizeLines(lines: CreateSaleLineInput[]) {
 
   for (const line of lines) {
     if (!line.productId) {
-      throw new Error("Every sale line needs a product.");
+      throw new Error("Cada línea de venta necesita un producto.");
     }
 
     if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
-      throw new Error("Sale line quantities must be positive whole numbers.");
+      throw new Error("Las cantidades deben ser números enteros positivos.");
     }
 
     const existing = byProduct.get(line.productId);
@@ -226,7 +226,7 @@ export async function createSaleForTenant(
   const normalizedLines = normalizeLines(input.lines);
 
   if (!normalizedLines.length) {
-    throw new Error("A sale needs at least one product.");
+    throw new Error("La venta necesita al menos un producto.");
   }
 
   const productIds = normalizedLines.map((line) => line.productId);
@@ -245,14 +245,16 @@ export async function createSaleForTenant(
   );
 
   if (productById.size !== productIds.length) {
-    throw new Error("One or more products are no longer available.");
+    throw new Error("Uno o más productos ya no están disponibles.");
   }
 
   const lineValues = normalizedLines.map((line) => {
     const product = productById.get(line.productId);
 
     if (!product || product.archivedAt) {
-      throw new Error("One or more products are archived and cannot be sold.");
+      throw new Error(
+        "Uno o más productos están archivados y no se pueden vender."
+      );
     }
 
     const lineSubtotalCents = product.priceCents * line.quantity;
@@ -303,7 +305,7 @@ export async function createSaleForTenant(
       .returning();
 
     if (!sale) {
-      throw new Error("Unable to create sale.");
+      throw new Error("No se pudo registrar la venta.");
     }
 
     const insertedLines = await tx
@@ -372,18 +374,20 @@ export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
     .limit(1);
 
   if (!sale) {
-    throw new Error("Sale not found.");
+    throw new Error("No se encontró la venta.");
   }
 
   if (sale.voidedAt) {
-    throw new Error("This sale has already been voided.");
+    throw new Error("Esta venta ya fue anulada.");
   }
 
   const minutesSinceSale =
     (Date.now() - new Date(sale.createdAt).getTime()) / 60000;
 
   if (minutesSinceSale > 10) {
-    throw new Error("Sales can only be voided within 10 minutes.");
+    throw new Error(
+      "Las ventas solo se pueden anular dentro de los primeros 10 minutos."
+    );
   }
 
   const [existingRefund] = await db
@@ -398,7 +402,7 @@ export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
     .limit(1);
 
   if (existingRefund) {
-    throw new Error("A refunded sale cannot be voided.");
+    throw new Error("No se puede anular una venta reembolsada.");
   }
 
   const [voidedSale] = await db
@@ -417,7 +421,7 @@ export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
     .returning();
 
   if (!voidedSale) {
-    throw new Error("Unable to void sale.");
+    throw new Error("No se pudo anular la venta.");
   }
 
   return getSaleForTenant(input.tenantId, input.saleId);
@@ -429,11 +433,11 @@ export async function refundSaleForTenant(
   const original = await getSaleForTenant(input.tenantId, input.saleId);
 
   if (original.status === "voided") {
-    throw new Error("A voided sale cannot be refunded.");
+    throw new Error("No se puede reembolsar una venta anulada.");
   }
 
   if (original.refundOfSaleId) {
-    throw new Error("Refund records cannot be refunded.");
+    throw new Error("No se puede reembolsar un registro de reembolso.");
   }
 
   const [existingRefund] = await db
@@ -448,7 +452,7 @@ export async function refundSaleForTenant(
     .limit(1);
 
   if (existingRefund) {
-    throw new Error("This sale has already been refunded.");
+    throw new Error("Esta venta ya fue reembolsada.");
   }
 
   const [refund] = await db
@@ -465,7 +469,7 @@ export async function refundSaleForTenant(
     .returning();
 
   if (!refund) {
-    throw new Error("Unable to create refund.");
+    throw new Error("No se pudo registrar el reembolso.");
   }
 
   const [mappedRefund] = mapRefundRows(
@@ -475,7 +479,7 @@ export async function refundSaleForTenant(
   );
 
   if (!mappedRefund) {
-    throw new Error("Unable to create refund.");
+    throw new Error("No se pudo registrar el reembolso.");
   }
 
   return mappedRefund;

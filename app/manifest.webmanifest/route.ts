@@ -2,9 +2,11 @@ import { shellThemeColorForScheme } from "@/lib/shell-theme-colors";
 import { NextResponse } from "next/server";
 
 const manifest = {
-  name: "Glitter POS",
-  short_name: "Glitter POS",
-  description: "POS offline-first para vendedores de ferias y convenciones.",
+  lang: "es-BO",
+  name: "Billetera Ferial",
+  short_name: "Billetera Ferial",
+  description:
+    "Punto de venta sin conexión para vendedores de ferias y convenciones.",
   start_url: "/",
   display: "standalone" as const,
   orientation: "portrait" as const,

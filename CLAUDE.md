@@ -1,4 +1,4 @@
-# Glitter POS — Project Instructions
+# Billetera Ferial — Project Instructions
 
 ## Migrations
 

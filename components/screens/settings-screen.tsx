@@ -58,7 +58,7 @@ export function SettingsScreen({
   const identity =
     tenantContext.user.displayName ||
     tenantContext.user.email ||
-    "Glitter Finance";
+    "Billetera Ferial";
   const initials = identity.slice(0, 2).toUpperCase();
   const powerSyncControls = usePowerSyncControls();
   const {
@@ -314,7 +314,7 @@ export function SettingsScreen({
                 <Input
                   value={newTenantName}
                   onChange={(event) => setNewTenantName(event.target.value)}
-                  placeholder="Ej. Booth 2"
+                  placeholder="Ej. Puesto 2"
                   className="h-11 rounded-xl"
                   autoFocus
                 />

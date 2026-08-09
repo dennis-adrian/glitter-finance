@@ -51,7 +51,9 @@ function isPut(operation: CrudEntry, table: string) {
  */
 export function createUploadPlan(operations: CrudEntry[]): UploadPlan {
   if (operations.length === 0) {
-    throw new InvalidUploadTransactionError("The upload transaction is empty.");
+    throw new InvalidUploadTransactionError(
+      "La transacción de subida está vacía."
+    );
   }
 
   const saleCreates = operations.filter((operation) =>
@@ -74,7 +76,7 @@ export function createUploadPlan(operations: CrudEntry[]): UploadPlan {
       )
     ) {
       throw new InvalidUploadTransactionError(
-        "Every sale line must reference the sale in its upload transaction."
+        "Cada línea de venta debe referenciar la venta de su transacción de subida."
       );
     }
     return { kind: "create-sale", sale, lines };
@@ -95,7 +97,7 @@ export function createUploadPlan(operations: CrudEntry[]): UploadPlan {
       typeof operation.opData?.voided_at !== "string"
     ) {
       throw new InvalidUploadTransactionError(
-        "A sale update must contain only a complete void transition."
+        "La actualización de una venta debe contener únicamente una transición de anulación completa."
       );
     }
     return {
@@ -115,7 +117,7 @@ export function createUploadPlan(operations: CrudEntry[]): UploadPlan {
   );
   if (touchesFinancialTable) {
     throw new InvalidUploadTransactionError(
-      "Financial writes must match a supported atomic upload transaction."
+      "Las escrituras financieras deben corresponder a una transacción de subida atómica compatible."
     );
   }
 

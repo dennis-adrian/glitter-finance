@@ -1,4 +1,5 @@
 import type { Product } from "@/lib/types";
+import { canonicalizeCategory } from "@/lib/sample-data";
 import {
   getProductImagePublicUrl,
   isPlaceholderImagePath,
@@ -55,7 +56,7 @@ export function mapDbProductToProduct(product: DbProduct): Product {
     name: product.name,
     priceCents: product.priceCents,
     costCents: product.costCents,
-    category: product.category,
+    category: canonicalizeCategory(product.category),
     imagePath: product.imagePath,
     imageUrl: getProductImagePublicUrl(product.imagePath),
     imageTone: imageToneFromPath(

@@ -226,7 +226,7 @@ export async function getOrCreateActiveInvitation(input: {
       .returning(invitationColumns);
 
     if (!row) {
-      throw new Error("Unable to create invitation.");
+      throw new Error("No se pudo crear la invitación.");
     }
 
     return mapInvitation(row, input.token);
@@ -251,6 +251,6 @@ export async function revokeInvitationById(
     .returning({ id: tenantInvitations.id });
 
   if (!result.length) {
-    throw new Error("Invitation not found or already revoked.");
+    throw new Error("No se encontró la invitación o ya fue revocada.");
   }
 }
