@@ -9,7 +9,7 @@
 // fallback poll is plenty given the queue only changes in response to local
 // writes, which PR 4 will start producing.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
 import { getUnresolvedSyncFailureCount } from "@/lib/powersync/sync-failures";
 
@@ -31,6 +31,7 @@ const QUEUE_POLL_INTERVAL_MS = 5000;
 
 export function useSyncStatus(): SyncStatusSnapshot {
   const db = useOptionalPowerSyncDb();
+  const lastFailureCountRef = useRef(0);
   const [snapshot, setSnapshot] = useState<SyncStatusSnapshot>({
     state: "initializing",
     lastSyncedAt: null,
@@ -40,6 +41,7 @@ export function useSyncStatus(): SyncStatusSnapshot {
 
   useEffect(() => {
     if (!db) {
+      lastFailureCountRef.current = 0;
       setSnapshot({
         state: "initializing",
         lastSyncedAt: null,
@@ -55,9 +57,11 @@ export function useSyncStatus(): SyncStatusSnapshot {
       if (cancelled || !db) return;
       const status = db.currentStatus;
       let pendingCount = 0;
-      let failureCount = 0;
+      // Preserve the last known failure count when the query rejects so the
+      // blocked-state guard fails closed instead of clearing mid-outage.
+      let failureCount = lastFailureCountRef.current;
       // Settle each counter independently so one transient failure cannot
-      // discard a valid result from the other (failed query stays at 0).
+      // discard a valid result from the other.
       const [statsResult, failuresResult] = await Promise.allSettled([
         db.getUploadQueueStats(false),
         getUnresolvedSyncFailureCount(db),
@@ -67,6 +71,7 @@ export function useSyncStatus(): SyncStatusSnapshot {
       }
       if (failuresResult.status === "fulfilled") {
         failureCount = failuresResult.value;
+        lastFailureCountRef.current = failureCount;
       }
       // Rejected queries retry on the next status event/poll.
       if (cancelled) return;

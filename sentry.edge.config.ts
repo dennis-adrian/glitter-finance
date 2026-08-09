@@ -2,6 +2,8 @@ import * as Sentry from "@sentry/nextjs";
 import {
   sanitizeSentryBreadcrumb,
   sanitizeSentryEvent,
+  sanitizeSentrySpan,
+  sanitizeSentryTransaction,
 } from "@/lib/observability/sentry-privacy";
 
 const configuredDsn = process.env.NEXT_PUBLIC_SENTRY_DSN?.trim();
@@ -20,5 +22,7 @@ Sentry.init({
     httpBodies: [],
   },
   beforeSend: sanitizeSentryEvent,
+  beforeSendTransaction: sanitizeSentryTransaction,
+  beforeSendSpan: sanitizeSentrySpan,
   beforeBreadcrumb: sanitizeSentryBreadcrumb,
 });

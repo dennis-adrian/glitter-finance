@@ -1,8 +1,30 @@
-import type { Breadcrumb, ErrorEvent } from "@sentry/nextjs";
+import type { Breadcrumb, ErrorEvent, Event } from "@sentry/nextjs";
+
+type SpanJSON = NonNullable<Event["spans"]>[number];
+type TransactionEvent = Event & { type: "transaction" };
 
 const INVITATION_PATH = /\/join\/[^/?#]+/g;
+const SPAN_URL_FIELDS = [
+  "url",
+  "http.url",
+  "url.full",
+  "url.path",
+  "http.target",
+  "http.route",
+] as const;
 
 function sanitizeUrl(value: string): string {
+  const methodAndUrl = value.match(
+    /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(.+)$/
+  );
+  if (methodAndUrl) {
+    return `${methodAndUrl[1]} ${sanitizeUrl(methodAndUrl[2])}`;
+  }
+
+  if (!value.startsWith("/") && !/^[a-z][a-z\d+.-]*:\/\//i.test(value)) {
+    return value.replace(INVITATION_PATH, "/join/[redacted]");
+  }
+
   try {
     const url = new URL(value, "https://local.invalid");
     const path = url.pathname.replace(INVITATION_PATH, "/join/[redacted]");
@@ -16,8 +38,7 @@ function sanitizeUrl(value: string): string {
   }
 }
 
-/** Remove identity, credentials, request bodies, and invitation tokens. */
-export function sanitizeSentryEvent(event: ErrorEvent): ErrorEvent {
+function sanitizeEvent<T extends Event>(event: T): T {
   delete event.user;
 
   if (event.request) {
@@ -36,6 +57,47 @@ export function sanitizeSentryEvent(event: ErrorEvent): ErrorEvent {
   }
 
   return event;
+}
+
+/** Remove identity, credentials, request bodies, and invitation tokens. */
+export function sanitizeSentryEvent(event: ErrorEvent): ErrorEvent {
+  return sanitizeEvent(event);
+}
+
+/** Remove invitation tokens from transaction names and their child spans. */
+export function sanitizeSentryTransaction(
+  event: TransactionEvent
+): TransactionEvent {
+  sanitizeEvent(event);
+  if (event.transaction) {
+    event.transaction = sanitizeUrl(event.transaction);
+  }
+  if (event.spans) {
+    event.spans = event.spans.map(sanitizeSentrySpan);
+  }
+  return event;
+}
+
+/** Remove invitation tokens and query/fragment data from exported spans. */
+export function sanitizeSentrySpan(span: SpanJSON): SpanJSON {
+  if (span.description) {
+    span.description = sanitizeUrl(span.description);
+  }
+  for (const key of SPAN_URL_FIELDS) {
+    const value = span.data[key];
+    if (typeof value === "string") {
+      span.data[key] = sanitizeUrl(value);
+    }
+  }
+  for (const key of [
+    "http.query",
+    "http.fragment",
+    "url.query",
+    "url.fragment",
+  ]) {
+    delete span.data[key];
+  }
+  return span;
 }
 
 /** Keep navigation/network breadcrumbs useful without retaining URL secrets. */

@@ -66,26 +66,29 @@ export async function recordSyncFailure(
 ): Promise<void> {
   const details = errorDetails(input.error);
   const failureId = syncFailureId(input);
-  await db.execute(
-    `INSERT INTO sync_failures
-      (id, transaction_id, tenant_id, operations_json, error_code,
-       error_message, created_at, resolved_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-     ON CONFLICT(id) DO UPDATE SET
-       operations_json = excluded.operations_json,
-       error_code = excluded.error_code,
-       error_message = excluded.error_message,
-       resolved_at = NULL`,
-    [
-      failureId,
-      input.transactionId ?? null,
-      tenantIdFrom(input.operations),
-      JSON.stringify(input.operations.map((operation) => operation.toJSON())),
-      details.code,
-      details.message,
-      new Date().toISOString(),
-    ]
-  );
+  await db.writeTransaction(async (tx) => {
+    const existing = await tx.getOptional<{ created_at: string }>(
+      `SELECT created_at FROM sync_failures WHERE id = ?`,
+      [failureId]
+    );
+
+    await tx.execute(`DELETE FROM sync_failures WHERE id = ?`, [failureId]);
+    await tx.execute(
+      `INSERT INTO sync_failures
+        (id, transaction_id, tenant_id, operations_json, error_code,
+         error_message, created_at, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+      [
+        failureId,
+        input.transactionId ?? null,
+        tenantIdFrom(input.operations),
+        JSON.stringify(input.operations.map((operation) => operation.toJSON())),
+        details.code,
+        details.message,
+        existing?.created_at ?? new Date().toISOString(),
+      ]
+    );
+  });
 }
 
 export async function resolveSyncFailure(

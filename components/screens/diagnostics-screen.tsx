@@ -119,16 +119,16 @@ export function DiagnosticsScreen({
       let pendingCount = 0;
       let pendingBytes: number | null = null;
       let failures: SyncFailure[] = [];
-      try {
-        const [stats, unresolvedFailures] = await Promise.all([
-          db.getUploadQueueStats(true),
-          getUnresolvedSyncFailures(db),
-        ]);
-        pendingCount = stats.count;
-        pendingBytes = stats.size;
-        failures = unresolvedFailures;
-      } catch {
-        // Transient init/query failure — leave at defaults.
+      const [statsResult, failuresResult] = await Promise.allSettled([
+        db.getUploadQueueStats(true),
+        getUnresolvedSyncFailures(db),
+      ]);
+      if (statsResult.status === "fulfilled") {
+        pendingCount = statsResult.value.count;
+        pendingBytes = statsResult.value.size;
+      }
+      if (failuresResult.status === "fulfilled") {
+        failures = failuresResult.value;
       }
       if (cancelled) return;
       setSnapshot({

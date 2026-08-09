@@ -60,6 +60,12 @@ BEGIN
   sale_created_at_value := (sale_row ->> 'created_at')::timestamptz;
   sale_client_created_at_value := (sale_row ->> 'client_created_at')::timestamptz;
 
+  IF sale_id_value IS NULL OR tenant_id_value IS NULL THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '22023',
+      MESSAGE = 'The sale id and tenant_id fields are required.';
+  END IF;
+
   IF sale_user_id_value IS DISTINCT FROM authenticated_user_id
      OR NOT public.current_user_has_tenant(tenant_id_value) THEN
     RAISE EXCEPTION USING

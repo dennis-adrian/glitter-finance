@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AbstractPowerSyncDatabase, CrudEntry } from "@powersync/web";
+import type {
+  AbstractPowerSyncDatabase,
+  CrudEntry,
+  Transaction,
+} from "@powersync/web";
 import { UpdateType } from "@powersync/web";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SupabaseConnector } from "@/lib/powersync/connector";
@@ -84,6 +88,7 @@ test("uploads a sale transaction through one RPC before completing", async () =>
 
 test("records a permanent RPC failure and leaves the transaction queued", async () => {
   const localWrites: string[] = [];
+  let writeTransactionCount = 0;
   let completeCount = 0;
   const operations = saleTransaction();
   const permanentError = {
@@ -101,8 +106,15 @@ test("records a permanent RPC failure and leaves the transaction queued", async 
         completeCount += 1;
       },
     }),
-    execute: async (sql: string) => {
-      localWrites.push(sql);
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) => {
+      writeTransactionCount += 1;
+      return callback({
+        getOptional: async () => null,
+        execute: async (sql: string) => {
+          localWrites.push(sql);
+          return { rowsAffected: 1 };
+        },
+      } as unknown as Transaction);
     },
   } as unknown as AbstractPowerSyncDatabase;
 
@@ -112,8 +124,11 @@ test("records a permanent RPC failure and leaves the transaction queued", async 
   );
 
   assert.equal(completeCount, 0);
-  assert.equal(localWrites.length, 1);
-  assert.match(localWrites[0], /INSERT INTO sync_failures/);
+  assert.equal(writeTransactionCount, 1);
+  assert.equal(localWrites.length, 2);
+  assert.match(localWrites[0], /DELETE FROM sync_failures/);
+  assert.match(localWrites[1], /INSERT INTO sync_failures/);
+  assert.doesNotMatch(localWrites[1], /ON CONFLICT/);
 });
 
 test("preserves the upload error when recording the failure also fails", async () => {
@@ -135,7 +150,7 @@ test("preserves the upload error when recording the failure also fails", async (
         completeCount += 1;
       },
     }),
-    execute: async () => {
+    writeTransaction: async () => {
       recordingAttempts += 1;
       throw new Error("Local failure recording failed");
     },

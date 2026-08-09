@@ -157,8 +157,8 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
 
     let lastOp: CrudEntry | null = null;
     try {
-      const plan = createUploadPlan(transaction.crud);
       lastOp = transaction.crud.at(-1) ?? null;
+      const plan = createUploadPlan(transaction.crud);
 
       if (plan.kind === "create-sale") {
         const result = await this.supabase.rpc("powersync_create_sale", {
