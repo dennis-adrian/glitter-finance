@@ -72,10 +72,14 @@ test("teardown purges local user data before calling server sign-out", async () 
         events.push("clear-powersync");
       },
     } as unknown as AbstractPowerSyncDatabase;
+    window.addEventListener("glitter-pos-local-data-teardown-starting", () => {
+      events.push("teardown-started");
+    });
     const cacheStorage = {
       keys: async () => [...cacheNames],
       delete: async (name: string) => {
         deletedCaches.push(name);
+        events.push(`clear-cache:${name}`);
         cacheNames.delete(name);
         // CacheStorage.delete() may report false despite concurrent removal.
         return name !== "glitter-pos-pages";
@@ -107,6 +111,9 @@ test("teardown purges local user data before calling server sign-out", async () 
 
     assert.deepEqual(events, [
       "check-sync-failures",
+      "teardown-started",
+      "clear-cache:glitter-pos-pages",
+      "clear-cache:glitter-pos-api-v1",
       "clear-powersync",
       "server-sign-out",
     ]);

@@ -8,6 +8,8 @@ import { usePosStore } from "@/lib/store";
 
 const localDataIdentityKey = "glitter-pos-local-data-identity-v1";
 const pageCacheName = "glitter-pos-pages";
+const localDataTeardownStartingEvent =
+  "glitter-pos-local-data-teardown-starting";
 const localDataClearedEvent = "glitter-pos-local-data-cleared";
 
 export type LocalDataIdentity = {
@@ -158,6 +160,21 @@ function clearInMemoryLocalData() {
   }
 }
 
+function notifyLocalDataTeardownStarting() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(localDataTeardownStartingEvent));
+  }
+}
+
+export function onLocalDataTeardownStarting(listener: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  window.addEventListener(localDataTeardownStartingEvent, listener);
+  return () =>
+    window.removeEventListener(localDataTeardownStartingEvent, listener);
+}
+
 export function onLocalDataCleared(listener: () => void) {
   if (typeof window === "undefined") {
     return () => {};
@@ -206,6 +223,10 @@ export async function teardownLocalUserData(input: {
     }
   }
 
+  // Abort UI work before a cache or database operation yields. Local write
+  // helpers re-check their assertion inside write transactions, preventing an
+  // operation that was already awaiting from committing after this point.
+  notifyLocalDataTeardownStarting();
   await clearUserDataCaches(input.cacheStorage);
 
   if (db) {

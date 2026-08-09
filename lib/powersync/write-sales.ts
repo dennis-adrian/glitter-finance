@@ -34,6 +34,7 @@ export type CreateSaleLocalInput = {
   saleDiscountCents: number;
   saleDiscountReason?: string;
   lines: CreateSaleLocalLine[];
+  assertCurrent?: () => void;
 };
 
 /**
@@ -107,6 +108,7 @@ export async function createSaleLocal(
   // PowerSync batches all ops within a writeTransaction into one CRUD
   // transaction, so uploadData processes the sale + its lines together.
   await db.writeTransaction(async (tx) => {
+    input.assertCurrent?.();
     await tx.execute(
       `INSERT INTO sales
         (id, tenant_id, user_id, payment_method, sale_discount_cents,
@@ -125,6 +127,7 @@ export async function createSaleLocal(
     );
 
     for (const row of lineRows) {
+      input.assertCurrent?.();
       await tx.execute(
         `INSERT INTO sale_lines
           (id, sale_id, tenant_id, product_id, product_name, category,
@@ -159,6 +162,7 @@ export type VoidSaleLocalInput = {
   saleId: string;
   userId: string;
   tenantId: string;
+  assertCurrent?: () => void;
 };
 
 export async function voidSaleLocal(
@@ -171,6 +175,7 @@ export async function voidSaleLocal(
   // tabs sharing the same PowerSync DB) could both pass the
   // `voided_at IS NULL` check before either UPDATE landed.
   await db.writeTransaction(async (tx) => {
+    input.assertCurrent?.();
     const rows = await tx.getAll<{
       created_at: string;
       voided_at: string | null;
@@ -203,6 +208,7 @@ export async function voidSaleLocal(
       throw new Error("A refunded sale cannot be voided.");
     }
 
+    input.assertCurrent?.();
     await tx.execute(
       `UPDATE sales SET voided_at = ?, voided_by_user_id = ?
        WHERE id = ? AND voided_at IS NULL`,
@@ -216,6 +222,7 @@ export type RefundSaleLocalInput = {
   userId: string;
   tenantId: string;
   reason?: string;
+  assertCurrent?: () => void;
 };
 
 export async function refundSaleLocal(
@@ -229,6 +236,7 @@ export async function refundSaleLocal(
   // INSERT, and PowerSync's uploader would discard one server-side via
   // 23505 — leaving a phantom duplicate in local SQLite indefinitely.
   await db.writeTransaction(async (tx) => {
+    input.assertCurrent?.();
     const saleRows = await tx.getAll<{
       voided_at: string | null;
       tenant_id: string;
@@ -252,6 +260,7 @@ export async function refundSaleLocal(
     }
 
     const now = nowIso();
+    input.assertCurrent?.();
     await tx.execute(
       `INSERT INTO refunds
         (id, tenant_id, original_sale_id, user_id, reason, created_at, client_created_at)
