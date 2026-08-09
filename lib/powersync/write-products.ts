@@ -41,10 +41,15 @@ function resolveInputImagePath(input: ProductInput): string {
 
 export async function createProductLocal(
   db: AbstractPowerSyncDatabase,
-  input: { tenantId: string; product: ProductInput }
+  input: {
+    tenantId: string;
+    product: ProductInput;
+    assertCurrent?: () => void;
+  }
 ): Promise<{ productId: string }> {
   const productId = uuid();
   const now = nowIso();
+  input.assertCurrent?.();
   await db.execute(
     `INSERT INTO products
       (id, tenant_id, name, price_cents, cost_cents, category, image_path,
@@ -69,8 +74,14 @@ export async function createProductLocal(
 
 export async function updateProductLocal(
   db: AbstractPowerSyncDatabase,
-  input: { tenantId: string; productId: string; product: ProductInput }
+  input: {
+    tenantId: string;
+    productId: string;
+    product: ProductInput;
+    assertCurrent?: () => void;
+  }
 ): Promise<void> {
+  input.assertCurrent?.();
   await db.execute(
     `UPDATE products
        SET name = ?, price_cents = ?, cost_cents = ?, category = ?,
@@ -94,9 +105,10 @@ export async function updateProductLocal(
 
 export async function archiveProductLocal(
   db: AbstractPowerSyncDatabase,
-  input: { tenantId: string; productId: string }
+  input: { tenantId: string; productId: string; assertCurrent?: () => void }
 ): Promise<void> {
   const now = nowIso();
+  input.assertCurrent?.();
   await db.execute(
     `UPDATE products SET archived_at = ?, updated_at = ?
      WHERE id = ? AND tenant_id = ? AND archived_at IS NULL`,
@@ -106,8 +118,9 @@ export async function archiveProductLocal(
 
 export async function restoreProductLocal(
   db: AbstractPowerSyncDatabase,
-  input: { tenantId: string; productId: string }
+  input: { tenantId: string; productId: string; assertCurrent?: () => void }
 ): Promise<void> {
+  input.assertCurrent?.();
   await db.execute(
     `UPDATE products SET archived_at = NULL, updated_at = ?
      WHERE id = ? AND tenant_id = ?`,
@@ -125,7 +138,12 @@ export async function restoreProductLocal(
 export async function uploadProductImageLocal(
   supabase: SupabaseClient,
   db: AbstractPowerSyncDatabase,
-  input: { tenantId: string; productId: string; file: File }
+  input: {
+    tenantId: string;
+    productId: string;
+    file: File;
+    assertCurrent?: () => void;
+  }
 ): Promise<void> {
   const { file, tenantId, productId } = input;
 
@@ -142,6 +160,7 @@ export async function uploadProductImageLocal(
   const extension = imageExtensionByMimeType[file.type] ?? "jpg";
   const objectPath = `${tenantId}/products/${productId}/${uuid()}.${extension}`;
 
+  input.assertCurrent?.();
   const { error } = await supabase.storage
     .from(productImagesBucket)
     .upload(objectPath, file, {
@@ -150,10 +169,11 @@ export async function uploadProductImageLocal(
     });
 
   if (error) {
-    throw new Error(`No se pudo subir la imagen: ${error.message}`);
+    throw new Error("No se pudo subir la imagen.");
   }
 
   try {
+    input.assertCurrent?.();
     await db.execute(
       `UPDATE products SET image_path = ?, updated_at = ?
        WHERE id = ? AND tenant_id = ?`,

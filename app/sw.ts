@@ -26,6 +26,13 @@ const isSupabaseOrPowerSync = ({ url }: { url: URL }) =>
   /(?:supabase\.co|powersync\.(?:com|journeyapps\.com))$/i.test(url.hostname);
 const isManifestRequest = (pathname: string) =>
   /\.webmanifest$/i.test(pathname);
+const isIdentitySensitivePath = (pathname: string) =>
+  pathname === "/login" ||
+  pathname.startsWith("/login/") ||
+  pathname === "/join" ||
+  pathname.startsWith("/join/") ||
+  pathname === "/auth" ||
+  pathname.startsWith("/auth/");
 
 const runtimeCaching: RuntimeCaching[] = [
   {
@@ -37,12 +44,15 @@ const runtimeCaching: RuntimeCaching[] = [
       sameOrigin &&
       (url.pathname.startsWith("/api/") ||
         url.pathname.startsWith("/auth/") ||
+        url.pathname === "/monitoring" ||
         url.pathname.startsWith("/serwist/")),
     handler: new NetworkOnly(),
   },
   {
-    matcher: ({ request, sameOrigin }) =>
-      sameOrigin && request.mode === "navigate",
+    matcher: ({ request, sameOrigin, url }) =>
+      sameOrigin &&
+      request.mode === "navigate" &&
+      !isIdentitySensitivePath(url.pathname),
     handler: new NetworkFirst({
       cacheName: "glitter-pos-pages",
       networkTimeoutSeconds: 3,
@@ -70,6 +80,11 @@ const runtimeCaching: RuntimeCaching[] = [
       ],
     }),
   },
+  {
+    matcher: ({ sameOrigin, url }) =>
+      sameOrigin && isIdentitySensitivePath(url.pathname),
+    handler: new NetworkOnly(),
+  },
   ...defaultCache,
 ];
 
@@ -81,7 +96,13 @@ const serwist = new Serwist({
   precacheOptions: {
     cleanupOutdatedCaches: true,
     navigateFallback: "/~offline",
-    navigateFallbackDenylist: [/^\/api\//, /^\/auth\//, /^\/serwist\//],
+    navigateFallbackDenylist: [
+      /^\/api\//,
+      /^\/auth(?:\/|$)/,
+      /^\/login(?:\/|$)/,
+      /^\/join(?:\/|$)/,
+      /^\/serwist\//,
+    ],
   },
   runtimeCaching,
   skipWaiting: true,

@@ -106,8 +106,7 @@ export function getProductStock(
   }
 
   const remaining = stockByProduct.get(product.id) ?? 0;
-  const threshold =
-    product.lowStockThreshold ?? DEFAULT_LOW_STOCK_THRESHOLD;
+  const threshold = product.lowStockThreshold ?? DEFAULT_LOW_STOCK_THRESHOLD;
 
   if (remaining < 0) {
     return { remaining, state: "oversold" };

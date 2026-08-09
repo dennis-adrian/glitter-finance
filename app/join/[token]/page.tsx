@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { JoinTenantForm } from "@/components/molecules/join-tenant-form";
+import { PowerSyncProvider } from "@/components/providers/powersync-provider";
 import {
   getInvitationByToken,
   isInvitationValid,
 } from "@/lib/invitations/repository";
-import { createClient } from "@/lib/supabase/server";
+import { ensureUserTenantContext } from "@/lib/auth/user-context";
 
 type JoinPageProps = {
   params: Promise<{
@@ -26,7 +27,7 @@ function InvalidInvitationScreen() {
           href="/"
           className="mt-5 inline-flex h-12 w-full items-center justify-center rounded-2xl bg-primary px-4 text-base font-medium text-primary-foreground"
         >
-          Ir a Glitter POS
+          Ir a Billetera Ferial
         </Link>
       </section>
     </main>
@@ -41,12 +42,8 @@ export default async function JoinPage({ params }: JoinPageProps) {
     return <InvalidInvitationScreen />;
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const context = await ensureUserTenantContext();
+  if (!context) {
     redirect(`/login?next=${encodeURIComponent(`/join/${token}`)}`);
   }
 
@@ -56,16 +53,24 @@ export default async function JoinPage({ params }: JoinPageProps) {
         <h1 className="text-2xl font-bold text-primary">Unirte al equipo</h1>
         <p className="mt-3 leading-snug text-muted-foreground">
           Vas a unirte a <strong>{invitation.tenantName}</strong> con tu cuenta{" "}
-          {user.email ? (
+          {context.user.email ? (
             <>
-              <strong>{user.email}</strong>
+              <strong>{context.user.email}</strong>
             </>
           ) : (
             "actual"
           )}
           .
         </p>
-        <JoinTenantForm token={token} />
+        <PowerSyncProvider
+          identity={{
+            userId: context.user.id,
+            tenantId: context.tenant?.id ?? null,
+          }}
+          loadingLayout="parent"
+        >
+          <JoinTenantForm token={token} />
+        </PowerSyncProvider>
       </section>
     </main>
   );

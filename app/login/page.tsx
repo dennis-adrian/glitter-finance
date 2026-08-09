@@ -1,4 +1,5 @@
 import { signInWithPassword, signUpWithPassword } from "@/app/auth/actions";
+import { BrandMark } from "@/components/atoms/brand-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,8 +28,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   return (
     <main className="grid min-h-dvh place-items-center p-6">
       <section className="w-full max-w-[420px] rounded-2xl bg-card p-6 ring-1 ring-foreground/10">
-        <span className="brand-mark">G</span>
-        <h1 className="mt-2 text-2xl font-bold text-primary">Glitter POS</h1>
+        <BrandMark />
+        <h1 className="mt-2 text-2xl font-bold text-primary">
+          Billetera Ferial
+        </h1>
         <p className="mt-2 mb-4 leading-snug text-muted-foreground">
           Ingresa con tu cuenta de prueba para sincronizar catálogo y ventas con
           Supabase.
@@ -46,7 +49,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <form action={signInWithPassword} className="mt-4 grid gap-3">
           <input type="hidden" name="next" value={next} />
           <Label className="grid gap-1.5">
-            Email
+            Correo electrónico
             <Input
               name="email"
               type="email"
@@ -83,7 +86,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             />
           </Label>
           <Label className="grid gap-1.5">
-            Email
+            Correo electrónico
             <Input
               name="email"
               type="email"

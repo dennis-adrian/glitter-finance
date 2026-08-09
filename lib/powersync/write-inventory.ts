@@ -19,6 +19,7 @@ export type AddInventoryMovementInput = {
   delta: number;
   reason: InventoryMovementReason;
   note?: string;
+  assertCurrent?: () => void;
 };
 
 export async function productHasInitialMovementLocal(
@@ -46,6 +47,7 @@ export async function addInventoryMovement(
   const now = nowIso();
 
   await db.writeTransaction(async (tx) => {
+    input.assertCurrent?.();
     if (input.reason === "initial") {
       const existing = await tx.getAll<{ id: string }>(
         `SELECT id FROM inventory_movements
@@ -58,6 +60,7 @@ export async function addInventoryMovement(
       }
     }
 
+    input.assertCurrent?.();
     await tx.execute(
       `INSERT INTO inventory_movements
         (id, tenant_id, product_id, user_id, delta, reason, note,

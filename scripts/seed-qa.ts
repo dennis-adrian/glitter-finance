@@ -171,7 +171,7 @@ async function seedData(userId: string) {
     name: "QA Enamel Pin",
     priceCents: 3500,
     costCents: null, // cost unknown — exercises the upper-bound net-earnings flag
-    category: "Pins",
+    category: "Pines",
   });
   const tote = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Tote Bag",

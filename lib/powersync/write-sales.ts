@@ -34,6 +34,7 @@ export type CreateSaleLocalInput = {
   saleDiscountCents: number;
   saleDiscountReason?: string;
   lines: CreateSaleLocalLine[];
+  assertCurrent?: () => void;
 };
 
 /**
@@ -45,16 +46,18 @@ function normalizeAndPriceLines(
   lines: CreateSaleLocalLine[]
 ) {
   if (lines.length === 0) {
-    throw new Error("A sale needs at least one product.");
+    throw new Error("La venta necesita al menos un producto.");
   }
 
   const byProduct = new Map<string, CreateSaleLocalLine>();
   for (const line of lines) {
     if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
-      throw new Error("Sale line quantities must be positive whole numbers.");
+      throw new Error("Las cantidades deben ser números enteros positivos.");
     }
     if (line.product.archivedAt) {
-      throw new Error("One or more products are archived and cannot be sold.");
+      throw new Error(
+        "Uno o más productos están archivados y no se pueden vender."
+      );
     }
     const existing = byProduct.get(line.product.id);
     if (existing) {
@@ -107,6 +110,7 @@ export async function createSaleLocal(
   // PowerSync batches all ops within a writeTransaction into one CRUD
   // transaction, so uploadData processes the sale + its lines together.
   await db.writeTransaction(async (tx) => {
+    input.assertCurrent?.();
     await tx.execute(
       `INSERT INTO sales
         (id, tenant_id, user_id, payment_method, sale_discount_cents,
@@ -125,6 +129,7 @@ export async function createSaleLocal(
     );
 
     for (const row of lineRows) {
+      input.assertCurrent?.();
       await tx.execute(
         `INSERT INTO sale_lines
           (id, sale_id, tenant_id, product_id, product_name, category,
@@ -159,6 +164,7 @@ export type VoidSaleLocalInput = {
   saleId: string;
   userId: string;
   tenantId: string;
+  assertCurrent?: () => void;
 };
 
 export async function voidSaleLocal(
@@ -171,6 +177,7 @@ export async function voidSaleLocal(
   // tabs sharing the same PowerSync DB) could both pass the
   // `voided_at IS NULL` check before either UPDATE landed.
   await db.writeTransaction(async (tx) => {
+    input.assertCurrent?.();
     const rows = await tx.getAll<{
       created_at: string;
       voided_at: string | null;
@@ -181,17 +188,17 @@ export async function voidSaleLocal(
     );
     const sale = rows[0];
     if (!sale || sale.tenant_id !== input.tenantId) {
-      throw new Error("Sale not found.");
+      throw new Error("No se encontró la venta.");
     }
     if (sale.voided_at) {
-      throw new Error("This sale has already been voided.");
+      throw new Error("Esta venta ya fue anulada.");
     }
 
     const minutesSince =
       (Date.now() - new Date(sale.created_at).getTime()) / 60000;
     if (minutesSince > VOID_WINDOW_MINUTES) {
       throw new Error(
-        `Sales can only be voided within ${VOID_WINDOW_MINUTES} minutes.`
+        `Las ventas solo se pueden anular dentro de los primeros ${VOID_WINDOW_MINUTES} minutos.`
       );
     }
 
@@ -200,9 +207,10 @@ export async function voidSaleLocal(
       [input.saleId]
     );
     if (existingRefund.length) {
-      throw new Error("A refunded sale cannot be voided.");
+      throw new Error("No se puede anular una venta reembolsada.");
     }
 
+    input.assertCurrent?.();
     await tx.execute(
       `UPDATE sales SET voided_at = ?, voided_by_user_id = ?
        WHERE id = ? AND voided_at IS NULL`,
@@ -216,6 +224,7 @@ export type RefundSaleLocalInput = {
   userId: string;
   tenantId: string;
   reason?: string;
+  assertCurrent?: () => void;
 };
 
 export async function refundSaleLocal(
@@ -229,6 +238,7 @@ export async function refundSaleLocal(
   // INSERT, and PowerSync's uploader would discard one server-side via
   // 23505 — leaving a phantom duplicate in local SQLite indefinitely.
   await db.writeTransaction(async (tx) => {
+    input.assertCurrent?.();
     const saleRows = await tx.getAll<{
       voided_at: string | null;
       tenant_id: string;
@@ -237,10 +247,10 @@ export async function refundSaleLocal(
     ]);
     const sale = saleRows[0];
     if (!sale || sale.tenant_id !== input.tenantId) {
-      throw new Error("Sale not found.");
+      throw new Error("No se encontró la venta.");
     }
     if (sale.voided_at) {
-      throw new Error("A voided sale cannot be refunded.");
+      throw new Error("No se puede reembolsar una venta anulada.");
     }
 
     const existingRefund = await tx.getAll<{ id: string }>(
@@ -248,10 +258,11 @@ export async function refundSaleLocal(
       [input.saleId]
     );
     if (existingRefund.length) {
-      throw new Error("This sale has already been refunded.");
+      throw new Error("Esta venta ya fue reembolsada.");
     }
 
     const now = nowIso();
+    input.assertCurrent?.();
     await tx.execute(
       `INSERT INTO refunds
         (id, tenant_id, original_sale_id, user_id, reason, created_at, client_created_at)

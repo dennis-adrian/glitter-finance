@@ -74,6 +74,12 @@ import {
   migrateLegacyDraftCartLocal,
   saveDraftCartLocal,
 } from "@/lib/powersync/draft-cart";
+import {
+  onLocalDataCleared,
+  onLocalDataTeardownFailed,
+  onLocalDataTeardownStarting,
+} from "@/lib/powersync/local-data-teardown";
+import { TenantWorkController } from "@/lib/powersync/tenant-work";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   computeStockByProduct,
@@ -206,6 +212,15 @@ export function GlitterPosApp({
   );
   const initialTenantMembersRef = useRef(initialTenantMembers);
   const teamSyncEverConfirmedRef = useRef(false);
+  const [tenantWorkGeneration, setTenantWorkGeneration] = useState(0);
+  const tenantWorkGenerationRef = useRef(0);
+  const tenantWorkControllerRef = useRef<TenantWorkController | null>(null);
+  if (!tenantWorkControllerRef.current) {
+    tenantWorkControllerRef.current = new TenantWorkController({
+      userId: tenantContext.user.id,
+      tenantId: tenantContext.tenant?.id ?? null,
+    });
+  }
   const draftCartReadyRef = useRef(false);
   const cartRef = useRef(cart);
   const cartUpdatedAtRef = useRef<string | null>(null);
@@ -260,6 +275,45 @@ export function GlitterPosApp({
   );
   const activeTenantId = tenantContext.tenant?.id ?? null;
 
+  // Teardown is initiated from Settings, outside this component's local React
+  // state. Clear every tenant-derived value immediately so a failed navigation
+  // or a recovery screen cannot expose data from the previous account.
+  useEffect(() => {
+    const stopTenantWork = onLocalDataTeardownStarting(() => {
+      cancelTenantWork();
+      setIsCheckingOut(false);
+    });
+    const resumeTenantWork = onLocalDataTeardownFailed(() => {
+      tenantWorkControllerRef.current?.resumeAfterFailedTeardown();
+      bumpTenantWorkGeneration();
+    });
+    const clearTenantState = onLocalDataCleared(() => {
+      cancelTenantWork();
+      draftCartReadyRef.current = false;
+      setView("sell");
+      setPreviousView("products");
+      setCategory("Todos");
+      setCatalogCategory("Todos");
+      setQuery("");
+      setCatalogQuery("");
+      setEditingProduct(null);
+      setSelectedSaleId(null);
+      setIsCheckingOut(false);
+      setActiveInvitationState(null);
+      setTenantMembers([]);
+      setInventoryMovements([]);
+      setInventoryWatchReady(false);
+      setTeamSyncConfirmed(false);
+      setEditorHasInitialMovement(false);
+    });
+
+    return () => {
+      stopTenantWork();
+      resumeTenantWork();
+      clearTenantState();
+    };
+  }, []);
+
   useEffect(() => {
     initialTenantMembersRef.current = initialTenantMembers;
     teamSyncEverConfirmedRef.current = false;
@@ -276,6 +330,17 @@ export function GlitterPosApp({
     } else {
       setInventoryWatchReady(initialInventoryMovements.length > 0);
     }
+
+    // PowerSyncProvider only renders this tree once this exact identity's
+    // local store is ready. Resume after its server-hydrated data is installed.
+    const resumed =
+      tenantWorkControllerRef.current?.resumeForReadyIdentity({
+        userId: tenantContext.user.id,
+        tenantId: activeTenantId,
+      }) ?? false;
+    if (resumed) {
+      bumpTenantWorkGeneration();
+    }
   }, [
     hydrateProducts,
     hydrateSales,
@@ -284,6 +349,7 @@ export function GlitterPosApp({
     initialTenantMembers,
     initialInventoryMovements,
     activeTenantId,
+    tenantContext.user.id,
   ]);
 
   useEffect(() => {
@@ -304,36 +370,59 @@ export function GlitterPosApp({
   const powerSyncDb = useOptionalPowerSyncDb();
   const inventoryStockReady = inventoryWatchReady;
 
+  function beginTenantWork() {
+    return tenantWorkControllerRef.current!.begin();
+  }
+
+  function cancelTenantWork() {
+    tenantWorkControllerRef.current?.cancel();
+    bumpTenantWorkGeneration();
+  }
+
+  function bumpTenantWorkGeneration() {
+    tenantWorkGenerationRef.current += 1;
+    setTenantWorkGeneration(tenantWorkGenerationRef.current);
+  }
+
   useEffect(() => {
+    const generation = tenantWorkGenerationRef.current;
     if (!editingProduct) {
       setEditorHasInitialMovement(false);
       return;
     }
 
     let cancelled = false;
+    const isCurrent = () =>
+      !cancelled && tenantWorkGenerationRef.current === generation;
     const productId = editingProduct.id;
     const productTracksInventory = editingProduct.tracksInventory;
 
     async function loadEditorInitialMovementState() {
       if (productHasInitialMovement(productId, inventoryMovements)) {
-        if (!cancelled) {
+        if (isCurrent()) {
           setEditorHasInitialMovement(true);
         }
         return;
       }
 
       if (powerSyncDb?.currentStatus?.hasSynced && inventoryWatchReady) {
-        const hasInitial = await productHasInitialMovementLocal(
-          powerSyncDb,
-          productId
-        );
-        if (!cancelled) {
-          setEditorHasInitialMovement(hasInitial);
+        try {
+          const hasInitial = await productHasInitialMovementLocal(
+            powerSyncDb,
+            productId
+          );
+          if (isCurrent()) {
+            setEditorHasInitialMovement(hasInitial);
+          }
+        } catch (error) {
+          if (isCurrent()) {
+            console.error("[PowerSync] initial movement lookup failed", error);
+          }
         }
         return;
       }
 
-      if (!cancelled) {
+      if (isCurrent()) {
         setEditorHasInitialMovement(
           !inventoryWatchReady && productTracksInventory
         );
@@ -351,6 +440,10 @@ export function GlitterPosApp({
     if (!powerSyncDb || !activeTenantId) return;
 
     const controller = new AbortController();
+    const generation = tenantWorkGenerationRef.current;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      tenantWorkGenerationRef.current === generation;
     let unregister: (() => void) | undefined;
 
     function startWatching(db: NonNullable<typeof powerSyncDb>) {
@@ -359,7 +452,7 @@ export function GlitterPosApp({
         [activeTenantId],
         {
           onResult: (results) => {
-            if (!db.currentStatus?.hasSynced) {
+            if (!isCurrent() || !db.currentStatus?.hasSynced) {
               return;
             }
             const rows = ((results.rows as unknown as { _array?: ProductRow[] })
@@ -379,7 +472,7 @@ export function GlitterPosApp({
     } else {
       unregister = powerSyncDb.registerListener({
         statusChanged: (status) => {
-          if (status.hasSynced && !controller.signal.aborted) {
+          if (status.hasSynced && isCurrent()) {
             startWatching(powerSyncDb);
             unregister?.();
             unregister = undefined;
@@ -392,12 +485,16 @@ export function GlitterPosApp({
       controller.abort();
       unregister?.();
     };
-  }, [powerSyncDb, hydrateProducts, activeTenantId]);
+  }, [powerSyncDb, hydrateProducts, activeTenantId, tenantWorkGeneration]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
 
     const controller = new AbortController();
+    const generation = tenantWorkGenerationRef.current;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      tenantWorkGenerationRef.current === generation;
     let unregister: (() => void) | undefined;
 
     function startWatching(db: NonNullable<typeof powerSyncDb>) {
@@ -406,7 +503,7 @@ export function GlitterPosApp({
         [activeTenantId],
         {
           onResult: (results) => {
-            if (!db.currentStatus?.hasSynced) {
+            if (!isCurrent() || !db.currentStatus?.hasSynced) {
               return;
             }
             const rows = ((
@@ -428,7 +525,7 @@ export function GlitterPosApp({
     } else {
       unregister = powerSyncDb.registerListener({
         statusChanged: (status) => {
-          if (status.hasSynced && !controller.signal.aborted) {
+          if (status.hasSynced && isCurrent()) {
             startWatching(powerSyncDb);
             unregister?.();
             unregister = undefined;
@@ -441,14 +538,18 @@ export function GlitterPosApp({
       controller.abort();
       unregister?.();
     };
-  }, [powerSyncDb, activeTenantId]);
+  }, [powerSyncDb, activeTenantId, tenantWorkGeneration]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
 
+    const generation = tenantWorkGenerationRef.current;
+    const controller = new AbortController();
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      tenantWorkGenerationRef.current === generation;
     setTeamSyncConfirmed(initialTenantMembersRef.current.length === 0);
     teamSyncEverConfirmedRef.current = false;
-    const controller = new AbortController();
     let unregister: (() => void) | undefined;
 
     function startWatching(db: NonNullable<typeof powerSyncDb>) {
@@ -457,6 +558,9 @@ export function GlitterPosApp({
         [activeTenantId],
         {
           onResult: (results) => {
+            if (!isCurrent()) {
+              return;
+            }
             const rows = ((
               results.rows as unknown as { _array?: LocalTenantUserRow[] }
             )?._array ?? []) as LocalTenantUserRow[];
@@ -495,7 +599,7 @@ export function GlitterPosApp({
     } else {
       unregister = powerSyncDb.registerListener({
         statusChanged: (status) => {
-          if (status.hasSynced && !controller.signal.aborted) {
+          if (status.hasSynced && isCurrent()) {
             startWatching(powerSyncDb);
             unregister?.();
             unregister = undefined;
@@ -508,7 +612,7 @@ export function GlitterPosApp({
       controller.abort();
       unregister?.();
     };
-  }, [powerSyncDb, activeTenantId]);
+  }, [powerSyncDb, activeTenantId, tenantWorkGeneration]);
 
   // Subscribe to sales + sale_lines + refunds. PowerSync's onChange fires
   // whenever any of the three tables mutates; we requery all three and
@@ -521,6 +625,10 @@ export function GlitterPosApp({
     if (!powerSyncDb || !activeTenantId) return;
 
     const controller = new AbortController();
+    const generation = tenantWorkGenerationRef.current;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      tenantWorkGenerationRef.current === generation;
     let unregister: (() => void) | undefined;
 
     function resolveUserName(userId: string) {
@@ -531,7 +639,7 @@ export function GlitterPosApp({
     }
 
     async function rebuildSales(db: NonNullable<typeof powerSyncDb>) {
-      if (!db.currentStatus?.hasSynced) {
+      if (!isCurrent() || !db.currentStatus?.hasSynced) {
         return;
       }
       try {
@@ -550,12 +658,12 @@ export function GlitterPosApp({
             [activeTenantId]
           ),
         ]);
-        if (controller.signal.aborted) return;
+        if (!isCurrent()) return;
         hydrateSales(
           buildSalesFromLocal(saleRows, lineRows, refundRows, resolveUserName)
         );
       } catch (error) {
-        if (!controller.signal.aborted) {
+        if (isCurrent()) {
           console.error("[PowerSync] sales rebuild failed", error);
         }
       }
@@ -582,7 +690,7 @@ export function GlitterPosApp({
     } else {
       unregister = powerSyncDb.registerListener({
         statusChanged: (status) => {
-          if (status.hasSynced && !controller.signal.aborted) {
+          if (status.hasSynced && isCurrent()) {
             startWatching(powerSyncDb);
             unregister?.();
             unregister = undefined;
@@ -602,27 +710,34 @@ export function GlitterPosApp({
     currentUserName,
     activeTenantId,
     userNameById,
+    tenantWorkGeneration,
   ]);
 
   useEffect(() => {
     if (!powerSyncDb) return;
     const db = powerSyncDb;
 
+    const generation = tenantWorkGenerationRef.current;
     let cancelled = false;
+    const isCurrent = () =>
+      !cancelled && tenantWorkGenerationRef.current === generation;
     draftCartReadyRef.current = false;
     const expectedCartRevision = usePosStore.getState().cartRevision;
 
     async function hydrateDraftCart() {
       try {
         await migrateLegacyDraftCartLocal(db);
+        if (!isCurrent()) return;
         const draft = await loadDraftCartLocal(db);
-        if (cancelled) return;
+        if (!isCurrent()) return;
 
         hydrateCart(draft.cart, draft.updatedAt, expectedCartRevision);
         draftCartReadyRef.current = true;
       } catch (error) {
-        console.error("[PowerSync] draft cart hydrate failed", error);
-        draftCartReadyRef.current = true;
+        if (isCurrent()) {
+          console.error("[PowerSync] draft cart hydrate failed", error);
+          draftCartReadyRef.current = true;
+        }
       }
     }
 
@@ -631,14 +746,21 @@ export function GlitterPosApp({
     return () => {
       cancelled = true;
     };
-  }, [powerSyncDb, hydrateCart]);
+  }, [powerSyncDb, hydrateCart, tenantWorkGeneration]);
 
   useEffect(() => {
     if (!powerSyncDb || !draftCartReadyRef.current) {
       return;
     }
 
+    const generation = tenantWorkGenerationRef.current;
     const timeout = window.setTimeout(() => {
+      if (
+        tenantWorkGenerationRef.current !== generation ||
+        !draftCartReadyRef.current
+      ) {
+        return;
+      }
       void saveDraftCartLocal(
         powerSyncDb,
         cart,
@@ -647,11 +769,16 @@ export function GlitterPosApp({
     }, 450);
 
     return () => window.clearTimeout(timeout);
-  }, [powerSyncDb, cart]);
+  }, [powerSyncDb, cart, tenantWorkGeneration]);
 
   useEffect(() => {
+    const generation = tenantWorkGenerationRef.current;
     function flushDraftCart() {
-      if (!powerSyncDb || !draftCartReadyRef.current) {
+      if (
+        !powerSyncDb ||
+        !draftCartReadyRef.current ||
+        tenantWorkGenerationRef.current !== generation
+      ) {
         return;
       }
 
@@ -675,7 +802,7 @@ export function GlitterPosApp({
       window.removeEventListener("pagehide", flushDraftCart);
       document.removeEventListener("visibilitychange", flushWhenHidden);
     };
-  }, [powerSyncDb]);
+  }, [powerSyncDb, tenantWorkGeneration]);
 
   function showToast(text: string, tone: ToastMessage["tone"] = "success") {
     if (tone === "danger") {
@@ -708,24 +835,25 @@ export function GlitterPosApp({
     tracksInventory: boolean;
     initialStock?: number;
   }) {
-    if (!tenantContext.tenant) {
-      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      showToast("Tu cuenta aún no está configurada.", "danger");
       return;
     }
+    const work = beginTenantWork();
+    const db = powerSyncDb;
     try {
       let uploadFailed = false;
       let hasInitial = false;
       if (editingProduct) {
         if (productHasInitialMovement(editingProduct.id, inventoryMovements)) {
           hasInitial = true;
-        } else if (
-          powerSyncDb?.currentStatus?.hasSynced &&
-          inventoryWatchReady
-        ) {
+        } else if (db?.currentStatus?.hasSynced && inventoryWatchReady) {
           hasInitial = await productHasInitialMovementLocal(
-            powerSyncDb,
+            db,
             editingProduct.id
           );
+          work.assertCurrent();
         } else if (!inventoryWatchReady && editingProduct.tracksInventory) {
           hasInitial = true;
         }
@@ -737,7 +865,7 @@ export function GlitterPosApp({
         !hasInitial;
 
       const inventoryPersistenceRequired =
-        !powerSyncDb &&
+        !db &&
         input.tracksInventory &&
         (needsInitialMovement ||
           !editingProduct ||
@@ -750,63 +878,78 @@ export function GlitterPosApp({
         return;
       }
 
-      if (powerSyncDb) {
+      if (db) {
+        work.assertCurrent();
         const productId = editingProduct
-          ? (await updateProductLocal(powerSyncDb, {
-              tenantId: tenantContext.tenant.id,
+          ? (await updateProductLocal(db, {
+              tenantId: tenant.id,
               productId: editingProduct.id,
               product: input,
+              assertCurrent: work.assertCurrent,
             }),
             editingProduct.id)
           : (
-              await createProductLocal(powerSyncDb, {
-                tenantId: tenantContext.tenant.id,
+              await createProductLocal(db, {
+                tenantId: tenant.id,
                 product: input,
+                assertCurrent: work.assertCurrent,
               })
             ).productId;
 
         if (needsInitialMovement) {
-          await addInventoryMovement(powerSyncDb, {
-            tenantId: tenantContext.tenant.id,
+          work.assertCurrent();
+          await addInventoryMovement(db, {
+            tenantId: tenant.id,
             userId: tenantContext.user.id,
             productId,
             delta: input.initialStock!,
             reason: "initial",
+            assertCurrent: work.assertCurrent,
           });
         }
 
         if (input.imageFile) {
           try {
-            await uploadProductImageLocal(
-              createSupabaseBrowserClient(),
-              powerSyncDb,
-              {
-                tenantId: tenantContext.tenant.id,
-                productId,
-                file: input.imageFile,
-              }
-            );
-          } catch {
+            work.assertCurrent();
+            await uploadProductImageLocal(createSupabaseBrowserClient(), db, {
+              tenantId: tenant.id,
+              productId,
+              file: input.imageFile,
+              assertCurrent: work.assertCurrent,
+            });
+          } catch (error) {
+            if (!work.isCurrent()) {
+              throw error;
+            }
             uploadFailed = true;
           }
         }
       } else {
+        work.assertCurrent();
         let product = editingProduct
           ? await updateProductAction(editingProduct.id, input)
           : await createProduct(input);
+        work.assertCurrent();
 
         if (input.imageFile) {
           const formData = new FormData();
           formData.set("image", input.imageFile);
           try {
+            work.assertCurrent();
             product = await uploadProductImage(product.id, formData);
-          } catch {
+            work.assertCurrent();
+          } catch (error) {
+            if (!work.isCurrent()) {
+              throw error;
+            }
             uploadFailed = true;
           }
         }
+        work.assertCurrent();
         upsertProduct(product);
       }
 
+      work.assertCurrent();
       if (uploadFailed) {
         showToast(
           "Producto guardado, pero no se pudo subir la imagen",
@@ -820,6 +963,9 @@ export function GlitterPosApp({
       }
       setView("products");
     } catch (error) {
+      if (!work.isCurrent()) {
+        return;
+      }
       showToast(
         error instanceof Error
           ? error.message
@@ -835,25 +981,34 @@ export function GlitterPosApp({
     reason: InventoryMovementReason;
     note?: string;
   }) {
-    if (!tenantContext.tenant) {
-      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      showToast("Tu cuenta aún no está configurada.", "danger");
       return;
     }
-    if (!powerSyncDb) {
+    const db = powerSyncDb;
+    if (!db) {
       showToast("Conecta para ajustar el inventario.", "info");
       return;
     }
+    const work = beginTenantWork();
     try {
-      await addInventoryMovement(powerSyncDb, {
-        tenantId: tenantContext.tenant.id,
+      work.assertCurrent();
+      await addInventoryMovement(db, {
+        tenantId: tenant.id,
         userId: tenantContext.user.id,
         productId: input.productId,
         delta: input.delta,
         reason: input.reason,
         note: input.note,
+        assertCurrent: work.assertCurrent,
       });
+      work.assertCurrent();
       showToast("Inventario actualizado", "success");
     } catch (error) {
+      if (!work.isCurrent()) {
+        return;
+      }
       showToast(
         error instanceof Error
           ? error.message
@@ -872,11 +1027,14 @@ export function GlitterPosApp({
     if (isCheckingOut || !cartDetails.length) {
       return;
     }
-    if (!tenantContext.tenant) {
-      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      showToast("Tu cuenta aún no está configurada.", "danger");
       return;
     }
 
+    const work = beginTenantWork();
+    const db = powerSyncDb;
     setIsCheckingOut(true);
 
     try {
@@ -884,9 +1042,10 @@ export function GlitterPosApp({
       // picks up the new rows and updates the sales list, and the upload
       // queue replicates to Supabase in the background. Fall back to the
       // server action during the brief window before PowerSync is ready.
-      if (powerSyncDb) {
-        await createSaleLocal(powerSyncDb, {
-          tenantId: tenantContext.tenant.id,
+      if (db) {
+        work.assertCurrent();
+        await createSaleLocal(db, {
+          tenantId: tenant.id,
           userId: tenantContext.user.id,
           paymentMethod: method,
           saleDiscountCents: discount,
@@ -897,14 +1056,17 @@ export function GlitterPosApp({
             lineDiscountCents: line.lineDiscountCents,
             lineDiscountReason: line.lineDiscountReason,
           })),
+          assertCurrent: work.assertCurrent,
         });
+        work.assertCurrent();
         clearCart();
-        void clearDraftCartLocal(powerSyncDb);
+        void clearDraftCartLocal(db);
         const totalCents = Math.max(0, cartSubtotal - discount);
         showToast(
           `Venta registrada · ${formatBs(totalCents, true)} · ${paymentLabels[method]}`
         );
       } else {
+        work.assertCurrent();
         const sale = await createSale({
           paymentMethod: method,
           saleDiscountCents: discount,
@@ -916,13 +1078,18 @@ export function GlitterPosApp({
             lineDiscountReason: line.lineDiscountReason,
           })),
         });
+        work.assertCurrent();
         recordSale(sale);
         showToast(
           `Venta registrada · ${saleTotal(sale)} · ${paymentLabels[method]}`
         );
       }
+      work.assertCurrent();
       setView("sell");
     } catch (error) {
+      if (!work.isCurrent()) {
+        return;
+      }
       showToast(
         error instanceof Error
           ? error.message
@@ -930,29 +1097,42 @@ export function GlitterPosApp({
         "danger"
       );
     } finally {
-      setIsCheckingOut(false);
+      if (work.isCurrent()) {
+        setIsCheckingOut(false);
+      }
     }
   }
 
   async function handleVoidSale(saleId: string) {
-    if (!tenantContext.tenant) {
-      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      showToast("Tu cuenta aún no está configurada.", "danger");
       return false;
     }
+    const work = beginTenantWork();
+    const db = powerSyncDb;
     try {
-      if (powerSyncDb) {
-        await voidSaleLocal(powerSyncDb, {
+      if (db) {
+        work.assertCurrent();
+        await voidSaleLocal(db, {
           saleId,
           userId: tenantContext.user.id,
-          tenantId: tenantContext.tenant.id,
+          tenantId: tenant.id,
+          assertCurrent: work.assertCurrent,
         });
       } else {
+        work.assertCurrent();
         const sale = await voidSaleAction(saleId);
+        work.assertCurrent();
         upsertSale(sale);
       }
+      work.assertCurrent();
       showToast("Venta anulada", "info");
       return true;
     } catch (error) {
+      if (!work.isCurrent()) {
+        return false;
+      }
       showToast(
         error instanceof Error ? error.message : "No se pudo anular la venta",
         "danger"
@@ -962,24 +1142,35 @@ export function GlitterPosApp({
   }
 
   async function handleRefundSale(saleId: string) {
-    if (!tenantContext.tenant) {
-      showToast("Tu cuenta aún no tiene un tenant.", "danger");
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      showToast("Tu cuenta aún no está configurada.", "danger");
       return false;
     }
+    const work = beginTenantWork();
+    const db = powerSyncDb;
     try {
-      if (powerSyncDb) {
-        await refundSaleLocal(powerSyncDb, {
+      if (db) {
+        work.assertCurrent();
+        await refundSaleLocal(db, {
           saleId,
           userId: tenantContext.user.id,
-          tenantId: tenantContext.tenant.id,
+          tenantId: tenant.id,
+          assertCurrent: work.assertCurrent,
         });
       } else {
+        work.assertCurrent();
         const sale = await refundSaleAction(saleId);
+        work.assertCurrent();
         upsertSale(sale);
       }
+      work.assertCurrent();
       showToast("Reembolso registrado", "info");
       return true;
     } catch (error) {
+      if (!work.isCurrent()) {
+        return false;
+      }
       showToast(
         error instanceof Error
           ? error.message
@@ -1044,22 +1235,33 @@ export function GlitterPosApp({
         openEditor={openEditor}
         onImport={openImport}
         restoreProduct={async (productId) => {
-          if (!tenantContext.tenant) {
-            showToast("Tu cuenta aún no tiene un tenant.", "danger");
+          const tenant = tenantContext.tenant;
+          if (!tenant) {
+            showToast("Tu cuenta aún no está configurada.", "danger");
             return;
           }
+          const work = beginTenantWork();
+          const db = powerSyncDb;
           try {
-            if (powerSyncDb) {
-              await restoreProductLocal(powerSyncDb, {
-                tenantId: tenantContext.tenant.id,
+            if (db) {
+              work.assertCurrent();
+              await restoreProductLocal(db, {
+                tenantId: tenant.id,
                 productId,
+                assertCurrent: work.assertCurrent,
               });
             } else {
+              work.assertCurrent();
               const product = await restoreProductAction(productId);
+              work.assertCurrent();
               upsertProduct(product);
             }
+            work.assertCurrent();
             showToast("Producto restaurado", "info");
           } catch (error) {
+            if (!work.isCurrent()) {
+              return;
+            }
             showToast(
               error instanceof Error
                 ? error.message
@@ -1128,23 +1330,34 @@ export function GlitterPosApp({
         }
         save={handleSaveProduct}
         archive={async (productId) => {
-          if (!tenantContext.tenant) {
-            showToast("Tu cuenta aún no tiene un tenant.", "danger");
+          const tenant = tenantContext.tenant;
+          if (!tenant) {
+            showToast("Tu cuenta aún no está configurada.", "danger");
             return;
           }
+          const work = beginTenantWork();
+          const db = powerSyncDb;
           try {
-            if (powerSyncDb) {
-              await archiveProductLocal(powerSyncDb, {
-                tenantId: tenantContext.tenant.id,
+            if (db) {
+              work.assertCurrent();
+              await archiveProductLocal(db, {
+                tenantId: tenant.id,
                 productId,
+                assertCurrent: work.assertCurrent,
               });
             } else {
+              work.assertCurrent();
               const product = await archiveProductAction(productId);
+              work.assertCurrent();
               upsertProduct(product);
             }
+            work.assertCurrent();
             showToast("Producto archivado", "info");
             setView("products");
           } catch (error) {
+            if (!work.isCurrent()) {
+              return;
+            }
             showToast(
               error instanceof Error
                 ? error.message

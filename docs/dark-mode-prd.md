@@ -66,15 +66,15 @@ less battery on OLED phones.
   bespoke vars (`--bg`, `--ink`, `--hairline`, `--shadow`, `--soft-shadow`,
   `--green`, `--amber`, `--danger`, `--amber-surface`).
 - **The dark variant is wired for utilities.** `@custom-variant dark (&:is(.dark,
-  .dark *))` means any `dark:` Tailwind utility activates under a `.dark`
+.dark *))` means any `dark:` Tailwind utility activates under a `.dark`
   ancestor, and `@theme inline` maps the tokens to `--color-*`. Components built
   on semantic tokens (`bg-card`, `text-muted-foreground`, `border-border`,
   `bg-primary`, `ring-foreground/10`, …) flip automatically when `.dark` is
   present on `<html>`.
 
-**Theme plumbing (`next-themes` → `.dark` on `<html>`)**
+**Theme plumbing (`@wrksz/themes` → `.dark` on `<html>`)**
 
-- **`next-themes` is installed** (`package.json`).
+- **`@wrksz/themes` is installed** (`package.json`).
 - **`ThemeProvider`** (`components/providers/theme-provider.tsx`) wraps the app
   with `attribute="class"`, `defaultTheme="system"`, `enableSystem`,
   `storageKey="glitter-theme"`, and `disableTransitionOnChange`. It injects the
@@ -93,7 +93,7 @@ less battery on OLED phones.
   `SHELL_THEME_COLORS` (`lib/shell-theme-colors.ts`) — light and dark surface
   colors aligned with each mode's `--bg` (not the brand crimson; see §9).
 - **`ThemeColorSync`** (`components/atoms/theme-color-sync.tsx`) reads
-  `resolvedTheme` from `next-themes` and overrides every
+  `resolvedTheme` from `@wrksz/themes` and overrides every
   `<meta name="theme-color">` when the user forces Claro/Oscuro against the OS
   (§5.6). Mounted in `app/layout.tsx` inside `ThemeProvider`.
 
@@ -156,7 +156,7 @@ OS; in Claro/Oscuro it's fixed.
 
 - A tiny blocking inline script in `<head>` reads the stored mode (falling back
   to system) and sets `class="dark"` (or removes it) on `<html>` **before first
-  paint**. This is the standard pattern and what `next-themes` injects.
+  paint**. This is the standard pattern and what `@wrksz/themes` injects.
 - `<html>` gets `suppressHydrationWarning` because the script mutates it before
   hydration.
 - Acceptance: cold-starting the installed PWA in dark mode shows no white flash
@@ -205,7 +205,7 @@ implemented — see §4.1. Remaining work is in §4.2:
 
 ## 7. Technical Approach
 
-**Implemented with `next-themes`** (shadcn-canonical, ~2KB, fully offline). See
+**Implemented with `@wrksz/themes`** (shadcn-canonical, ~2KB, fully offline). See
 §4.1 for the wired setup:
 
 - `ThemeProvider` (`components/providers/theme-provider.tsx`) — `attribute="class"`,
@@ -218,11 +218,11 @@ implemented — see §4.1. Remaining work is in §4.2:
 
 The pre-paint no-flash script, `localStorage` persistence, cross-tab sync, live
 `matchMedia` updates, and `useTheme()` (`theme` + `resolvedTheme` + `setTheme`) all
-come from `next-themes` as planned.
+come from `@wrksz/themes` as planned.
 
 ## 8. Implementation Plan
 
-1. ~~**Plumbing:** install `next-themes`; add `ThemeProvider`; wrap in layout;
+1. ~~**Plumbing:** install `@wrksz/themes`; add `ThemeProvider`; wrap in layout;
    `suppressHydrationWarning`; verify class toggles and persists. No flash.~~ ✓
    (§4.1)
 2. ~~**Token gaps:** dark overrides for bespoke vars; theme-aware `html`/`body`;
@@ -235,7 +235,7 @@ come from `next-themes` as planned.
    PWA and Android Chrome PWA; fix contrast issues. (§4.2, §6.5)
 6. **`manifest.webmanifest` install chrome** — per-mode `theme_color` /
    `background_color`. (§4.2, §6.6)
-7. *(Optional)* header quick-toggle, if chosen in §10.
+7. _(Optional)_ header quick-toggle, if chosen in §10.
 
 ## 9. Primary Color Note (cross-reference)
 
@@ -270,7 +270,7 @@ without a separate go-ahead. Two related observations to flag, not fix here:
    via `defaultTheme="system"`).
 3. ~~**`theme-color` strategy:**~~ Resolved — provider-managed via
    `ThemeColorSync` + media-query fallback in `app/layout.tsx` (§4.1).
-4. ~~**Dependency:**~~ Resolved — `next-themes` in use (§4.1).
+4. ~~**Dependency:**~~ Resolved — `@wrksz/themes` in use (§4.1).
 5. **Tune dark accent values** (`--green`/`--amber`) now, or only if the audit
    shows contrast failures?
 

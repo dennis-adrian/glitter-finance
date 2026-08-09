@@ -1,7 +1,7 @@
 "use client";
 
 import { Monitor, Moon, Sun } from "lucide-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@wrksz/themes/client";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -19,12 +19,7 @@ export function ThemePicker() {
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
-    return (
-      <div
-        className="grid h-14 grid-cols-3 gap-2"
-        aria-hidden
-      />
-    );
+    return <div className="grid h-14 grid-cols-3 gap-2" aria-hidden />;
   }
 
   return (

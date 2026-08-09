@@ -17,5 +17,5 @@ export const emptyProduct: Product = {
 };
 
 export function getProductInitial(name: string) {
-  return name.trim().charAt(0).toUpperCase() || "G";
+  return name.trim().charAt(0).toUpperCase() || "P";
 }

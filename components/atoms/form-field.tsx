@@ -15,7 +15,12 @@ type FormFieldProps = {
   children: ReactNode;
 };
 
-export function FormField({ label, hint, id: idProp, children }: FormFieldProps) {
+export function FormField({
+  label,
+  hint,
+  id: idProp,
+  children,
+}: FormFieldProps) {
   const generatedId = useId();
   const childId = isValidElement(children)
     ? (children.props as { id?: string }).id

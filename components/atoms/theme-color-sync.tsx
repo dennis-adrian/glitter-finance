@@ -1,7 +1,7 @@
 "use client";
 
 import { SHELL_THEME_COLORS } from "@/lib/shell-theme-colors";
-import { useTheme } from "next-themes";
+import { useTheme } from "@wrksz/themes/client";
 import { useEffect } from "react";
 
 export function ThemeColorSync() {

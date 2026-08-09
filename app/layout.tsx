@@ -7,18 +7,19 @@ import { Inter, Geist } from "next/font/google";
 import { SHELL_THEME_COLORS } from "@/lib/shell-theme-colors";
 import { cn } from "@/lib/utils";
 
-const geistHeading = Geist({subsets:['latin'],variable:'--font-heading'});
+const geistHeading = Geist({ subsets: ["latin"], variable: "--font-heading" });
 
-const inter = Inter({subsets:['latin'],variable:'--font-sans'});
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Glitter POS",
-  description: "POS offline-first para vendedores de ferias y convenciones.",
+  title: "Billetera Ferial",
+  description:
+    "Punto de venta sin conexión para vendedores de ferias y convenciones.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Glitter POS",
+    title: "Billetera Ferial",
   },
   icons: {
     icon: [
@@ -46,7 +47,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="es"
+      lang="es-BO"
       className={cn("font-sans", inter.variable, geistHeading.variable)}
       suppressHydrationWarning
     >

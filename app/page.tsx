@@ -35,7 +35,12 @@ export default async function Home() {
     : [[], [], [], [], null];
 
   return (
-    <PowerSyncProvider>
+    <PowerSyncProvider
+      identity={{
+        userId: context.user.id,
+        tenantId: context.tenant?.id ?? null,
+      }}
+    >
       <GlitterPosApp
         tenantContext={context}
         initialProducts={initialProducts}
