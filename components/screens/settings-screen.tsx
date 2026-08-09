@@ -80,6 +80,10 @@ export function SettingsScreen({
   const [tenantActionError, setTenantActionError] = useState<string | null>(
     null
   );
+  const syncFailureExplanation =
+    syncFailureCount === 1
+      ? "Hay una operación que no llegó a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión."
+      : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión.`;
 
   // Best-effort local teardown after the active tenant changed server-side:
   // clear the previous tenant's local store, refresh the JWT so it carries the
@@ -172,11 +176,7 @@ export function SettingsScreen({
   async function handleSignOut(_formData: FormData) {
     if (signingOut) return;
     if (syncFailureCount > 0) {
-      setTenantActionError(
-        syncFailureCount === 1
-          ? "Hay una operación que no llegó a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión."
-          : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión.`
-      );
+      setTenantActionError(syncFailureExplanation);
       return;
     }
     setSigningOut(true);
@@ -423,6 +423,11 @@ export function SettingsScreen({
       </section>
 
       <form action={handleSignOut} className="mt-5">
+        {syncFailureCount > 0 ? (
+          <p className="mb-3 text-xs leading-relaxed text-destructive">
+            {syncFailureExplanation}
+          </p>
+        ) : null}
         <Button
           variant="outline"
           size="lg"

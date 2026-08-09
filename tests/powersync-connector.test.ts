@@ -54,11 +54,13 @@ function saleTransaction() {
 test("uploads a sale transaction through one RPC before completing", async () => {
   const rpcCalls: { name: string; args: unknown }[] = [];
   const localWrites: string[] = [];
+  const events: string[] = [];
   let completeCount = 0;
   const operations = saleTransaction();
   const supabase = {
     rpc: async (name: string, args: unknown) => {
       rpcCalls.push({ name, args });
+      events.push("remote-commit");
       return { error: null };
     },
     from: () => {
@@ -71,10 +73,12 @@ test("uploads a sale transaction through one RPC before completing", async () =>
       transactionId: 17,
       complete: async () => {
         completeCount += 1;
+        events.push("complete");
       },
     }),
     execute: async (sql: string) => {
       localWrites.push(sql);
+      events.push("resolve-marker");
     },
   } as unknown as AbstractPowerSyncDatabase;
 
@@ -84,10 +88,79 @@ test("uploads a sale transaction through one RPC before completing", async () =>
   assert.equal(rpcCalls[0].name, "powersync_create_sale");
   assert.match(localWrites[0], /UPDATE sync_failures/);
   assert.equal(completeCount, 1);
+  assert.deepEqual(events, ["remote-commit", "complete", "resolve-marker"]);
+});
+
+test("advances the queue when resolving a local failure marker fails", async () => {
+  let completeCount = 0;
+  const operations = saleTransaction();
+  const supabase = {
+    rpc: async () => ({ error: null }),
+  } as unknown as SupabaseClient;
+  const db = {
+    getNextCrudTransaction: async () => ({
+      crud: operations,
+      transactionId: 20,
+      complete: async () => {
+        completeCount += 1;
+      },
+    }),
+    execute: async () => {
+      throw new Error("Local marker resolution failed");
+    },
+  } as unknown as AbstractPowerSyncDatabase;
+
+  await new SupabaseConnector(supabase).uploadData(db);
+
+  assert.equal(completeCount, 1);
+});
+
+test("passes the local void timestamp to the atomic void RPC", async () => {
+  const rpcCalls: { name: string; args: unknown }[] = [];
+  const operations = [
+    operation({
+      clientId: 3,
+      table: "sales",
+      id: "sale-1",
+      op: UpdateType.PATCH,
+      data: {
+        voided_at: "2026-08-08T20:00:00.000Z",
+        voided_by_user_id: "user-1",
+      },
+    }),
+  ];
+  const supabase = {
+    rpc: async (name: string, args: unknown) => {
+      rpcCalls.push({ name, args });
+      return { error: null };
+    },
+  } as unknown as SupabaseClient;
+  const db = {
+    getNextCrudTransaction: async () => ({
+      crud: operations,
+      transactionId: 21,
+      complete: async () => undefined,
+    }),
+    execute: async () => undefined,
+  } as unknown as AbstractPowerSyncDatabase;
+
+  await new SupabaseConnector(supabase).uploadData(db);
+
+  assert.deepEqual(rpcCalls, [
+    {
+      name: "powersync_void_sale",
+      args: {
+        sale_id: "sale-1",
+        voided_by_user_id: "user-1",
+        voided_at_value: "2026-08-08T20:00:00.000Z",
+      },
+    },
+  ]);
 });
 
 test("records a permanent RPC failure and leaves the transaction queued", async () => {
   const localWrites: string[] = [];
+  const localReads: string[] = [];
   let writeTransactionCount = 0;
   let completeCount = 0;
   const operations = saleTransaction();
@@ -109,7 +182,10 @@ test("records a permanent RPC failure and leaves the transaction queued", async 
     writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) => {
       writeTransactionCount += 1;
       return callback({
-        getOptional: async () => null,
+        getOptional: async (sql: string) => {
+          localReads.push(sql);
+          return null;
+        },
         execute: async (sql: string) => {
           localWrites.push(sql);
           return { rowsAffected: 1 };
@@ -125,6 +201,7 @@ test("records a permanent RPC failure and leaves the transaction queued", async 
 
   assert.equal(completeCount, 0);
   assert.equal(writeTransactionCount, 1);
+  assert.match(localReads[0], /resolved_at IS NULL/);
   assert.equal(localWrites.length, 2);
   assert.match(localWrites[0], /DELETE FROM sync_failures/);
   assert.match(localWrites[1], /INSERT INTO sync_failures/);

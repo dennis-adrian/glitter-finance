@@ -170,6 +170,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         const result = await this.supabase.rpc("powersync_void_sale", {
           sale_id: plan.saleId,
           voided_by_user_id: plan.voidedByUserId,
+          voided_at_value: plan.voidedAt,
         });
         if (result.error) throw result.error;
       } else if (plan.kind === "create-refund") {
@@ -181,11 +182,18 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         await this.uploadSingleOperation(plan.operation);
       }
 
-      await resolveSyncFailure(database, {
-        transactionId: transaction.transactionId,
-        operations: transaction.crud,
-      });
       await transaction.complete();
+      try {
+        await resolveSyncFailure(database, {
+          transactionId: transaction.transactionId,
+          operations: transaction.crud,
+        });
+      } catch (resolutionError) {
+        console.error("[PowerSync] failed to resolve sync failure marker", {
+          transactionId: transaction.transactionId,
+          error: resolutionError,
+        });
+      }
     } catch (error) {
       if (isFatalError(error)) {
         console.error(

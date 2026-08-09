@@ -56,6 +56,12 @@ function sanitizeEvent<T extends Event>(event: T): T {
     );
   }
 
+  for (const exception of event.exception?.values ?? []) {
+    if (exception.value) {
+      exception.value = sanitizeUrl(exception.value);
+    }
+  }
+
   return event;
 }
 

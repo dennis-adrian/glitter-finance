@@ -13,7 +13,7 @@ import {
   ClipboardCopy,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -100,6 +100,7 @@ export function DiagnosticsScreen({
   const db = useOptionalPowerSyncDb();
   const controls = usePowerSyncControls();
   const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot);
+  const lastFailuresRef = useRef<SyncFailure[]>([]);
   const [device, setDevice] = useState<DeviceInfo>(readDeviceInfoSync);
   const [reconnecting, setReconnecting] = useState(false);
   const [copyConfirmed, setCopyConfirmed] = useState(false);
@@ -107,6 +108,7 @@ export function DiagnosticsScreen({
   // Sync state — re-fetch on status changes plus a 2s poll for the queue
   // count, which isn't part of the status event stream.
   useEffect(() => {
+    lastFailuresRef.current = [];
     if (!db) {
       setSnapshot(emptySnapshot);
       return;
@@ -118,19 +120,20 @@ export function DiagnosticsScreen({
       const status = db.currentStatus;
       let pendingCount = 0;
       let pendingBytes: number | null = null;
-      let failures: SyncFailure[] = [];
+      let failures = lastFailuresRef.current;
       const [statsResult, failuresResult] = await Promise.allSettled([
         db.getUploadQueueStats(true),
         getUnresolvedSyncFailures(db),
       ]);
+      if (cancelled) return;
       if (statsResult.status === "fulfilled") {
         pendingCount = statsResult.value.count;
         pendingBytes = statsResult.value.size;
       }
       if (failuresResult.status === "fulfilled") {
         failures = failuresResult.value;
+        lastFailuresRef.current = failures;
       }
-      if (cancelled) return;
       setSnapshot({
         connected: status?.connected ?? false,
         hasSynced: status?.hasSynced ?? false,

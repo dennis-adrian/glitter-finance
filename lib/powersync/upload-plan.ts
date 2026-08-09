@@ -12,6 +12,7 @@ export type UploadPlan =
       kind: "void-sale";
       saleId: string;
       voidedByUserId: string;
+      voidedAt: string;
     }
   | {
       kind: "create-refund";
@@ -97,6 +98,7 @@ export function createUploadPlan(operations: CrudEntry[]): UploadPlan {
       kind: "void-sale",
       saleId: operation.id,
       voidedByUserId: operation.opData.voided_by_user_id,
+      voidedAt: operation.opData.voided_at,
     };
   }
 

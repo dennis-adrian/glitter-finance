@@ -265,9 +265,12 @@ BEGIN
 END;
 $$;
 
+DROP FUNCTION IF EXISTS public.powersync_void_sale(uuid, uuid);
+
 CREATE OR REPLACE FUNCTION public.powersync_void_sale(
   sale_id uuid,
-  voided_by_user_id uuid
+  voided_by_user_id uuid,
+  voided_at_value timestamptz
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -278,6 +281,12 @@ DECLARE
   authenticated_user_id uuid := auth.uid();
   sale_record public.sales%ROWTYPE;
 BEGIN
+  IF voided_at_value IS NULL THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '22023',
+      MESSAGE = 'A void timestamp is required.';
+  END IF;
+
   IF authenticated_user_id IS NULL
      OR voided_by_user_id IS DISTINCT FROM authenticated_user_id THEN
     RAISE EXCEPTION USING
@@ -301,10 +310,18 @@ BEGIN
     RETURN sale_record.id;
   END IF;
 
-  IF clock_timestamp() > sale_record.created_at + interval '10 minutes' THEN
+  IF voided_at_value < sale_record.created_at
+     OR voided_at_value > sale_record.created_at + interval '10 minutes' THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
       MESSAGE = 'Sales can only be voided within 10 minutes.';
+  END IF;
+
+  IF voided_at_value < clock_timestamp() - interval '24 hours'
+     OR voided_at_value > clock_timestamp() + interval '5 minutes' THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'The void timestamp is outside the accepted upload window.';
   END IF;
 
   IF EXISTS (
@@ -317,7 +334,7 @@ BEGIN
   END IF;
 
   UPDATE public.sales
-  SET voided_at = clock_timestamp(),
+  SET voided_at = voided_at_value,
       voided_by_user_id = authenticated_user_id
   WHERE sales.id = sale_record.id;
 
@@ -360,6 +377,14 @@ BEGIN
   refund_user_id_value := (refund_row ->> 'user_id')::uuid;
   refund_created_at_value := (refund_row ->> 'created_at')::timestamptz;
   refund_client_created_at_value := (refund_row ->> 'client_created_at')::timestamptz;
+
+  IF refund_id_value IS NULL
+     OR tenant_id_value IS NULL
+     OR refund_created_at_value IS NULL THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '22023',
+      MESSAGE = 'The refund id, tenant_id, and created_at fields are required.';
+  END IF;
 
   IF refund_user_id_value IS DISTINCT FROM authenticated_user_id
      OR NOT public.current_user_has_tenant(tenant_id_value) THEN
@@ -463,10 +488,18 @@ BEGIN
       MESSAGE = 'A sale update must be a first-time void.';
   END IF;
 
-  IF clock_timestamp() > OLD.created_at + interval '10 minutes' THEN
+  IF NEW.voided_at < OLD.created_at
+     OR NEW.voided_at > OLD.created_at + interval '10 minutes' THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
       MESSAGE = 'Sales can only be voided within 10 minutes.';
+  END IF;
+
+  IF NEW.voided_at < clock_timestamp() - interval '24 hours'
+     OR NEW.voided_at > clock_timestamp() + interval '5 minutes' THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23514',
+      MESSAGE = 'The void timestamp is outside the accepted upload window.';
   END IF;
 
   IF EXISTS (
@@ -478,7 +511,6 @@ BEGIN
       MESSAGE = 'A refunded sale cannot be voided.';
   END IF;
 
-  NEW.voided_at := clock_timestamp();
   RETURN NEW;
 END;
 $$;
@@ -494,14 +526,16 @@ REVOKE INSERT ON public.sales FROM authenticated;
 REVOKE UPDATE ON public.sales FROM authenticated;
 REVOKE DELETE ON public.sales FROM authenticated;
 REVOKE INSERT ON public.sale_lines FROM authenticated;
+REVOKE UPDATE ON public.sale_lines FROM authenticated;
 REVOKE DELETE ON public.sale_lines FROM authenticated;
 REVOKE INSERT ON public.refunds FROM authenticated;
+REVOKE UPDATE ON public.refunds FROM authenticated;
 REVOKE DELETE ON public.refunds FROM authenticated;
 
 REVOKE ALL ON FUNCTION public.powersync_create_sale(jsonb, jsonb) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.powersync_void_sale(uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.powersync_void_sale(uuid, uuid, timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.powersync_create_refund(jsonb) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION public.powersync_create_sale(jsonb, jsonb) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.powersync_void_sale(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.powersync_void_sale(uuid, uuid, timestamptz) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.powersync_create_refund(jsonb) TO authenticated;

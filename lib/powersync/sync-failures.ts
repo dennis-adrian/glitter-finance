@@ -68,7 +68,8 @@ export async function recordSyncFailure(
   const failureId = syncFailureId(input);
   await db.writeTransaction(async (tx) => {
     const existing = await tx.getOptional<{ created_at: string }>(
-      `SELECT created_at FROM sync_failures WHERE id = ?`,
+      `SELECT created_at FROM sync_failures
+       WHERE id = ? AND resolved_at IS NULL`,
       [failureId]
     );
 

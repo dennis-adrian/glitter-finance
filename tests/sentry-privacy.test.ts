@@ -11,6 +11,15 @@ test("removes request identity, credentials, bodies, and URL secrets", () => {
   const event = {
     type: undefined,
     user: { id: "user-1", email: "person@example.com" },
+    exception: {
+      values: [
+        {
+          type: "Error",
+          value: "Request failed for /join/secret-token",
+          mechanism: { type: "generic", handled: true },
+        },
+      ],
+    },
     request: {
       url: "https://pos.example.com/join/secret-token?email=person@example.com",
       headers: { authorization: "Bearer secret" },
@@ -39,6 +48,14 @@ test("removes request identity, credentials, bodies, and URL secrets", () => {
   const sanitized = sanitizeSentryEvent(event);
 
   assert.equal(sanitized.user, undefined);
+  assert.equal(
+    sanitized.exception?.values?.[0].value,
+    "Request failed for /join/[redacted]"
+  );
+  assert.deepEqual(sanitized.exception?.values?.[0].mechanism, {
+    type: "generic",
+    handled: true,
+  });
   assert.deepEqual(sanitized.request, {
     url: "https://pos.example.com/join/[redacted]",
   });

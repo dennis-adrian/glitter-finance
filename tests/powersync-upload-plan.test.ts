@@ -88,6 +88,7 @@ test("routes only a complete void patch through the void RPC", () => {
     kind: "void-sale",
     saleId: "sale-1",
     voidedByUserId: "user-1",
+    voidedAt: "2026-08-08T20:00:00.000Z",
   });
 });
 
