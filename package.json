@@ -2,6 +2,16 @@
   "name": "glitter-pos",
   "version": "0.3.0",
   "private": true,
+  "packageManager": "pnpm@10.34.3",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@journeyapps/wa-sqlite",
+      "@swc/core",
+      "esbuild",
+      "sharp",
+      "unrs-resolver"
+    ]
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
