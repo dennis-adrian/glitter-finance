@@ -11,6 +11,8 @@ const pageCacheName = "glitter-pos-pages";
 const localDataTeardownStartingEvent =
   "glitter-pos-local-data-teardown-starting";
 const localDataTeardownFailedEvent = "glitter-pos-local-data-teardown-failed";
+const localDataTeardownTerminalEvent =
+  "glitter-pos-local-data-teardown-terminal";
 const localDataClearedEvent = "glitter-pos-local-data-cleared";
 
 export type LocalDataIdentity = {
@@ -27,7 +29,12 @@ const unavailableCacheStorage: CacheStorageLike = {
 
 export class LocalDataTeardownError extends Error {
   constructor(
-    readonly stage: "sync-failures" | "powersync" | "cache" | "storage",
+    readonly stage:
+      | "sync-failures"
+      | "powersync"
+      | "cache"
+      | "storage"
+      | "post-destructive",
     message: string,
     options?: ErrorOptions
   ) {
@@ -175,6 +182,12 @@ function notifyLocalDataTeardownFailed() {
   }
 }
 
+function notifyLocalDataTeardownTerminal() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(localDataTeardownTerminalEvent));
+  }
+}
+
 export function onLocalDataTeardownStarting(listener: () => void) {
   if (typeof window === "undefined") {
     return () => {};
@@ -191,6 +204,15 @@ export function onLocalDataTeardownFailed(listener: () => void) {
   window.addEventListener(localDataTeardownFailedEvent, listener);
   return () =>
     window.removeEventListener(localDataTeardownFailedEvent, listener);
+}
+
+export function onLocalDataTeardownTerminal(listener: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  window.addEventListener(localDataTeardownTerminalEvent, listener);
+  return () =>
+    window.removeEventListener(localDataTeardownTerminalEvent, listener);
 }
 
 export function onLocalDataCleared(listener: () => void) {
@@ -278,7 +300,13 @@ export async function teardownLocalUserData(input: {
   }
 
   if (postDestructiveError) {
-    notifyLocalDataTeardownFailed();
-    throw postDestructiveError;
+    notifyLocalDataTeardownTerminal();
+    throw new LocalDataTeardownError(
+      "post-destructive",
+      postDestructiveError instanceof Error
+        ? postDestructiveError.message
+        : "No se pudo completar la limpieza local.",
+      { cause: postDestructiveError }
+    );
   }
 }

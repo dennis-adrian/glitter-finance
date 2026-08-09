@@ -6,6 +6,7 @@ import {
   onLocalDataCleared,
   onLocalDataTeardownFailed,
   onLocalDataTeardownStarting,
+  onLocalDataTeardownTerminal,
   readLocalDataIdentity,
   saveLocalDataIdentity,
   teardownLocalUserData,
@@ -188,6 +189,9 @@ test("a post-destructive failure clears memory and prevents server sign-out", as
   await withBrowser(async (storage) => {
     const events: string[] = [];
     let serverSignOutCalled = false;
+    const identity = { userId: "user-a", tenantId: "tenant-a" };
+    const tenantWork = new TenantWorkController(identity);
+    const staleWork = tenantWork.begin();
     const db = {
       getOptional: async () => ({ count: 0 }),
       disconnectAndClear: async () => {
@@ -195,13 +199,19 @@ test("a post-destructive failure clears memory and prevents server sign-out", as
       },
     } as unknown as AbstractPowerSyncDatabase;
 
-    window.addEventListener("glitter-pos-local-data-cleared", () => {
+    const stopTenantWork = onLocalDataTeardownStarting(() =>
+      tenantWork.cancel()
+    );
+    const resumeTenantWork = onLocalDataTeardownFailed(() =>
+      tenantWork.resumeAfterFailedTeardown()
+    );
+    const observeCleared = onLocalDataCleared(() => {
       events.push("clear-memory");
     });
-    window.addEventListener("glitter-pos-local-data-teardown-failed", () => {
-      events.push("teardown-failed");
+    const observeTerminal = onLocalDataTeardownTerminal(() => {
+      events.push("teardown-terminal");
     });
-    saveLocalDataIdentity({ userId: "user-a", tenantId: "tenant-a" });
+    saveLocalDataIdentity(identity);
     storage.failRemovalFor("glitter-pos-local-data-identity-v1");
     usePosStore.setState({
       products: [{} as Product],
@@ -209,38 +219,50 @@ test("a post-destructive failure clears memory and prevents server sign-out", as
       sales: [{} as Sale],
     });
 
-    await assert.rejects(
-      signOutAfterLocalTeardown(
-        () =>
-          teardownLocalUserData({
-            db,
-            powerSyncRequired: true,
-            refuseWhenSyncFailuresExist: true,
-            cacheStorage: {
-              keys: async () => [],
-              delete: async () => true,
-            },
-          }),
-        async () => {
-          serverSignOutCalled = true;
-        }
-      ),
-      /No se pudo limpiar el almacenamiento local/
-    );
+    try {
+      await assert.rejects(
+        signOutAfterLocalTeardown(
+          () =>
+            teardownLocalUserData({
+              db,
+              powerSyncRequired: true,
+              refuseWhenSyncFailuresExist: true,
+              cacheStorage: {
+                keys: async () => [],
+                delete: async () => true,
+              },
+            }),
+          async () => {
+            serverSignOutCalled = true;
+          }
+        ),
+        /No se pudo limpiar el almacenamiento local/
+      );
 
-    assert.deepEqual(events, [
-      "clear-powersync",
-      "clear-memory",
-      "teardown-failed",
-    ]);
-    assert.equal(serverSignOutCalled, false);
-    assert.notEqual(
-      storage.getItem("glitter-pos-local-data-identity-v1"),
-      null
-    );
-    assert.deepEqual(usePosStore.getState().products, []);
-    assert.deepEqual(usePosStore.getState().cart, []);
-    assert.deepEqual(usePosStore.getState().sales, []);
+      assert.deepEqual(events, [
+        "clear-powersync",
+        "clear-memory",
+        "teardown-terminal",
+      ]);
+      assert.equal(staleWork.isCurrent(), false);
+      assert.throws(
+        () => tenantWork.begin().assertCurrent(),
+        /Tenant work was cancelled/
+      );
+      assert.equal(serverSignOutCalled, false);
+      assert.notEqual(
+        storage.getItem("glitter-pos-local-data-identity-v1"),
+        null
+      );
+      assert.deepEqual(usePosStore.getState().products, []);
+      assert.deepEqual(usePosStore.getState().cart, []);
+      assert.deepEqual(usePosStore.getState().sales, []);
+    } finally {
+      stopTenantWork();
+      resumeTenantWork();
+      observeCleared();
+      observeTerminal();
+    }
   });
 });
 

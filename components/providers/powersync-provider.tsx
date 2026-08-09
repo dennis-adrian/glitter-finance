@@ -23,6 +23,7 @@ import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { markInitialSyncCompleted } from "@/lib/powersync/initial-sync";
 import {
+  LocalDataTeardownError,
   localDataIdentityMatches,
   readLocalDataIdentity,
   saveLocalDataIdentity,
@@ -272,9 +273,19 @@ export function PowerSyncProvider({
           refuseWhenSyncFailuresExist,
         });
       } catch (error) {
-        // Cache/sync-failure checks occur before destructive work. Restore the
-        // current instance so callers can show their existing retry message.
-        setDb(activeDb);
+        if (
+          error instanceof LocalDataTeardownError &&
+          error.stage === "post-destructive"
+        ) {
+          connectorRef.current = null;
+          localDataWasJustClearedRef.current = true;
+          setLocalDataReadyIdentity(null);
+          setInitializationAttempt((attempt) => attempt + 1);
+        } else {
+          // Recoverable checks occur before destructive work, so callers can
+          // keep using the current instance and show their retry message.
+          setDb(activeDb);
+        }
         throw error;
       }
 
