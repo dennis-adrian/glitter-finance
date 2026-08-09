@@ -74,6 +74,7 @@ import {
   migrateLegacyDraftCartLocal,
   saveDraftCartLocal,
 } from "@/lib/powersync/draft-cart";
+import { onLocalDataCleared } from "@/lib/powersync/local-data-teardown";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   computeStockByProduct,
@@ -259,6 +260,30 @@ export function GlitterPosApp({
     [inventoryMovements, sales]
   );
   const activeTenantId = tenantContext.tenant?.id ?? null;
+
+  // Teardown is initiated from Settings, outside this component's local React
+  // state. Clear every tenant-derived value immediately so a failed navigation
+  // or a recovery screen cannot expose data from the previous account.
+  useEffect(() => {
+    return onLocalDataCleared(() => {
+      draftCartReadyRef.current = false;
+      setView("sell");
+      setPreviousView("products");
+      setCategory("Todos");
+      setCatalogCategory("Todos");
+      setQuery("");
+      setCatalogQuery("");
+      setEditingProduct(null);
+      setSelectedSaleId(null);
+      setIsCheckingOut(false);
+      setActiveInvitationState(null);
+      setTenantMembers([]);
+      setInventoryMovements([]);
+      setInventoryWatchReady(false);
+      setTeamSyncConfirmed(false);
+      setEditorHasInitialMovement(false);
+    });
+  }, []);
 
   useEffect(() => {
     initialTenantMembersRef.current = initialTenantMembers;

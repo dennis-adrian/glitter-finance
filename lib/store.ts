@@ -34,6 +34,7 @@ type PosState = {
     lineDiscountReason?: string
   ) => void;
   clearCart: () => void;
+  clearLocalData: () => void;
   recordSale: (sale: Sale) => void;
   upsertSale: (sale: Sale) => void;
 };
@@ -261,6 +262,14 @@ export const usePosStore = create<PosState>()((set) => ({
       cart: [],
       cartUpdatedAt: null,
       cartRevision: state.cartRevision + 1,
+    })),
+  clearLocalData: () =>
+    set((state) => ({
+      products: [],
+      cart: [],
+      cartUpdatedAt: null,
+      cartRevision: state.cartRevision + 1,
+      sales: [],
     })),
   recordSale: (sale) =>
     set((state) => ({

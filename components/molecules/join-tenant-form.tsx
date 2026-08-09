@@ -22,8 +22,24 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
     setJoining(true);
     setError(null);
 
-    // Only acceptInvitation drives the failure UI — it is the step that decides
-    // whether the join succeeded.
+    // Purge the currently active tenant before committing the account change.
+    // A failure leaves both the session and invitation untouched so retrying is
+    // safe; continuing would risk showing the prior tenant after reload.
+    try {
+      if (!powerSyncControls) {
+        throw new Error("La limpieza local aún no está disponible.");
+      }
+      await powerSyncControls.teardownForTenantChange();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `${err.message} Reintenta la limpieza segura antes de unirte.`
+          : "No se pudieron limpiar los datos locales. Reintenta antes de unirte."
+      );
+      setJoining(false);
+      return;
+    }
+
     try {
       await acceptInvitation(token);
     } catch (err) {
@@ -34,14 +50,6 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
       return;
     }
 
-    // Joined + committed. Local teardown + session refresh are best-effort; a
-    // failure here must not appear as a failed join. Redirect regardless so the
-    // app reconciles to the new tenant on reload.
-    try {
-      await powerSyncControls?.clearLocal();
-    } catch (error) {
-      console.error("[join] clearLocal failed", error);
-    }
     try {
       const supabase = createClient();
       const { error } = await supabase.auth.refreshSession();

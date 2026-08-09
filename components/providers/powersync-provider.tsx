@@ -21,10 +21,14 @@ import type {
 } from "@powersync/web";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
+import { markInitialSyncCompleted } from "@/lib/powersync/initial-sync";
 import {
-  clearInitialSyncCompleted,
-  markInitialSyncCompleted,
-} from "@/lib/powersync/initial-sync";
+  localDataIdentityMatches,
+  readLocalDataIdentity,
+  saveLocalDataIdentity,
+  teardownLocalUserData,
+  type LocalDataIdentity,
+} from "@/lib/powersync/local-data-teardown";
 
 const OptionalPowerSyncContext =
   createContext<AbstractPowerSyncDatabase | null>(null);
@@ -41,7 +45,9 @@ type PowerSyncControls = {
    * Called during sign out so the next user on this device doesn't read
    * stale rows that belong to the previous tenant.
    */
-  clearLocal: () => Promise<void>;
+  teardownForLogout: () => Promise<void>;
+  /** Clear every prior-tenant artifact before changing the active tenant. */
+  teardownForTenantChange: () => Promise<void>;
 };
 
 const PowerSyncControlsContext = createContext<PowerSyncControls | null>(null);
@@ -59,24 +65,51 @@ export function usePowerSyncControls(): PowerSyncControls | null {
   return useContext(PowerSyncControlsContext);
 }
 
-export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
+type PowerSyncProviderProps = {
+  children: React.ReactNode;
+  identity: LocalDataIdentity;
+};
+
+export function PowerSyncProvider({
+  children,
+  identity,
+}: PowerSyncProviderProps) {
   const [db, setDb] = useState<AbstractPowerSyncDatabase | null>(null);
+  const [localDataReady, setLocalDataReady] = useState(false);
+  const [localDataError, setLocalDataError] = useState<string | null>(null);
+  const [initializationAttempt, setInitializationAttempt] = useState(0);
   const connectorRef = useRef<PowerSyncBackendConnector | null>(null);
 
   useEffect(() => {
-    if (!isPowerSyncConfigured()) {
-      if (process.env.NODE_ENV !== "production") {
-        console.info(
-          "[PowerSync] disabled — set NEXT_PUBLIC_POWERSYNC_URL to enable sync"
-        );
-      }
-      return;
-    }
-
     let cancelled = false;
     let instance: AbstractPowerSyncDatabase | null = null;
 
     async function init() {
+      setLocalDataReady(false);
+      setLocalDataError(null);
+      setDb(null);
+
+      const powerSyncConfigured = isPowerSyncConfigured();
+      if (!powerSyncConfigured) {
+        if (process.env.NODE_ENV !== "production") {
+          console.info(
+            "[PowerSync] disabled — set NEXT_PUBLIC_POWERSYNC_URL to enable sync"
+          );
+        }
+
+        if (!localDataIdentityMatches(readLocalDataIdentity(), identity)) {
+          await teardownLocalUserData({
+            db: null,
+            powerSyncRequired: false,
+            refuseWhenSyncFailuresExist: false,
+          });
+        }
+        if (cancelled) return;
+        saveLocalDataIdentity(identity);
+        setLocalDataReady(true);
+        return;
+      }
+
       const [
         { PowerSyncDatabase, WASQLiteOpenFactory, WASQLiteVFS },
         { AppSchema },
@@ -98,6 +131,23 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
         }),
         schema: AppSchema,
       });
+
+      // A device database belongs to exactly one authenticated user + active
+      // tenant. An absent identity is deliberately treated as untrusted (for
+      // upgrades from before this marker existed), so stale rows never render.
+      if (!localDataIdentityMatches(readLocalDataIdentity(), identity)) {
+        await teardownLocalUserData({
+          db: instance,
+          powerSyncRequired: true,
+          refuseWhenSyncFailuresExist: false,
+        });
+      }
+
+      if (cancelled) {
+        await instance.close();
+        return;
+      }
+      saveLocalDataIdentity(identity);
 
       const supabase = createSupabaseClient();
       const connector = new SupabaseConnector(supabase);
@@ -143,19 +193,26 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
       }
 
       setDb(instance);
+      setLocalDataReady(true);
     }
 
     init().catch((error) => {
       console.error("[PowerSync] init failed", error);
+      if (!cancelled) {
+        setDb(null);
+        setLocalDataError(
+          "No se pudieron preparar los datos locales de forma segura."
+        );
+      }
     });
 
     return () => {
       cancelled = true;
       instance?.close().catch(() => {});
     };
-  }, []);
+  }, [identity, initializationAttempt]);
 
-  // Reconnect/clearLocal closures are kept on a stable ref so the controls
+  // Reconnect/teardown closures are kept on a stable ref so the controls
   // context value doesn't change identity and trigger spurious consumer
   // re-renders.
   const controlsRef = useRef<PowerSyncControls>({
@@ -164,11 +221,8 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
       await db.disconnect();
       await db.connect(connectorRef.current);
     },
-    clearLocal: async () => {
-      if (!db) return;
-      await db.disconnectAndClear();
-      clearInitialSyncCompleted();
-    },
+    teardownForLogout: async () => {},
+    teardownForTenantChange: async () => {},
   });
   // Refresh the closures when `db` updates so they capture the live instance.
   controlsRef.current.reconnect = async () => {
@@ -176,10 +230,20 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
     await db.disconnect();
     await db.connect(connectorRef.current);
   };
-  controlsRef.current.clearLocal = async () => {
-    if (!db) return;
-    await db.disconnectAndClear();
-    clearInitialSyncCompleted();
+  async function teardown(refuseWhenSyncFailuresExist: boolean) {
+    await teardownLocalUserData({
+      db,
+      powerSyncRequired: isPowerSyncConfigured(),
+      refuseWhenSyncFailuresExist,
+    });
+    connectorRef.current = null;
+    setDb(null);
+  }
+  controlsRef.current.teardownForLogout = async () => {
+    await teardown(true);
+  };
+  controlsRef.current.teardownForTenantChange = async () => {
+    await teardown(true);
   };
 
   // Always render children inside the OptionalPowerSyncContext so
@@ -189,7 +253,30 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
   return (
     <PowerSyncControlsContext.Provider value={controlsRef.current}>
       <OptionalPowerSyncContext.Provider value={db}>
-        {db ? (
+        {!localDataReady ? (
+          <div
+            className="grid min-h-dvh place-items-center p-6"
+            role="status"
+            aria-live="polite"
+          >
+            <section className="w-full max-w-sm rounded-2xl bg-card p-6 text-center ring-1 ring-foreground/10">
+              <p className="text-sm text-muted-foreground">
+                {localDataError ?? "Preparando los datos locales…"}
+              </p>
+              {localDataError ? (
+                <button
+                  type="button"
+                  className="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+                  onClick={() =>
+                    setInitializationAttempt((attempt) => attempt + 1)
+                  }
+                >
+                  Reintentar limpieza segura
+                </button>
+              ) : null}
+            </section>
+          </div>
+        ) : db ? (
           <PowerSyncContext.Provider value={db}>
             {children}
           </PowerSyncContext.Provider>

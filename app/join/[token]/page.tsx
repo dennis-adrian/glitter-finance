@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { JoinTenantForm } from "@/components/molecules/join-tenant-form";
+import { PowerSyncProvider } from "@/components/providers/powersync-provider";
 import {
   getInvitationByToken,
   isInvitationValid,
@@ -65,7 +66,17 @@ export default async function JoinPage({ params }: JoinPageProps) {
           )}
           .
         </p>
-        <JoinTenantForm token={token} />
+        <PowerSyncProvider
+          identity={{
+            userId: user.id,
+            tenantId:
+              typeof user.app_metadata?.tenant_id === "string"
+                ? user.app_metadata.tenant_id
+                : null,
+          }}
+        >
+          <JoinTenantForm token={token} />
+        </PowerSyncProvider>
       </section>
     </main>
   );
