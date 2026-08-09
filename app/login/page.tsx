@@ -1,4 +1,5 @@
 import { signInWithPassword, signUpWithPassword } from "@/app/auth/actions";
+import { BrandMark } from "@/components/atoms/brand-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,7 +28,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   return (
     <main className="grid min-h-dvh place-items-center p-6">
       <section className="w-full max-w-[420px] rounded-2xl bg-card p-6 ring-1 ring-foreground/10">
-        <span className="brand-mark">B</span>
+        <BrandMark />
         <h1 className="mt-2 text-2xl font-bold text-primary">
           Billetera Ferial
         </h1>

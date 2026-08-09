@@ -13,6 +13,8 @@ import {
 import { getRequestOrigin } from "@/lib/request-origin";
 import { createClient } from "@/lib/supabase/server";
 
+const ACCOUNT_PREPARATION_ERROR_MESSAGE = "No se pudo preparar la cuenta.";
+
 function getFormString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value : "";
@@ -91,9 +93,10 @@ export async function signInWithPassword(formData: FormData) {
   try {
     await ensureUserTenantContext();
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "No se pudo preparar la cuenta.";
-    redirect(loginRedirectUrl({ error: message }, next));
+    console.error("[auth] Failed to prepare account after sign-in", err);
+    redirect(
+      loginRedirectUrl({ error: ACCOUNT_PREPARATION_ERROR_MESSAGE }, next)
+    );
   }
 
   redirect(next);
@@ -158,9 +161,10 @@ export async function signUpWithPassword(formData: FormData) {
   try {
     await ensureUserTenantContext();
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "No se pudo preparar la cuenta.";
-    redirect(loginRedirectUrl({ error: message }, next));
+    console.error("[auth] Failed to prepare account after sign-up", err);
+    redirect(
+      loginRedirectUrl({ error: ACCOUNT_PREPARATION_ERROR_MESSAGE }, next)
+    );
   }
 
   redirect(next);
