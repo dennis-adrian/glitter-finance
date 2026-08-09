@@ -42,6 +42,6 @@ export async function GET(request: Request) {
         "Cache-Control": "no-cache",
         Vary: "Sec-CH-Prefers-Color-Scheme",
       },
-    },
+    }
   );
 }

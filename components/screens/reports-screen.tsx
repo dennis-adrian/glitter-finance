@@ -148,7 +148,10 @@ export function ReportsScreen({
         title="Reportes"
         left={<BrandMark />}
         right={
-          <span className="grid size-10 place-items-center text-primary" aria-hidden>
+          <span
+            className="grid size-10 place-items-center text-primary"
+            aria-hidden
+          >
             <BarChart3 className="size-[23px]" />
           </span>
         }

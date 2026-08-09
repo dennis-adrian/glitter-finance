@@ -17,9 +17,7 @@ export function mapTenantUserRow(row: LocalTenantUserRow): TenantMember {
   };
 }
 
-export function buildUserNameMap(
-  members: TenantMember[]
-): Map<string, string> {
+export function buildUserNameMap(members: TenantMember[]): Map<string, string> {
   return new Map(members.map((member) => [member.userId, member.displayName]));
 }
 

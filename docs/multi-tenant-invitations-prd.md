@@ -143,16 +143,16 @@ A new `uuid` column on `tenants` recording the creator.
 
 One row per shareable invitation link.
 
-| Field                | Type                      | Notes                                                                                                                                                                                 |
-| -------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                 | uuid PK                   | `defaultRandom()`.                                                                                                                                                                    |
-| `tenant_id`          | uuid                      | FK → `tenants(id) ON DELETE cascade`. The tenant the link joins.                                                                                                                      |
-| `token`              | text, **unique**          | HMAC-SHA256 hash of the raw bearer token (§7.1). Used for redeem lookup only; the raw secret is never stored in plaintext. |
-| `token_delivery_ciphertext` | text, nullable   | AES-256-GCM ciphertext of the raw bearer token, encrypted with a server-held key. Enables re-display of the active link in Settings; nullable for legacy rows that must be rotated. |
-| `created_by_user_id` | uuid, nullable            | FK → `auth.users` (hand-written, `ON DELETE SET NULL`). Who generated the link; nulled if that auth user is later deleted.                                                            |
-| `expires_at`         | timestamptz, **not null** | Hard expiry. Default window in §5.1.                                                                                                                                                  |
-| `revoked_at`         | timestamptz, nullable     | Set when revoked. `NULL` = active.                                                                                                                                                    |
-| `created_at`         | timestamptz, not null     | `defaultNow()`.                                                                                                                                                                       |
+| Field                       | Type                      | Notes                                                                                                                                                                               |
+| --------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                        | uuid PK                   | `defaultRandom()`.                                                                                                                                                                  |
+| `tenant_id`                 | uuid                      | FK → `tenants(id) ON DELETE cascade`. The tenant the link joins.                                                                                                                    |
+| `token`                     | text, **unique**          | HMAC-SHA256 hash of the raw bearer token (§7.1). Used for redeem lookup only; the raw secret is never stored in plaintext.                                                          |
+| `token_delivery_ciphertext` | text, nullable            | AES-256-GCM ciphertext of the raw bearer token, encrypted with a server-held key. Enables re-display of the active link in Settings; nullable for legacy rows that must be rotated. |
+| `created_by_user_id`        | uuid, nullable            | FK → `auth.users` (hand-written, `ON DELETE SET NULL`). Who generated the link; nulled if that auth user is later deleted.                                                          |
+| `expires_at`                | timestamptz, **not null** | Hard expiry. Default window in §5.1.                                                                                                                                                |
+| `revoked_at`                | timestamptz, nullable     | Set when revoked. `NULL` = active.                                                                                                                                                  |
+| `created_at`                | timestamptz, not null     | `defaultNow()`.                                                                                                                                                                     |
 
 - **No per-acceptance columns.** Because the link is reusable, the record of
   _who joined_ is the `tenant_users` rows themselves — there is no single
@@ -425,16 +425,16 @@ when the bearer token is unavailable is **not** permitted.
 
 **What contains the blast radius:**
 
-  - **High entropy** — 32 random bytes (`crypto.randomBytes(32)`, §7.1); not
-    guessable or enumerable.
-  - **Revocable + expiring** — `revoked_at` and a hard `expires_at` (§4.2, §5.1)
-    bound the window a leaked token is usable.
-  - **Not synced, server-only** — the table is never in the PowerSync
-    publication/sync rules and is read/written only over the trusted server
-    connection (§4.2, §6.4); it never lands in device SQLite.
-  - **RLS defense-in-depth** (§6.2) limits any future PostgREST exposure to
-    tenant members, who can already mint invitations anyway.
-  - **HTTPS transport** — links are only meaningful over TLS in production.
+- **High entropy** — 32 random bytes (`crypto.randomBytes(32)`, §7.1); not
+  guessable or enumerable.
+- **Revocable + expiring** — `revoked_at` and a hard `expires_at` (§4.2, §5.1)
+  bound the window a leaked token is usable.
+- **Not synced, server-only** — the table is never in the PowerSync
+  publication/sync rules and is read/written only over the trusted server
+  connection (§4.2, §6.4); it never lands in device SQLite.
+- **RLS defense-in-depth** (§6.2) limits any future PostgREST exposure to
+  tenant members, who can already mint invitations anyway.
+- **HTTPS transport** — links are only meaningful over TLS in production.
 
 ## 7. Implementation Details
 

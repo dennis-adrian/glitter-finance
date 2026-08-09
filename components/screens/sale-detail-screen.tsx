@@ -70,7 +70,7 @@ export function SaleDetailScreen({
 
   async function handleSaleAction(
     action: (saleId: string) => void | Promise<void>,
-    allowed: boolean,
+    allowed: boolean
   ) {
     if (!sale || !allowed || saleActionPendingRef.current) {
       return;

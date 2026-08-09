@@ -19,12 +19,7 @@ export function ThemePicker() {
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
-    return (
-      <div
-        className="grid h-14 grid-cols-3 gap-2"
-        aria-hidden
-      />
-    );
+    return <div className="grid h-14 grid-cols-3 gap-2" aria-hidden />;
   }
 
   return (
