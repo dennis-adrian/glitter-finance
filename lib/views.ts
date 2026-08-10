@@ -1,5 +1,6 @@
 export type View =
   | "sell"
+  | "sales"
   | "reports"
   | "products"
   | "settings"
