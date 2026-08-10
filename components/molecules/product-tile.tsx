@@ -38,6 +38,7 @@ export function ProductTile({
 }: ProductTileProps) {
   const timer = useRef<number | null>(null);
   const longPressed = useRef(false);
+  const activePointerId = useRef<number | null>(null);
   const stock = inventoryStockReady
     ? getProductStock(product, stockByProduct)
     : null;
@@ -48,6 +49,12 @@ export function ProductTile({
       window.clearTimeout(timer.current);
       timer.current = null;
     }
+  }
+
+  function clearActivePointer(pointerId: number) {
+    if (activePointerId.current !== pointerId) return;
+    clearTimer();
+    activePointerId.current = null;
   }
 
   return (
@@ -66,8 +73,11 @@ export function ProductTile({
       onContextMenu={(event) => event.preventDefault()}
       onDragStart={(event) => event.preventDefault()}
       onPointerDown={(event) => {
-        // Primary button / touch only — ignore right-click and pen barrel.
-        if (event.button !== 0) return;
+        // Primary button / touch only — ignore secondary pointers,
+        // right-click, and pen barrel.
+        if (!event.isPrimary || event.button !== 0) return;
+        clearTimer();
+        activePointerId.current = event.pointerId;
         longPressed.current = false;
         clearDomSelection();
         timer.current = window.setTimeout(() => {
@@ -76,9 +86,16 @@ export function ProductTile({
           decrement();
         }, 520);
       }}
-      onPointerUp={() => clearTimer()}
-      onPointerLeave={() => clearTimer()}
-      onPointerCancel={() => clearTimer()}
+      onPointerUp={(event) => clearActivePointer(event.pointerId)}
+      onPointerLeave={(event) => clearActivePointer(event.pointerId)}
+      onPointerCancel={(event) => {
+        if (activePointerId.current !== event.pointerId) return;
+        clearTimer();
+        activePointerId.current = null;
+        // After a completed long-press, cancel can suppress click; reset
+        // so the next keyboard activation still invokes add().
+        longPressed.current = false;
+      }}
       onClick={() => {
         if (longPressed.current) {
           longPressed.current = false;

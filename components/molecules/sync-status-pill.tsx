@@ -28,25 +28,29 @@ export function SyncStatusPill() {
   const [expanded, setExpanded] = useState(false);
   const [, setNow] = useState(0);
 
+  const showTimestamp = state === "synced" && lastSyncedAt;
+  const showPending = pendingCount > 0;
+  const showFailures = failureCount > 0;
+  const hasMeta = Boolean(showFailures || showPending || showTimestamp);
+
   useEffect(() => {
     const id = window.setInterval(() => setNow((n) => n + 1), 30_000);
     return () => window.clearInterval(id);
   }, []);
 
   useEffect(() => {
+    if (!hasMeta) {
+      setExpanded(false);
+      return;
+    }
     if (!expanded) return;
     const id = window.setTimeout(() => setExpanded(false), 4_000);
     return () => window.clearTimeout(id);
-  }, [expanded]);
+  }, [expanded, hasMeta]);
 
   if (!isPowerSyncConfigured()) {
     return null;
   }
-
-  const showTimestamp = state === "synced" && lastSyncedAt;
-  const showPending = pendingCount > 0;
-  const showFailures = failureCount > 0;
-  const hasMeta = showFailures || showPending || showTimestamp;
 
   let meta: string | null = null;
   if (showFailures) {
@@ -57,24 +61,32 @@ export function SyncStatusPill() {
     meta = relativeTime(lastSyncedAt.toISOString()).toLowerCase();
   }
 
+  const isExpanded = expanded && hasMeta;
+
+  if (!hasMeta) {
+    return (
+      <div className={`sync-pill sync-pill-${state}`} role="status">
+        <span className="sync-pill-dot" />
+        <span className="sync-pill-label">{stateLabels[state]}</span>
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
-      className={`sync-pill sync-pill-${state}${expanded ? " sync-pill-expanded" : ""}`}
-      aria-expanded={expanded}
+      className={`sync-pill sync-pill-${state}${isExpanded ? " sync-pill-expanded" : ""}`}
+      aria-expanded={isExpanded}
       aria-label={
-        expanded && meta
+        isExpanded && meta
           ? `${stateLabels[state]}, ${meta}`
           : stateLabels[state]
       }
-      onClick={() => {
-        if (!hasMeta) return;
-        setExpanded((open) => !open);
-      }}
+      onClick={() => setExpanded((open) => !open)}
     >
       <span className="sync-pill-dot" />
       <span className="sync-pill-label">{stateLabels[state]}</span>
-      {expanded && meta ? (
+      {isExpanded && meta ? (
         <span className="sync-pill-meta">· {meta}</span>
       ) : null}
     </button>
