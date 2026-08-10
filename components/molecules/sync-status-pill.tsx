@@ -4,6 +4,9 @@
 // Cloud. Pinned top-right inside the phone-frame so it's visible across
 // every screen without interfering with screen-specific layouts.
 //
+// Collapsed by default (dot + label). Tap to expand pending/failure counts
+// or last successful sync timestamp.
+//
 // PRD §9: "A small persistent indicator shows pending mutation count and
 // last successful sync timestamp."
 
@@ -22,12 +25,19 @@ const stateLabels: Record<ReturnType<typeof useSyncStatus>["state"], string> = {
 
 export function SyncStatusPill() {
   const { state, lastSyncedAt, pendingCount, failureCount } = useSyncStatus();
+  const [expanded, setExpanded] = useState(false);
   const [, setNow] = useState(0);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow((n) => n + 1), 30_000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const id = window.setTimeout(() => setExpanded(false), 4_000);
+    return () => window.clearTimeout(id);
+  }, [expanded]);
 
   if (!isPowerSyncConfigured()) {
     return null;
@@ -36,24 +46,37 @@ export function SyncStatusPill() {
   const showTimestamp = state === "synced" && lastSyncedAt;
   const showPending = pendingCount > 0;
   const showFailures = failureCount > 0;
+  const hasMeta = showFailures || showPending || showTimestamp;
+
+  let meta: string | null = null;
+  if (showFailures) {
+    meta = `${failureCount} fallida${failureCount === 1 ? "" : "s"}`;
+  } else if (showPending) {
+    meta = `${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}`;
+  } else if (showTimestamp) {
+    meta = relativeTime(lastSyncedAt.toISOString()).toLowerCase();
+  }
 
   return (
-    <div className={`sync-pill sync-pill-${state}`}>
+    <button
+      type="button"
+      className={`sync-pill sync-pill-${state}${expanded ? " sync-pill-expanded" : ""}`}
+      aria-expanded={expanded}
+      aria-label={
+        expanded && meta
+          ? `${stateLabels[state]}, ${meta}`
+          : stateLabels[state]
+      }
+      onClick={() => {
+        if (!hasMeta) return;
+        setExpanded((open) => !open);
+      }}
+    >
       <span className="sync-pill-dot" />
       <span className="sync-pill-label">{stateLabels[state]}</span>
-      {showFailures ? (
-        <span className="sync-pill-meta">
-          · {failureCount} fallida{failureCount === 1 ? "" : "s"}
-        </span>
-      ) : showPending ? (
-        <span className="sync-pill-meta">
-          · {pendingCount} pendiente{pendingCount === 1 ? "" : "s"}
-        </span>
-      ) : showTimestamp ? (
-        <span className="sync-pill-meta">
-          · {relativeTime(lastSyncedAt.toISOString()).toLowerCase()}
-        </span>
+      {expanded && meta ? (
+        <span className="sync-pill-meta">· {meta}</span>
       ) : null}
-    </div>
+    </button>
   );
 }

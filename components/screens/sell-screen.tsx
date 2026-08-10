@@ -49,7 +49,7 @@ export function SellScreen(props: SellScreenProps) {
       />
 
       <div className="relative mb-3">
-        <Search className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={props.query}
           onChange={(event) => props.setQuery(event.target.value)}
@@ -60,7 +60,7 @@ export function SellScreen(props: SellScreenProps) {
       </div>
 
       {filtered.length ? (
-        <div className="grid grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-2 gap-3.5 pb-10">
           {filtered.map((product) => {
             const quantity =
               props.cart.find((line) => line.productId === product.id)
