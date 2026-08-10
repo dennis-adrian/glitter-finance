@@ -34,6 +34,7 @@ export function ProductArt({ product, compact = false }: ProductArtProps) {
         <img
           src={imageUrl}
           alt={product.name}
+          draggable={false}
           onError={() => setFailedImageUrl(imageUrl)}
         />
       ) : (
