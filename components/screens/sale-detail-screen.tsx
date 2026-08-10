@@ -4,16 +4,15 @@ import {
   Info,
   QrCode,
   ReceiptText,
-  RotateCcw,
-  Trash2,
   Wallet,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { DetailRow } from "@/components/atoms/detail-row";
 import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/molecules/empty-state";
+import { SaleActionDialog } from "@/components/molecules/sale-action-dialog";
 import { SaleLineDetail } from "@/components/molecules/sale-line-detail";
 import { formatBs } from "@/lib/money";
 import {
@@ -38,11 +37,12 @@ type SaleDetailScreenProps = {
   sale: Sale | null;
   sales: Sale[];
   back: () => void;
-  voidSale: (saleId: string) => void | Promise<void>;
-  refundSale: (saleId: string) => void | Promise<void>;
+  voidSale: (saleId: string) => Promise<boolean>;
+  refundSale: (saleId: string, reason?: string) => Promise<boolean>;
 };
 
 const dateFormatter = new Intl.DateTimeFormat("es-BO", {
+  timeZone: "America/La_Paz",
   day: "2-digit",
   month: "short",
   year: "numeric",
@@ -65,26 +65,13 @@ export function SaleDetailScreen({
   voidSale,
   refundSale,
 }: SaleDetailScreenProps) {
-  const [saleActionPending, setSaleActionPending] = useState(false);
-  const saleActionPendingRef = useRef(false);
+  const [action, setAction] = useState<"void" | "refund" | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
-  async function handleSaleAction(
-    action: (saleId: string) => void | Promise<void>,
-    allowed: boolean
-  ) {
-    if (!sale || !allowed || saleActionPendingRef.current) {
-      return;
-    }
-
-    saleActionPendingRef.current = true;
-    setSaleActionPending(true);
-    try {
-      await Promise.resolve(action(sale.id));
-    } finally {
-      saleActionPendingRef.current = false;
-      setSaleActionPending(false);
-    }
-  }
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   if (!sale) {
     return (
@@ -106,7 +93,7 @@ export function SaleDetailScreen({
   const lineDiscount = saleLineDiscountCents(sale);
   const totalDiscount = saleDiscountTotalCents(sale);
   const hasUnknownCost = saleHasUnknownCost(sale);
-  const canVoid = canVoidSale(sale, sales);
+  const canVoid = canVoidSale(sale, sales, now);
   const canRefund = canRefundSale(sale, sales);
   const originalSale = sale.refundOfSaleId
     ? sales.find((item) => item.id === sale.refundOfSaleId)
@@ -123,7 +110,7 @@ export function SaleDetailScreen({
 
       <section className="mb-3.5 rounded-2xl bg-card p-4 text-center ring-1 ring-foreground/10">
         <span className="inline-flex min-h-7 items-center rounded-full bg-primary/10 px-3 text-sm font-bold text-primary">
-          {saleStatusLabel(sale)}
+          {saleStatusLabel(sale, sales)}
         </span>
         <h2 className="mt-2.5 text-lg font-semibold">
           {saleReferenceLabel(sale)}
@@ -171,7 +158,7 @@ export function SaleDetailScreen({
         <DetailRow label="Registró" value={sale.userName} />
         <DetailRow
           label="Estado"
-          value={saleStatusLabel(sale)}
+          value={saleStatusLabel(sale, sales)}
           tone={sale.status === "voided" ? "danger" : "strong"}
         />
         {sale.voidedAt ? (
@@ -249,20 +236,25 @@ export function SaleDetailScreen({
           type="button"
           variant="outline"
           size="lg"
-          disabled={!canVoid || saleActionPending}
-          onClick={() => void handleSaleAction(voidSale, canVoid)}
+          disabled={!canVoid}
+          onClick={() => {
+            const checkedAt = Date.now();
+            if (!canVoidSale(sale, sales, checkedAt)) {
+              setNow(checkedAt);
+              return;
+            }
+            setAction("void");
+          }}
         >
-          <Trash2 className="size-[18px]" />
           Anular venta
         </Button>
         <Button
           type="button"
           variant="outline"
           size="lg"
-          disabled={!canRefund || saleActionPending}
-          onClick={() => void handleSaleAction(refundSale, canRefund)}
+          disabled={!canRefund}
+          onClick={() => setAction("refund")}
         >
-          <RotateCcw className="size-[18px]" />
           Reembolsar venta
         </Button>
         {!canVoid && !canRefund ? (
@@ -273,6 +265,25 @@ export function SaleDetailScreen({
           </p>
         ) : null}
       </section>
+
+      <SaleActionDialog
+        key={action ? `${sale.id}-${action}` : "none"}
+        sale={sale}
+        action={action}
+        onClose={() => setAction(null)}
+        onConfirm={async (reason) => {
+          if (action === "void") {
+            const checkedAt = Date.now();
+            if (!canVoidSale(sale, sales, checkedAt)) {
+              setNow(checkedAt);
+              setAction(null);
+              return false;
+            }
+            return voidSale(sale.id);
+          }
+          return refundSale(sale.id, reason);
+        }}
+      />
     </section>
   );
 }

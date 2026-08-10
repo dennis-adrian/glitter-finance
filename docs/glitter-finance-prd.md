@@ -214,7 +214,7 @@ Reports are viewed in-app over the selected date range. Exporting report or sale
 
 ## 8. Screens and Flows
 
-The app opens directly into Sell Mode; there is no separate home or dashboard. A persistent bottom navigation bar gives one-tap access to the main areas (Sell, Reports, Catalog, Settings), with Sell as the default. This keeps the vendor's primary task, ringing up a sale, immediately in front of them on launch.
+The app opens directly into Sell Mode; there is no separate home or dashboard. A persistent bottom navigation bar gives one-tap access to the main areas (Sell, Sales, Reports, Catalog, Settings), with Sell as the default. This keeps the vendor's primary task, ringing up a sale, immediately in front of them on launch.
 
 - **Auth:** sign up, log in, password reset.
 - **Onboarding:** brief walkthrough leading to adding the first product, then into Sell Mode.
@@ -223,7 +223,7 @@ The app opens directly into Sell Mode; there is no separate home or dashboard. A
 - **Payment screen:** reached by tapping Cobrar; sale-level discount (2 / 5 / 10 Bs presets plus "Otro") and payment-method selection (Efectivo / QR). Selecting a method commits the sale.
 - **Product Catalog:** list, search, filter, create, edit, archive.
 - **Product Detail / Edit:** name, price, optional cost, category, optional image.
-- **Recent Sales / Sale Detail:** reached from Reports; a list of recent sales where opening one shows its lines and totals, with void (within the window) or refund actions.
+- **Sales / Sale Detail:** a dedicated date-range ledger, defaulting to today. It shows completed sales, voids, and refunds; opening one shows its lines and totals. Void (within the window) and refund actions are available only for eligible original completed sales, not for voided sales or refund records shown in the ledger. Committed sales are never deleted.
 - **Reports:** date-range selector and the figures in section 7.6.
 - **Settings:** account, users on the account, sign out.
 - **Diagnostics (tester-only):** sync queue depth, last sync timestamp, online/offline status, device info, "force sync now" button.
@@ -432,7 +432,7 @@ Glitter Finance is built without a dedicated designer. UI work is done iterative
 - **Sale immutability:** a committed sale is never edited or deleted. An immediate mistake is handled by void within a 10-minute window (retained, excluded from totals); a later reversal is a refund, an append-only record referencing the original sale and shown as a negative amount. Full-sale refunds in the MVP; partial refunds are a future feature.
 - **Reports:** show gross, discounts, net, cost of goods sold, and net earnings over a date range, plus breakdowns. Viewed in-app; data export is a future feature.
 - **Discounts:** sale-level (on the payment screen, with 2 / 5 / 10 Bs presets plus "Otro" for a custom absolute or percentage amount) and per-line (in the cart view). Percentages resolve to an absolute cents amount at apply time.
-- **Navigation:** the app opens directly into Sell Mode (no home or dashboard screen); a persistent bottom nav gives one-tap access to Sell, Reports, Catalog, and Settings.
+- **Navigation:** the app opens directly into Sell Mode (no home or dashboard screen); a persistent bottom nav gives one-tap access to Sell, Sales, Reports, Catalog, and Settings.
 - **Draft cart persistence:** an uncommitted cart is durable; it survives navigation, backgrounding, and long idle periods, and is cleared only by charging or explicit clear-cart (with a 24-hour age-out on launch). Persistence is off the tap critical path: instant in-memory updates, debounced async writes to a local-only SQLite draft table plus a flush on background/visibility-change, so tapping is never blocked by storage.
 - **Cart presentation and grid gestures:** the cart is not shown persistently. The product grid fills the screen; tapping a tile adds one of that product and tapping-and-holding removes one, with each in-cart tile showing a quantity tag. A fixed-bottom "Cobrar" button (enabled once the cart is non-empty) shows the live total and is the direct path to checkout; the cart view (opened via the order icon beside it) also has its own Cobrar button so the vendor can charge after reviewing. No "Start Sale" step; the first tapped item begins the sale; an explicit "clear cart" in the cart view abandons an in-progress sale.
 - **Checkout:** commits immediately on payment-method selection and returns to Sell Mode. Confirmation is a brief non-blocking toast (amount and payment method), not a dedicated confirmation screen, to keep the hot path fast.

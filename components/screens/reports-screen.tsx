@@ -1,19 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { BarChart3, Info, Wallet } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
 import { BarRow } from "@/components/atoms/bar-row";
 import { MetricCard } from "@/components/atoms/metric-card";
-import { SaleRow } from "@/components/molecules/sale-row";
+import { DateRangePicker } from "@/components/molecules/date-range-picker";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
-  isInsideRange,
-  minutesSince,
-  parseCustomRangeBound,
+  filterSalesByRange,
+  formatDateInputInBolivia,
+  resolveSalesRange,
 } from "@/lib/dates";
 import { formatBs } from "@/lib/money";
 import {
@@ -36,17 +34,8 @@ type ReportsScreenProps = {
   products: Product[];
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
-  openSale: (saleId: string) => void;
-  voidSale: (saleId: string) => void;
-  refundSale: (saleId: string) => void;
+  openSales: () => void;
 };
-
-const ranges: [ReportRange, string][] = [
-  ["today", "Hoy"],
-  ["week", "Esta semana"],
-  ["month", "Este mes"],
-  ["custom", "Rango"],
-];
 
 function ReportList({
   rows,
@@ -83,40 +72,16 @@ export function ReportsScreen({
   products,
   stockByProduct,
   inventoryStockReady,
-  openSale,
-  voidSale,
-  refundSale,
+  openSales,
 }: ReportsScreenProps) {
+  const today = formatDateInputInBolivia();
   const [range, setRange] = useState<ReportRange>("today");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
-  const [showAllSales, setShowAllSales] = useState(false);
+  const [customStart, setCustomStart] = useState(today);
+  const [customEnd, setCustomEnd] = useState(today);
 
-  useEffect(() => {
-    setShowAllSales(false);
-  }, [customEnd, customStart, range]);
+  const rangeResolution = resolveSalesRange(range, customStart, customEnd);
   const visibleSales = useMemo(
-    () =>
-      sales.filter((sale) => {
-        if (range !== "custom") {
-          return isInsideRange(sale.createdAt, range);
-        }
-
-        const saleTime = new Date(sale.createdAt).getTime();
-        if (Number.isNaN(saleTime)) {
-          return false;
-        }
-        const rawStart = customStart
-          ? parseCustomRangeBound(customStart, false)
-          : Number.NEGATIVE_INFINITY;
-        const rawEnd = customEnd
-          ? parseCustomRangeBound(customEnd, true)
-          : Number.POSITIVE_INFINITY;
-        const startTime = Math.min(rawStart, rawEnd);
-        const endTime = Math.max(rawStart, rawEnd);
-
-        return saleTime >= startTime && saleTime <= endTime;
-      }),
+    () => filterSalesByRange(sales, range, customStart, customEnd),
     [customEnd, customStart, sales, range]
   );
   const metrics = computeMetrics(visibleSales);
@@ -135,12 +100,15 @@ export function ReportsScreen({
   const averageTicketCents = metrics.transactionCount
     ? Math.round(metrics.netRevenueCents / metrics.transactionCount)
     : 0;
-  const refundedIds = new Set(
-    sales.map((sale) => sale.refundOfSaleId).filter(Boolean)
-  );
-  const hasMoreSales = visibleSales.length > 8;
-  const displayedSales =
-    showAllSales || !hasMoreSales ? visibleSales : visibleSales.slice(0, 8);
+
+  function handleRangeChange(nextRange: ReportRange) {
+    if (nextRange === "custom" && range !== "custom") {
+      const date = formatDateInputInBolivia();
+      setCustomStart(date);
+      setCustomEnd(date);
+    }
+    setRange(nextRange);
+  }
 
   return (
     <section className="screen">
@@ -157,43 +125,15 @@ export function ReportsScreen({
         }
       />
 
-      <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {ranges.map(([value, label]) => (
-          <Button
-            key={value}
-            type="button"
-            size="sm"
-            variant={range === value ? "default" : "outline"}
-            className="shrink-0 rounded-full px-4"
-            onClick={() => setRange(value)}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
-
-      {range === "custom" ? (
-        <div className="mb-4 grid grid-cols-2 gap-2.5">
-          <Label className="grid gap-1.5 text-xs font-bold text-muted-foreground">
-            Desde
-            <Input
-              type="date"
-              value={customStart}
-              onChange={(event) => setCustomStart(event.target.value)}
-              className="h-11 rounded-xl"
-            />
-          </Label>
-          <Label className="grid gap-1.5 text-xs font-bold text-muted-foreground">
-            Hasta
-            <Input
-              type="date"
-              value={customEnd}
-              onChange={(event) => setCustomEnd(event.target.value)}
-              className="h-11 rounded-xl"
-            />
-          </Label>
-        </div>
-      ) : null}
+      <DateRangePicker
+        range={range}
+        customStart={customStart}
+        customEnd={customEnd}
+        error={range === "custom" ? rangeResolution.error : null}
+        setRange={handleRangeChange}
+        setCustomStart={setCustomStart}
+        setCustomEnd={setCustomEnd}
+      />
 
       <div className="relative mb-3 overflow-hidden rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
         <span className="text-sm text-muted-foreground">Ingreso neto</span>
@@ -324,39 +264,17 @@ export function ReportsScreen({
       </section>
 
       <section className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-        <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Ventas recientes</h2>
-          {hasMoreSales ? (
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              className="px-0"
-              onClick={() => setShowAllSales((current) => !current)}
-            >
-              {showAllSales ? "Ver menos" : "Ver todo"}
-            </Button>
-          ) : null}
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">Registro de ventas</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Consulta, anula o reembolsa ventas desde su propio registro.
+            </p>
+          </div>
+          <Button type="button" variant="outline" onClick={openSales}>
+            Ver ventas
+          </Button>
         </div>
-        {displayedSales.map((sale) => {
-          const canVoid =
-            sale.status === "completed" &&
-            !refundedIds.has(sale.id) &&
-            minutesSince(sale.createdAt) <= 10;
-          const canRefund =
-            sale.status === "completed" && !refundedIds.has(sale.id);
-          return (
-            <SaleRow
-              key={sale.id}
-              sale={sale}
-              canVoid={canVoid}
-              canRefund={canRefund}
-              openSale={openSale}
-              voidSale={voidSale}
-              refundSale={refundSale}
-            />
-          );
-        })}
       </section>
     </section>
   );

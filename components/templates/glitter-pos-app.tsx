@@ -22,6 +22,7 @@ import { ProductEditor } from "@/components/screens/product-editor";
 import { ProductsScreen } from "@/components/screens/products-screen";
 import { ReportsScreen } from "@/components/screens/reports-screen";
 import { SaleDetailScreen } from "@/components/screens/sale-detail-screen";
+import { SalesScreen } from "@/components/screens/sales-screen";
 import { SellScreen } from "@/components/screens/sell-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
@@ -196,6 +197,9 @@ export function GlitterPosApp({
   const [catalogQuery, setCatalogQuery] = useState("");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
+  const [saleDetailReturnView, setSaleDetailReturnView] = useState<
+    "sales" | "reports"
+  >("sales");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [tenantMembers, setTenantMembers] =
     useState<TenantMember[]>(initialTenantMembers);
@@ -298,6 +302,7 @@ export function GlitterPosApp({
       setCatalogQuery("");
       setEditingProduct(null);
       setSelectedSaleId(null);
+      setSaleDetailReturnView("sales");
       setIsCheckingOut(false);
       setActiveInvitationState(null);
       setTenantMembers([]);
@@ -1141,7 +1146,7 @@ export function GlitterPosApp({
     }
   }
 
-  async function handleRefundSale(saleId: string) {
+  async function handleRefundSale(saleId: string, reason?: string) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
       showToast("Tu cuenta aún no está configurada.", "danger");
@@ -1156,11 +1161,12 @@ export function GlitterPosApp({
           saleId,
           userId: tenantContext.user.id,
           tenantId: tenant.id,
+          reason,
           assertCurrent: work.assertCurrent,
         });
       } else {
         work.assertCurrent();
-        const sale = await refundSaleAction(saleId);
+        const sale = await refundSaleAction(saleId, reason);
         work.assertCurrent();
         upsertSale(sale);
       }
@@ -1181,8 +1187,9 @@ export function GlitterPosApp({
     }
   }
 
-  function openSaleDetail(saleId: string) {
+  function openSaleDetail(saleId: string, returnView: "sales" | "reports") {
     setSelectedSaleId(saleId);
+    setSaleDetailReturnView(returnView);
     setView("saleDetail");
   }
 
@@ -1212,13 +1219,15 @@ export function GlitterPosApp({
         products={activeProducts}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
-        openSale={openSaleDetail}
-        voidSale={(saleId) => {
-          void handleVoidSale(saleId);
-        }}
-        refundSale={(saleId) => {
-          void handleRefundSale(saleId);
-        }}
+        openSales={() => setView("sales")}
+      />
+    ),
+    sales: (
+      <SalesScreen
+        sales={sales}
+        openSale={(saleId) => openSaleDetail(saleId, "sales")}
+        voidSale={handleVoidSale}
+        refundSale={handleRefundSale}
       />
     ),
     products: (
@@ -1372,21 +1381,9 @@ export function GlitterPosApp({
       <SaleDetailScreen
         sale={selectedSale}
         sales={sales}
-        back={() => setView("reports")}
-        voidSale={(saleId) =>
-          handleVoidSale(saleId).then((voided) => {
-            if (voided) {
-              setView("reports");
-            }
-          })
-        }
-        refundSale={(saleId) =>
-          handleRefundSale(saleId).then((refunded) => {
-            if (refunded) {
-              setView("reports");
-            }
-          })
-        }
+        back={() => setView(saleDetailReturnView)}
+        voidSale={handleVoidSale}
+        refundSale={handleRefundSale}
       />
     ),
     diagnostics: (
@@ -1402,7 +1399,7 @@ export function GlitterPosApp({
       <div className="phone-frame">
         {content}
         <SyncStatusPill />
-        {["sell", "reports", "products", "settings"].includes(view) ? (
+        {["sell", "sales", "reports", "products", "settings"].includes(view) ? (
           <BottomNav view={view} setView={(nextView) => setView(nextView)} />
         ) : null}
         <Toaster

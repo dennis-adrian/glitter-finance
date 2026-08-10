@@ -1,4 +1,10 @@
-import { BarChart3, Box, Settings, ShoppingBag } from "lucide-react";
+import {
+  BarChart3,
+  Box,
+  ReceiptText,
+  Settings,
+  ShoppingBag,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import type { View } from "@/lib/views";
@@ -14,6 +20,11 @@ export function BottomNav({ view, setView }: BottomNavProps) {
       view: "sell",
       label: "Vender",
       icon: <ShoppingBag className="size-[22px]" />,
+    },
+    {
+      view: "sales",
+      label: "Ventas",
+      icon: <ReceiptText className="size-[22px]" />,
     },
     {
       view: "reports",
@@ -34,7 +45,7 @@ export function BottomNav({ view, setView }: BottomNavProps) {
 
   return (
     <nav
-      className="absolute inset-x-0 bottom-0 z-30 grid h-[66px] grid-cols-4 border-t border-border bg-card shadow-[0_-8px_22px_rgba(22,16,35,0.06)]"
+      className="absolute inset-x-0 bottom-0 z-30 grid h-[66px] grid-cols-5 border-t border-border bg-card shadow-[0_-8px_22px_rgba(22,16,35,0.06)]"
       aria-label="Navegación principal"
     >
       {items.map((item) => {
@@ -45,7 +56,7 @@ export function BottomNav({ view, setView }: BottomNavProps) {
             type="button"
             onClick={() => setView(item.view)}
             className={cn(
-              "flex flex-col items-center justify-center gap-0.5 text-xs transition-colors",
+              "flex min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 text-[11px] transition-colors",
               active ? "font-bold text-primary" : "text-muted-foreground"
             )}
             aria-current={active ? "page" : undefined}
