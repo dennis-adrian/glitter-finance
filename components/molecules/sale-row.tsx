@@ -1,4 +1,4 @@
-import { QrCode, ShoppingBag } from "lucide-react";
+import { Banknote, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { relativeTime } from "@/lib/dates";
@@ -10,18 +10,20 @@ type SaleRowProps = {
   sale: Sale;
   canVoid: boolean;
   canRefund: boolean;
+  statusLabel: string;
   openSale: (saleId: string) => void;
-  voidSale: (saleId: string) => void;
-  refundSale: (saleId: string) => void;
+  requestVoid: (sale: Sale) => void;
+  requestRefund: (sale: Sale) => void;
 };
 
 export function SaleRow({
   sale,
   canVoid,
   canRefund,
+  statusLabel,
   openSale,
-  voidSale,
-  refundSale,
+  requestVoid,
+  requestRefund,
 }: SaleRowProps) {
   const amount = saleNetCents(sale);
   const isRefundRecord = Boolean(sale.refundOfSaleId);
@@ -40,7 +42,7 @@ export function SaleRow({
       >
         <span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
           {sale.paymentMethod === "cash" ? (
-            <ShoppingBag size={20} />
+            <Banknote size={20} />
           ) : (
             <QrCode size={20} />
           )}
@@ -51,12 +53,15 @@ export function SaleRow({
           </strong>
           <span className="block text-sm text-muted-foreground">
             {relativeTime(sale.createdAt)} · {paymentLabels[sale.paymentMethod]}
-            {sale.status === "voided" ? " · Anulada" : ""}
+            {statusLabel !== "Completada" ? ` · ${statusLabel}` : ""}
           </span>
           <small className="block max-w-[190px] truncate text-sm text-muted-foreground">
             {sale.lines
               .map((line) => `${line.quantity}x ${line.productName}`)
               .join(", ")}
+          </small>
+          <small className="block text-xs text-muted-foreground">
+            {sale.userName}
           </small>
         </div>
         <b className="text-base whitespace-nowrap tabular-nums">
@@ -70,7 +75,7 @@ export function SaleRow({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => voidSale(sale.id)}
+              onClick={() => requestVoid(sale)}
             >
               Anular
             </Button>
@@ -80,7 +85,7 @@ export function SaleRow({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => refundSale(sale.id)}
+              onClick={() => requestRefund(sale)}
             >
               Reembolso
             </Button>

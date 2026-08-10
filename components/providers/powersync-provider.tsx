@@ -22,6 +22,7 @@ import type {
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { markInitialSyncCompleted } from "@/lib/powersync/initial-sync";
+import { reconcileSyncFailures } from "@/lib/powersync/sync-failures";
 import { flushPendingSyncFailureTelemetry } from "@/lib/observability/report-sync-failure";
 import {
   LocalDataTeardownError,
@@ -179,6 +180,16 @@ export function PowerSyncProvider({
       const connector = new SupabaseConnector(supabase);
       connectorRef.current = connector;
       await instance.connect(connector);
+      try {
+        await reconcileSyncFailures(instance);
+      } catch (error) {
+        console.error(
+          "[PowerSync] initial sync failure reconciliation failed",
+          {
+            error,
+          }
+        );
+      }
 
       // Status logging — kept alongside the visible pill so tester bug
       // reports show a console trail too.
@@ -259,6 +270,7 @@ export function PowerSyncProvider({
     if (!db || !connectorRef.current) return;
     await db.disconnect();
     await db.connect(connectorRef.current);
+    await reconcileSyncFailures(db);
   };
   async function teardown(
     refuseWhenSyncFailuresExist: boolean,

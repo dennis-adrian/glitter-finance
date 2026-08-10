@@ -1,4 +1,5 @@
 import type { AbstractPowerSyncDatabase, CrudEntry } from "@powersync/web";
+import { reportSyncFailureReconciliationError } from "@/lib/observability/report-sync-failure";
 
 export type SyncFailure = {
   id: string;
@@ -143,4 +144,50 @@ export async function getUnresolvedSyncFailureCount(
      WHERE resolved_at IS NULL`
   );
   return Number(row?.count ?? 0);
+}
+
+/**
+ * Clear dead-letter markers only after proving that their PowerSync CRUD
+ * transaction is no longer queued. `getCrudTransactions` is read-only; never
+ * call complete() here, since reconciliation must not advance the queue.
+ *
+ * Markers without a transaction ID are intentionally retained: there is no
+ * unambiguous queue identity with which to prove their completion.
+ */
+export async function reconcileSyncFailures(
+  db: AbstractPowerSyncDatabase
+): Promise<number> {
+  try {
+    const failures = await getUnresolvedSyncFailures(db);
+    if (failures.length === 0) return 0;
+
+    const pendingTransactionIds = new Set<number>();
+    for await (const transaction of db.getCrudTransactions()) {
+      if (transaction.transactionId != null) {
+        pendingTransactionIds.add(transaction.transactionId);
+      }
+    }
+
+    let resolvedCount = 0;
+    for (const failure of failures) {
+      if (
+        failure.transactionId == null ||
+        pendingTransactionIds.has(failure.transactionId)
+      ) {
+        continue;
+      }
+
+      await resolveSyncFailure(db, {
+        transactionId: failure.transactionId,
+        operations: [],
+      });
+      resolvedCount += 1;
+    }
+
+    return resolvedCount;
+  } catch (error) {
+    // Do not expose SQL errors or operation payloads to telemetry.
+    reportSyncFailureReconciliationError();
+    throw error;
+  }
 }

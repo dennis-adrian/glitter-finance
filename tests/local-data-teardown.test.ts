@@ -70,6 +70,13 @@ async function withBrowser<T>(
   }
 }
 
+function emptySyncFailureState() {
+  return {
+    getAll: async () => [],
+    getCrudTransactions: async function* () {},
+  };
+}
+
 test("teardown purges local user data before calling server sign-out", async () => {
   await withBrowser(async (storage) => {
     const events: string[] = [];
@@ -81,6 +88,7 @@ test("teardown purges local user data before calling server sign-out", async () 
       "glitter-pos-precache-v2",
     ]);
     const db = {
+      ...emptySyncFailureState(),
       getOptional: async () => {
         events.push("check-sync-failures");
         return { count: 0 };
@@ -183,6 +191,7 @@ test("a teardown failure prevents server sign-out", async () => {
     let teardownFailed = false;
     let serverSignOutCalled = false;
     const db = {
+      ...emptySyncFailureState(),
       getOptional: async () => ({ count: 0 }),
       disconnectAndClear: async () => {
         throw new Error("database clear failed");
@@ -224,6 +233,7 @@ test("a post-destructive failure clears memory and prevents server sign-out", as
     const tenantWork = new TenantWorkController(identity);
     const staleWork = tenantWork.begin();
     const db = {
+      ...emptySyncFailureState(),
       getOptional: async () => ({ count: 0 }),
       disconnectAndClear: async () => {
         events.push("clear-powersync");
@@ -400,6 +410,7 @@ test("a cache deletion failure prevents database clearing and server sign-out", 
     let serverSignOutCalled = false;
     let teardownFailed = false;
     const db = {
+      ...emptySyncFailureState(),
       getOptional: async () => ({ count: 0 }),
       disconnectAndClear: async () => {
         databaseCleared = true;
