@@ -34,7 +34,9 @@ export function ProductCatalogCard({
     >
       <button
         type="button"
-        className="block flex-1 text-left transition-transform active:scale-[0.985]"
+        className="gesture-surface block flex-1 text-left transition-transform active:scale-[0.985]"
+        onContextMenu={(event) => event.preventDefault()}
+        onDragStart={(event) => event.preventDefault()}
         onClick={() => openEditor(product)}
       >
         <ProductArt product={product} />

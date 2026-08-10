@@ -210,6 +210,30 @@ button {
    initial drawn in the full tone color. No gradients. Each tone sets --tone
    (shared with the editor's tone-dot swatches). Used by Sell Mode tiles, the
    catalog, cart lines, and the product editor preview. */
+/* Sell-mode product cards: tap adds / long-press removes. Suppress browser
+   chrome (text selection, image share/save, context menus) so the gesture
+   behaves the same on iOS, Android, and desktop. */
+.gesture-surface {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  touch-action: manipulation;
+}
+
+.gesture-surface,
+.gesture-surface * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.gesture-surface img,
+.gesture-surface svg {
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+
 .product-art {
   width: 100%;
   aspect-ratio: 1.13;
@@ -237,6 +261,10 @@ button {
   height: 100%;
   object-fit: cover;
   display: block;
+  -webkit-user-drag: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  pointer-events: none;
 }
 
 .product-art.compact {
