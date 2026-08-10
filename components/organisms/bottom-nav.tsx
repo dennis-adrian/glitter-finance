@@ -27,14 +27,14 @@ export function BottomNav({ view, setView }: BottomNavProps) {
       icon: <ReceiptText className="size-[22px]" />,
     },
     {
-      view: "reports",
-      label: "Reportes",
-      icon: <BarChart3 className="size-[22px]" />,
-    },
-    {
       view: "products",
       label: "Productos",
       icon: <Box className="size-[22px]" />,
+    },
+    {
+      view: "reports",
+      label: "Reportes",
+      icon: <BarChart3 className="size-[22px]" />,
     },
     {
       view: "settings",

@@ -34,6 +34,7 @@ export function SaleActionDialog({
   onConfirm,
 }: SaleActionDialogProps) {
   const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
   const pendingRef = useRef(false);
   const dialogRef = useRef<HTMLElement | null>(null);
@@ -105,12 +106,20 @@ export function SaleActionDialog({
     if (pendingRef.current) return;
     pendingRef.current = true;
     setIsPending(true);
+    setError(null);
+    const failureMessage = isVoid
+      ? "No se pudo anular la venta."
+      : "No se pudo registrar el reembolso.";
     try {
       const succeeded = await onConfirm(reason);
       if (succeeded) {
         setReason("");
         onClose();
+        return;
       }
+      setError(failureMessage);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : failureMessage);
     } finally {
       pendingRef.current = false;
       setIsPending(false);
@@ -171,6 +180,12 @@ export function SaleActionDialog({
               disabled={isPending}
             />
           </label>
+        ) : null}
+
+        {error ? (
+          <p className="mt-3 text-sm text-destructive" role="alert">
+            {error}
+          </p>
         ) : null}
 
         <div className="mt-5 grid grid-cols-2 gap-2.5">

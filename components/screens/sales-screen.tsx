@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ReceiptText, Wallet } from "lucide-react";
+import { Info, ReceiptText } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
 import { DateRangePicker } from "@/components/molecules/date-range-picker";
@@ -9,6 +9,16 @@ import { EmptyState } from "@/components/molecules/empty-state";
 import { SaleActionDialog } from "@/components/molecules/sale-action-dialog";
 import { SaleRow } from "@/components/molecules/sale-row";
 import { Button } from "@/components/ui/button";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
 import {
   filterSalesByRange,
   formatDateInputInBolivia,
@@ -41,6 +51,56 @@ type SaleGroup = {
 };
 
 const PAGE_SIZE = 40;
+
+function IncomeInfoDrawer() {
+  return (
+    <Drawer showSwipeHandle>
+      <DrawerTrigger
+        type="button"
+        className="-my-2 -mr-2 grid size-11 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        aria-label="Información sobre ingresos"
+      >
+        <Info className="size-[17px]" />
+      </DrawerTrigger>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>Bruto y neto</DrawerTitle>
+          <DrawerDescription>
+            Dos formas de entender los ingresos de tus ventas.
+          </DrawerDescription>
+        </DrawerHeader>
+        <div className="grid gap-4 p-4">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center rounded-2xl bg-secondary/60 p-3 text-center">
+            <div>
+              <span className="block text-xs text-muted-foreground">Bruto</span>
+              <strong className="text-base tabular-nums">100 Bs</strong>
+            </div>
+            <span className="text-sm text-muted-foreground">−10 Bs</span>
+            <div>
+              <span className="block text-xs text-muted-foreground">Neto</span>
+              <strong className="text-base text-primary tabular-nums">
+                90 Bs
+              </strong>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            La diferencia son los descuentos por producto o por venta.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Los costos de productos no se descuentan aquí: afectan la ganancia
+            en Reportes. Los reembolsos restan de ambos importes y las ventas
+            anuladas no cuentan.
+          </p>
+        </div>
+        <DrawerFooter>
+          <DrawerClose className="inline-flex h-11 items-center justify-center rounded-4xl bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-[color-mix(in_oklch,var(--primary),var(--foreground)_8%)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+            Entendido
+          </DrawerClose>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  );
+}
 
 export function SalesScreen({
   sales,
@@ -123,6 +183,7 @@ export function SalesScreen({
       if (!canVoidSale(action.sale, sales, Date.now())) return false;
       return voidSale(action.sale.id);
     }
+    if (!canRefundSale(action.sale, sales)) return false;
     return refundSale(action.sale.id, reason);
   }
 
@@ -156,11 +217,25 @@ export function SalesScreen({
         setCustomEnd={setCustomEnd}
       />
 
-      <section className="relative mb-4 overflow-hidden rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-        <span className="text-sm text-muted-foreground">Actividad neta</span>
-        <strong className="mt-1 block text-3xl font-bold text-primary tabular-nums">
-          {formatBs(metrics.netRevenueCents, true)}
-        </strong>
+      <section className="mb-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold tracking-tight">Ingresos</h2>
+          <IncomeInfoDrawer />
+        </div>
+        <div className="grid grid-cols-2 divide-x divide-border">
+          <div className="min-w-0 pr-3">
+            <span className="text-sm text-muted-foreground">Bruto</span>
+            <strong className="mt-1 block text-xl font-bold tabular-nums">
+              {formatBs(metrics.grossCents, true)}
+            </strong>
+          </div>
+          <div className="min-w-0 pl-3">
+            <span className="text-sm text-muted-foreground">Neto</span>
+            <strong className="mt-1 block text-xl font-bold text-primary tabular-nums">
+              {formatBs(metrics.netRevenueCents, true)}
+            </strong>
+          </div>
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">
           {metrics.transactionCount} venta
           {metrics.transactionCount === 1 ? "" : "s"}
@@ -170,7 +245,6 @@ export function SalesScreen({
               }`
             : ""}
         </p>
-        <Wallet className="absolute top-4 right-4 size-16 text-primary/5" />
       </section>
 
       {rangeResolution.error ? (
