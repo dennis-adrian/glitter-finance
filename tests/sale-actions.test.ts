@@ -30,6 +30,14 @@ test("void window includes exactly ten minutes and excludes the next millisecond
   assert.equal(canVoidSale(original, [original], createdAt + 600_001), false);
 });
 
+test("void allows small clock skew but rejects clearly future createdAt", () => {
+  const original = sale();
+  const createdAt = new Date(original.createdAt).getTime();
+
+  assert.equal(canVoidSale(original, [original], createdAt - 5_000), true);
+  assert.equal(canVoidSale(original, [original], createdAt - 5_001), false);
+});
+
 test("refunds block both corrective actions on the original sale", () => {
   const original = sale();
   const refund = sale({

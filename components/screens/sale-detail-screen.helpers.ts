@@ -2,6 +2,8 @@ import { hasRefundForSale } from "@/lib/sales";
 import type { Sale } from "@/lib/types";
 
 const VOID_WINDOW_MS = 10 * 60 * 1000;
+/** Allow small device/server clock skew; reject only clearly future createdAt. */
+const CLOCK_SKEW_TOLERANCE_MS = 5_000;
 
 export function canVoidSale(sale: Sale, sales: Sale[], now = Date.now()) {
   const createdAt = new Date(sale.createdAt).getTime();
@@ -10,7 +12,7 @@ export function canVoidSale(sale: Sale, sales: Sale[], now = Date.now()) {
     sale.status === "completed" &&
     !hasRefundForSale(sales, sale.id) &&
     !Number.isNaN(createdAt) &&
-    now >= createdAt &&
+    createdAt - now <= CLOCK_SKEW_TOLERANCE_MS &&
     now - createdAt <= VOID_WINDOW_MS
   );
 }

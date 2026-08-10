@@ -111,7 +111,7 @@ export function SaleActionDialog({
       ? "No se pudo anular la venta."
       : "No se pudo registrar el reembolso.";
     try {
-      const succeeded = await onConfirm(reason);
+      const succeeded = await onConfirm(reason.trim() || undefined);
       if (succeeded) {
         setReason("");
         onClose();

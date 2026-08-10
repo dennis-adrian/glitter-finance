@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BarChart3, Info, Wallet } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
@@ -78,11 +78,23 @@ export function ReportsScreen({
   const [range, setRange] = useState<ReportRange>("today");
   const [customStart, setCustomStart] = useState(today);
   const [customEnd, setCustomEnd] = useState(today);
+  const [now, setNow] = useState(() => Date.now());
 
-  const rangeResolution = resolveSalesRange(range, customStart, customEnd);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const rangeResolution = resolveSalesRange(
+    range,
+    customStart,
+    customEnd,
+    new Date(now)
+  );
   const visibleSales = useMemo(
-    () => filterSalesByRange(sales, range, customStart, customEnd),
-    [customEnd, customStart, sales, range]
+    () =>
+      filterSalesByRange(sales, range, customStart, customEnd, new Date(now)),
+    [customEnd, customStart, now, range, sales]
   );
   const metrics = computeMetrics(visibleSales);
   const categoryTotals = computeCategoryTotals(visibleSales);
@@ -103,7 +115,7 @@ export function ReportsScreen({
 
   function handleRangeChange(nextRange: ReportRange) {
     if (nextRange === "custom" && range !== "custom") {
-      const date = formatDateInputInBolivia();
+      const date = formatDateInputInBolivia(new Date(now));
       setCustomStart(date);
       setCustomEnd(date);
     }
