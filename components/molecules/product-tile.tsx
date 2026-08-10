@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -50,6 +50,8 @@ export function ProductTile({
       timer.current = null;
     }
   }
+
+  useEffect(() => () => clearTimer(), []);
 
   function clearActivePointer(pointerId: number) {
     if (activePointerId.current !== pointerId) return;
