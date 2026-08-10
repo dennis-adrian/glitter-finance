@@ -4,7 +4,10 @@ import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { clearInitialSyncCompleted } from "@/lib/powersync/initial-sync";
 import { clearLegacyDraftCartStorage } from "@/lib/powersync/draft-cart";
 import { resetReportedSyncFailures } from "@/lib/observability/report-sync-failure";
-import { getUnresolvedSyncFailureCount } from "@/lib/powersync/sync-failures";
+import {
+  getUnresolvedSyncFailureCount,
+  reconcileSyncFailures,
+} from "@/lib/powersync/sync-failures";
 import { usePosStore } from "@/lib/store";
 
 const localDataIdentityKey = "glitter-pos-local-data-identity-v1";
@@ -248,6 +251,7 @@ export async function teardownLocalUserData(input: {
   if (input.refuseWhenSyncFailuresExist && db) {
     let failureCount: number;
     try {
+      await reconcileSyncFailures(db);
       failureCount = await getUnresolvedSyncFailureCount(db);
     } catch (error) {
       throw new LocalDataTeardownError(

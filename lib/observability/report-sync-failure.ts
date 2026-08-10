@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/nextjs";
 import type { CrudEntry } from "@powersync/web";
 
 const reportedFailures = new Set<string>();
+let reconciliationErrorReported = false;
 const telemetryFlushTimeoutMs = 2_000;
 
 function errorCode(error: unknown): string {
@@ -20,6 +21,26 @@ function tenantIdFrom(operations: CrudEntry[]): string {
 
 export function resetReportedSyncFailures() {
   reportedFailures.clear();
+  reconciliationErrorReported = false;
+}
+
+/** Report reconciliation failures without sending local CRUD payloads or SQL. */
+export function reportSyncFailureReconciliationError(): boolean {
+  if (reconciliationErrorReported) return false;
+  reconciliationErrorReported = true;
+
+  Sentry.withScope((scope) => {
+    scope.setLevel("error");
+    scope.setTag("component", "powersync_sync_failure_reconciliation");
+    scope.setFingerprint(["powersync-sync-failure-reconciliation"]);
+    const reportError = new Error(
+      "PowerSync sync-failure reconciliation failed"
+    );
+    reportError.name = "PowerSyncSyncFailureReconciliationError";
+    Sentry.captureException(reportError);
+  });
+
+  return true;
 }
 
 /** Report metadata only. Financial row data and tenant/user identifiers stay local. */

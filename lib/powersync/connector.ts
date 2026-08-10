@@ -24,6 +24,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicEnv } from "@/lib/env";
 import { reportPermanentSyncFailure } from "@/lib/observability/report-sync-failure";
 import {
+  reconcileSyncFailures,
   recordSyncFailure,
   resolveSyncFailure,
 } from "@/lib/powersync/sync-failures";
@@ -215,6 +216,16 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         console.error("[PowerSync] failed to resolve sync failure marker", {
           transactionId: transaction.transactionId,
           error: resolutionError,
+        });
+      }
+      try {
+        // A prior local marker write can fail after complete(). Compare the
+        // remaining markers against the actual queue so that a committed,
+        // completed transaction never leaves the device permanently blocked.
+        await reconcileSyncFailures(database);
+      } catch (reconciliationError) {
+        console.error("[PowerSync] failed to reconcile sync failure markers", {
+          error: reconciliationError,
         });
       }
     } catch (error) {

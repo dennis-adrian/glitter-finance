@@ -11,7 +11,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
-import { getUnresolvedSyncFailureCount } from "@/lib/powersync/sync-failures";
+import {
+  getUnresolvedSyncFailureCount,
+  reconcileSyncFailures,
+} from "@/lib/powersync/sync-failures";
 
 export type SyncState =
   | "initializing"
@@ -58,6 +61,16 @@ export function useSyncStatus(): SyncStatusSnapshot {
     async function refresh() {
       if (cancelled || !db) return;
       const status = db.currentStatus;
+      // Reconcile before deriving a blocked state. A read failure leaves the
+      // marker untouched, and the count below still fails closed.
+      try {
+        await reconcileSyncFailures(db);
+      } catch (error) {
+        console.error("[PowerSync] sync failure reconciliation failed", {
+          error,
+        });
+      }
+      if (cancelled) return;
       let pendingCount = lastPendingCountRef.current;
       // Preserve the last known failure count when the query rejects so the
       // blocked-state guard fails closed instead of clearing mid-outage.

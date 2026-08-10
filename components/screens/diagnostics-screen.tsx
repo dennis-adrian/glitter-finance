@@ -24,6 +24,7 @@ import {
 import type { UserTenantContext } from "@/lib/auth/user-context";
 import {
   getUnresolvedSyncFailures,
+  reconcileSyncFailures,
   type SyncFailure,
 } from "@/lib/powersync/sync-failures";
 
@@ -118,6 +119,14 @@ export function DiagnosticsScreen({
     async function refresh() {
       if (cancelled || !db) return;
       const status = db.currentStatus;
+      try {
+        await reconcileSyncFailures(db);
+      } catch (error) {
+        console.error("[Diagnostics] sync failure reconciliation failed", {
+          error,
+        });
+      }
+      if (cancelled) return;
       let pendingCount = 0;
       let pendingBytes: number | null = null;
       let failures = lastFailuresRef.current;
