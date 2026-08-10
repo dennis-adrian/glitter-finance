@@ -51,6 +51,13 @@ function saleTransaction() {
   ];
 }
 
+function emptySyncFailureState() {
+  return {
+    getAll: async () => [],
+    getCrudTransactions: async function* () {},
+  };
+}
+
 test("uploads a sale transaction through one RPC before completing", async () => {
   const rpcCalls: { name: string; args: unknown }[] = [];
   const localWrites: string[] = [];
@@ -68,6 +75,7 @@ test("uploads a sale transaction through one RPC before completing", async () =>
     },
   } as unknown as SupabaseClient;
   const db = {
+    ...emptySyncFailureState(),
     getNextCrudTransaction: async () => ({
       crud: operations,
       transactionId: 17,
@@ -124,6 +132,7 @@ test("uploads non-financial transaction operations sequentially", async () => {
     }),
   } as unknown as SupabaseClient;
   const db = {
+    ...emptySyncFailureState(),
     getNextCrudTransaction: async () => ({
       crud: operations,
       transactionId: 22,
@@ -148,11 +157,28 @@ test("uploads non-financial transaction operations sequentially", async () => {
 
 test("advances the queue when resolving a local failure marker fails", async () => {
   let completeCount = 0;
+  let rpcCalls = 0;
+  let resolutionAttempts = 0;
   const operations = saleTransaction();
   const supabase = {
-    rpc: async () => ({ error: null }),
+    rpc: async () => {
+      rpcCalls += 1;
+      return { error: null };
+    },
   } as unknown as SupabaseClient;
   const db = {
+    getAll: async () => [
+      {
+        id: "transaction:20",
+        transaction_id: 20,
+        tenant_id: "tenant-1",
+        operations_json: "[]",
+        error_code: "23514",
+        error_message: "Earlier permanent failure",
+        created_at: "2026-08-09T00:00:00.000Z",
+      },
+    ],
+    getCrudTransactions: async function* () {},
     getNextCrudTransaction: async () => ({
       crud: operations,
       transactionId: 20,
@@ -161,13 +187,18 @@ test("advances the queue when resolving a local failure marker fails", async () 
       },
     }),
     execute: async () => {
-      throw new Error("Local marker resolution failed");
+      resolutionAttempts += 1;
+      if (resolutionAttempts === 1) {
+        throw new Error("Local marker resolution failed");
+      }
     },
   } as unknown as AbstractPowerSyncDatabase;
 
   await new SupabaseConnector(supabase).uploadData(db);
 
   assert.equal(completeCount, 1);
+  assert.equal(rpcCalls, 1);
+  assert.equal(resolutionAttempts, 2);
 });
 
 test("passes the local void timestamp to the atomic void RPC", async () => {
@@ -191,6 +222,7 @@ test("passes the local void timestamp to the atomic void RPC", async () => {
     },
   } as unknown as SupabaseClient;
   const db = {
+    ...emptySyncFailureState(),
     getNextCrudTransaction: async () => ({
       crud: operations,
       transactionId: 21,
@@ -229,6 +261,7 @@ test("reconciles a generated refund ID before completing", async () => {
     rpc: async () => ({ data: "canonical-refund", error: null }),
   } as unknown as SupabaseClient;
   const db = {
+    ...emptySyncFailureState(),
     getNextCrudTransaction: async () => ({
       crud: operations,
       transactionId: 23,
@@ -278,6 +311,7 @@ test("keeps a newly inserted refund unchanged", async () => {
     rpc: async () => ({ data: "new-refund", error: null }),
   } as unknown as SupabaseClient;
   const db = {
+    ...emptySyncFailureState(),
     getNextCrudTransaction: async () => ({
       crud: operations,
       transactionId: 24,
