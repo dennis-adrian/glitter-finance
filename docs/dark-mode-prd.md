@@ -243,8 +243,11 @@ The current shadcn brand tokens are:
 
 - **Light primary:** `#00786f` — teal.
 - **Light secondary:** `#e8725a` — coral.
-- **Dark primary:** `oklch(0.455 0.188 13.697)` — unchanged until the dark-mode
-  palette pass.
+- **Dark primary:** `#009e91` — brighter teal.
+- **Dark secondary:** `#fa8272` — brighter coral.
+- **Dark surfaces:** background `#1a1a1a`, card/panel `#242424`, muted
+  `#2e2e2e`, border `#3a3a3a`.
+- **Dark text:** foreground `#e8e6e3`, muted `#9a9896`.
 
 Two related observations:
 
@@ -253,8 +256,8 @@ Two related observations:
   `viewport.themeColor` and `manifest.webmanifest` `theme_color` use neutral
   per-mode surface colors from `SHELL_THEME_COLORS` (aligned with each mode's
   `--bg`), not the brand teal; `ThemeColorSync` overrides `theme-color` when the
-  user forces Claro/Oscuro against the OS (§5.6). The light page surface is the
-  solid Figma background `#fffdf8`.
+  user forces Claro/Oscuro against the OS (§5.6). The page surfaces are the
+  solid Figma backgrounds `#fffdf8` (light) and `#1a1a1a` (dark).
 - The original product PRD still names the brand as `#6822E2` (purple); that is
   now superseded by the teal `--primary` going forward. The decorative
   `product-art` tone palette (incl. the per-product `violet`/`aurora` tones) and

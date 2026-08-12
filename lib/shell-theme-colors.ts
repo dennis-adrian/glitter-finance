@@ -1,7 +1,7 @@
 /** Matches `--bg` in app/globals.css (`:root` / `.dark`). */
 export const SHELL_THEME_COLORS = {
   light: "#fffdf8",
-  dark: "oklch(0.147 0.004 49.25)",
+  dark: "#1a1a1a",
 } as const;
 
 /** Resolves install / splash chrome from `Sec-CH-Prefers-Color-Scheme`. */
