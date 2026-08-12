@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark, .dark *));
 
 :root {
-  --bg: #fbfafc;
+  --bg: #fffdf8;
   --panel: #ffffff;
   --ink: #17151d;
   --hairline: #e8e4ee;
@@ -15,16 +15,16 @@
   --amber-surface: #fff8e8;
   --shadow: 0 18px 48px rgba(35, 20, 66, 0.12);
   --soft-shadow: 0 10px 24px rgba(37, 27, 52, 0.09);
-  --background: oklch(1 0 0);
+  --background: #fffdf8;
   --foreground: oklch(0.147 0.004 49.25);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.147 0.004 49.25);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.147 0.004 49.25);
-  --primary: oklch(0.514 0.222 16.935);
-  --primary-foreground: oklch(0.969 0.015 12.422);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --primary: #00786f;
+  --primary-foreground: #fff;
+  --secondary: #e8725a;
+  --secondary-foreground: #fff;
   --muted: oklch(0.97 0.001 106.424);
   --muted-foreground: oklch(0.553 0.013 58.071);
   --accent: oklch(0.97 0.001 106.424);
@@ -41,8 +41,8 @@
   --radius: 0.625rem;
   --sidebar: oklch(0.985 0.001 106.423);
   --sidebar-foreground: oklch(0.147 0.004 49.25);
-  --sidebar-primary: oklch(0.586 0.253 17.585);
-  --sidebar-primary-foreground: oklch(0.969 0.015 12.422);
+  --sidebar-primary: #00786f;
+  --sidebar-primary-foreground: #fff;
   --sidebar-accent: oklch(0.97 0.001 106.424);
   --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
   --sidebar-border: oklch(0.923 0.003 48.717);
@@ -104,13 +104,7 @@ html {
 body {
   margin: 0;
   color: var(--foreground);
-  background:
-    radial-gradient(
-      circle at top left,
-      color-mix(in oklch, var(--primary) 6%, transparent),
-      transparent 34rem
-    ),
-    linear-gradient(135deg, var(--bg) 0%, var(--background) 42%, var(--bg) 100%);
+  background: var(--background);
   letter-spacing: 0;
 }
 
@@ -465,8 +459,8 @@ button {
 }
 
 .sync-pill-syncing .sync-pill-dot {
-  background: #c70036;
-  box-shadow: 0 0 0 4px rgba(199, 0, 54, 0.2);
+  background: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent);
   animation: sync-pulse 1.2s ease-in-out infinite;
 }
 
