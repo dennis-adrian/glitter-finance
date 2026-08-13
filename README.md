@@ -79,6 +79,24 @@ pnpm db:push       # applies the same migrations to glitter-finance
 
 After relinking, update `.env.local` so `NEXT_PUBLIC_SUPABASE_URL`, the publishable and secret keys, and `DATABASE_URL` all match the now-linked project; otherwise the running app and the CLI will talk to different backends.
 
+### Auth email templates
+
+The version-controlled React Email source for signup confirmation lives at
+[`emails/account-confirmation.tsx`](emails/account-confirmation.tsx). Preview it
+locally, or export the email-safe HTML used by Supabase:
+
+```bash
+pnpm email:dev
+pnpm email:export
+```
+
+The export is written to
+`.react-email/out/account-confirmation.html` with Supabase's
+`{{ .ConfirmationURL }}` and `{{ .SiteURL }}` variables intact. In the hosted
+project, open **Authentication → Email Templates → Confirm signup**, set the
+subject to `Confirmá tu correo | Billetera Ferial`, and paste the exported HTML.
+Resend remains the configured SMTP provider; no Auth Hook is required.
+
 ### PowerSync setup
 
 One-time bootstrap, run once per Supabase project that PowerSync Cloud will connect to (currently `glitter-finance-staging`, and `glitter-finance` once we deploy there). Not run via `db:push` because the role credential must be different per environment and should never live in git.
