@@ -25,9 +25,13 @@ function getFormString(formData: FormData, key: string) {
 // other deep-link flow once the user succeeds.
 function loginRedirectUrl(
   params: { error?: string; message?: string },
-  next: string
+  next: string,
+  mode: "signin" | "signup" = "signin"
 ): string {
   const search = new URLSearchParams();
+  if (mode === "signup") {
+    search.set("mode", "signup");
+  }
   if (params.error) {
     search.set("error", params.error);
   }
@@ -103,18 +107,61 @@ export async function signInWithPassword(formData: FormData) {
 }
 
 export async function signUpWithPassword(formData: FormData) {
-  const email = getFormString(formData, "email");
+  const email = getFormString(formData, "email").trim();
   const password = getFormString(formData, "password");
-  const displayName = getFormString(formData, "displayName") || email;
+  const confirmPassword = getFormString(formData, "confirmPassword");
+  const displayName = getFormString(formData, "displayName").trim();
+  const acceptedTerms = formData.get("terms") === "on";
   const origin = await getRequestOrigin();
   const next = resolveNextRedirect(
     getFormString(formData, "next") || null,
     origin
   );
   const callbackUrl = origin ? getAuthCallbackUrl(origin, next) : null;
+
+  if (displayName.length < 2) {
+    redirect(
+      loginRedirectUrl(
+        { error: "Escribe tu nombre completo para crear la cuenta." },
+        next,
+        "signup"
+      )
+    );
+  }
+  if (password.length < 8) {
+    redirect(
+      loginRedirectUrl(
+        { error: "La contraseña debe tener al menos 8 caracteres." },
+        next,
+        "signup"
+      )
+    );
+  }
+  if (password !== confirmPassword) {
+    redirect(
+      loginRedirectUrl(
+        { error: "Las contraseñas no coinciden." },
+        next,
+        "signup"
+      )
+    );
+  }
+  if (!acceptedTerms) {
+    redirect(
+      loginRedirectUrl(
+        { error: "Debes aceptar los términos para crear la cuenta." },
+        next,
+        "signup"
+      )
+    );
+  }
   if (!callbackUrl) {
     redirect(
-      loginRedirectUrl({ error: INVITE_ORIGIN_UNAVAILABLE_MESSAGE }, next)
+      loginRedirectUrl(
+        { error: INVITE_ORIGIN_UNAVAILABLE_MESSAGE },
+        next,
+        "signup"
+      )
     );
   }
   const supabase = await createClient();
@@ -137,7 +184,8 @@ export async function signUpWithPassword(formData: FormData) {
           error:
             "No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.",
         },
-        next
+        next,
+        "signup"
       )
     );
   }
