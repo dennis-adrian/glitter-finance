@@ -5,6 +5,10 @@ import {
   isInviteRedirectPath,
   sanitizeRedirectPath,
 } from "@/lib/auth/redirect";
+import {
+  getSignUpErrorMessage,
+  SIGN_UP_TEMPORARY_ERROR_MESSAGE,
+} from "@/lib/auth/signup-error";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import {
   INVITE_ORIGIN_UNAVAILABLE_MESSAGE,
@@ -152,19 +156,18 @@ export async function signUpWithPassword(
   })();
 
   if (!signUpResult) {
-    return {
-      error:
-        "No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.",
-    };
+    return { error: SIGN_UP_TEMPORARY_ERROR_MESSAGE };
   }
 
   const { data, error } = signUpResult;
 
   if (error) {
-    return {
-      error:
-        "No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.",
-    };
+    console.error("[auth] Supabase rejected sign-up", {
+      code: error.code ?? null,
+      name: error.name,
+      status: error.status ?? null,
+    });
+    return { error: getSignUpErrorMessage(error) };
   }
 
   if (!data.session) {
