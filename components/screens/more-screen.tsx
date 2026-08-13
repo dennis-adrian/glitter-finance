@@ -166,7 +166,6 @@ export function MoreScreen({
         error instanceof Error ? error.message : "No se pudo cambiar de puesto."
       );
       setSwitchingTenantId(null);
-      window.location.assign("/");
       return;
     }
 
@@ -200,12 +199,11 @@ export function MoreScreen({
         error instanceof Error ? error.message : "No se pudo crear el puesto."
       );
       setCreatingTenant(false);
-      window.location.assign("/");
       return;
     }
 
     if (!(await refreshTenantSessionAndReload())) {
-      window.location.assign("/");
+      setCreatingTenant(false);
     }
   }
 

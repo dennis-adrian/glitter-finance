@@ -7,13 +7,11 @@ import {
 } from "@/lib/auth/redirect";
 import {
   getSignUpErrorMessage,
+  SIGN_UP_ORIGIN_UNAVAILABLE_MESSAGE,
   SIGN_UP_TEMPORARY_ERROR_MESSAGE,
 } from "@/lib/auth/signup-error";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
-import {
-  INVITE_ORIGIN_UNAVAILABLE_MESSAGE,
-  isAbsoluteHttpUrl,
-} from "@/lib/invitations/validation";
+import { isAbsoluteHttpUrl } from "@/lib/invitations/validation";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -146,7 +144,7 @@ export async function signUpWithPassword(
     return { error: "Las contraseñas no coinciden." };
   }
   if (!callbackUrl) {
-    return { error: INVITE_ORIGIN_UNAVAILABLE_MESSAGE };
+    return { error: SIGN_UP_ORIGIN_UNAVAILABLE_MESSAGE };
   }
   const signUpResult = await (async () => {
     try {

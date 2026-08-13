@@ -97,6 +97,8 @@ less battery on OLED phones.
   `resolvedTheme` from `@wrksz/themes` and overrides every
   `<meta name="theme-color">` when the user forces Claro/Oscuro against the OS
   (§5.6). Mounted in `app/layout.tsx` inside `ThemeProvider`.
+- **`app/manifest.webmanifest/route.ts`** — `theme_color` and `background_color`
+  come from `SHELL_THEME_COLORS`; light install/splash chrome uses `#fffdf8`.
 
 **Style gaps already closed**
 
@@ -118,8 +120,6 @@ acceptably on either background (verify in audit, don't redesign).
 
 See §6 for work items; summary of what's still open:
 
-- **`app/manifest.webmanifest/route.ts`** — `theme_color` and `background_color`
-  come from `SHELL_THEME_COLORS`; light install/splash chrome uses `#fffdf8`.
 - **Full dual-platform audit** — walk every screen in both modes on iOS Safari
   PWA and Android Chrome PWA; grep for stranded hardcoded colors (§6.5).
 - **Optional header quick-toggle** — not built; Settings-only for v1 (§10.1).

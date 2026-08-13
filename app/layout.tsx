@@ -10,13 +10,13 @@ import { cn } from "@/lib/utils";
 const bricolageHeading = Bricolage_Grotesque({
   subsets: ["latin"],
   weight: "800",
-  variable: "--font-heading",
+  variable: "--font-bricolage-grotesque",
 });
 
 const instrumentSans = Instrument_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  variable: "--font-sans",
+  variable: "--font-instrument-sans",
 });
 
 export const metadata: Metadata = {

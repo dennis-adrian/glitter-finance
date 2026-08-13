@@ -162,7 +162,7 @@ Prefer values from this scale. Avoid one-off spacing unless required by safe are
 - Primary: `brand/primary` fill, white text, 48–52px height, full width for main CTAs, full radius.
 - Outline: 1.5px `brand/primary` border, primary-colored text, full radius.
 - Text/link: transparent background; primary or accent text; underline optional.
-- Back: 36×32px, subtle neutral fill, full radius.
+- Back: 36×32px visual content box, 44×44px minimum hit area, subtle neutral fill, full radius.
 - Typography: Instrument Sans Bold, 14–16px.
 - Padding: 14–16px vertical and 20–24px horizontal.
 - Keep one visually dominant CTA per action group.

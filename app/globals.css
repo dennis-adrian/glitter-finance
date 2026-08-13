@@ -26,10 +26,10 @@
   --secondary: #e8725a;
   --secondary-foreground: #401714;
   --muted: #ecf6f5;
-  --muted-foreground: #7a7571;
+  --muted-foreground: #5c5855;
   --accent: #ecf6f5;
   --accent-foreground: #1a2e2c;
-  --destructive: #e8725a;
+  --destructive: #ae4534;
   --border: #e2dcd5;
   --input: #e2dcd5;
   --ring: #00786f;
@@ -494,8 +494,8 @@ button {
 }
 
 @theme inline {
-  --font-sans: var(--font-sans);
-  --font-heading: var(--font-heading);
+  --font-sans: var(--font-instrument-sans);
+  --font-heading: var(--font-bricolage-grotesque);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
