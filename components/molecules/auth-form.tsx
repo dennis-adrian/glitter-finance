@@ -129,6 +129,9 @@ function strengthLabel(strength: number) {
 }
 
 export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
+  const [signInState, signInAction] = useActionState(signInWithPassword, {
+    error: null,
+  });
   const [signUpState, signUpAction] = useActionState(signUpWithPassword, {
     error: null,
   });
@@ -140,7 +143,9 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
   const strength = useMemo(() => passwordStrength(password), [password]);
   const isSignup = mode === "signup";
-  const formError = isSignup ? (passwordError ?? signUpState.error) : null;
+  const formError = isSignup
+    ? (passwordError ?? signUpState.error)
+    : signInState.error;
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     if (!isSignup) return;
@@ -168,7 +173,7 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
 
   return (
     <form
-      action={isSignup ? signUpAction : signInWithPassword}
+      action={isSignup ? signUpAction : signInAction}
       onSubmit={handleSubmit}
       className="flex flex-1 flex-col"
     >

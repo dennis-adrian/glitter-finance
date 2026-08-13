@@ -23,6 +23,10 @@ export type SignUpState = {
   error: string | null;
 };
 
+export type SignInState = {
+  error: string | null;
+};
+
 function getFormString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value : "";
@@ -66,7 +70,10 @@ function resolveNextRedirect(nextRaw: string | null, origin: string): string {
     : "/";
 }
 
-export async function signInWithPassword(formData: FormData) {
+export async function signInWithPassword(
+  _previousState: SignInState,
+  formData: FormData
+): Promise<SignInState> {
   const email = getFormString(formData, "email");
   const password = getFormString(formData, "password");
   const origin = await getRequestOrigin();
@@ -74,23 +81,30 @@ export async function signInWithPassword(formData: FormData) {
     getFormString(formData, "next") || null,
     origin
   );
-  const supabase = await createClient();
+  const signInResult = await (async () => {
+    try {
+      const supabase = await createClient();
+      return await supabase.auth.signInWithPassword({ email, password });
+    } catch (err) {
+      console.error("[auth] Failed to sign in", err);
+      return null;
+    }
+  })();
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  if (!signInResult) {
+    return {
+      error:
+        "No se pudo conectar con el servicio de inicio de sesión. Intentá de nuevo.",
+    };
+  }
+
+  const { error } = signInResult;
 
   if (error) {
-    redirect(
-      loginRedirectUrl(
-        {
-          error:
-            "No se pudo iniciar sesión. Verifica tu correo electrónico y contraseña.",
-        },
-        next
-      )
-    );
+    return {
+      error:
+        "No se pudo iniciar sesión. Verifica tu correo electrónico y contraseña.",
+    };
   }
 
   if (isInviteRedirectPath(next)) {
@@ -101,9 +115,7 @@ export async function signInWithPassword(formData: FormData) {
     await ensureUserTenantContext();
   } catch (err) {
     console.error("[auth] Failed to prepare account after sign-in", err);
-    redirect(
-      loginRedirectUrl({ error: ACCOUNT_PREPARATION_ERROR_MESSAGE }, next)
-    );
+    return { error: ACCOUNT_PREPARATION_ERROR_MESSAGE };
   }
 
   redirect(next);
