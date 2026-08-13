@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useActionState, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
-import { Check, CircleX, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { signInWithPassword, signUpWithPassword } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,7 @@ function PasswordInput({
   autoComplete,
   placeholder,
   minLength,
+  value,
   onChange,
 }: {
   id: string;
@@ -34,6 +35,7 @@ function PasswordInput({
   autoComplete: string;
   placeholder: string;
   minLength?: number;
+  value: string;
   onChange?: React.ChangeEventHandler<HTMLInputElement>;
 }) {
   const [isVisible, setIsVisible] = useState(false);
@@ -47,6 +49,7 @@ function PasswordInput({
         autoComplete={autoComplete}
         placeholder={placeholder}
         minLength={minLength}
+        value={value}
         required
         onChange={onChange}
         className={cn(inputClassName, "pr-[92px]")}
@@ -126,12 +129,18 @@ function strengthLabel(strength: number) {
 }
 
 export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
+  const [signUpState, signUpAction] = useActionState(signUpWithPassword, {
+    error: null,
+  });
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
   const strength = useMemo(() => passwordStrength(password), [password]);
   const isSignup = mode === "signup";
+  const formError = isSignup ? (passwordError ?? signUpState.error) : null;
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     if (!isSignup) return;
@@ -159,19 +168,19 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
 
   return (
     <form
-      action={isSignup ? signUpWithPassword : signInWithPassword}
+      action={isSignup ? signUpAction : signInWithPassword}
       onSubmit={handleSubmit}
       className="flex flex-1 flex-col"
     >
       <input type="hidden" name="next" value={next} />
 
-      {passwordError ? (
+      {formError ? (
         <div
-          id="password-mismatch-error"
+          id="auth-form-error"
           role="alert"
           className="mb-4 rounded-xl border border-[#e8725a]/35 bg-[#fdf0ed] px-4 py-3 text-sm leading-snug text-[#8a3329]"
         >
-          {passwordError}
+          {formError}
         </div>
       ) : null}
 
@@ -184,6 +193,8 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
               autoComplete="name"
               placeholder="Ej. María Pérez"
               minLength={2}
+              value={displayName}
+              onChange={(event) => setDisplayName(event.currentTarget.value)}
               required
               className={inputClassName}
             />
@@ -198,6 +209,8 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
             inputMode="email"
             autoComplete="email"
             placeholder="nombre@correo.com"
+            value={email}
+            onChange={(event) => setEmail(event.currentTarget.value)}
             required
             className={inputClassName}
           />
@@ -210,10 +223,9 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
             autoComplete={isSignup ? "new-password" : "current-password"}
             placeholder={isSignup ? "Creá una contraseña" : "Tu contraseña"}
             minLength={isSignup ? 8 : undefined}
-            onChange={
-              isSignup
-                ? (event) => handlePasswordChange(event.currentTarget.value)
-                : undefined
+            value={password}
+            onChange={(event) =>
+              handlePasswordChange(event.currentTarget.value)
             }
           />
           {isSignup ? (
@@ -242,50 +254,25 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
         </Field>
 
         {isSignup ? (
-          <>
-            <Field id="confirmPassword" label="Confirmar contraseña">
-              <Input
-                id="confirmPassword"
-                name="confirmPassword"
-                type="password"
-                autoComplete="new-password"
-                placeholder="Repetí tu contraseña"
-                minLength={8}
-                required
-                ref={confirmPasswordRef}
-                aria-invalid={passwordError ? true : undefined}
-                aria-describedby={
-                  passwordError ? "password-mismatch-error" : undefined
-                }
-                onChange={(event) =>
-                  handleConfirmPasswordChange(event.currentTarget.value)
-                }
-                className={inputClassName}
-              />
-            </Field>
-
-            <Label className="items-center gap-2 pt-1.5 text-xs leading-normal font-normal text-[#5a6b68]">
-              <span className="relative grid size-5 shrink-0 place-items-center">
-                <input
-                  type="checkbox"
-                  name="terms"
-                  required
-                  className="peer size-5 appearance-none rounded-md border border-[#b9b1a8] bg-white checked:border-[#00786f] checked:bg-[#00786f] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40"
-                />
-                <Check
-                  aria-hidden="true"
-                  className="pointer-events-none absolute size-2.5 text-white opacity-0 peer-checked:opacity-100"
-                  strokeWidth={3}
-                />
-              </span>
-              <span>
-                Acepto los{" "}
-                <span className="font-semibold text-[#00786f]">
-                  Términos y Condiciones
-                </span>
-              </span>
-            </Label>
-          </>
+          <Field id="confirmPassword" label="Confirmar contraseña">
+            <Input
+              id="confirmPassword"
+              name="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              placeholder="Repetí tu contraseña"
+              minLength={8}
+              value={confirmPassword}
+              required
+              ref={confirmPasswordRef}
+              aria-invalid={passwordError ? true : undefined}
+              aria-describedby={passwordError ? "auth-form-error" : undefined}
+              onChange={(event) =>
+                handleConfirmPasswordChange(event.currentTarget.value)
+              }
+              className={inputClassName}
+            />
+          </Field>
         ) : (
           <button
             type="button"
@@ -317,23 +304,7 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
             <SubmitButton mode={mode} />
           </div>
 
-          <div className="flex items-center gap-4 py-6 text-sm text-[#5a6b68]">
-            <span className="h-px flex-1 bg-[#e2dcd5]" />
-            <span>o</span>
-            <span className="h-px flex-1 bg-[#e2dcd5]" />
-          </div>
-
-          <button
-            type="button"
-            disabled
-            title="Inicio con Google próximamente"
-            className="flex h-[52px] w-full items-center justify-center gap-2.5 rounded-2xl border-[1.5px] border-[#00786f] text-[15px] font-bold text-[#00786f] disabled:cursor-not-allowed disabled:opacity-100"
-          >
-            <CircleX aria-hidden="true" className="size-5 text-[#1e2d2b]" />
-            Continuar con Google
-          </button>
-
-          <p className="pt-8 text-center text-sm text-[#5a6b68]">
+          <p className="pt-6 text-center text-sm text-[#5a6b68]">
             ¿No tenés cuenta?{" "}
             <Link
               href={alternateHref}

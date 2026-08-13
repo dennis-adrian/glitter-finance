@@ -15,23 +15,22 @@ import { createClient } from "@/lib/supabase/server";
 
 const ACCOUNT_PREPARATION_ERROR_MESSAGE = "No se pudo preparar la cuenta.";
 
+export type SignUpState = {
+  error: string | null;
+};
+
 function getFormString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value : "";
 }
 
-// Build a /login redirect that preserves the sanitized `next` so a failed
-// attempt (bad credentials, bootstrap error) still hands off to the invite or
-// other deep-link flow once the user succeeds.
+// Build a /login redirect that preserves the sanitized `next` so an auth flow
+// can still hand off to an invite or other deep link once the user succeeds.
 function loginRedirectUrl(
   params: { error?: string; message?: string },
-  next: string,
-  mode: "signin" | "signup" = "signin"
+  next: string
 ): string {
   const search = new URLSearchParams();
-  if (mode === "signup") {
-    search.set("mode", "signup");
-  }
   if (params.error) {
     search.set("error", params.error);
   }
@@ -106,12 +105,14 @@ export async function signInWithPassword(formData: FormData) {
   redirect(next);
 }
 
-export async function signUpWithPassword(formData: FormData) {
+export async function signUpWithPassword(
+  _previousState: SignUpState,
+  formData: FormData
+): Promise<SignUpState> {
   const email = getFormString(formData, "email").trim();
   const password = getFormString(formData, "password");
   const confirmPassword = getFormString(formData, "confirmPassword");
   const displayName = getFormString(formData, "displayName").trim();
-  const acceptedTerms = formData.get("terms") === "on";
   const origin = await getRequestOrigin();
   const next = resolveNextRedirect(
     getFormString(formData, "next") || null,
@@ -120,74 +121,50 @@ export async function signUpWithPassword(formData: FormData) {
   const callbackUrl = origin ? getAuthCallbackUrl(origin, next) : null;
 
   if (displayName.length < 2) {
-    redirect(
-      loginRedirectUrl(
-        { error: "Escribe tu nombre completo para crear la cuenta." },
-        next,
-        "signup"
-      )
-    );
+    return { error: "Escribe tu nombre completo para crear la cuenta." };
   }
   if (password.length < 8) {
-    redirect(
-      loginRedirectUrl(
-        { error: "La contraseña debe tener al menos 8 caracteres." },
-        next,
-        "signup"
-      )
-    );
+    return { error: "La contraseña debe tener al menos 8 caracteres." };
   }
   if (password !== confirmPassword) {
-    redirect(
-      loginRedirectUrl(
-        { error: "Las contraseñas no coinciden." },
-        next,
-        "signup"
-      )
-    );
-  }
-  if (!acceptedTerms) {
-    redirect(
-      loginRedirectUrl(
-        { error: "Debes aceptar los términos para crear la cuenta." },
-        next,
-        "signup"
-      )
-    );
+    return { error: "Las contraseñas no coinciden." };
   }
   if (!callbackUrl) {
-    redirect(
-      loginRedirectUrl(
-        { error: INVITE_ORIGIN_UNAVAILABLE_MESSAGE },
-        next,
-        "signup"
-      )
-    );
+    return { error: INVITE_ORIGIN_UNAVAILABLE_MESSAGE };
   }
-  const supabase = await createClient();
+  const signUpResult = await (async () => {
+    try {
+      const supabase = await createClient();
+      return await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: callbackUrl,
+          data: {
+            display_name: displayName,
+          },
+        },
+      });
+    } catch (err) {
+      console.error("[auth] Failed to create account", err);
+      return null;
+    }
+  })();
 
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      emailRedirectTo: callbackUrl,
-      data: {
-        display_name: displayName,
-      },
-    },
-  });
+  if (!signUpResult) {
+    return {
+      error:
+        "No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.",
+    };
+  }
+
+  const { data, error } = signUpResult;
 
   if (error) {
-    redirect(
-      loginRedirectUrl(
-        {
-          error:
-            "No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.",
-        },
-        next,
-        "signup"
-      )
-    );
+    return {
+      error:
+        "No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.",
+    };
   }
 
   if (!data.session) {
