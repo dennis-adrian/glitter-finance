@@ -40,7 +40,8 @@ less battery on OLED phones.
 - No scheduled/automatic switching by time of day (only OS-driven + manual).
 - No new color palette design. We use the dark tokens already present in
   `app/globals.css`, tuning only where required for contrast/legibility.
-- No changes to the brand `--primary` decision (it stays as-is; see §9).
+- Light-mode brand tokens follow the current Figma palette; dark-mode brand
+  tokens stay unchanged until the dedicated dark-mode pass (see §9).
 
 ## 3. User Stories
 
@@ -91,16 +92,19 @@ less battery on OLED phones.
 
 - **`app/layout.tsx` `viewport.themeColor`** exports a media-query pair from
   `SHELL_THEME_COLORS` (`lib/shell-theme-colors.ts`) — light and dark surface
-  colors aligned with each mode's `--bg` (not the brand crimson; see §9).
+  colors aligned with each mode's `--bg` (not the brand teal; see §9).
 - **`ThemeColorSync`** (`components/atoms/theme-color-sync.tsx`) reads
   `resolvedTheme` from `@wrksz/themes` and overrides every
   `<meta name="theme-color">` when the user forces Claro/Oscuro against the OS
   (§5.6). Mounted in `app/layout.tsx` inside `ThemeProvider`.
+- **`app/manifest.webmanifest/route.ts`** — `theme_color` and `background_color`
+  come from `SHELL_THEME_COLORS`; light install/splash chrome uses `#fffdf8`.
 
 **Style gaps already closed**
 
-- `html` / `body` backgrounds are token-driven (`var(--bg)`, `var(--foreground)`,
-  theme-aware gradients including a `.dark body` override).
+- `html` / `body` backgrounds are token-driven (`var(--bg)`, `var(--foreground)`):
+  light uses the solid `#fffdf8` Figma surface and dark uses the solid
+  `#1a1a1a` background.
 - Product editor `.image-uploader` / `.edit-fab` use semantic tokens (`--muted`,
   `--border`, `--card`), not hardcoded light hex.
 - Amber "cost incomplete" boxes in `reports-screen.tsx` and
@@ -116,10 +120,6 @@ acceptably on either background (verify in audit, don't redesign).
 
 See §6 for work items; summary of what's still open:
 
-- **`public/manifest.webmanifest`** — `theme_color` and `background_color` are
-  still static light (`#fbfafc`). Runtime `theme-color` is handled by
-  `app/layout.tsx` + `ThemeColorSync`; the manifest values only affect install /
-  splash chrome and do not track dark mode yet.
 - **Full dual-platform audit** — walk every screen in both modes on iOS Safari
   PWA and Android Chrome PWA; grep for stranded hardcoded colors (§6.5).
 - **Optional header quick-toggle** — not built; Settings-only for v1 (§10.1).
@@ -239,25 +239,27 @@ come from `@wrksz/themes` as planned.
 
 ## 9. Primary Color Note (cross-reference)
 
-The primary-color decision is out of scope here and unchanged. The actual shadcn
-`--primary` token in use today is:
+The current shadcn brand tokens are:
 
-- **Light:** `oklch(0.514 0.222 16.935)` — a crimson red (≈ `#c70036`).
-- **Dark:** `oklch(0.455 0.188 13.697)` — the darker crimson already present in
-  the `.dark` block.
+- **Light primary:** `#00786f` — teal.
+- **Light secondary:** `#e8725a` — coral.
+- **Dark primary:** `#009e91` — brighter teal.
+- **Dark secondary:** `#fa8272` — brighter coral.
+- **Dark surfaces:** background `#1a1a1a`, card/panel `#242424`, muted
+  `#2e2e2e`, border `#3a3a3a`.
+- **Dark text:** foreground `#e8e6e3`, muted `#9a9896`.
 
-Do not change these (or any other theme/brand color tokens) as part of this work
-without a separate go-ahead. Two related observations to flag, not fix here:
+Two related observations:
 
-- Brand purple has been removed app-wide in favor of the crimson above for
+- Brand purple and crimson have been superseded app-wide by the teal above for
   `--primary` and app icons. PWA shell chrome is separate: `app/layout.tsx`
   `viewport.themeColor` and `manifest.webmanifest` `theme_color` use neutral
   per-mode surface colors from `SHELL_THEME_COLORS` (aligned with each mode's
-  `--bg`), not the brand crimson; `ThemeColorSync` overrides `theme-color` when
-  the user forces Claro/Oscuro against the OS (§5.6). The page backdrop/glow
-  stays a subtle `color-mix` tint from `--primary`, not a solid crimson fill.
+  `--bg`), not the brand teal; `ThemeColorSync` overrides `theme-color` when the
+  user forces Claro/Oscuro against the OS (§5.6). The page surfaces are the
+  solid Figma backgrounds `#fffdf8` (light) and `#1a1a1a` (dark).
 - The original product PRD still names the brand as `#6822E2` (purple); that is
-  now superseded by the crimson `--primary` going forward. The decorative
+  now superseded by the teal `--primary` going forward. The decorative
   `product-art` tone palette (incl. the per-product `violet`/`aurora` tones) and
   the near-navy toast "info" background are intentionally left as-is.
 

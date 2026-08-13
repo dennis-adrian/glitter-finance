@@ -5,24 +5,33 @@ import {
   isInviteRedirectPath,
   sanitizeRedirectPath,
 } from "@/lib/auth/redirect";
-import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import {
-  INVITE_ORIGIN_UNAVAILABLE_MESSAGE,
-  isAbsoluteHttpUrl,
-} from "@/lib/invitations/validation";
+  getSignUpErrorMessage,
+  SIGN_UP_ORIGIN_UNAVAILABLE_MESSAGE,
+  SIGN_UP_TEMPORARY_ERROR_MESSAGE,
+} from "@/lib/auth/signup-error";
+import { ensureUserTenantContext } from "@/lib/auth/user-context";
+import { isAbsoluteHttpUrl } from "@/lib/invitations/validation";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { createClient } from "@/lib/supabase/server";
 
 const ACCOUNT_PREPARATION_ERROR_MESSAGE = "No se pudo preparar la cuenta.";
+
+export type SignUpState = {
+  error: string | null;
+};
+
+export type SignInState = {
+  error: string | null;
+};
 
 function getFormString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value : "";
 }
 
-// Build a /login redirect that preserves the sanitized `next` so a failed
-// attempt (bad credentials, bootstrap error) still hands off to the invite or
-// other deep-link flow once the user succeeds.
+// Build a /login redirect that preserves the sanitized `next` so an auth flow
+// can still hand off to an invite or other deep link once the user succeeds.
 function loginRedirectUrl(
   params: { error?: string; message?: string },
   next: string
@@ -59,7 +68,10 @@ function resolveNextRedirect(nextRaw: string | null, origin: string): string {
     : "/";
 }
 
-export async function signInWithPassword(formData: FormData) {
+export async function signInWithPassword(
+  _previousState: SignInState,
+  formData: FormData
+): Promise<SignInState> {
   const email = getFormString(formData, "email");
   const password = getFormString(formData, "password");
   const origin = await getRequestOrigin();
@@ -67,23 +79,30 @@ export async function signInWithPassword(formData: FormData) {
     getFormString(formData, "next") || null,
     origin
   );
-  const supabase = await createClient();
+  const signInResult = await (async () => {
+    try {
+      const supabase = await createClient();
+      return await supabase.auth.signInWithPassword({ email, password });
+    } catch (err) {
+      console.error("[auth] Failed to sign in", err);
+      return null;
+    }
+  })();
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  if (!signInResult) {
+    return {
+      error:
+        "No se pudo conectar con el servicio de inicio de sesión. Intentá de nuevo.",
+    };
+  }
+
+  const { error } = signInResult;
 
   if (error) {
-    redirect(
-      loginRedirectUrl(
-        {
-          error:
-            "No se pudo iniciar sesión. Verifica tu correo electrónico y contraseña.",
-        },
-        next
-      )
-    );
+    return {
+      error:
+        "No se pudo iniciar sesión. Verifica tu correo electrónico y contraseña.",
+    };
   }
 
   if (isInviteRedirectPath(next)) {
@@ -94,52 +113,71 @@ export async function signInWithPassword(formData: FormData) {
     await ensureUserTenantContext();
   } catch (err) {
     console.error("[auth] Failed to prepare account after sign-in", err);
-    redirect(
-      loginRedirectUrl({ error: ACCOUNT_PREPARATION_ERROR_MESSAGE }, next)
-    );
+    return { error: ACCOUNT_PREPARATION_ERROR_MESSAGE };
   }
 
   redirect(next);
 }
 
-export async function signUpWithPassword(formData: FormData) {
-  const email = getFormString(formData, "email");
+export async function signUpWithPassword(
+  _previousState: SignUpState,
+  formData: FormData
+): Promise<SignUpState> {
+  const email = getFormString(formData, "email").trim();
   const password = getFormString(formData, "password");
-  const displayName = getFormString(formData, "displayName") || email;
+  const confirmPassword = getFormString(formData, "confirmPassword");
+  const displayName = getFormString(formData, "displayName").trim();
   const origin = await getRequestOrigin();
   const next = resolveNextRedirect(
     getFormString(formData, "next") || null,
     origin
   );
   const callbackUrl = origin ? getAuthCallbackUrl(origin, next) : null;
-  if (!callbackUrl) {
-    redirect(
-      loginRedirectUrl({ error: INVITE_ORIGIN_UNAVAILABLE_MESSAGE }, next)
-    );
-  }
-  const supabase = await createClient();
 
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      emailRedirectTo: callbackUrl,
-      data: {
-        display_name: displayName,
-      },
-    },
-  });
+  if (displayName.length < 2) {
+    return { error: "Escribe tu nombre completo para crear la cuenta." };
+  }
+  if (password.length < 8) {
+    return { error: "La contraseña debe tener al menos 8 caracteres." };
+  }
+  if (password !== confirmPassword) {
+    return { error: "Las contraseñas no coinciden." };
+  }
+  if (!callbackUrl) {
+    return { error: SIGN_UP_ORIGIN_UNAVAILABLE_MESSAGE };
+  }
+  const signUpResult = await (async () => {
+    try {
+      const supabase = await createClient();
+      return await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: callbackUrl,
+          data: {
+            display_name: displayName,
+          },
+        },
+      });
+    } catch (err) {
+      console.error("[auth] Failed to create account", err);
+      return null;
+    }
+  })();
+
+  if (!signUpResult) {
+    return { error: SIGN_UP_TEMPORARY_ERROR_MESSAGE };
+  }
+
+  const { data, error } = signUpResult;
 
   if (error) {
-    redirect(
-      loginRedirectUrl(
-        {
-          error:
-            "No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.",
-        },
-        next
-      )
-    );
+    console.error("[auth] Supabase rejected sign-up", {
+      code: error.code ?? null,
+      name: error.name,
+      status: error.status ?? null,
+    });
+    return { error: getSignUpErrorMessage(error) };
   }
 
   if (!data.session) {
