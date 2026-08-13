@@ -1,6 +1,7 @@
 node_modules
 .pnpm-store
 .next
+.react-email
 out
 dist
 *.tsbuildinfo
@@ -13,4 +14,3 @@ public/@powersync/
 .env.sentry-build-plugin
 # next-agents-md
 .next-docs/
-
