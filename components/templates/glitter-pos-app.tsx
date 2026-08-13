@@ -24,6 +24,7 @@ import { ReportsScreen } from "@/components/screens/reports-screen";
 import { SaleDetailScreen } from "@/components/screens/sale-detail-screen";
 import { SalesScreen } from "@/components/screens/sales-screen";
 import { SellScreen } from "@/components/screens/sell-screen";
+import { MoreScreen } from "@/components/screens/more-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
 import { paymentLabels, saleTotal } from "@/lib/sales";
@@ -1281,6 +1282,13 @@ export function GlitterPosApp({
         }}
       />
     ),
+    more: (
+      <MoreScreen
+        tenantContext={tenantContext}
+        openReports={() => setView("reports")}
+        openSettings={() => setView("settings")}
+      />
+    ),
     settings: (
       <SettingsScreen
         tenantContext={tenantContext}
@@ -1399,7 +1407,9 @@ export function GlitterPosApp({
       <div className="phone-frame">
         {content}
         <SyncStatusPill />
-        {["sell", "sales", "reports", "products", "settings"].includes(view) ? (
+        {["sell", "sales", "reports", "products", "more", "settings"].includes(
+          view
+        ) ? (
           <BottomNav view={view} setView={(nextView) => setView(nextView)} />
         ) : null}
         <Toaster
