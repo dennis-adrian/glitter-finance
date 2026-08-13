@@ -3,13 +3,21 @@ import { ThemeColorSync } from "@/components/atoms/theme-color-sync";
 import { SerwistClientProvider } from "@/components/providers/serwist-client-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import "./globals.css";
-import { Inter, Geist } from "next/font/google";
+import { Bricolage_Grotesque, Instrument_Sans } from "next/font/google";
 import { SHELL_THEME_COLORS } from "@/lib/shell-theme-colors";
 import { cn } from "@/lib/utils";
 
-const geistHeading = Geist({ subsets: ["latin"], variable: "--font-heading" });
+const bricolageHeading = Bricolage_Grotesque({
+  subsets: ["latin"],
+  weight: "800",
+  variable: "--font-heading",
+});
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+const instrumentSans = Instrument_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-sans",
+});
 
 export const metadata: Metadata = {
   title: "Billetera Ferial",
@@ -23,10 +31,10 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icons/icon-192.svg", sizes: "192x192", type: "image/svg+xml" },
-      { url: "/icons/icon-512.svg", sizes: "512x512", type: "image/svg+xml" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
-    apple: [{ url: "/icons/icon-192.svg" }],
+    apple: [{ url: "/icons/icon-192.png" }],
   },
 };
 
@@ -48,7 +56,11 @@ export default function RootLayout({
   return (
     <html
       lang="es-BO"
-      className={cn("font-sans", inter.variable, geistHeading.variable)}
+      className={cn(
+        "font-sans",
+        instrumentSans.variable,
+        bricolageHeading.variable
+      )}
       suppressHydrationWarning
     >
       <body>
