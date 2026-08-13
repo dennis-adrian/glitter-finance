@@ -8,7 +8,7 @@ type SignUpAuthError = {
 export const SIGN_UP_TEMPORARY_ERROR_MESSAGE =
   "El servicio de registro tiene un problema temporal. Intentá de nuevo en unos minutos.";
 
-const SIGN_UP_FALLBACK_ERROR_MESSAGE =
+export const SIGN_UP_FALLBACK_ERROR_MESSAGE =
   "No se pudo crear la cuenta. Intentá de nuevo o contactá a soporte si el problema continúa.";
 
 const SIGN_UP_RATE_LIMIT_ERROR_MESSAGE =
@@ -74,7 +74,10 @@ export function getSignUpErrorMessage(error: SignUpAuthError): string {
     return weakPasswordMessage(error.reasons);
   }
 
-  if (error.code && SIGN_UP_ERROR_MESSAGES[error.code]) {
+  if (
+    error.code &&
+    Object.prototype.hasOwnProperty.call(SIGN_UP_ERROR_MESSAGES, error.code)
+  ) {
     return SIGN_UP_ERROR_MESSAGES[error.code];
   }
 

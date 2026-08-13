@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   getSignUpErrorMessage,
+  SIGN_UP_FALLBACK_ERROR_MESSAGE,
   SIGN_UP_TEMPORARY_ERROR_MESSAGE,
 } from "@/lib/auth/signup-error";
 
@@ -57,6 +58,13 @@ test("does not expose unknown backend messages", () => {
 
   assert.equal(
     getSignUpErrorMessage(backendError),
-    "No se pudo crear la cuenta. Intentá de nuevo o contactá a soporte si el problema continúa."
+    SIGN_UP_FALLBACK_ERROR_MESSAGE
+  );
+});
+
+test("uses the fallback for inherited property names", () => {
+  assert.equal(
+    getSignUpErrorMessage({ code: "constructor" }),
+    SIGN_UP_FALLBACK_ERROR_MESSAGE
   );
 });
