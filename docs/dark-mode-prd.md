@@ -101,8 +101,8 @@ less battery on OLED phones.
 **Style gaps already closed**
 
 - `html` / `body` backgrounds are token-driven (`var(--bg)`, `var(--foreground)`):
-  light uses the solid `#fffdf8` Figma surface and dark keeps its dedicated
-  gradient override.
+  light uses the solid `#fffdf8` Figma surface and dark uses the solid
+  `#1a1a1a` background.
 - Product editor `.image-uploader` / `.edit-fab` use semantic tokens (`--muted`,
   `--border`, `--card`), not hardcoded light hex.
 - Amber "cost incomplete" boxes in `reports-screen.tsx` and

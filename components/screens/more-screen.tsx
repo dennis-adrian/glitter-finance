@@ -205,7 +205,7 @@ export function MoreScreen({
     }
 
     if (!(await refreshTenantSessionAndReload())) {
-      setCreatingTenant(false);
+      window.location.assign("/");
     }
   }
 
@@ -215,6 +215,12 @@ export function MoreScreen({
     if (syncFailureCount > 0) {
       setActionError(
         "Hay operaciones que no llegaron a la nube. Abre Diagnósticos desde Ajustes antes de cerrar sesión."
+      );
+      return;
+    }
+    if (!canSwitchTenant) {
+      setActionError(
+        "Espera a que termine la sincronización antes de cerrar sesión."
       );
       return;
     }

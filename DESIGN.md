@@ -114,7 +114,7 @@ Use exactly two product typefaces:
 | `label/medium-semibold` | Instrument Sans     | SemiBold  | 13px | Secondary control labels              |
 | `nav/label`             | Instrument Sans     | SemiBold  | 13px | Bottom navigation                     |
 
-Implementation note: the website currently loads Geist for headings and Inter for UI text in `app/layout.tsx`. That is a known mismatch. The target is Bricolage Grotesque + Instrument Sans.
+`app/layout.tsx` loads Bricolage Grotesque (headings) and Instrument Sans (UI text) to match this table.
 
 The component-pattern sheet still labels bottom-navigation text as Figtree. The dedicated Typography sheet supersedes that stale annotation: use Instrument Sans SemiBold 13px.
 
