@@ -5,12 +5,30 @@ export function buildAuthCallbackUrl(
   origin: string,
   next?: string
 ): string | null {
-  const trimmedOrigin = origin.trim().replace(/\/+$/, "");
+  const trimmedOrigin = origin.trim();
   if (!trimmedOrigin) {
     return null;
   }
 
-  const base = `${trimmedOrigin}/auth/callback`;
+  let parsedOrigin: URL;
+  try {
+    parsedOrigin = new URL(trimmedOrigin);
+  } catch {
+    return null;
+  }
+
+  if (
+    (parsedOrigin.protocol !== "http:" && parsedOrigin.protocol !== "https:") ||
+    parsedOrigin.pathname !== "/" ||
+    parsedOrigin.search ||
+    parsedOrigin.hash ||
+    parsedOrigin.username ||
+    parsedOrigin.password
+  ) {
+    return null;
+  }
+
+  const base = `${parsedOrigin.origin}/auth/callback`;
   const url =
     !next || next === "/" ? base : `${base}?next=${encodeURIComponent(next)}`;
 

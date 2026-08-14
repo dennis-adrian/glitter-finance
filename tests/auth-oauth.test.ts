@@ -19,6 +19,25 @@ test("builds an OAuth callback and preserves a safe next path", () => {
   assert.equal(buildAuthCallbackUrl("javascript:alert(1)", "/"), null);
 });
 
+test("rejects origins containing URL components beyond the root origin", () => {
+  assert.equal(
+    buildAuthCallbackUrl("https://pos.example.com?tenant=other", "/"),
+    null
+  );
+  assert.equal(
+    buildAuthCallbackUrl("https://pos.example.com#callback", "/"),
+    null
+  );
+  assert.equal(
+    buildAuthCallbackUrl("https://pos.example.com/nested", "/"),
+    null
+  );
+  assert.equal(
+    buildAuthCallbackUrl("https://user:secret@pos.example.com", "/"),
+    null
+  );
+});
+
 test("rejects external and protocol-relative post-auth redirects", () => {
   assert.equal(
     resolveAuthRedirectPath("/sales?range=today", "http://localhost:3000"),
