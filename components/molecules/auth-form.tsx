@@ -4,7 +4,12 @@ import { useActionState, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
-import { signInWithPassword, signUpWithPassword } from "@/app/auth/actions";
+import {
+  signInWithGoogle,
+  signInWithPassword,
+  signUpWithPassword,
+} from "@/app/auth/actions";
+import { GoogleSubmitButton } from "@/components/molecules/google-sign-in-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,14 +57,14 @@ function PasswordInput({
         value={value}
         required
         onChange={onChange}
-        className={cn(inputClassName, "pr-[92px]")}
+        className={cn(inputClassName, "pr-23")}
       />
       <button
         type="button"
         onClick={() => setIsVisible((visible) => !visible)}
         aria-label={isVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
         aria-pressed={isVisible}
-        className="absolute inset-y-0 right-0 min-w-[82px] rounded-r-xl px-4 text-right text-[13px] font-bold text-[#00786f] uppercase transition-colors hover:text-[#0d564f] focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-[#00786f]/40"
+        className="absolute inset-y-0 right-0 min-w-20.5 rounded-r-xl px-4 text-right text-[13px] font-bold text-[#00786f] uppercase transition-colors hover:text-[#0d564f] focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-[#00786f]/40"
       >
         {isVisible ? "Ocultar" : "Mostrar"}
       </button>
@@ -74,7 +79,7 @@ function SubmitButton({ mode }: { mode: AuthMode }) {
     <Button
       type="submit"
       disabled={pending}
-      className="h-[52px]! w-full rounded-2xl! border-0 bg-[#00786f] text-base font-bold text-white shadow-[0_4px_6px_rgba(0,120,111,0.15)] hover:bg-[#0d564f] disabled:bg-[#b4c2bf] disabled:text-white disabled:opacity-100 disabled:shadow-none"
+      className="h-13! w-full rounded-2xl! border-0 bg-[#00786f] text-base font-bold text-white shadow-[0_4px_6px_rgba(0,120,111,0.15)] hover:bg-[#0d564f] disabled:bg-[#b4c2bf] disabled:text-white disabled:opacity-100 disabled:shadow-none"
     >
       {pending ? (
         <>
@@ -172,154 +177,167 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
   }
 
   return (
-    <form
-      action={isSignup ? signUpAction : signInAction}
-      onSubmit={handleSubmit}
-      className="flex flex-1 flex-col"
-    >
-      <input type="hidden" name="next" value={next} />
+    <div className="flex flex-1 flex-col">
+      <form action={signInWithGoogle}>
+        <input type="hidden" name="next" value={next} />
+        <GoogleSubmitButton />
+      </form>
 
-      {formError ? (
-        <div
-          id="auth-form-error"
-          role="alert"
-          className="mb-4 rounded-xl border border-[#e8725a]/35 bg-[#fdf0ed] px-4 py-3 text-sm leading-snug text-[#8a3329]"
-        >
-          {formError}
-        </div>
-      ) : null}
-
-      <div className={cn("grid", isSignup ? "gap-3.5" : "gap-4")}>
-        {isSignup ? (
-          <Field id="displayName" label="Nombre completo">
-            <Input
-              id="displayName"
-              name="displayName"
-              autoComplete="name"
-              placeholder="Ej. María Pérez"
-              minLength={2}
-              value={displayName}
-              onChange={(event) => setDisplayName(event.currentTarget.value)}
-              required
-              className={inputClassName}
-            />
-          </Field>
-        ) : null}
-
-        <Field id="email" label="Correo electrónico">
-          <Input
-            id="email"
-            name="email"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            placeholder="nombre@correo.com"
-            value={email}
-            onChange={(event) => setEmail(event.currentTarget.value)}
-            required
-            className={inputClassName}
-          />
-        </Field>
-
-        <Field id="password" label="Contraseña">
-          <PasswordInput
-            id="password"
-            name="password"
-            autoComplete={isSignup ? "new-password" : "current-password"}
-            placeholder={isSignup ? "Creá una contraseña" : "Tu contraseña"}
-            minLength={isSignup ? 8 : undefined}
-            value={password}
-            onChange={(event) =>
-              handlePasswordChange(event.currentTarget.value)
-            }
-          />
-          {isSignup ? (
-            <div className="grid gap-1 pt-0.5" aria-live="polite">
-              <div className="grid grid-cols-4 gap-1" aria-hidden="true">
-                {[1, 2, 3, 4].map((level) => (
-                  <span
-                    key={level}
-                    className={cn(
-                      "h-1 rounded-sm transition-colors",
-                      strength >= level ? "bg-[#4caf50]" : "bg-[#e2dcd5]/50"
-                    )}
-                  />
-                ))}
-              </div>
-              <span
-                className={cn(
-                  "text-[11px]",
-                  strength >= 3 ? "text-[#4caf50]" : "text-[#5a6b68]"
-                )}
-              >
-                {strengthLabel(strength)}
-              </span>
-            </div>
-          ) : null}
-        </Field>
-
-        {isSignup ? (
-          <Field id="confirmPassword" label="Confirmar contraseña">
-            <Input
-              id="confirmPassword"
-              name="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              placeholder="Repetí tu contraseña"
-              minLength={8}
-              value={confirmPassword}
-              required
-              ref={confirmPasswordRef}
-              aria-invalid={passwordError ? true : undefined}
-              aria-describedby={passwordError ? "auth-form-error" : undefined}
-              onChange={(event) =>
-                handleConfirmPasswordChange(event.currentTarget.value)
-              }
-              className={inputClassName}
-            />
-          </Field>
-        ) : (
-          <button
-            type="button"
-            disabled
-            title="Recuperación de contraseña próximamente"
-            className="justify-self-end text-sm font-bold text-[#00786f] disabled:cursor-not-allowed"
-          >
-            ¿Olvidaste tu contraseña?
-          </button>
-        )}
+      <div className="flex items-center gap-3 py-5" aria-hidden="true">
+        <span className="h-px flex-1 bg-[#e2dcd5]" />
+        <span className="text-xs font-semibold text-[#74817f]">o</span>
+        <span className="h-px flex-1 bg-[#e2dcd5]" />
       </div>
 
-      {isSignup ? (
-        <div className="grid gap-4 pt-6">
-          <SubmitButton mode={mode} />
-          <p className="text-center text-sm text-[#5a6b68]">
-            ¿Ya tenés una cuenta?{" "}
-            <Link
-              href={alternateHref}
-              className="font-bold text-[#00786f] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40"
-            >
-              Iniciá Sesión
-            </Link>
-          </p>
-        </div>
-      ) : (
-        <>
-          <div className="pt-8">
-            <SubmitButton mode={mode} />
-          </div>
+      <form
+        action={isSignup ? signUpAction : signInAction}
+        onSubmit={handleSubmit}
+        className="flex flex-1 flex-col"
+      >
+        <input type="hidden" name="next" value={next} />
 
-          <p className="pt-6 text-center text-sm text-[#5a6b68]">
-            ¿No tenés cuenta?{" "}
-            <Link
-              href={alternateHref}
-              className="font-bold text-[#00786f] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40"
+        {formError ? (
+          <div
+            id="auth-form-error"
+            role="alert"
+            className="mb-4 rounded-xl border border-[#e8725a]/35 bg-[#fdf0ed] px-4 py-3 text-sm leading-snug text-[#8a3329]"
+          >
+            {formError}
+          </div>
+        ) : null}
+
+        <div className={cn("grid", isSignup ? "gap-3.5" : "gap-4")}>
+          {isSignup ? (
+            <Field id="displayName" label="Nombre completo">
+              <Input
+                id="displayName"
+                name="displayName"
+                autoComplete="name"
+                placeholder="Ej. María Pérez"
+                minLength={2}
+                value={displayName}
+                onChange={(event) => setDisplayName(event.currentTarget.value)}
+                required
+                className={inputClassName}
+              />
+            </Field>
+          ) : null}
+
+          <Field id="email" label="Correo electrónico">
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              placeholder="nombre@correo.com"
+              value={email}
+              onChange={(event) => setEmail(event.currentTarget.value)}
+              required
+              className={inputClassName}
+            />
+          </Field>
+
+          <Field id="password" label="Contraseña">
+            <PasswordInput
+              id="password"
+              name="password"
+              autoComplete={isSignup ? "new-password" : "current-password"}
+              placeholder={isSignup ? "Creá una contraseña" : "Tu contraseña"}
+              minLength={isSignup ? 8 : undefined}
+              value={password}
+              onChange={(event) =>
+                handlePasswordChange(event.currentTarget.value)
+              }
+            />
+            {isSignup ? (
+              <div className="grid gap-1 pt-0.5" aria-live="polite">
+                <div className="grid grid-cols-4 gap-1" aria-hidden="true">
+                  {[1, 2, 3, 4].map((level) => (
+                    <span
+                      key={level}
+                      className={cn(
+                        "h-1 rounded-sm transition-colors",
+                        strength >= level ? "bg-[#4caf50]" : "bg-[#e2dcd5]/50"
+                      )}
+                    />
+                  ))}
+                </div>
+                <span
+                  className={cn(
+                    "text-[11px]",
+                    strength >= 3 ? "text-[#4caf50]" : "text-[#5a6b68]"
+                  )}
+                >
+                  {strengthLabel(strength)}
+                </span>
+              </div>
+            ) : null}
+          </Field>
+
+          {isSignup ? (
+            <Field id="confirmPassword" label="Confirmar contraseña">
+              <Input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                autoComplete="new-password"
+                placeholder="Repetí tu contraseña"
+                minLength={8}
+                value={confirmPassword}
+                required
+                ref={confirmPasswordRef}
+                aria-invalid={passwordError ? true : undefined}
+                aria-describedby={passwordError ? "auth-form-error" : undefined}
+                onChange={(event) =>
+                  handleConfirmPasswordChange(event.currentTarget.value)
+                }
+                className={inputClassName}
+              />
+            </Field>
+          ) : (
+            <button
+              type="button"
+              disabled
+              title="Recuperación de contraseña próximamente"
+              className="justify-self-end text-sm font-bold text-[#00786f] disabled:cursor-not-allowed"
             >
-              Registrate
-            </Link>
-          </p>
-        </>
-      )}
-    </form>
+              ¿Olvidaste tu contraseña?
+            </button>
+          )}
+        </div>
+
+        {isSignup ? (
+          <div className="grid gap-4 pt-6">
+            <SubmitButton mode={mode} />
+            <p className="text-center text-sm text-[#5a6b68]">
+              ¿Ya tenés una cuenta?{" "}
+              <Link
+                href={alternateHref}
+                className="font-bold text-[#00786f] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40"
+              >
+                Iniciá Sesión
+              </Link>
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="pt-8">
+              <SubmitButton mode={mode} />
+            </div>
+
+            <p className="pt-6 text-center text-sm text-[#5a6b68]">
+              ¿No tenés cuenta?{" "}
+              <Link
+                href={alternateHref}
+                className="font-bold text-[#00786f] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40"
+              >
+                Registrate
+              </Link>
+            </p>
+          </>
+        )}
+      </form>
+    </div>
   );
 }

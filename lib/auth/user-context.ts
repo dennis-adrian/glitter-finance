@@ -78,10 +78,11 @@ export function getDisplayName(user: {
   email?: string;
   user_metadata?: Record<string, unknown>;
 }) {
-  const metadataName = user.user_metadata?.display_name;
-
-  if (typeof metadataName === "string" && metadataName.trim()) {
-    return metadataName.trim();
+  for (const key of ["display_name", "full_name", "name"] as const) {
+    const metadataName = user.user_metadata?.[key];
+    if (typeof metadataName === "string" && metadataName.trim()) {
+      return metadataName.trim();
+    }
   }
 
   if (user.email) {

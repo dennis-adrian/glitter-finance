@@ -1,10 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { isInviteRedirectPath } from "@/lib/auth/redirect";
 import {
-  isInviteRedirectPath,
-  sanitizeRedirectPath,
-} from "@/lib/auth/redirect";
+  buildAuthCallbackUrl,
+  buildLoginRedirectPath,
+  resolveAuthRedirectPath,
+} from "@/lib/auth/oauth";
 import {
   getSignUpErrorMessage,
   SIGN_UP_ORIGIN_UNAVAILABLE_MESSAGE,
@@ -16,6 +18,10 @@ import { getRequestOrigin } from "@/lib/request-origin";
 import { createClient } from "@/lib/supabase/server";
 
 const ACCOUNT_PREPARATION_ERROR_MESSAGE = "No se pudo preparar la cuenta.";
+const GOOGLE_SIGN_IN_ERROR_MESSAGE =
+  "No se pudo iniciar sesión con Google. Intentá de nuevo.";
+const GOOGLE_SIGN_IN_ORIGIN_ERROR_MESSAGE =
+  "No se pudo determinar la URL de la app para iniciar sesión con Google.";
 
 export type SignUpState = {
   error: string | null;
@@ -30,44 +36,6 @@ function getFormString(formData: FormData, key: string) {
   return typeof value === "string" ? value : "";
 }
 
-// Build a /login redirect that preserves the sanitized `next` so an auth flow
-// can still hand off to an invite or other deep link once the user succeeds.
-function loginRedirectUrl(
-  params: { error?: string; message?: string },
-  next: string
-): string {
-  const search = new URLSearchParams();
-  if (params.error) {
-    search.set("error", params.error);
-  }
-  if (params.message) {
-    search.set("message", params.message);
-  }
-  if (next !== "/") {
-    search.set("next", next);
-  }
-  return `/login?${search.toString()}`;
-}
-
-function getAuthCallbackUrl(origin: string, next?: string): string | null {
-  const trimmedOrigin = origin.trim().replace(/\/+$/, "");
-  if (!trimmedOrigin) {
-    return null;
-  }
-  const base = `${trimmedOrigin}/auth/callback`;
-  const url =
-    !next || next === "/" ? base : `${base}?next=${encodeURIComponent(next)}`;
-  return isAbsoluteHttpUrl(url) ? url : null;
-}
-
-function resolveNextRedirect(nextRaw: string | null, origin: string): string {
-  const isRelativeNext =
-    !!nextRaw && nextRaw.startsWith("/") && !nextRaw.startsWith("//");
-  return origin || isRelativeNext
-    ? sanitizeRedirectPath(nextRaw, origin || "http://localhost")
-    : "/";
-}
-
 export async function signInWithPassword(
   _previousState: SignInState,
   formData: FormData
@@ -75,7 +43,7 @@ export async function signInWithPassword(
   const email = getFormString(formData, "email");
   const password = getFormString(formData, "password");
   const origin = await getRequestOrigin();
-  const next = resolveNextRedirect(
+  const next = resolveAuthRedirectPath(
     getFormString(formData, "next") || null,
     origin
   );
@@ -119,6 +87,57 @@ export async function signInWithPassword(
   redirect(next);
 }
 
+export async function signInWithGoogle(formData: FormData) {
+  const origin = await getRequestOrigin();
+  const next = resolveAuthRedirectPath(
+    getFormString(formData, "next") || null,
+    origin
+  );
+  const callbackUrl = origin ? buildAuthCallbackUrl(origin, next) : null;
+
+  if (!callbackUrl) {
+    redirect(
+      buildLoginRedirectPath(
+        { error: GOOGLE_SIGN_IN_ORIGIN_ERROR_MESSAGE },
+        next
+      )
+    );
+  }
+
+  const signInResult = await (async () => {
+    try {
+      const supabase = await createClient();
+      return await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: callbackUrl },
+      });
+    } catch (error) {
+      console.error("[auth] Failed to start Google sign-in", error);
+      return null;
+    }
+  })();
+
+  if (
+    !signInResult ||
+    signInResult.error ||
+    !signInResult.data.url ||
+    !isAbsoluteHttpUrl(signInResult.data.url)
+  ) {
+    if (signInResult?.error) {
+      console.error("[auth] Supabase rejected Google sign-in", {
+        code: signInResult.error.code ?? null,
+        name: signInResult.error.name,
+        status: signInResult.error.status ?? null,
+      });
+    }
+    redirect(
+      buildLoginRedirectPath({ error: GOOGLE_SIGN_IN_ERROR_MESSAGE }, next)
+    );
+  }
+
+  redirect(signInResult.data.url);
+}
+
 export async function signUpWithPassword(
   _previousState: SignUpState,
   formData: FormData
@@ -128,11 +147,11 @@ export async function signUpWithPassword(
   const confirmPassword = getFormString(formData, "confirmPassword");
   const displayName = getFormString(formData, "displayName").trim();
   const origin = await getRequestOrigin();
-  const next = resolveNextRedirect(
+  const next = resolveAuthRedirectPath(
     getFormString(formData, "next") || null,
     origin
   );
-  const callbackUrl = origin ? getAuthCallbackUrl(origin, next) : null;
+  const callbackUrl = origin ? buildAuthCallbackUrl(origin, next) : null;
 
   if (displayName.length < 2) {
     return { error: "Escribe tu nombre completo para crear la cuenta." };
@@ -182,7 +201,7 @@ export async function signUpWithPassword(
 
   if (!data.session) {
     redirect(
-      loginRedirectUrl(
+      buildLoginRedirectPath(
         {
           message:
             "Cuenta creada. Revisa tu correo electrónico para confirmarla y luego inicia sesión.",
@@ -201,7 +220,7 @@ export async function signUpWithPassword(
   } catch (err) {
     console.error("[auth] Failed to prepare account after sign-up", err);
     redirect(
-      loginRedirectUrl({ error: ACCOUNT_PREPARATION_ERROR_MESSAGE }, next)
+      buildLoginRedirectPath({ error: ACCOUNT_PREPARATION_ERROR_MESSAGE }, next)
     );
   }
 

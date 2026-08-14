@@ -19,6 +19,15 @@ PWA.
 
 ## Run locally
 
+For local Google sign-in, set
+`SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` and
+`SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` in `.env.local` before starting the
+local stack. The `pnpm db:*` scripts load that file before invoking the
+Supabase CLI, so Auth reads the credentials at startup. In Google Auth
+Platform, allow both local app origins (`http://localhost:3000` and
+`http://127.0.0.1:3000`) and register
+`http://127.0.0.1:54321/auth/v1/callback` as the authorized redirect URI.
+
 ```bash
 corepack enable
 pnpm install
