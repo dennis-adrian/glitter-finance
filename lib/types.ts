@@ -2,6 +2,14 @@ export type PaymentMethod = "cash" | "qr_transfer";
 export type SaleStatus = "completed" | "voided" | "refunded";
 export type CostStatus = "known" | "unknown";
 
+export type Category = {
+  id: string;
+  tenantId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Product = {
   id: string;
   name: string;

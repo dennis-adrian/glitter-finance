@@ -8,6 +8,10 @@ import { getActiveInvitationForTenant } from "@/lib/invitations/repository";
 import { getProductsForTenant } from "@/lib/products/repository";
 import { getSalesForTenant } from "@/lib/sales/repository";
 import { getRequestOrigin } from "@/lib/request-origin";
+import {
+  ensureCategoriesForExistingProducts,
+  getCategoriesForTenant,
+} from "@/lib/categories/repository";
 
 export default async function Home() {
   const context = await ensureUserTenantContext();
@@ -18,7 +22,12 @@ export default async function Home() {
 
   const inviteOrigin = await getRequestOrigin();
 
+  if (context.tenant) {
+    await ensureCategoriesForExistingProducts(context.tenant.id);
+  }
+
   const [
+    initialCategories,
     initialProducts,
     initialSales,
     initialTenantMembers,
@@ -26,13 +35,14 @@ export default async function Home() {
     activeInvitation,
   ] = context.tenant
     ? await Promise.all([
+        getCategoriesForTenant(context.tenant.id),
         getProductsForTenant(context.tenant.id),
         getSalesForTenant(context.tenant.id),
         getTenantMembersForTenant(context.tenant.id),
         getInventoryMovementsForTenant(context.tenant.id),
         getActiveInvitationForTenant(context.tenant.id),
       ])
-    : [[], [], [], [], null];
+    : [[], [], [], [], [], null];
 
   return (
     <PowerSyncProvider
@@ -43,6 +53,7 @@ export default async function Home() {
     >
       <GlitterPosApp
         tenantContext={context}
+        initialCategories={initialCategories}
         initialProducts={initialProducts}
         initialSales={initialSales}
         initialTenantMembers={initialTenantMembers}

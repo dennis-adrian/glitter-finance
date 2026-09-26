@@ -34,7 +34,7 @@ export function GoogleSubmitButton() {
     <Button
       type="submit"
       disabled={pending}
-      className="h-13! w-full rounded-2xl! border border-[#d8d3cc] bg-white text-base font-bold text-[#1e2d2b] shadow-none hover:bg-[#f8f5ef] disabled:bg-[#f4f1eb] disabled:text-[#74817f] disabled:opacity-100"
+      className="h-13! w-full rounded-2xl! border border-[#d8d3cc] bg-white text-base font-bold text-[#1e2d2b] shadow-none hover:bg-[#f8f5ef] disabled:bg-[#f4f1eb] disabled:text-[#74817f] disabled:opacity-100 dark:border-border dark:bg-card dark:text-card-foreground dark:hover:bg-accent dark:disabled:bg-muted dark:disabled:text-muted-foreground"
     >
       {pending ? (
         <Loader2 aria-hidden="true" className="size-4 animate-spin" />

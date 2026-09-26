@@ -25,6 +25,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
 import { client, db } from "@/lib/db";
 import {
+  categories,
   products,
   refunds,
   saleLines,
@@ -152,6 +153,19 @@ async function resetTenantData() {
   await db.delete(saleLines).where(eq(saleLines.tenantId, QA_TENANT_ID));
   await db.delete(sales).where(eq(sales.tenantId, QA_TENANT_ID));
   await db.delete(products).where(eq(products.tenantId, QA_TENANT_ID));
+  await db.delete(categories).where(eq(categories.tenantId, QA_TENANT_ID));
+}
+
+async function ensureQaCategories() {
+  await db
+    .insert(categories)
+    .values(
+      ["Stickers", "Prints", "Pines", "Accesorios"].map((name) => ({
+        tenantId: QA_TENANT_ID,
+        name,
+      }))
+    )
+    .onConflictDoNothing();
 }
 
 async function seedData(userId: string) {
@@ -267,6 +281,8 @@ async function main() {
     await resetTenantData();
     console.log("Existing QA catalog + sales wiped (--reset).");
   }
+
+  await ensureQaCategories();
 
   const [existingProduct] = await db
     .select({ id: products.id })

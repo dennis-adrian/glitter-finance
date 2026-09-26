@@ -6,6 +6,7 @@ import {
   mapDbProductToProduct,
 } from "@/lib/product-mapper";
 import { isPlaceholderImagePath } from "@/lib/product-image-config";
+import { resolveCategoryNameForTenant } from "@/lib/categories/repository";
 import type { Product, ProductInput } from "@/lib/types";
 
 function resolveInputImagePath(input: ProductInput) {
@@ -32,6 +33,7 @@ export async function createProductForTenant(
   tenantId: string,
   input: ProductInput
 ): Promise<Product> {
+  const category = await resolveCategoryNameForTenant(tenantId, input.category);
   const [product] = await db
     .insert(products)
     .values({
@@ -39,7 +41,7 @@ export async function createProductForTenant(
       name: input.name,
       priceCents: input.priceCents,
       costCents: input.costCents,
-      category: input.category,
+      category,
       imagePath: resolveInputImagePath(input),
       tracksInventory: input.tracksInventory ?? false,
       lowStockThreshold: input.lowStockThreshold ?? null,
@@ -58,6 +60,7 @@ export async function updateProductForTenant(
   productId: string,
   input: ProductInput
 ): Promise<Product> {
+  const category = await resolveCategoryNameForTenant(tenantId, input.category);
   const updates: {
     name: string;
     priceCents: number;
@@ -71,7 +74,7 @@ export async function updateProductForTenant(
     name: input.name,
     priceCents: input.priceCents,
     costCents: input.costCents,
-    category: input.category,
+    category,
     imagePath: resolveInputImagePath(input) ?? null,
     updatedAt: new Date(),
   };
