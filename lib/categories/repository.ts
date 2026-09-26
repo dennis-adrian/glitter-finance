@@ -1,6 +1,7 @@
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { categories, products } from "@/lib/db/schema";
+import { postgresErrorCode } from "@/lib/db/errors";
 import {
   categoryNameMaxLength,
   normalizeCategoryName,
@@ -18,17 +19,8 @@ function mapCategory(row: typeof categories.$inferSelect): Category {
   };
 }
 
-function isUniqueViolation(error: unknown) {
-  return (
-    error !== null &&
-    typeof error === "object" &&
-    "code" in error &&
-    error.code === "23505"
-  );
-}
-
 function categoryConflictError(error: unknown): never {
-  if (isUniqueViolation(error)) {
+  if (postgresErrorCode(error) === "23505") {
     throw new Error("Ya existe una categoría con ese nombre.");
   }
   throw error;

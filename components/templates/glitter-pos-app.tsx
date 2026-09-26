@@ -13,6 +13,7 @@ import {
   deleteCategory as deleteCategoryAction,
   renameCategory as renameCategoryAction,
 } from "@/app/categories/actions";
+import { createInventoryMovement as createInventoryMovementAction } from "@/app/inventory/actions";
 import {
   createSale,
   refundSale as refundSaleAction,
@@ -1046,6 +1047,7 @@ export function GlitterPosApp({
     const db = powerSyncDb;
     try {
       let uploadFailed = false;
+      let initialStockFailed = false;
       let hasInitial = false;
       if (editingProduct) {
         if (productHasInitialMovement(editingProduct.id, inventoryMovements)) {
@@ -1065,20 +1067,6 @@ export function GlitterPosApp({
         input.initialStock != null &&
         input.initialStock > 0 &&
         !hasInitial;
-
-      const inventoryPersistenceRequired =
-        !db &&
-        input.tracksInventory &&
-        (needsInitialMovement ||
-          !editingProduct ||
-          !editingProduct.tracksInventory);
-      if (inventoryPersistenceRequired) {
-        showToast(
-          "Conecta para guardar productos con inventario activado.",
-          "danger"
-        );
-        return;
-      }
 
       if (db) {
         work.assertCurrent();
@@ -1133,6 +1121,23 @@ export function GlitterPosApp({
           : await createProduct(input);
         work.assertCurrent();
 
+        if (needsInitialMovement) {
+          try {
+            const movement = await createInventoryMovementAction({
+              productId: product.id,
+              delta: input.initialStock!,
+              reason: "initial",
+            });
+            work.assertCurrent();
+            setInventoryMovements((current) => [...current, movement]);
+          } catch (error) {
+            if (!work.isCurrent()) {
+              throw error;
+            }
+            initialStockFailed = true;
+          }
+        }
+
         if (input.imageFile) {
           const formData = new FormData();
           formData.set("image", input.imageFile);
@@ -1152,7 +1157,12 @@ export function GlitterPosApp({
       }
 
       work.assertCurrent();
-      if (uploadFailed) {
+      if (initialStockFailed) {
+        showToast(
+          "Producto guardado, pero no se pudo registrar el stock inicial",
+          "danger"
+        );
+      } else if (uploadFailed) {
         showToast(
           "Producto guardado, pero no se pudo subir la imagen",
           "danger"
@@ -1189,23 +1199,25 @@ export function GlitterPosApp({
       return;
     }
     const db = powerSyncDb;
-    if (!db) {
-      showToast("Conecta para ajustar el inventario.", "info");
-      return;
-    }
     const work = beginTenantWork();
     try {
       work.assertCurrent();
-      await addInventoryMovement(db, {
-        tenantId: tenant.id,
-        userId: tenantContext.user.id,
-        productId: input.productId,
-        delta: input.delta,
-        reason: input.reason,
-        note: input.note,
-        assertCurrent: work.assertCurrent,
-      });
-      work.assertCurrent();
+      if (db) {
+        await addInventoryMovement(db, {
+          tenantId: tenant.id,
+          userId: tenantContext.user.id,
+          productId: input.productId,
+          delta: input.delta,
+          reason: input.reason,
+          note: input.note,
+          assertCurrent: work.assertCurrent,
+        });
+        work.assertCurrent();
+      } else {
+        const movement = await createInventoryMovementAction(input);
+        work.assertCurrent();
+        setInventoryMovements((current) => [...current, movement]);
+      }
       showToast("Inventario actualizado", "success");
     } catch (error) {
       if (!work.isCurrent()) {
