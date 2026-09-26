@@ -7,6 +7,7 @@ import {
   uploadProductImageLocal,
 } from "@/lib/powersync/write-products";
 import { createSaleLocal } from "@/lib/powersync/write-sales";
+import { createCategoryLocal } from "@/lib/powersync/write-categories";
 import type { Product } from "@/lib/types";
 
 const cancelled = () => {
@@ -32,6 +33,15 @@ test("local writers check cancellation before committing SQLite mutations", asyn
         imageTone: "violet",
         tracksInventory: false,
       },
+      assertCurrent: cancelled,
+    }),
+    /tenant work cancelled/
+  );
+
+  await assert.rejects(
+    createCategoryLocal(directDb, {
+      tenantId: "tenant-1",
+      name: "General",
       assertCurrent: cancelled,
     }),
     /tenant work cancelled/

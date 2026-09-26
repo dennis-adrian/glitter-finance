@@ -71,6 +71,13 @@
       "when": 1782667400810,
       "tag": "20260628172320_light_stature",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786715768575,
+      "tag": "20260814135608_glorious_agent_zero",
+      "breakpoints": true
     }
   ]
 }

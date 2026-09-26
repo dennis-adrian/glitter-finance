@@ -9,6 +9,11 @@ import {
   uploadProductImage,
 } from "@/app/products/actions";
 import {
+  createCategory as createCategoryAction,
+  deleteCategory as deleteCategoryAction,
+  renameCategory as renameCategoryAction,
+} from "@/app/categories/actions";
+import {
   createSale,
   refundSale as refundSaleAction,
   voidSale as voidSaleAction,
@@ -17,6 +22,7 @@ import { toast as sonnerToast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { BottomNav } from "@/components/organisms/bottom-nav";
 import { CartScreen } from "@/components/screens/cart-screen";
+import { CategoriesScreen } from "@/components/screens/categories-screen";
 import { PaymentScreen } from "@/components/screens/payment-screen";
 import { ProductEditor } from "@/components/screens/product-editor";
 import { ProductsScreen } from "@/components/screens/products-screen";
@@ -45,6 +51,7 @@ import {
 } from "@/lib/powersync/tenant-users-from-local";
 import { usePosStore } from "@/lib/store";
 import type {
+  Category,
   CartLine,
   PaymentMethod,
   Product,
@@ -70,6 +77,11 @@ import {
   updateProductLocal,
   uploadProductImageLocal,
 } from "@/lib/powersync/write-products";
+import {
+  createCategoryLocal,
+  deleteCategoryLocal,
+  renameCategoryLocal,
+} from "@/lib/powersync/write-categories";
 import {
   clearDraftCartLocal,
   loadDraftCartLocal,
@@ -112,6 +124,14 @@ type ProductRow = {
   updated_at: string;
 };
 
+type CategoryRow = {
+  id: string;
+  tenant_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type InventoryMovementRow = {
   id: string;
   tenant_id: string;
@@ -140,6 +160,16 @@ function rowToProduct(row: ProductRow): Product {
   });
 }
 
+function rowToCategory(row: CategoryRow): Category {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    name: row.name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function rowToInventoryMovement(row: InventoryMovementRow): InventoryMovement {
   return {
     id: row.id,
@@ -154,8 +184,15 @@ function rowToInventoryMovement(row: InventoryMovementRow): InventoryMovement {
   };
 }
 
+function sortCategories(items: Category[]) {
+  return [...items].sort((first, second) =>
+    first.name.localeCompare(second.name, "es", { sensitivity: "base" })
+  );
+}
+
 type GlitterPosAppProps = {
   tenantContext: UserTenantContext;
+  initialCategories: Category[];
   initialProducts: Product[];
   initialSales: Sale[];
   initialTenantMembers: TenantMember[];
@@ -166,6 +203,7 @@ type GlitterPosAppProps = {
 
 export function GlitterPosApp({
   tenantContext,
+  initialCategories,
   initialProducts,
   initialSales,
   initialTenantMembers,
@@ -187,8 +225,12 @@ export function GlitterPosApp({
   const hydrateProducts = usePosStore((state) => state.hydrateProducts);
   const hydrateSales = usePosStore((state) => state.hydrateSales);
   const upsertProduct = usePosStore((state) => state.upsertProduct);
+  const renameProductCategory = usePosStore(
+    (state) => state.renameProductCategory
+  );
 
   const [view, setView] = useState<View>("sell");
+  const [categories, setCategories] = useState<Category[]>(initialCategories);
   const [activeInvitationState, setActiveInvitationState] =
     useState(activeInvitation);
   const [previousView, setPreviousView] = useState<View>("products");
@@ -231,6 +273,13 @@ export function GlitterPosApp({
   const cartUpdatedAtRef = useRef<string | null>(null);
 
   const activeProducts = products.filter((product) => !product.archivedAt);
+  const categoryNames = useMemo(() => {
+    const names = categories.map((item) => item.name);
+    for (const product of products) {
+      if (!names.includes(product.category)) names.push(product.category);
+    }
+    return names;
+  }, [categories, products]);
   const cartDetails = useMemo(
     () =>
       cart
@@ -306,6 +355,7 @@ export function GlitterPosApp({
       setSaleDetailReturnView("sales");
       setIsCheckingOut(false);
       setActiveInvitationState(null);
+      setCategories([]);
       setTenantMembers([]);
       setInventoryMovements([]);
       setInventoryWatchReady(false);
@@ -329,6 +379,7 @@ export function GlitterPosApp({
   useEffect(() => {
     hydrateProducts(initialProducts);
     hydrateSales(initialSales);
+    setCategories(sortCategories(initialCategories));
     setTenantMembers(initialTenantMembers);
     setInventoryMovements(initialInventoryMovements);
     if (!isPowerSyncConfigured()) {
@@ -351,6 +402,7 @@ export function GlitterPosApp({
     hydrateProducts,
     hydrateSales,
     initialProducts,
+    initialCategories,
     initialSales,
     initialTenantMembers,
     initialInventoryMovements,
@@ -492,6 +544,56 @@ export function GlitterPosApp({
       unregister?.();
     };
   }, [powerSyncDb, hydrateProducts, activeTenantId, tenantWorkGeneration]);
+
+  useEffect(() => {
+    if (!powerSyncDb || !activeTenantId) return;
+
+    const controller = new AbortController();
+    const generation = tenantWorkGenerationRef.current;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      tenantWorkGenerationRef.current === generation;
+    let unregister: (() => void) | undefined;
+
+    function startWatching(db: NonNullable<typeof powerSyncDb>) {
+      db.watch(
+        "SELECT * FROM categories WHERE tenant_id = ? ORDER BY name ASC",
+        [activeTenantId],
+        {
+          onResult: (results) => {
+            if (!isCurrent() || !db.currentStatus?.hasSynced) return;
+            const rows = ((
+              results.rows as unknown as { _array?: CategoryRow[] }
+            )?._array ?? []) as CategoryRow[];
+            setCategories(sortCategories(rows.map(rowToCategory)));
+          },
+          onError: (error) => {
+            console.error("[PowerSync] categories watch error", error);
+          },
+        },
+        { signal: controller.signal }
+      );
+    }
+
+    if (powerSyncDb.currentStatus?.hasSynced) {
+      startWatching(powerSyncDb);
+    } else {
+      unregister = powerSyncDb.registerListener({
+        statusChanged: (status) => {
+          if (status.hasSynced && isCurrent()) {
+            startWatching(powerSyncDb);
+            unregister?.();
+            unregister = undefined;
+          }
+        },
+      });
+    }
+
+    return () => {
+      controller.abort();
+      unregister?.();
+    };
+  }, [powerSyncDb, activeTenantId, tenantWorkGeneration]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
@@ -828,6 +930,100 @@ export function GlitterPosApp({
 
   function openImport() {
     showToast("La importación desde Excel aún no está disponible.", "info");
+  }
+
+  async function handleCreateCategory(name: string): Promise<Category> {
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      throw new Error("Tu cuenta aún no está configurada.");
+    }
+
+    const work = beginTenantWork();
+    const db = powerSyncDb;
+    const created = db
+      ? await createCategoryLocal(db, {
+          tenantId: tenant.id,
+          name,
+          assertCurrent: work.assertCurrent,
+        })
+      : await createCategoryAction(name);
+    work.assertCurrent();
+    setCategories((current) =>
+      sortCategories([
+        created,
+        ...current.filter((item) => item.id !== created.id),
+      ])
+    );
+    showToast("Categoría creada", "success");
+    return created;
+  }
+
+  async function handleRenameCategory(
+    categoryId: string,
+    name: string
+  ): Promise<Category> {
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      throw new Error("Tu cuenta aún no está configurada.");
+    }
+    const currentCategory = categories.find((item) => item.id === categoryId);
+    if (!currentCategory) {
+      throw new Error("No se encontró la categoría.");
+    }
+
+    const work = beginTenantWork();
+    const db = powerSyncDb;
+    const renamed = db
+      ? await renameCategoryLocal(db, {
+          tenantId: tenant.id,
+          categoryId,
+          name,
+          assertCurrent: work.assertCurrent,
+        })
+      : await renameCategoryAction(categoryId, name);
+    work.assertCurrent();
+    setCategories((current) =>
+      sortCategories(
+        current.map((item) => (item.id === categoryId ? renamed : item))
+      )
+    );
+    renameProductCategory(currentCategory.name, renamed.name);
+    if (category === currentCategory.name) setCategory(renamed.name);
+    if (catalogCategory === currentCategory.name) {
+      setCatalogCategory(renamed.name);
+    }
+    showToast("Categoría renombrada", "info");
+    return renamed;
+  }
+
+  async function handleDeleteCategory(categoryId: string): Promise<void> {
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      throw new Error("Tu cuenta aún no está configurada.");
+    }
+    const currentCategory = categories.find((item) => item.id === categoryId);
+    if (!currentCategory) {
+      throw new Error("No se encontró la categoría.");
+    }
+
+    const work = beginTenantWork();
+    const db = powerSyncDb;
+    if (db) {
+      await deleteCategoryLocal(db, {
+        tenantId: tenant.id,
+        categoryId,
+        assertCurrent: work.assertCurrent,
+      });
+    } else {
+      await deleteCategoryAction(categoryId);
+    }
+    work.assertCurrent();
+    setCategories((current) =>
+      current.filter((item) => item.id !== categoryId)
+    );
+    if (category === currentCategory.name) setCategory("Todos");
+    if (catalogCategory === currentCategory.name) setCatalogCategory("Todos");
+    showToast("Categoría eliminada", "info");
   }
 
   async function handleSaveProduct(input: {
@@ -1198,6 +1394,7 @@ export function GlitterPosApp({
     sell: (
       <SellScreen
         products={activeProducts}
+        categories={categoryNames}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         cartCount={cartCount}
@@ -1234,6 +1431,7 @@ export function GlitterPosApp({
     products: (
       <ProductsScreen
         products={products}
+        categories={categoryNames}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         category={catalogCategory}
@@ -1243,6 +1441,7 @@ export function GlitterPosApp({
         setCategory={setCatalogCategory}
         setQuery={setCatalogQuery}
         openEditor={openEditor}
+        openCategories={() => setView("categories")}
         onImport={openImport}
         restoreProduct={async (productId) => {
           const tenant = tenantContext.tenant;
@@ -1280,6 +1479,16 @@ export function GlitterPosApp({
             );
           }
         }}
+      />
+    ),
+    categories: (
+      <CategoriesScreen
+        categories={categories}
+        products={products}
+        back={() => setView("products")}
+        createCategory={handleCreateCategory}
+        renameCategory={handleRenameCategory}
+        deleteCategory={handleDeleteCategory}
       />
     ),
     more: (
@@ -1338,6 +1547,7 @@ export function GlitterPosApp({
     editor: (
       <ProductEditor
         product={editingProduct}
+        categories={categories}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         hasInitialMovement={editorHasInitialMovement}
@@ -1345,6 +1555,7 @@ export function GlitterPosApp({
         back={() =>
           setView(previousView === "sell" ? "products" : previousView)
         }
+        createCategory={handleCreateCategory}
         save={handleSaveProduct}
         archive={async (productId) => {
           const tenant = tenantContext.tenant;
