@@ -1157,7 +1157,12 @@ export function GlitterPosApp({
       }
 
       work.assertCurrent();
-      if (initialStockFailed) {
+      if (initialStockFailed && uploadFailed) {
+        showToast(
+          "Producto guardado, pero no se pudo registrar el stock inicial ni subir la imagen",
+          "danger"
+        );
+      } else if (initialStockFailed) {
         showToast(
           "Producto guardado, pero no se pudo registrar el stock inicial",
           "danger"
