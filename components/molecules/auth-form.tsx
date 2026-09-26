@@ -24,7 +24,7 @@ type AuthFormProps = {
 };
 
 const inputClassName =
-  "h-12! rounded-xl! border-border bg-card px-4 text-sm text-card-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/15";
+  "h-12! rounded-xl! border-border bg-card px-4 text-sm text-card-foreground shadow-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/15";
 
 function PasswordInput({
   id,

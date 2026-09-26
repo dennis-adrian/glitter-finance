@@ -325,7 +325,7 @@ export function ProductEditor({
           value={price}
           onChange={(event) => setPrice(event.target.value)}
           inputMode="decimal"
-          placeholder="15"
+          placeholder="Ej. 15"
           className="h-12 rounded-xl"
         />
       </FormField>
@@ -381,7 +381,7 @@ export function ProductEditor({
       </FormField>
       {!category ? (
         <p className="mt-1.5 text-sm text-muted-foreground">
-          Crea una categoría para poder guardar el producto.
+          Selecciona o crea una categoría para poder guardar el producto.
         </p>
       ) : null}
 
@@ -411,7 +411,7 @@ export function ProductEditor({
                 setInventoryActionError(null);
               }}
               inputMode="numeric"
-              placeholder="10"
+              placeholder="Ej. 10"
               className="h-12 rounded-xl"
             />
           </FormField>
@@ -443,7 +443,7 @@ export function ProductEditor({
                   value={restockAmount}
                   onChange={(event) => setRestockAmount(event.target.value)}
                   inputMode="numeric"
-                  placeholder="+5"
+                  placeholder="Ej. +5"
                   className="h-14 flex-1 rounded-xl"
                 />
                 <Button
@@ -482,7 +482,7 @@ export function ProductEditor({
                       onChange={(event) =>
                         setAdjustmentAmount(event.target.value)
                       }
-                      placeholder="±2"
+                      placeholder="Ej. -2 o +3"
                       className="h-14 rounded-xl"
                     />
                     <Input
@@ -519,7 +519,7 @@ export function ProductEditor({
                       value={lossAmount}
                       onChange={(event) => setLossAmount(event.target.value)}
                       inputMode="numeric"
-                      placeholder="2"
+                      placeholder="Ej. 2"
                       className="h-14 rounded-xl"
                     />
                     <Input
@@ -555,7 +555,7 @@ export function ProductEditor({
                       value={giftAmount}
                       onChange={(event) => setGiftAmount(event.target.value)}
                       inputMode="numeric"
-                      placeholder="1"
+                      placeholder="Ej. 1"
                       className="h-14 rounded-xl"
                     />
                     <Input
