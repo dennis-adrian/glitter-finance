@@ -24,7 +24,7 @@ type AuthFormProps = {
 };
 
 const inputClassName =
-  "h-12! rounded-xl! border-[#e2dcd5] bg-white px-4 text-sm text-[#1e2d2b] shadow-none placeholder:text-[#5a6b68] focus-visible:border-[#00786f] focus-visible:ring-[#00786f]/15";
+  "h-12! rounded-xl! border-border bg-card px-4 text-sm text-card-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/15";
 
 function PasswordInput({
   id,
@@ -64,7 +64,7 @@ function PasswordInput({
         onClick={() => setIsVisible((visible) => !visible)}
         aria-label={isVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
         aria-pressed={isVisible}
-        className="absolute inset-y-0 right-0 min-w-20.5 rounded-r-xl px-4 text-right text-[13px] font-bold text-[#00786f] uppercase transition-colors hover:text-[#0d564f] focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-[#00786f]/40"
+        className="absolute inset-y-0 right-0 min-w-20.5 rounded-r-xl px-4 text-right text-[13px] font-bold text-primary uppercase transition-colors hover:text-[var(--interactive-hover)] focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-primary/40"
       >
         {isVisible ? "Ocultar" : "Mostrar"}
       </button>
@@ -79,7 +79,7 @@ function SubmitButton({ mode }: { mode: AuthMode }) {
     <Button
       type="submit"
       disabled={pending}
-      className="h-13! w-full rounded-2xl! border-0 bg-[#00786f] text-base font-bold text-white shadow-[0_4px_6px_rgba(0,120,111,0.15)] hover:bg-[#0d564f] disabled:bg-[#b4c2bf] disabled:text-white disabled:opacity-100 disabled:shadow-none"
+      className="h-13! w-full rounded-2xl! border-0 bg-primary text-base font-bold text-primary-foreground shadow-[0_4px_6px_rgba(0,120,111,0.15)] hover:bg-[var(--interactive-hover)] disabled:bg-[#b4c2bf] disabled:text-white disabled:opacity-100 disabled:shadow-none dark:shadow-[0_4px_10px_rgba(0,0,0,0.35)] dark:disabled:bg-muted dark:disabled:text-muted-foreground"
     >
       {pending ? (
         <>
@@ -106,7 +106,7 @@ function Field({
 }) {
   return (
     <div className="grid gap-1.5">
-      <Label htmlFor={id} className="text-[13px] font-bold text-[#1e2d2b]">
+      <Label htmlFor={id} className="text-[13px] font-bold text-foreground">
         {label}
       </Label>
       {children}
@@ -184,9 +184,9 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
       </form>
 
       <div className="flex items-center gap-3 py-5" aria-hidden="true">
-        <span className="h-px flex-1 bg-[#e2dcd5]" />
-        <span className="text-xs font-semibold text-[#74817f]">o</span>
-        <span className="h-px flex-1 bg-[#e2dcd5]" />
+        <span className="h-px flex-1 bg-border" />
+        <span className="text-xs font-semibold text-muted-foreground">o</span>
+        <span className="h-px flex-1 bg-border" />
       </div>
 
       <form
@@ -200,7 +200,7 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
           <div
             id="auth-form-error"
             role="alert"
-            className="mb-4 rounded-xl border border-[#e8725a]/35 bg-[#fdf0ed] px-4 py-3 text-sm leading-snug text-[#8a3329]"
+            className="mb-4 rounded-xl border border-[#e8725a]/35 bg-[#fdf0ed] px-4 py-3 text-sm leading-snug text-[#8a3329] dark:border-destructive/40 dark:bg-destructive/15 dark:text-[#ffb4a8]"
           >
             {formError}
           </div>
@@ -258,7 +258,7 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
                       key={level}
                       className={cn(
                         "h-1 rounded-sm transition-colors",
-                        strength >= level ? "bg-[#4caf50]" : "bg-[#e2dcd5]/50"
+                        strength >= level ? "bg-[var(--green)]" : "bg-border/50"
                       )}
                     />
                   ))}
@@ -266,7 +266,9 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
                 <span
                   className={cn(
                     "text-[11px]",
-                    strength >= 3 ? "text-[#4caf50]" : "text-[#5a6b68]"
+                    strength >= 3
+                      ? "text-[var(--green)]"
+                      : "text-muted-foreground"
                   )}
                 >
                   {strengthLabel(strength)}
@@ -300,7 +302,7 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
               type="button"
               disabled
               title="Recuperación de contraseña próximamente"
-              className="justify-self-end text-sm font-bold text-[#00786f] disabled:cursor-not-allowed"
+              className="justify-self-end text-sm font-bold text-primary disabled:cursor-not-allowed"
             >
               ¿Olvidaste tu contraseña?
             </button>
@@ -310,11 +312,11 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
         {isSignup ? (
           <div className="grid gap-4 pt-6">
             <SubmitButton mode={mode} />
-            <p className="text-center text-sm text-[#5a6b68]">
+            <p className="text-center text-sm text-muted-foreground">
               ¿Ya tenés una cuenta?{" "}
               <Link
                 href={alternateHref}
-                className="font-bold text-[#00786f] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40"
+                className="font-bold text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-primary/40"
               >
                 Iniciá Sesión
               </Link>
@@ -326,11 +328,11 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
               <SubmitButton mode={mode} />
             </div>
 
-            <p className="pt-6 text-center text-sm text-[#5a6b68]">
+            <p className="pt-6 text-center text-sm text-muted-foreground">
               ¿No tenés cuenta?{" "}
               <Link
                 href={alternateHref}
-                className="font-bold text-[#00786f] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40"
+                className="font-bold text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-primary/40"
               >
                 Registrate
               </Link>
