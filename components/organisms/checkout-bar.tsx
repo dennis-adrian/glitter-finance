@@ -11,8 +11,9 @@ type CheckoutBarProps = {
 
 /**
  * Collapsed order for phones and tablets: the bag (with item count) opens
- * the order sheet, and Cobrar goes straight to checkout. Phones show only
- * the bag icon so Cobrar gets the width; tablets add the "Ver pedido" label.
+ * the order sheet, and Cobrar goes straight to checkout. Phones show the
+ * bag and the expand caret so Cobrar gets the width; tablets add the
+ * "Ver pedido" label between them.
  */
 export function CheckoutBar({
   count,
@@ -25,7 +26,7 @@ export function CheckoutBar({
       <button
         type="button"
         onClick={openOrder}
-        className="flex size-13 shrink-0 items-center justify-center gap-3 rounded-full bg-muted text-left outline-none transition-colors hover:bg-muted/70 focus-visible:ring-[3px] focus-visible:ring-ring/50 md:w-auto md:min-w-0 md:flex-1 md:justify-start md:pr-4 md:pl-1.5"
+        className="flex h-13 shrink-0 items-center gap-2 rounded-full bg-muted pr-3.5 pl-1.5 text-left outline-none transition-colors hover:bg-muted/70 focus-visible:ring-[3px] focus-visible:ring-ring/50 md:min-w-0 md:flex-1 md:gap-3 md:pr-4"
         aria-label={`Ver pedido, ${count} ${count === 1 ? "producto" : "productos"}`}
       >
         <span className="relative grid size-10 shrink-0 place-items-center rounded-full bg-card text-primary">
@@ -37,7 +38,10 @@ export function CheckoutBar({
         <strong className="hidden min-w-0 flex-1 truncate text-sm md:block">
           Ver pedido
         </strong>
-        <ChevronUp className="hidden size-4 shrink-0 text-muted-foreground md:block" />
+        <ChevronUp
+          className="size-4 shrink-0 text-muted-foreground"
+          aria-hidden
+        />
       </button>
       <Button
         type="button"
