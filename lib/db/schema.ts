@@ -141,6 +141,14 @@ export const products = pgTable(
       "products_category_not_blank_check",
       sql`btrim(${table.category}) <> ''`
     ),
+    // PRODUCT_NAME_MAX_LENGTH and PRODUCT_CATEGORY_MAX_LENGTH in
+    // lib/products.ts. PowerSync uploads product rows straight through
+    // PostgREST, so the server actions are not the only writers.
+    check("products_name_length_check", sql`char_length(${table.name}) <= 120`),
+    check(
+      "products_category_length_check",
+      sql`char_length(${table.category}) <= 60`
+    ),
     check(
       "products_price_cents_nonnegative_check",
       sql`${table.priceCents} >= 0`

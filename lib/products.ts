@@ -21,6 +21,8 @@ export const emptyProduct: Product = {
   updatedAt: "",
 };
 
+// Postgres enforces the same lengths (products_name_length_check and
+// products_category_length_check in lib/db/schema.ts).
 export const PRODUCT_NAME_MAX_LENGTH = 120;
 export const PRODUCT_CATEGORY_MAX_LENGTH = 60;
 

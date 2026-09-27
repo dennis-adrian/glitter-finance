@@ -78,6 +78,13 @@
       "when": 1790472670297,
       "tag": "20260927013110_schema_integrity_checks_and_fk_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790520344970,
+      "tag": "20260927144544_products_name_category_length_checks",
+      "breakpoints": true
     }
   ]
 }
