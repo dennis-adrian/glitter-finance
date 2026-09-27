@@ -45,7 +45,7 @@ export function CartScreen(props: CartScreenProps) {
         }
         right={<BrandMark size="small" />}
       />
-      <div className="grid gap-3">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
         {props.cartDetails.map((line) => (
           <CartLineItem
             key={line.productId}

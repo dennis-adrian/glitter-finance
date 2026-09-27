@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filterSalesByRange, resolveSalesRange } from "@/lib/dates";
+import {
+  filterSalesByRange,
+  formatDateLabelInBolivia,
+  relativeTime,
+  resolveSalesRange,
+} from "@/lib/dates";
 
 test("today uses Bolivia midnight rather than the device timezone", () => {
   const now = new Date("2026-08-09T05:00:00.000Z");
@@ -60,4 +65,19 @@ test("custom ranges include both Bolivia calendar dates and reject reversal", ()
     bounds: null,
     error: "La fecha final debe ser igual o posterior a la inicial.",
   });
+});
+
+test("relative time pluralizes hours", () => {
+  const hoursAgo = (hours: number) =>
+    new Date(Date.now() - hours * 60 * 60 * 1000 - 1000).toISOString();
+
+  assert.equal(relativeTime(hoursAgo(1)), "Hace 1 hora");
+  assert.equal(relativeTime(hoursAgo(3)), "Hace 3 horas");
+});
+
+test("date labels only capitalize the first letter", () => {
+  assert.equal(
+    formatDateLabelInBolivia("2026-09-26T16:00:00.000Z"),
+    "Sábado, 26 de septiembre de 2026"
+  );
 });

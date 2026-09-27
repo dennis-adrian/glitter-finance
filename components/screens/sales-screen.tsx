@@ -261,7 +261,7 @@ export function SalesScreen({
               className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10"
             >
               <div className="mb-1 flex items-baseline justify-between gap-3 border-b border-border pb-2.5">
-                <h2 className="capitalize text-sm font-bold">{group.label}</h2>
+                <h2 className="text-sm font-bold">{group.label}</h2>
                 <span className="text-sm font-semibold tabular-nums text-muted-foreground">
                   {formatBs(group.netCents, true)}
                 </span>
