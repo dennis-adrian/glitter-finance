@@ -18,30 +18,6 @@ const cancelled = () => {
 };
 
 test("local writers check cancellation before committing SQLite mutations", async () => {
-  let directWrites = 0;
-  const directDb = {
-    execute: async () => {
-      directWrites += 1;
-    },
-  } as unknown as AbstractPowerSyncDatabase;
-
-  await assert.rejects(
-    createProductLocal(directDb, {
-      tenantId: "tenant-1",
-      product: {
-        name: "Producto",
-        priceCents: 100,
-        costCents: null,
-        category: "General",
-        imageTone: "violet",
-        tracksInventory: false,
-      },
-      assertCurrent: cancelled,
-    }),
-    /tenant work cancelled/
-  );
-  assert.equal(directWrites, 0);
-
   let transactionWrites = 0;
   const transactionDb = {
     writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
@@ -51,6 +27,23 @@ test("local writers check cancellation before committing SQLite mutations", asyn
         },
       } as unknown as Transaction),
   } as unknown as AbstractPowerSyncDatabase;
+
+  await assert.rejects(
+    createProductLocal(transactionDb, {
+      tenantId: "tenant-1",
+      product: {
+        name: "Producto",
+        priceCents: 100,
+        costCents: null,
+        category: "General",
+        imageTone: "violet",
+        tracksInventory: true,
+      },
+      initialStock: { userId: "user-1", delta: 5 },
+      assertCurrent: cancelled,
+    }),
+    /tenant work cancelled/
+  );
 
   await assert.rejects(
     addInventoryMovement(transactionDb, {

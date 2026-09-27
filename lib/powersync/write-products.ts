@@ -28,6 +28,10 @@ import {
   productImagesBucket,
 } from "@/lib/product-image-config";
 import { removeProductImageObjects } from "@/lib/product-images";
+import {
+  insertInventoryMovement,
+  prepareInventoryMovement,
+} from "@/lib/powersync/write-inventory";
 import { normalizeProductInput } from "@/lib/products";
 import type { ProductInput } from "@/lib/types";
 
@@ -61,40 +65,74 @@ async function assertProductOnDevice(
   }
 }
 
+/**
+ * The count a product is saved with, recorded as an `initial` movement in the
+ * same transaction as the product write: a failed save leaves neither, so a
+ * product is never stored without the stock it was entered with.
+ */
+export type InitialStockInput = { userId: string; delta: number };
+
+function prepareInitialStock(
+  tenantId: string,
+  productId: string,
+  initialStock: InitialStockInput | undefined
+) {
+  return initialStock
+    ? prepareInventoryMovement({
+        tenantId,
+        productId,
+        userId: initialStock.userId,
+        delta: initialStock.delta,
+        reason: "initial",
+      })
+    : null;
+}
+
 export async function createProductLocal(
   db: AbstractPowerSyncDatabase,
   input: {
     tenantId: string;
     product: ProductInput;
+    initialStock?: InitialStockInput;
     assertCurrent?: () => void;
   }
 ): Promise<{ productId: string }> {
   // Checked here so a row Postgres would reject never enters the upload queue.
   const product = normalizeProductInput(input.product);
   const productId = uuid();
-  const now = nowIso();
-  input.assertCurrent?.();
-  await db.execute(
-    `INSERT INTO products
-      (id, tenant_id, name, price_cents, cost_cents, category, image_path,
-       tracks_inventory, low_stock_threshold, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      productId,
-      input.tenantId,
-      product.name,
-      product.priceCents,
-      product.costCents,
-      product.category,
-      // A new product starts with a placeholder. An image is attached after
-      // the insert, by uploadProductImageLocal.
-      encodePlaceholderImagePath(product.imageTone),
-      product.tracksInventory ? 1 : 0,
-      product.lowStockThreshold ?? null,
-      now,
-      now,
-    ]
+  const initialMovement = prepareInitialStock(
+    input.tenantId,
+    productId,
+    input.initialStock
   );
+  const now = nowIso();
+  await db.writeTransaction(async (tx) => {
+    input.assertCurrent?.();
+    await tx.execute(
+      `INSERT INTO products
+        (id, tenant_id, name, price_cents, cost_cents, category, image_path,
+         tracks_inventory, low_stock_threshold, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        productId,
+        input.tenantId,
+        product.name,
+        product.priceCents,
+        product.costCents,
+        product.category,
+        // A new product starts with a placeholder. An image is attached after
+        // the insert, by uploadProductImageLocal.
+        encodePlaceholderImagePath(product.imageTone),
+        product.tracksInventory ? 1 : 0,
+        product.lowStockThreshold ?? null,
+        now,
+        now,
+      ]
+    );
+    if (initialMovement) {
+      await insertInventoryMovement(tx, initialMovement);
+    }
+  });
   return { productId };
 }
 
@@ -104,6 +142,7 @@ export async function updateProductLocal(
     tenantId: string;
     productId: string;
     product: ProductInput;
+    initialStock?: InitialStockInput;
     assertCurrent?: () => void;
   }
 ): Promise<void> {
@@ -148,6 +187,11 @@ export async function updateProductLocal(
   }
   assignments.push("updated_at = ?");
   params.push(nowIso());
+  const initialMovement = prepareInitialStock(
+    input.tenantId,
+    input.productId,
+    input.initialStock
+  );
 
   await db.writeTransaction(async (tx) => {
     await assertProductOnDevice(tx, input);
@@ -157,6 +201,9 @@ export async function updateProductLocal(
        WHERE id = ? AND tenant_id = ?`,
       [...params, input.productId, input.tenantId]
     );
+    if (initialMovement) {
+      await insertInventoryMovement(tx, initialMovement);
+    }
   });
 }
 

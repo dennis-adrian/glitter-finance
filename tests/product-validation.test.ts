@@ -23,17 +23,16 @@ const valid: ProductInput = {
 
 function recordingDb() {
   const statements: { sql: string; params: unknown[] }[] = [];
-  const execute = async (sql: string, params: unknown[] = []) => {
-    statements.push({ sql, params });
-    return { rowsAffected: 1 };
-  };
+  const tx = {
+    getOptional: async () => ({ id: "product-1" }),
+    execute: async (sql: string, params: unknown[] = []) => {
+      statements.push({ sql, params });
+      return { rowsAffected: 1 };
+    },
+  } as unknown as Transaction;
   const db = {
-    execute,
     writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
-      callback({
-        getOptional: async () => ({ id: "product-1" }),
-        execute,
-      } as unknown as Transaction),
+      callback(tx),
   } as unknown as AbstractPowerSyncDatabase;
   return { db, statements };
 }
@@ -140,6 +139,60 @@ test("a new product always starts with a placeholder image", async () => {
   const params = statements[0].params;
   assert.equal(params[2], "Pin");
   assert.equal(params[6], "placeholder:warm");
+});
+
+test("a product and its initial stock are written in one transaction", async () => {
+  const statements: string[] = [];
+  let transactions = 0;
+  const db = {
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) => {
+      transactions += 1;
+      return callback({
+        getOptional: async () => ({ id: "product-1" }),
+        execute: async (sql: string) => {
+          statements.push(sql);
+        },
+      } as unknown as Transaction);
+    },
+  } as unknown as AbstractPowerSyncDatabase;
+
+  const { productId } = await createProductLocal(db, {
+    tenantId: "tenant-1",
+    product: { ...valid, tracksInventory: true },
+    initialStock: { userId: "user-1", delta: 0 },
+  });
+  await updateProductLocal(db, {
+    tenantId: "tenant-1",
+    productId: "product-1",
+    product: { ...valid, tracksInventory: true },
+    initialStock: { userId: "user-1", delta: 4 },
+  });
+
+  assert.match(productId, /^[0-9a-f-]{36}$/);
+  assert.equal(transactions, 2);
+  assert.deepEqual(
+    statements.map((sql) => sql.trim().split(/\s+/).slice(0, 3).join(" ")),
+    [
+      "INSERT INTO products",
+      "INSERT INTO inventory_movements",
+      "UPDATE products SET",
+      "INSERT INTO inventory_movements",
+    ]
+  );
+});
+
+test("an invalid initial stock is refused before the product is written", async () => {
+  const { db, statements } = recordingDb();
+
+  await assert.rejects(
+    createProductLocal(db, {
+      tenantId: "tenant-1",
+      product: { ...valid, tracksInventory: true },
+      initialStock: { userId: "user-1", delta: -1 },
+    }),
+    /stock inicial/
+  );
+  assert.equal(statements.length, 0);
 });
 
 test("a product edit only writes the optional fields it was given", async () => {

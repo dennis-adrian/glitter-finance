@@ -830,11 +830,16 @@ export function GlitterPosApp({
 
       if (db) {
         work.assertCurrent();
+        // The initial count is written in the product's own transaction.
+        const initialStock = needsInitialMovement
+          ? { userId: tenantContext.user.id, delta: initialStockDelta }
+          : undefined;
         const productId = editingProduct
           ? (await updateProductLocal(db, {
               tenantId: tenant.id,
               productId: editingProduct.id,
               product: productInput,
+              initialStock,
               assertCurrent: work.assertCurrent,
             }),
             editingProduct.id)
@@ -842,21 +847,10 @@ export function GlitterPosApp({
               await createProductLocal(db, {
                 tenantId: tenant.id,
                 product: productInput,
+                initialStock,
                 assertCurrent: work.assertCurrent,
               })
             ).productId;
-
-        if (needsInitialMovement) {
-          work.assertCurrent();
-          await addInventoryMovement(db, {
-            tenantId: tenant.id,
-            userId: tenantContext.user.id,
-            productId,
-            delta: initialStockDelta,
-            reason: "initial",
-            assertCurrent: work.assertCurrent,
-          });
-        }
 
         if (imageFile) {
           try {
