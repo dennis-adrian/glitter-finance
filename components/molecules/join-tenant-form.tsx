@@ -4,6 +4,7 @@ import { useState } from "react";
 import { acceptInvitation } from "@/app/invitations/actions";
 import { Button } from "@/components/ui/button";
 import { usePowerSyncControls } from "@/components/providers/powersync-provider";
+import { unwrapActionResult } from "@/lib/action-result";
 import {
   changeIdentityAfterLocalTeardown,
   LOCAL_TEARDOWN_UNAVAILABLE_MESSAGE,
@@ -57,7 +58,10 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
       const navigating = await changeIdentityAfterLocalTeardown({
         teardown: powerSyncControls.teardownForTenantChange,
         commit: async () => {
-          await acceptInvitation(token);
+          await unwrapActionResult(
+            () => acceptInvitation(token),
+            "No se pudo unir a esta cuenta."
+          );
           await refreshSessionForActiveTenant();
         },
         destination: "/",

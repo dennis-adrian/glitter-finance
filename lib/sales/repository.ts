@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { UserFacingError } from "@/lib/action-result";
 import { db } from "@/lib/db";
 import {
   products,
@@ -154,13 +155,13 @@ async function getSaleForTenant(tenantId: string, saleId: string) {
     .limit(1);
 
   if (!sale) {
-    throw new Error("No se encontró la venta.");
+    throw new UserFacingError("No se encontró la venta.");
   }
 
   const [mappedSale] = await mapSaleRowsForTenant(tenantId, [sale]);
 
   if (!mappedSale) {
-    throw new Error("No se encontró la venta.");
+    throw new UserFacingError("No se encontró la venta.");
   }
 
   return mappedSale;
@@ -200,11 +201,13 @@ function normalizeLines(lines: CreateSaleLineInput[]) {
 
   for (const line of lines) {
     if (!line.productId) {
-      throw new Error("Cada línea de venta necesita un producto.");
+      throw new UserFacingError("Cada línea de venta necesita un producto.");
     }
 
     if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
-      throw new Error("Las cantidades deben ser números enteros positivos.");
+      throw new UserFacingError(
+        "Las cantidades deben ser números enteros positivos."
+      );
     }
 
     const existing = byProduct.get(line.productId);
@@ -227,7 +230,7 @@ export async function createSaleForTenant(
   const normalizedLines = normalizeLines(input.lines);
 
   if (!normalizedLines.length) {
-    throw new Error("La venta necesita al menos un producto.");
+    throw new UserFacingError("La venta necesita al menos un producto.");
   }
 
   const productIds = normalizedLines.map((line) => line.productId);
@@ -246,14 +249,14 @@ export async function createSaleForTenant(
   );
 
   if (productById.size !== productIds.length) {
-    throw new Error("Uno o más productos ya no están disponibles.");
+    throw new UserFacingError("Uno o más productos ya no están disponibles.");
   }
 
   const lineValues = normalizedLines.map((line) => {
     const product = productById.get(line.productId);
 
     if (!product || product.archivedAt) {
-      throw new Error(
+      throw new UserFacingError(
         "Uno o más productos están archivados y no se pueden vender."
       );
     }
@@ -389,7 +392,7 @@ async function lockSaleForCorrection(
     .limit(1);
 
   if (!sale) {
-    throw new Error("No se encontró la venta.");
+    throw new UserFacingError("No se encontró la venta.");
   }
 
   const [existingRefund] = await tx
@@ -424,15 +427,15 @@ export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
     const sale = await lockSaleForCorrection(tx, input.tenantId, input.saleId);
 
     if (sale.voidedAt) {
-      throw new Error("Esta venta ya fue anulada.");
+      throw new UserFacingError("Esta venta ya fue anulada.");
     }
 
     if (!isWithinVoidWindow(sale.createdAt, voidedAt.getTime())) {
-      throw new Error(VOID_WINDOW_EXPIRED_MESSAGE);
+      throw new UserFacingError(VOID_WINDOW_EXPIRED_MESSAGE);
     }
 
     if (sale.isRefunded) {
-      throw new Error("No se puede anular una venta reembolsada.");
+      throw new UserFacingError("No se puede anular una venta reembolsada.");
     }
 
     const [voidedSale] = await tx
@@ -464,7 +467,9 @@ export async function refundSaleForTenant(
   const original = await getSaleForTenant(input.tenantId, input.saleId);
 
   if (original.refundOfSaleId) {
-    throw new Error("No se puede reembolsar un registro de reembolso.");
+    throw new UserFacingError(
+      "No se puede reembolsar un registro de reembolso."
+    );
   }
 
   // Same business-time rule as createSaleForTenant.
@@ -480,11 +485,11 @@ export async function refundSaleForTenant(
       );
 
       if (sale.voidedAt) {
-        throw new Error("No se puede reembolsar una venta anulada.");
+        throw new UserFacingError("No se puede reembolsar una venta anulada.");
       }
 
       if (sale.isRefunded) {
-        throw new Error("Esta venta ya fue reembolsada.");
+        throw new UserFacingError("Esta venta ya fue reembolsada.");
       }
 
       const [inserted] = await tx
@@ -503,7 +508,7 @@ export async function refundSaleForTenant(
     });
   } catch (error) {
     if (isUniqueViolation(error, "refunds_original_sale_id_unique")) {
-      throw new Error("Esta venta ya fue reembolsada.");
+      throw new UserFacingError("Esta venta ya fue reembolsada.");
     }
     throw error;
   }

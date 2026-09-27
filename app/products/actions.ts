@@ -1,5 +1,6 @@
 "use server";
 
+import { toActionResult, UserFacingError } from "@/lib/action-result";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { requireExpectedTenantContext } from "@/lib/auth/user-context";
@@ -26,6 +27,7 @@ const PRODUCT_ID_RE =
 
 // Every action takes `expectedTenantId`, the tenant the calling screen
 // renders, and refuses to run once another tenant became the active one.
+// Expected failures come back as `{ ok: false, error }` (lib/action-result.ts).
 async function requireTenantId(expectedTenantId: string) {
   const context = await requireExpectedTenantContext(
     expectedTenantId,
@@ -38,8 +40,10 @@ export async function createProduct(
   expectedTenantId: string,
   input: ProductInput
 ) {
-  const tenantId = await requireTenantId(expectedTenantId);
-  return createProductForTenant(tenantId, input);
+  return toActionResult(async () => {
+    const tenantId = await requireTenantId(expectedTenantId);
+    return createProductForTenant(tenantId, input);
+  });
 }
 
 export async function updateProduct(
@@ -47,11 +51,23 @@ export async function updateProduct(
   productId: string,
   input: ProductInput
 ) {
-  const tenantId = await requireTenantId(expectedTenantId);
-  return updateProductForTenant(tenantId, productId, input);
+  return toActionResult(async () => {
+    const tenantId = await requireTenantId(expectedTenantId);
+    return updateProductForTenant(tenantId, productId, input);
+  });
 }
 
 export async function uploadProductImage(
+  expectedTenantId: string,
+  productId: string,
+  formData: FormData
+) {
+  return toActionResult(() =>
+    uploadProductImageForTenant(expectedTenantId, productId, formData)
+  );
+}
+
+async function uploadProductImageForTenant(
   expectedTenantId: string,
   productId: string,
   formData: FormData
@@ -60,19 +76,19 @@ export async function uploadProductImage(
   const image = formData.get("image");
 
   if (!(image instanceof File)) {
-    throw new Error("Selecciona una imagen del producto.");
+    throw new UserFacingError("Selecciona una imagen del producto.");
   }
 
   if (image.size <= 0) {
-    throw new Error("La imagen seleccionada está vacía.");
+    throw new UserFacingError("La imagen seleccionada está vacía.");
   }
 
   if (image.size > productImageMaxBytes) {
-    throw new Error("La imagen no puede superar 5MB.");
+    throw new UserFacingError("La imagen no puede superar 5MB.");
   }
 
   if (!productImageMimeTypes.some((type) => type === image.type)) {
-    throw new Error("La imagen debe estar en formato JPG o PNG.");
+    throw new UserFacingError("La imagen debe estar en formato JPG o PNG.");
   }
 
   // Check the product before uploading, so a wrong id leaves no file behind.
@@ -80,7 +96,7 @@ export async function uploadProductImage(
     ? await findProductForTenant(tenantId, productId)
     : null;
   if (!current) {
-    throw new Error("No se encontró el producto.");
+    throw new UserFacingError("No se encontró el producto.");
   }
 
   // Upload with the user's session, not the service role, so Storage applies
@@ -98,8 +114,10 @@ export async function uploadProductImage(
       upsert: false,
     });
 
+  // Size, type and path were checked above, so a refusal here is an outage
+  // or a policy bug: throw, so it is reported.
   if (error) {
-    throw new Error("No se pudo subir la imagen.");
+    throw new Error("No se pudo subir la imagen.", { cause: error });
   }
 
   let product: Product;
@@ -146,14 +164,18 @@ export async function archiveProduct(
   expectedTenantId: string,
   productId: string
 ) {
-  const tenantId = await requireTenantId(expectedTenantId);
-  return archiveProductForTenant(tenantId, productId);
+  return toActionResult(async () => {
+    const tenantId = await requireTenantId(expectedTenantId);
+    return archiveProductForTenant(tenantId, productId);
+  });
 }
 
 export async function restoreProduct(
   expectedTenantId: string,
   productId: string
 ) {
-  const tenantId = await requireTenantId(expectedTenantId);
-  return restoreProductForTenant(tenantId, productId);
+  return toActionResult(async () => {
+    const tenantId = await requireTenantId(expectedTenantId);
+    return restoreProductForTenant(tenantId, productId);
+  });
 }

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { UserFacingError } from "@/lib/action-result";
 import { ensureMembership } from "@/lib/auth/memberships";
 import { db } from "@/lib/db";
 import { tenantInvitations, tenants } from "@/lib/db/schema";
@@ -96,7 +97,7 @@ export async function redeemInvitation(
       .limit(1);
 
     if (!row || row.revokedAt || row.expiresAt.getTime() <= Date.now()) {
-      throw new Error("Esta invitación ya no es válida.");
+      throw new UserFacingError("Esta invitación ya no es válida.");
     }
 
     await ensureMembership(tx, {
@@ -234,6 +235,8 @@ export async function revokeInvitationById(
     .returning({ id: tenantInvitations.id });
 
   if (!result.length) {
-    throw new Error("No se encontró la invitación o ya fue revocada.");
+    throw new UserFacingError(
+      "No se encontró la invitación o ya fue revocada."
+    );
   }
 }

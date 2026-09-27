@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, Copy, Link2, Share2 } from "lucide-react";
 import { createInvitation, revokeInvitation } from "@/app/invitations/actions";
 import { Button } from "@/components/ui/button";
+import { unwrapActionResult } from "@/lib/action-result";
 import {
   INVITE_ORIGIN_UNAVAILABLE_MESSAGE,
   buildInviteLink,
@@ -127,7 +128,10 @@ export function InviteTeamCard({
     setError(null);
     setIsGenerating(true);
     try {
-      const result = await createInvitation(tenantId);
+      const result = await unwrapActionResult(
+        () => createInvitation(tenantId),
+        "No se pudo generar el enlace de invitación."
+      );
       if (!isAbsoluteHttpUrl(result.link)) {
         setInvitation(result.invitation);
         setInviteLink("");
@@ -156,7 +160,11 @@ export function InviteTeamCard({
     setError(null);
     setIsRevoking(true);
     try {
-      await revokeInvitation(tenantId, invitation.id);
+      const invitationId = invitation.id;
+      await unwrapActionResult(
+        () => revokeInvitation(tenantId, invitationId),
+        "No se pudo revocar el enlace de invitación."
+      );
       setInvitation(null);
       setInviteLink("");
       onInvitationChange?.(null);

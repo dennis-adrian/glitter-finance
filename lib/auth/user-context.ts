@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { sql } from "drizzle-orm";
 import type { User } from "@supabase/supabase-js";
+import { UserFacingError } from "@/lib/action-result";
 import {
   createTenantWithOwner,
   hasMembership,
@@ -62,7 +63,7 @@ export async function setActiveTenantClaim(user: User, tenantId: string) {
 
 export async function assertUserIsMember(userId: string, tenantId: string) {
   if (!(await hasMembership(db, { tenantId, userId }))) {
-    throw new Error("No perteneces a esta cuenta.");
+    throw new UserFacingError("No perteneces a esta cuenta.");
   }
 }
 

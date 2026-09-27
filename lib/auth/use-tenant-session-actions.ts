@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { signOut as signOutOnServer } from "@/app/auth/actions";
 import { createTenant, switchTenant } from "@/app/tenants/actions";
 import { usePowerSyncControls } from "@/components/providers/powersync-provider";
+import { unwrapActionResult } from "@/lib/action-result";
 import {
   changeIdentityAfterLocalTeardown,
   LOCAL_TEARDOWN_UNAVAILABLE_MESSAGE,
@@ -94,7 +95,10 @@ export function useTenantSessionActions({
     const navigating = await run({
       action: "switch",
       commit: async () => {
-        await switchTenant(tenantId);
+        await unwrapActionResult(
+          () => switchTenant(tenantId),
+          copy.switchFailed
+        );
         await refreshSessionForActiveTenant();
       },
       destination: "/",
@@ -110,7 +114,10 @@ export function useTenantSessionActions({
     const navigating = await run({
       action: "create",
       commit: async () => {
-        await createTenant(trimmedName);
+        await unwrapActionResult(
+          () => createTenant(trimmedName),
+          copy.createFailed
+        );
         await refreshSessionForActiveTenant();
       },
       destination: "/",

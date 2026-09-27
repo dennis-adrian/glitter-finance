@@ -27,6 +27,7 @@ import { SellScreen } from "@/components/screens/sell-screen";
 import { MoreScreen } from "@/components/screens/more-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
+import { unwrapActionResult } from "@/lib/action-result";
 import { paymentLabels, saleTotal } from "@/lib/sales";
 import { clampDiscount } from "@/lib/money";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
@@ -931,17 +932,25 @@ export function GlitterPosApp({
         }
       } else {
         work.assertCurrent();
-        let product = editingProduct
-          ? await updateProductAction(tenant.id, editingProduct.id, input)
-          : await createProduct(tenant.id, input);
+        let product = await unwrapActionResult(
+          () =>
+            editingProduct
+              ? updateProductAction(tenant.id, editingProduct.id, input)
+              : createProduct(tenant.id, input),
+          "No se pudo guardar el producto"
+        );
         work.assertCurrent();
 
         if (input.imageFile) {
+          const productId = product.id;
           const formData = new FormData();
           formData.set("image", input.imageFile);
           try {
             work.assertCurrent();
-            product = await uploadProductImage(tenant.id, product.id, formData);
+            product = await unwrapActionResult(
+              () => uploadProductImage(tenant.id, productId, formData),
+              "No se pudo subir la imagen"
+            );
             work.assertCurrent();
           } catch (error) {
             if (!work.isCurrent()) {
@@ -1072,17 +1081,21 @@ export function GlitterPosApp({
         );
       } else {
         work.assertCurrent();
-        const sale = await createSale(tenant.id, {
-          paymentMethod: method,
-          saleDiscountCents: discount,
-          saleDiscountReason: reason,
-          lines: cartDetails.map((line) => ({
-            productId: line.productId,
-            quantity: line.quantity,
-            lineDiscountCents: line.lineDiscountCents,
-            lineDiscountReason: line.lineDiscountReason,
-          })),
-        });
+        const sale = await unwrapActionResult(
+          () =>
+            createSale(tenant.id, {
+              paymentMethod: method,
+              saleDiscountCents: discount,
+              saleDiscountReason: reason,
+              lines: cartDetails.map((line) => ({
+                productId: line.productId,
+                quantity: line.quantity,
+                lineDiscountCents: line.lineDiscountCents,
+                lineDiscountReason: line.lineDiscountReason,
+              })),
+            }),
+          "No se pudo registrar la venta"
+        );
         work.assertCurrent();
         recordSale(sale);
         showToast(
@@ -1127,7 +1140,10 @@ export function GlitterPosApp({
         });
       } else {
         work.assertCurrent();
-        const sale = await voidSaleAction(tenant.id, saleId);
+        const sale = await unwrapActionResult(
+          () => voidSaleAction(tenant.id, saleId),
+          "No se pudo anular la venta"
+        );
         work.assertCurrent();
         upsertSale(sale);
       }
@@ -1166,7 +1182,10 @@ export function GlitterPosApp({
         });
       } else {
         work.assertCurrent();
-        const sale = await refundSaleAction(tenant.id, saleId, reason);
+        const sale = await unwrapActionResult(
+          () => refundSaleAction(tenant.id, saleId, reason),
+          "No se pudo registrar el reembolso"
+        );
         work.assertCurrent();
         upsertSale(sale);
       }
@@ -1261,7 +1280,10 @@ export function GlitterPosApp({
               });
             } else {
               work.assertCurrent();
-              const product = await restoreProductAction(tenant.id, productId);
+              const product = await unwrapActionResult(
+                () => restoreProductAction(tenant.id, productId),
+                "No se pudo restaurar el producto"
+              );
               work.assertCurrent();
               upsertProduct(product);
             }
@@ -1364,7 +1386,10 @@ export function GlitterPosApp({
               });
             } else {
               work.assertCurrent();
-              const product = await archiveProductAction(tenant.id, productId);
+              const product = await unwrapActionResult(
+                () => archiveProductAction(tenant.id, productId),
+                "No se pudo archivar el producto"
+              );
               work.assertCurrent();
               upsertProduct(product);
             }

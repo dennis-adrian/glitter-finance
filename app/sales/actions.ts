@@ -1,5 +1,6 @@
 "use server";
 
+import { toActionResult } from "@/lib/action-result";
 import { requireExpectedTenantContext } from "@/lib/auth/user-context";
 import {
   createSaleForTenant,
@@ -18,37 +19,42 @@ export type CreateSaleActionInput = {
 
 // Every action takes `expectedTenantId`, the tenant the calling screen
 // renders, and refuses to run once another tenant became the active one.
+// Expected failures come back as `{ ok: false, error }` (lib/action-result.ts).
 
 export async function createSale(
   expectedTenantId: string,
   input: CreateSaleActionInput
 ) {
-  const context = await requireExpectedTenantContext(
-    expectedTenantId,
-    "Se requiere una cuenta para registrar una venta."
-  );
+  return toActionResult(async () => {
+    const context = await requireExpectedTenantContext(
+      expectedTenantId,
+      "Se requiere una cuenta para registrar una venta."
+    );
 
-  return createSaleForTenant({
-    tenantId: context.tenant.id,
-    userId: context.user.id,
-    userName: context.user.displayName,
-    paymentMethod: input.paymentMethod,
-    saleDiscountCents: input.saleDiscountCents,
-    saleDiscountReason: input.saleDiscountReason,
-    lines: input.lines,
+    return createSaleForTenant({
+      tenantId: context.tenant.id,
+      userId: context.user.id,
+      userName: context.user.displayName,
+      paymentMethod: input.paymentMethod,
+      saleDiscountCents: input.saleDiscountCents,
+      saleDiscountReason: input.saleDiscountReason,
+      lines: input.lines,
+    });
   });
 }
 
 export async function voidSale(expectedTenantId: string, saleId: string) {
-  const context = await requireExpectedTenantContext(
-    expectedTenantId,
-    "Se requiere una cuenta para anular una venta."
-  );
+  return toActionResult(async () => {
+    const context = await requireExpectedTenantContext(
+      expectedTenantId,
+      "Se requiere una cuenta para anular una venta."
+    );
 
-  return voidSaleForTenant({
-    tenantId: context.tenant.id,
-    userId: context.user.id,
-    saleId,
+    return voidSaleForTenant({
+      tenantId: context.tenant.id,
+      userId: context.user.id,
+      saleId,
+    });
   });
 }
 
@@ -57,16 +63,18 @@ export async function refundSale(
   saleId: string,
   reason?: string
 ) {
-  const context = await requireExpectedTenantContext(
-    expectedTenantId,
-    "Se requiere una cuenta para registrar un reembolso."
-  );
+  return toActionResult(async () => {
+    const context = await requireExpectedTenantContext(
+      expectedTenantId,
+      "Se requiere una cuenta para registrar un reembolso."
+    );
 
-  return refundSaleForTenant({
-    tenantId: context.tenant.id,
-    userId: context.user.id,
-    userName: context.user.displayName,
-    saleId,
-    reason,
+    return refundSaleForTenant({
+      tenantId: context.tenant.id,
+      userId: context.user.id,
+      userName: context.user.displayName,
+      saleId,
+      reason,
+    });
   });
 }

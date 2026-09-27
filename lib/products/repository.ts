@@ -1,4 +1,5 @@
 import { and, asc, eq, type SQL, sql } from "drizzle-orm";
+import { UserFacingError } from "@/lib/action-result";
 import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
 import {
@@ -121,7 +122,7 @@ export async function updateProductForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("No se encontró el producto.");
+    throw new UserFacingError("No se encontró el producto.");
   }
 
   return mapDbProductToProduct(product);
@@ -142,7 +143,7 @@ export async function updateProductImageForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("No se encontró el producto.");
+    throw new UserFacingError("No se encontró el producto.");
   }
 
   return mapDbProductToProduct(product);
@@ -162,7 +163,7 @@ export async function archiveProductForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("No se encontró el producto.");
+    throw new UserFacingError("No se encontró el producto.");
   }
 
   return mapDbProductToProduct(product);
@@ -182,7 +183,7 @@ export async function restoreProductForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("No se encontró el producto.");
+    throw new UserFacingError("No se encontró el producto.");
   }
 
   return mapDbProductToProduct(product);

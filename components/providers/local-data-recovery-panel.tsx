@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { signOut } from "@/app/auth/actions";
 import { switchTenant } from "@/app/tenants/actions";
+import { unwrapActionResult } from "@/lib/action-result";
 import {
   LocalDataPanel,
   LocalDataPanelButton,
@@ -133,7 +134,10 @@ export function LocalDataRecoveryPanel({
           onClick={() =>
             void run(
               async () => {
-                await switchTenant(previousTenantId);
+                await unwrapActionResult(
+                  () => switchTenant(previousTenantId),
+                  "No se pudo volver al puesto anterior."
+                );
                 await refreshSessionForActiveTenant();
               },
               "/",

@@ -2,6 +2,8 @@
 // resolvers in lib/auth/user-context.ts and the tests. Nothing here reads or
 // writes the database, Supabase or the request.
 
+import { UserFacingError } from "@/lib/action-result";
+
 export type MembershipRow = {
   tenantId: string;
   tenantName: string;
@@ -57,11 +59,11 @@ const TENANT_ID_RE =
 
 export function parseTenantId(tenantId: unknown): string {
   if (typeof tenantId !== "string") {
-    throw new Error(INVALID_TENANT_ID_MESSAGE);
+    throw new UserFacingError(INVALID_TENANT_ID_MESSAGE);
   }
   const normalized = tenantId.trim().toLowerCase();
   if (!TENANT_ID_RE.test(normalized)) {
-    throw new Error(INVALID_TENANT_ID_MESSAGE);
+    throw new UserFacingError(INVALID_TENANT_ID_MESSAGE);
   }
   return normalized;
 }
@@ -173,10 +175,10 @@ export function requireExpectedTenant<T extends UserTenantContext>(
   const expected = parseTenantId(expectedTenantId);
   const tenant = context?.tenant;
   if (!context || !tenant) {
-    throw new Error(missingTenantMessage);
+    throw new UserFacingError(missingTenantMessage);
   }
   if (tenant.id.toLowerCase() !== expected) {
-    throw new Error(ACTIVE_TENANT_CHANGED_MESSAGE);
+    throw new UserFacingError(ACTIVE_TENANT_CHANGED_MESSAGE);
   }
   return { ...context, tenant };
 }

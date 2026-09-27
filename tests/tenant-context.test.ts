@@ -88,7 +88,9 @@ test("an action runs only for the tenant its screen renders", () => {
       .tenant.id,
     TENANT_A
   );
+  // A UserFacingError, so the server action returns it instead of throwing.
   assert.throws(() => requireExpectedTenant(context, TENANT_B, "Sin cuenta."), {
+    name: "UserFacingError",
     message: ACTIVE_TENANT_CHANGED_MESSAGE,
   });
 });
@@ -97,13 +99,16 @@ test("an action without an active tenant or a valid tenant id is refused", () =>
   const empty = resolveUserTenantContextFor(user(), []);
 
   assert.throws(() => requireExpectedTenant(empty, TENANT_A, "Sin cuenta."), {
+    name: "UserFacingError",
     message: "Sin cuenta.",
   });
   assert.throws(() => requireExpectedTenant(null, TENANT_A, "Sin cuenta."), {
+    name: "UserFacingError",
     message: "Sin cuenta.",
   });
   for (const invalid of [undefined, "", "tenant-1", 42]) {
     assert.throws(() => requireExpectedTenant(empty, invalid, "Sin cuenta."), {
+      name: "UserFacingError",
       message: "Identificador de cuenta inválido.",
     });
   }
