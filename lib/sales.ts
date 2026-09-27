@@ -89,30 +89,20 @@ export function computeMetrics(sales: Sale[]) {
 
   return accountable.reduce(
     (metrics, sale) => {
+      // Net and profit already carry the refund sign.
       const sign = sale.refundOfSaleId ? -1 : 1;
-      const gross = saleGrossCents(sale);
-      const discount = saleDiscountTotalCents(sale);
-      const lineTotal = saleLineTotalCents(sale);
-      const cost = sale.lines.reduce(
-        (total, line) => total + (line.unitCostCents ?? 0) * line.quantity,
-        0
-      );
-      const hasUnknown = sale.lines.some((line) => line.unitCostCents == null);
 
       return {
-        grossCents: metrics.grossCents + gross * sign,
-        discountCents: metrics.discountCents + discount * sign,
-        netRevenueCents:
-          metrics.netRevenueCents +
-          Math.max(0, lineTotal - sale.saleDiscountCents) * sign,
-        costCents: metrics.costCents + cost * sign,
-        netEarningsCents:
-          metrics.netEarningsCents +
-          (Math.max(0, lineTotal - sale.saleDiscountCents) - cost) * sign,
+        grossCents: metrics.grossCents + saleGrossCents(sale) * sign,
+        discountCents:
+          metrics.discountCents + saleDiscountTotalCents(sale) * sign,
+        netRevenueCents: metrics.netRevenueCents + saleNetCents(sale),
+        costCents: metrics.costCents + saleCostCents(sale) * sign,
+        netEarningsCents: metrics.netEarningsCents + saleProfitCents(sale),
         transactionCount:
           metrics.transactionCount + (sale.refundOfSaleId ? 0 : 1),
         refundCount: metrics.refundCount + (sale.refundOfSaleId ? 1 : 0),
-        hasUnknownCost: metrics.hasUnknownCost || hasUnknown,
+        hasUnknownCost: metrics.hasUnknownCost || saleHasUnknownCost(sale),
       };
     },
     {
