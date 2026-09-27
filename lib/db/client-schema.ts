@@ -12,11 +12,13 @@
 // - Nullability declared here is for client-side type ergonomics; PowerSync
 //   itself does not enforce NOT NULL constraints (the server is the source of
 //   truth).
+// - Indexes are local SQLite indexes that PowerSync creates on the synced
+//   rows; declare one only for a lookup the app actually runs on the device.
 //
 // Not yet synced:
 // - tenants — single row per tenant; not worth a sync bucket.
 
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const products = sqliteTable("products", {
   id: text("id").primaryKey(),
@@ -62,15 +64,20 @@ export const saleLines = sqliteTable("sale_lines", {
   createdAt: text("created_at").notNull(),
 });
 
-export const refunds = sqliteTable("refunds", {
-  id: text("id").primaryKey(),
-  tenantId: text("tenant_id").notNull(),
-  originalSaleId: text("original_sale_id").notNull(),
-  userId: text("user_id").notNull(),
-  reason: text("reason"),
-  createdAt: text("created_at").notNull(),
-  clientCreatedAt: text("client_created_at").notNull(),
-});
+export const refunds = sqliteTable(
+  "refunds",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    originalSaleId: text("original_sale_id").notNull(),
+    userId: text("user_id").notNull(),
+    reason: text("reason"),
+    createdAt: text("created_at").notNull(),
+    clientCreatedAt: text("client_created_at").notNull(),
+  },
+  // Void and refund writes look up a sale's refund by original_sale_id.
+  (table) => [index("original_sale_id").on(table.originalSaleId)]
+);
 
 export const tenantUsers = sqliteTable("tenant_users", {
   id: text("id").primaryKey(),
@@ -80,17 +87,22 @@ export const tenantUsers = sqliteTable("tenant_users", {
   createdAt: text("created_at").notNull(),
 });
 
-export const inventoryMovements = sqliteTable("inventory_movements", {
-  id: text("id").primaryKey(),
-  tenantId: text("tenant_id").notNull(),
-  productId: text("product_id").notNull(),
-  userId: text("user_id").notNull(),
-  delta: integer("delta").notNull(),
-  reason: text("reason").notNull(),
-  note: text("note"),
-  createdAt: text("created_at").notNull(),
-  clientCreatedAt: text("client_created_at").notNull(),
-});
+export const inventoryMovements = sqliteTable(
+  "inventory_movements",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    productId: text("product_id").notNull(),
+    userId: text("user_id").notNull(),
+    delta: integer("delta").notNull(),
+    reason: text("reason").notNull(),
+    note: text("note"),
+    createdAt: text("created_at").notNull(),
+    clientCreatedAt: text("client_created_at").notNull(),
+  },
+  // The product editor checks whether a product already has an `initial`.
+  (table) => [index("product_reason").on(table.productId, table.reason)]
+);
 
 export const draftCart = sqliteTable("draft_cart", {
   id: text("id").primaryKey(),
