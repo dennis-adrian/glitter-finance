@@ -1386,7 +1386,6 @@ export function GlitterPosApp({
     more: (
       <MoreScreen
         tenantContext={tenantContext}
-        openReports={() => navigate({ view: "reports" })}
         openSettings={() => navigate({ view: "settings" })}
       />
     ),

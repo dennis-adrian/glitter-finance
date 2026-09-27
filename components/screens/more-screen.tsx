@@ -1,14 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import {
-  BarChart3,
-  Check,
-  ChevronRight,
-  Loader2,
-  LogOut,
-  Settings,
-} from "lucide-react";
+import { Check, ChevronRight, Loader2, LogOut, Settings } from "lucide-react";
 import { signOut } from "@/app/auth/actions";
 import { createTenant, switchTenant } from "@/app/tenants/actions";
 import { ScreenHeader } from "@/components/molecules/screen-header";
@@ -26,7 +19,6 @@ import { cn } from "@/lib/utils";
 
 type MoreScreenProps = {
   tenantContext: UserTenantContext;
-  openReports: () => void;
   openSettings: () => void;
 };
 
@@ -84,11 +76,7 @@ function MenuItem({
   );
 }
 
-export function MoreScreen({
-  tenantContext,
-  openReports,
-  openSettings,
-}: MoreScreenProps) {
+export function MoreScreen({ tenantContext, openSettings }: MoreScreenProps) {
   const identity =
     tenantContext.user.displayName ||
     tenantContext.user.email ||
@@ -381,12 +369,6 @@ export function MoreScreen({
       ) : null}
 
       <section className="mt-5 overflow-hidden rounded-3xl border border-primary/10 bg-card shadow-[0_4px_12px_rgba(45,27,20,0.06)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]">
-        <MenuItem
-          icon={<BarChart3 className="size-6" />}
-          title="Reportes"
-          description="Revisá tus ventas y estadísticas"
-          onClick={openReports}
-        />
         <MenuItem
           icon={<Settings className="size-6" />}
           title="Ajustes"
