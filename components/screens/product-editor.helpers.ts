@@ -14,6 +14,15 @@ export function parsePositiveInteger(value: string) {
   return parsed > 0 ? parsed : null;
 }
 
+/** Whole integers from 0 up — rejects negatives, decimals and trailing junk. */
+export function parseNonNegativeInteger(value: string) {
+  const trimmed = value.trim();
+  if (!/^\+?\d+$/.test(trimmed)) {
+    return null;
+  }
+  return Number.parseInt(trimmed, 10);
+}
+
 /** Non-zero whole integers only — rejects decimals and trailing junk. */
 export function parseSignedInteger(value: string) {
   const trimmed = value.trim();

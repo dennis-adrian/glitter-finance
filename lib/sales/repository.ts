@@ -48,7 +48,7 @@ function toIso(value: Date | string) {
 function mapSaleLine(line: typeof saleLines.$inferSelect): SaleLine {
   return {
     id: line.id,
-    productId: line.productId ?? "",
+    productId: line.productId,
     productName: line.productName,
     category: line.category,
     quantity: line.quantity,

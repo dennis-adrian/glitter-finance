@@ -152,7 +152,7 @@ export function computeProductTotals(sales: Sale[]) {
     .forEach((sale) => {
       const sign = sale.refundOfSaleId ? -1 : 1;
       sale.lines.forEach((line) => {
-        const productId = line.productId || line.productName;
+        const productId = line.productId;
         const current = totals.get(productId) ?? {
           productId,
           productName: line.productName,

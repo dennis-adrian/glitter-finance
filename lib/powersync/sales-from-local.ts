@@ -28,7 +28,7 @@ export type LocalSaleLineRow = {
   id: string;
   sale_id: string;
   tenant_id: string;
-  product_id: string | null;
+  product_id: string;
   product_name: string;
   category: string;
   quantity: number;
@@ -53,7 +53,7 @@ export type LocalRefundRow = {
 function mapLine(row: LocalSaleLineRow): SaleLine {
   return {
     id: row.id,
-    productId: row.product_id ?? "",
+    productId: row.product_id,
     productName: row.product_name,
     category: row.category,
     quantity: row.quantity,

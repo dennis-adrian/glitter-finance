@@ -50,7 +50,7 @@ export const saleLines = sqliteTable("sale_lines", {
   id: text("id").primaryKey(),
   saleId: text("sale_id").notNull(),
   tenantId: text("tenant_id").notNull(),
-  productId: text("product_id"),
+  productId: text("product_id").notNull(),
   productName: text("product_name").notNull(),
   category: text("category").notNull(),
   quantity: integer("quantity").notNull(),

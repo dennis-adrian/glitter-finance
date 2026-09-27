@@ -30,33 +30,101 @@ export type ProductStock = {
 };
 
 /**
+ * Mirrors inventory_movements_sign_discipline_check in lib/db/schema.ts. Typed
+ * by reason so a new enum value cannot ship without a sign rule.
+ */
+const MOVEMENT_DELTA_RULES: Record<
+  InventoryMovementReason,
+  (delta: number) => boolean
+> = {
+  initial: (delta) => delta >= 0,
+  restock: (delta) => delta > 0,
+  adjustment: (delta) => delta !== 0,
+  loss: (delta) => delta < 0,
+  gift: (delta) => delta < 0,
+};
+
+/** Whether Postgres would accept this delta for this movement reason. */
+export function isValidMovementDelta(
+  reason: InventoryMovementReason,
+  delta: number
+) {
+  return Number.isInteger(delta) && MOVEMENT_DELTA_RULES[reason](delta);
+}
+
+/**
+ * The `initial` delta to record when a product is saved, or null for none.
+ *
+ * Stock counts from the product's latest `initial` (see computeStockByProduct),
+ * so switching tracking on always records one — the entered count, or 0 when
+ * the field is left blank — and sales made before tracking started never count
+ * against the new stock. A product that already tracks stock but has no
+ * `initial` gets one only when a count is entered: writing 0 there would
+ * silently discard restocks recorded without a baseline.
+ */
+export function resolveInitialStockDelta(input: {
+  tracksInventory: boolean;
+  wasTrackingInventory: boolean;
+  hasInitialMovement: boolean;
+  initialStock?: number;
+}): number | null {
+  if (!input.tracksInventory || input.hasInitialMovement) {
+    return null;
+  }
+  if (input.initialStock != null) {
+    return input.initialStock;
+  }
+  return input.wasTrackingInventory ? null : 0;
+}
+
+type StockMovement = Pick<
+  InventoryMovement,
+  "id" | "productId" | "delta" | "reason" | "createdAt"
+>;
+
+function isLaterMovement(candidate: StockMovement, current: StockMovement) {
+  if (candidate.createdAt !== current.createdAt) {
+    return candidate.createdAt > current.createdAt;
+  }
+  return candidate.id > current.id;
+}
+
+/**
  * Derive on-hand units per product from the append-only movement ledger and
  * completed sale lines (voids excluded; refunds add units back).
+ *
+ * An `initial` movement is a stock count, so it is the product's baseline:
+ * only the latest `initial` counts, and movements and sales before it are
+ * ignored. Several `initial` rows are legal (two devices can each record one
+ * while offline); every device converges on the latest, with ties broken by id.
  */
 export function computeStockByProduct(
-  movements: Pick<
-    InventoryMovement,
-    "productId" | "delta" | "reason" | "createdAt"
-  >[],
+  movements: StockMovement[],
   sales: Sale[]
 ): Map<string, number> {
   const stock = new Map<string, number>();
-  const trackingBaselineByProduct = new Map<string, string>();
+  const baselineByProduct = new Map<string, StockMovement>();
 
   for (const movement of movements) {
     if (movement.reason !== "initial") {
       continue;
     }
-    const previousBaseline = trackingBaselineByProduct.get(movement.productId);
-    if (!previousBaseline || movement.createdAt > previousBaseline) {
-      trackingBaselineByProduct.set(movement.productId, movement.createdAt);
+    const current = baselineByProduct.get(movement.productId);
+    if (!current || isLaterMovement(movement, current)) {
+      baselineByProduct.set(movement.productId, movement);
     }
   }
 
   for (const movement of movements) {
-    const baseline = trackingBaselineByProduct.get(movement.productId);
-    if (baseline && movement.createdAt < baseline) {
-      continue;
+    const baseline = baselineByProduct.get(movement.productId);
+    if (baseline) {
+      const superseded =
+        movement.reason === "initial"
+          ? movement.id !== baseline.id
+          : movement.createdAt < baseline.createdAt;
+      if (superseded) {
+        continue;
+      }
     }
     stock.set(
       movement.productId,
@@ -70,11 +138,8 @@ export function computeStockByProduct(
     }
     const sign = sale.refundOfSaleId ? -1 : 1;
     for (const line of sale.lines) {
-      if (!line.productId) {
-        continue;
-      }
-      const baseline = trackingBaselineByProduct.get(line.productId);
-      if (baseline && sale.createdAt < baseline) {
+      const baseline = baselineByProduct.get(line.productId);
+      if (baseline && sale.createdAt < baseline.createdAt) {
         continue;
       }
       stock.set(

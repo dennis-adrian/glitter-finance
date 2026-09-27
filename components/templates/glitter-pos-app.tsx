@@ -86,6 +86,7 @@ import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/clie
 import {
   computeStockByProduct,
   productHasInitialMovement,
+  resolveInitialStockDelta,
   type InventoryMovement,
   type InventoryMovementReason,
 } from "@/lib/inventory";
@@ -864,11 +865,13 @@ export function GlitterPosApp({
           hasInitial = true;
         }
       }
-      const needsInitialMovement =
-        input.tracksInventory &&
-        input.initialStock != null &&
-        input.initialStock > 0 &&
-        !hasInitial;
+      const initialStockDelta = resolveInitialStockDelta({
+        tracksInventory: input.tracksInventory,
+        wasTrackingInventory: editingProduct?.tracksInventory ?? false,
+        hasInitialMovement: hasInitial,
+        initialStock: input.initialStock,
+      });
+      const needsInitialMovement = initialStockDelta != null;
 
       const inventoryPersistenceRequired =
         !db &&
@@ -908,7 +911,7 @@ export function GlitterPosApp({
             tenantId: tenant.id,
             userId: tenantContext.user.id,
             productId,
-            delta: input.initialStock!,
+            delta: initialStockDelta,
             reason: "initial",
             assertCurrent: work.assertCurrent,
           });

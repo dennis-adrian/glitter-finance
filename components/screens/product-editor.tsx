@@ -41,6 +41,7 @@ import { canonicalizeCategory, categories } from "@/lib/sample-data";
 import type { Product } from "@/lib/types";
 import {
   hasValidProductForm,
+  parseNonNegativeInteger,
   parsePositiveInteger,
   parseSignedInteger,
 } from "@/components/screens/product-editor.helpers";
@@ -379,18 +380,26 @@ export function ProductEditor({
         </Label>
 
         {showInitialStockField ? (
-          <FormField label="Stock inicial">
-            <Input
-              value={initialStock}
-              onChange={(event) => {
-                setInitialStock(event.target.value);
-                setInventoryActionError(null);
-              }}
-              inputMode="numeric"
-              placeholder="10"
-              className="h-12 rounded-xl"
-            />
-          </FormField>
+          <>
+            <FormField label="Stock inicial">
+              <Input
+                value={initialStock}
+                onChange={(event) => {
+                  setInitialStock(event.target.value);
+                  setInventoryActionError(null);
+                }}
+                inputMode="numeric"
+                placeholder="10"
+                className="h-12 rounded-xl"
+              />
+            </FormField>
+            {/* The count is a baseline: earlier sales are not subtracted. */}
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              {trackingPersisted
+                ? "Unidades que tienes ahora."
+                : "Unidades que tienes ahora. Si lo dejas vacío, empieza en 0."}
+            </p>
+          </>
         ) : null}
 
         {trackingDirty ? (
@@ -592,10 +601,10 @@ export function ProductEditor({
           if (
             showInitialStockField &&
             initialStock.trim() &&
-            parsePositiveInteger(initialStock) == null
+            parseNonNegativeInteger(initialStock) == null
           ) {
             setInventoryActionError(
-              "El stock inicial debe ser un número entero sin decimales."
+              "El stock inicial debe ser un número entero de 0 o más, sin decimales."
             );
             return;
           }
@@ -609,7 +618,7 @@ export function ProductEditor({
             imageFile,
             tracksInventory,
             initialStock: showInitialStockField
-              ? (parsePositiveInteger(initialStock) ?? undefined)
+              ? (parseNonNegativeInteger(initialStock) ?? undefined)
               : undefined,
           });
         }}

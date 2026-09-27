@@ -30,17 +30,24 @@ export const inventoryMovementReasonEnum = pgEnum("inventory_movement_reason", [
   "gift",
 ]);
 
-export const tenants = pgTable("tenants", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  createdByUserId: uuid("created_by_user_id"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const tenants = pgTable(
+  "tenants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    createdByUserId: uuid("created_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Backs the hand-written auth.users FK (ON DELETE SET NULL).
+    index("tenants_created_by_user_id_idx").on(table.createdByUserId),
+  ]
+);
 
 export const tenantInvitations = pgTable(
   "tenant_invitations",
@@ -66,6 +73,10 @@ export const tenantInvitations = pgTable(
   (table) => [
     unique("tenant_invitations_token_unique").on(table.token),
     index("tenant_invitations_tenant_id_idx").on(table.tenantId),
+    // Backs the hand-written auth.users FK (ON DELETE SET NULL).
+    index("tenant_invitations_created_by_user_id_idx").on(
+      table.createdByUserId
+    ),
   ]
 );
 
@@ -84,12 +95,13 @@ export const tenantUsers = pgTable(
       .defaultNow(),
   },
   (table) => [
+    // Its (tenant_id, user_id) index also serves tenant_id-only lookups and
+    // the tenants FK, so there is no separate tenant_id index.
     unique("tenant_users_tenant_id_user_id_unique").on(
       table.tenantId,
       table.userId
     ),
     index("tenant_users_user_id_idx").on(table.userId),
-    index("tenant_users_tenant_id_idx").on(table.tenantId),
   ]
 );
 
@@ -116,11 +128,18 @@ export const products = pgTable(
       .defaultNow(),
   },
   (table) => [
-    index("products_tenant_id_idx").on(table.tenantId),
+    // Leading tenant_id also serves tenant_id-only lookups and the tenants FK.
     index("products_tenant_archived_idx").on(table.tenantId, table.archivedAt),
     // Target for the tenant-scoped composite FK on sale_lines.product_id.
     // (id) is already unique as the PK; this pair makes the composite FK legal.
     unique("products_id_tenant_id_unique").on(table.id, table.tenantId),
+    // Sale lines copy name and category, and the sale RPC rejects blank ones,
+    // so a blank product could never be sold through PowerSync.
+    check("products_name_not_blank_check", sql`btrim(${table.name}) <> ''`),
+    check(
+      "products_category_not_blank_check",
+      sql`btrim(${table.category}) <> ''`
+    ),
     check(
       "products_price_cents_nonnegative_check",
       sql`${table.priceCents} >= 0`
@@ -169,16 +188,19 @@ export const inventoryMovements = pgTable(
       table.tenantId,
       table.createdAt
     ),
-    uniqueIndex("inventory_movements_one_initial_per_product_idx")
-      .on(table.tenantId, table.productId)
-      .where(sql`${table.reason} = 'initial'`),
-    check("inventory_movements_delta_nonzero_check", sql`${table.delta} <> 0`),
+    // Backs the hand-written auth.users FK (ON DELETE RESTRICT).
+    index("inventory_movements_user_id_idx").on(table.userId),
+    // No uniqueness on `initial`: two offline devices may each record one,
+    // and the latest becomes the stock baseline (see computeStockByProduct).
+    // An `initial` of 0 is legal: it starts tracking a product that already
+    // has sales without counting those sales against the new stock.
     check(
       "inventory_movements_sign_discipline_check",
       sql`(
-        (${table.reason} IN ('initial', 'restock') AND ${table.delta} > 0)
+        (${table.reason} = 'initial' AND ${table.delta} >= 0)
+        OR (${table.reason} = 'restock' AND ${table.delta} > 0)
         OR (${table.reason} IN ('loss', 'gift') AND ${table.delta} < 0)
-        OR (${table.reason} = 'adjustment')
+        OR (${table.reason} = 'adjustment' AND ${table.delta} <> 0)
       )`
     ),
   ]
@@ -207,6 +229,11 @@ export const sales = pgTable(
   (table) => [
     index("sales_tenant_created_at_idx").on(table.tenantId, table.createdAt),
     index("sales_user_id_idx").on(table.userId),
+    // Backs the hand-written auth.users FK (ON DELETE RESTRICT). Partial
+    // because almost every sale is never voided.
+    index("sales_voided_by_user_id_idx")
+      .on(table.voidedByUserId)
+      .where(sql`${table.voidedByUserId} IS NOT NULL`),
     // Target for the tenant-scoped composite FKs on sale_lines and refunds.
     // (id) is already unique as the PK; this pair makes the composite FK legal.
     unique("sales_id_tenant_id_unique").on(table.id, table.tenantId),
@@ -239,8 +266,9 @@ export const saleLines = pgTable(
     // tenant. ON DELETE RESTRICT (not SET NULL) because tenant_id is NOT NULL
     // and cannot be half-nulled; products are soft-deleted via archived_at in
     // practice, and sales/sale_lines are append-only, so a real product delete
-    // with referencing lines never happens.
-    productId: uuid("product_id"),
+    // with referencing lines never happens. NOT NULL because every writer sets
+    // it, and a NULL would skip the MATCH SIMPLE composite FK check entirely.
+    productId: uuid("product_id").notNull(),
     productName: text("product_name").notNull(),
     category: text("category").notNull(),
     quantity: integer("quantity").notNull(),
@@ -256,6 +284,11 @@ export const saleLines = pgTable(
   (table) => [
     index("sale_lines_sale_id_idx").on(table.saleId),
     index("sale_lines_tenant_id_idx").on(table.tenantId),
+    // Backs the composite products FK below (column order matches it).
+    index("sale_lines_product_id_tenant_id_idx").on(
+      table.productId,
+      table.tenantId
+    ),
     foreignKey({
       name: "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk",
       columns: [table.saleId, table.tenantId],
@@ -266,6 +299,17 @@ export const saleLines = pgTable(
       columns: [table.productId, table.tenantId],
       foreignColumns: [products.id, products.tenantId],
     }).onDelete("restrict"),
+    // The line checks mirror the validation in powersync_create_sale
+    // (supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql)
+    // so the server-action path is held to the same invariants.
+    check(
+      "sale_lines_product_name_not_blank_check",
+      sql`btrim(${table.productName}) <> ''`
+    ),
+    check(
+      "sale_lines_category_not_blank_check",
+      sql`btrim(${table.category}) <> ''`
+    ),
     check("sale_lines_quantity_positive_check", sql`${table.quantity} > 0`),
     check(
       "sale_lines_unit_price_cents_nonnegative_check",
@@ -280,8 +324,16 @@ export const saleLines = pgTable(
       sql`${table.lineDiscountCents} >= 0`
     ),
     check(
+      "sale_lines_discount_within_gross_check",
+      sql`${table.lineDiscountCents} <= ${table.unitPriceCents}::bigint * ${table.quantity}`
+    ),
+    check(
       "sale_lines_total_cents_nonnegative_check",
       sql`${table.lineTotalCents} >= 0`
+    ),
+    check(
+      "sale_lines_total_coherence_check",
+      sql`${table.lineTotalCents}::bigint = ${table.unitPriceCents}::bigint * ${table.quantity} - ${table.lineDiscountCents}`
     ),
   ]
 );
@@ -308,6 +360,8 @@ export const refunds = pgTable(
   (table) => [
     uniqueIndex("refunds_original_sale_id_unique").on(table.originalSaleId),
     index("refunds_tenant_created_at_idx").on(table.tenantId, table.createdAt),
+    // Backs the hand-written auth.users FK (ON DELETE RESTRICT).
+    index("refunds_user_id_idx").on(table.userId),
     foreignKey({
       name: "refunds_original_sale_id_tenant_id_sales_id_tenant_id_fk",
       columns: [table.originalSaleId, table.tenantId],

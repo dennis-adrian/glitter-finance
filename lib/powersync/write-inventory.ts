@@ -2,7 +2,10 @@
 // PowerSync's INSERT path — no upload-connector changes needed.
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
-import type { InventoryMovementReason } from "@/lib/inventory";
+import {
+  isValidMovementDelta,
+  type InventoryMovementReason,
+} from "@/lib/inventory";
 
 function nowIso() {
   return new Date().toISOString();
@@ -39,27 +42,21 @@ export async function addInventoryMovement(
   db: AbstractPowerSyncDatabase,
   input: AddInventoryMovementInput
 ): Promise<{ movementId: string }> {
-  if (!Number.isInteger(input.delta) || input.delta === 0) {
-    throw new Error("La cantidad debe ser un número entero distinto de cero.");
+  // Checked here so a row Postgres would reject never enters the upload
+  // queue. More than one `initial` per product is allowed: the latest one is
+  // the stock baseline (see computeStockByProduct).
+  if (!isValidMovementDelta(input.reason, input.delta)) {
+    throw new Error(
+      input.reason === "initial"
+        ? "El stock inicial debe ser un número entero de 0 o más."
+        : "La cantidad debe ser un número entero distinto de cero."
+    );
   }
 
   const movementId = uuid();
   const now = nowIso();
 
   await db.writeTransaction(async (tx) => {
-    input.assertCurrent?.();
-    if (input.reason === "initial") {
-      const existing = await tx.getAll<{ id: string }>(
-        `SELECT id FROM inventory_movements
-         WHERE product_id = ? AND reason = 'initial'
-         LIMIT 1`,
-        [input.productId]
-      );
-      if (existing.length > 0) {
-        throw new Error("Este producto ya tiene un stock inicial registrado.");
-      }
-    }
-
     input.assertCurrent?.();
     await tx.execute(
       `INSERT INTO inventory_movements
