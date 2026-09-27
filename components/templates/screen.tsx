@@ -21,6 +21,7 @@ type ScreenProps = {
   width?: ScreenWidth;
   className?: string;
   bodyClassName?: string;
+  footerClassName?: string;
   /** Accessible name for the screen region (defaults to the header title). */
   "aria-label"?: string;
 };
@@ -37,6 +38,7 @@ export function Screen({
   width = "wide",
   className,
   bodyClassName,
+  footerClassName,
   "aria-label": ariaLabel,
 }: ScreenProps) {
   return (
@@ -64,7 +66,12 @@ export function Screen({
         </div>
       </div>
       {footer ? (
-        <div className="shrink-0 border-t border-border bg-card/95 backdrop-blur supports-backdrop-filter:bg-card/85">
+        <div
+          className={cn(
+            "shrink-0 border-t border-border bg-card/95 backdrop-blur supports-backdrop-filter:bg-card/85",
+            footerClassName
+          )}
+        >
           <div
             className={cn(
               "mx-auto w-full py-3",

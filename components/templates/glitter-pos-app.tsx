@@ -17,8 +17,11 @@ import { toast as sonnerToast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { BottomNav } from "@/components/organisms/bottom-nav";
 import { SideNav } from "@/components/organisms/side-nav";
-import { CartScreen } from "@/components/screens/cart-screen";
-import { PaymentScreen } from "@/components/screens/payment-screen";
+import {
+  CheckoutScreen,
+  type CheckoutPayment,
+} from "@/components/screens/checkout-screen";
+import { SaleCompleteScreen } from "@/components/screens/sale-complete-screen";
 import { ProductEditor } from "@/components/screens/product-editor";
 import { ProductsScreen } from "@/components/screens/products-screen";
 import { ReportsScreen } from "@/components/screens/reports-screen";
@@ -29,7 +32,6 @@ import { MoreScreen } from "@/components/screens/more-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
 import { MissingRecordScreen } from "@/components/screens/missing-record-screen";
-import { paymentLabels, saleTotal } from "@/lib/sales";
 import { clampDiscount } from "@/lib/money";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
 import {
@@ -48,7 +50,6 @@ import {
 import { usePosStore } from "@/lib/store";
 import type {
   CartLine,
-  PaymentMethod,
   Product,
   Sale,
   TenantInvitation,
@@ -101,7 +102,7 @@ import {
   addInventoryMovement,
   productHasInitialMovementLocal,
 } from "@/lib/powersync/write-inventory";
-import { formatBs } from "@/lib/money";
+import type { CompletedSaleSummary } from "@/lib/receipt";
 
 // Shape of a row coming back from the local SQLite store. Column names are
 // snake_case (matching Postgres) because PowerSync replicates with the
@@ -206,6 +207,8 @@ export function GlitterPosApp({
   const [query, setQuery] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [completedSale, setCompletedSale] =
+    useState<CompletedSaleSummary | null>(null);
   const [tenantMembers, setTenantMembers] =
     useState<TenantMember[]>(initialTenantMembers);
   const [inventoryMovements, setInventoryMovements] = useState<
@@ -321,6 +324,7 @@ export function GlitterPosApp({
       setQuery("");
       setCatalogQuery("");
       setIsCheckingOut(false);
+      setCompletedSale(null);
       setActiveInvitationState(null);
       setTenantMembers([]);
       setInventoryMovements([]);
@@ -335,6 +339,17 @@ export function GlitterPosApp({
       clearTenantState();
     };
   }, []);
+
+  // Route states that can't render: the order sheet on desktop (the order
+  // panel is always visible there) and a confirmation with no sale behind
+  // it (e.g. after a reload).
+  useEffect(() => {
+    if (view === "cart" && isDesktop) {
+      navigate({ view: "sell" }, { replace: true });
+    } else if (view === "saleComplete" && !completedSale) {
+      navigate({ view: "sell" }, { replace: true });
+    }
+  }, [view, isDesktop, completedSale, navigate]);
 
   useEffect(() => {
     initialTenantMembersRef.current = initialTenantMembers;
@@ -1047,11 +1062,12 @@ export function GlitterPosApp({
     }
   }
 
-  async function handlePayment(
-    method: PaymentMethod,
-    discount: number,
-    reason?: string
-  ) {
+  async function handlePayment({
+    method,
+    discountCents: discount,
+    discountReason: reason,
+    receivedCents,
+  }: CheckoutPayment) {
     if (isCheckingOut || !cartDetails.length) {
       return;
     }
@@ -1064,15 +1080,42 @@ export function GlitterPosApp({
     const work = beginTenantWork();
     const db = powerSyncDb;
     setIsCheckingOut(true);
+    // Snapshot the order before the cart is cleared, for the confirmation
+    // screen and the shareable receipt.
+    const totalCents = Math.max(0, cartSubtotal - discount);
+    const summary: Omit<CompletedSaleSummary, "saleId" | "createdAt"> = {
+      paymentMethod: method,
+      lines: cartDetails.map((line) => {
+        const gross = line.product.priceCents * line.quantity;
+        return {
+          name: line.product.name,
+          quantity: line.quantity,
+          totalCents: Math.max(
+            0,
+            gross - clampDiscount(line.lineDiscountCents ?? 0, gross)
+          ),
+        };
+      }),
+      itemCount: cartCount,
+      subtotalCents: cartSubtotal,
+      discountCents: discount,
+      totalCents,
+      receivedCents: method === "cash" ? receivedCents : null,
+      changeCents:
+        method === "cash" && receivedCents != null
+          ? Math.max(0, receivedCents - totalCents)
+          : null,
+    };
 
     try {
+      let saleId: string;
       // Local-first when PowerSync is initialized; the watch subscription
       // picks up the new rows and updates the sales list, and the upload
       // queue replicates to Supabase in the background. Fall back to the
       // server action during the brief window before PowerSync is ready.
       if (db) {
         work.assertCurrent();
-        await createSaleLocal(db, {
+        ({ saleId } = await createSaleLocal(db, {
           tenantId: tenant.id,
           userId: tenantContext.user.id,
           paymentMethod: method,
@@ -1085,14 +1128,10 @@ export function GlitterPosApp({
             lineDiscountReason: line.lineDiscountReason,
           })),
           assertCurrent: work.assertCurrent,
-        });
+        }));
         work.assertCurrent();
         clearCart();
         void clearDraftCartLocal(db);
-        const totalCents = Math.max(0, cartSubtotal - discount);
-        showToast(
-          `Venta registrada · ${formatBs(totalCents, true)} · ${paymentLabels[method]}`
-        );
       } else {
         work.assertCurrent();
         const sale = await createSale({
@@ -1108,12 +1147,16 @@ export function GlitterPosApp({
         });
         work.assertCurrent();
         recordSale(sale);
-        showToast(
-          `Venta registrada · ${saleTotal(sale)} · ${paymentLabels[method]}`
-        );
+        saleId = sale.id;
       }
       work.assertCurrent();
-      navigate({ view: "sell" }, { replace: true });
+      setCompletedSale({
+        ...summary,
+        saleId,
+        createdAt: new Date().toISOString(),
+      });
+      // Replace checkout so Back from the confirmation doesn't reopen it.
+      navigate({ view: "saleComplete" }, { replace: true });
     } catch (error) {
       if (!work.isCurrent()) {
         return;
@@ -1210,30 +1253,52 @@ export function GlitterPosApp({
     }
   }
 
+  function handleClearCart() {
+    clearCart();
+    if (powerSyncDb) {
+      void clearDraftCartLocal(powerSyncDb);
+    }
+    showToast("Pedido vaciado", "info");
+    if (view === "cart") {
+      back({ view: "sell" });
+    }
+  }
+
   function openSaleDetail(saleId: string) {
     navigate({ view: "saleDetail", id: saleId });
   }
 
+  const orderSheetOpen = view === "cart" && !isDesktop;
+  const sellScreen = (
+    <SellScreen
+      products={activeProducts}
+      stockByProduct={stockByProduct}
+      inventoryStockReady={inventoryStockReady}
+      category={category}
+      query={query}
+      setCategory={setCategory}
+      setQuery={setQuery}
+      order={{
+        lines: cartDetails,
+        subtotal: cartSubtotal,
+        count: cartCount,
+        addToCart,
+        decrementCart,
+        removeFromCart,
+        setLineDiscount,
+        clearCart: handleClearCart,
+        charge: () => navigate({ view: "checkout" }),
+      }}
+      orderSheetOpen={orderSheetOpen}
+      openOrderSheet={() => navigate({ view: "cart" })}
+      closeOrderSheet={() => back({ view: "sell" })}
+      openProductEditor={() => openEditor(null)}
+    />
+  );
+
   const content: Record<View, ReactNode> = {
-    sell: (
-      <SellScreen
-        products={activeProducts}
-        stockByProduct={stockByProduct}
-        inventoryStockReady={inventoryStockReady}
-        cartCount={cartCount}
-        cartSubtotal={cartSubtotal}
-        cart={cart}
-        category={category}
-        query={query}
-        setCategory={setCategory}
-        setQuery={setQuery}
-        addToCart={addToCart}
-        decrementCart={decrementCart}
-        openCart={() => navigate({ view: "cart" })}
-        openPayment={() => navigate({ view: "checkout" })}
-        openProductEditor={() => openEditor(null)}
-      />
-    ),
+    sell: sellScreen,
+    cart: sellScreen,
     reports: (
       <ReportsScreen
         sales={sales}
@@ -1324,28 +1389,9 @@ export function GlitterPosApp({
         back={() => back({ view: "more" })}
       />
     ),
-    cart: (
-      <CartScreen
-        cartDetails={cartDetails}
-        subtotal={cartSubtotal}
-        decrementCart={decrementCart}
-        addToCart={addToCart}
-        removeFromCart={removeFromCart}
-        setLineDiscount={setLineDiscount}
-        clearCart={() => {
-          clearCart();
-          if (powerSyncDb) {
-            void clearDraftCartLocal(powerSyncDb);
-          }
-          showToast("Carrito vaciado", "info");
-          navigate({ view: "sell" }, { replace: true });
-        }}
-        back={() => back({ view: "sell" })}
-        charge={() => navigate({ view: "checkout" })}
-      />
-    ),
     checkout: (
-      <PaymentScreen
+      <CheckoutScreen
+        lines={cartDetails}
         subtotal={cartSubtotal}
         count={cartCount}
         back={() => back({ view: "sell" })}
@@ -1353,6 +1399,15 @@ export function GlitterPosApp({
         isSubmitting={isCheckingOut}
       />
     ),
+    saleComplete: completedSale ? (
+      <SaleCompleteScreen
+        sale={completedSale}
+        storeName={tenantContext.tenant?.name}
+        newSale={() => navigate({ view: "sell" }, { replace: true })}
+        openSale={openSaleDetail}
+        notify={showToast}
+      />
+    ) : null,
     editor: editorProductMissing ? (
       <MissingRecordScreen
         title="Producto no encontrado"
@@ -1417,8 +1472,6 @@ export function GlitterPosApp({
         refundSale={handleRefundSale}
       />
     ),
-    // Implemented with the checkout rework; nothing links here yet.
-    saleComplete: null,
     diagnostics: (
       <DiagnosticsScreen
         tenantContext={tenantContext}

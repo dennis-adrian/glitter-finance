@@ -14,6 +14,11 @@ type ScreenHeaderProps = {
   backLabel?: string;
   /** Buttons aligned to the end of the title row. */
   actions?: ReactNode;
+  /**
+   * Replaces the visible title (e.g. a search field). The title stays in an
+   * sr-only heading for screen readers.
+   */
+  center?: ReactNode;
   /** Extra rows under the title (search, filters). */
   children?: ReactNode;
   /** Hide the phone sync pill (e.g. a pane inside a split view). */
@@ -32,6 +37,7 @@ export function ScreenHeader({
   backIcon = "back",
   backLabel = "Volver",
   actions,
+  center,
   children,
   hideSync = false,
   className,
@@ -57,9 +63,16 @@ export function ScreenHeader({
             <BrandMark size="small" />
           </span>
         )}
-        <h1 className="min-w-0 flex-1 truncate font-heading text-xl font-extrabold text-primary">
-          {title}
-        </h1>
+        {center ? (
+          <>
+            <h1 className="sr-only">{title}</h1>
+            <div className="min-w-0 flex-1">{center}</div>
+          </>
+        ) : (
+          <h1 className="min-w-0 flex-1 truncate font-heading text-xl font-extrabold text-primary">
+            {title}
+          </h1>
+        )}
         {actions ? (
           <div className="flex shrink-0 items-center gap-2">{actions}</div>
         ) : null}

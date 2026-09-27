@@ -12,7 +12,7 @@ export function CategoryRail({
   setActive,
 }: CategoryRailProps) {
   return (
-    <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] md:-mx-6 md:px-6 lg:-mx-8 lg:px-8 [&::-webkit-scrollbar]:hidden">
       {categories.map((item) => (
         <Button
           key={item}
