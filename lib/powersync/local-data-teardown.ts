@@ -12,12 +12,20 @@ import { usePosStore } from "@/lib/store";
 
 const localDataIdentityKey = "glitter-pos-local-data-identity-v1";
 const pageCacheName = "glitter-pos-pages";
-const localDataTeardownStartingEvent =
-  "glitter-pos-local-data-teardown-starting";
-const localDataTeardownFailedEvent = "glitter-pos-local-data-teardown-failed";
-const localDataTeardownTerminalEvent =
-  "glitter-pos-local-data-teardown-terminal";
-const localDataClearedEvent = "glitter-pos-local-data-cleared";
+
+/**
+ * Window events that let tenant-scoped UI follow a teardown it did not start:
+ * - `teardown-starting`: destructive work is about to begin; stop tenant work.
+ * - `teardown-failed`: the local database was left intact; resume tenant work.
+ * - `cleared`: the local user data is gone; drop tenant-derived state.
+ */
+const localDataEventNames = {
+  "teardown-starting": "glitter-pos-local-data-teardown-starting",
+  "teardown-failed": "glitter-pos-local-data-teardown-failed",
+  cleared: "glitter-pos-local-data-cleared",
+} as const;
+
+export type LocalDataEvent = keyof typeof localDataEventNames;
 
 export type LocalDataIdentity = {
   userId: string;
@@ -167,64 +175,24 @@ function clearBrowserLocalData() {
   }
 }
 
+function emitLocalDataEvent(event: LocalDataEvent) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(localDataEventNames[event]));
+  }
+}
+
+export function onLocalDataEvent(event: LocalDataEvent, listener: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  const name = localDataEventNames[event];
+  window.addEventListener(name, listener);
+  return () => window.removeEventListener(name, listener);
+}
+
 function clearInMemoryLocalData() {
   usePosStore.getState().clearLocalData();
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(localDataClearedEvent));
-  }
-}
-
-function notifyLocalDataTeardownStarting() {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(localDataTeardownStartingEvent));
-  }
-}
-
-function notifyLocalDataTeardownFailed() {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(localDataTeardownFailedEvent));
-  }
-}
-
-function notifyLocalDataTeardownTerminal() {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(localDataTeardownTerminalEvent));
-  }
-}
-
-export function onLocalDataTeardownStarting(listener: () => void) {
-  if (typeof window === "undefined") {
-    return () => {};
-  }
-  window.addEventListener(localDataTeardownStartingEvent, listener);
-  return () =>
-    window.removeEventListener(localDataTeardownStartingEvent, listener);
-}
-
-export function onLocalDataTeardownFailed(listener: () => void) {
-  if (typeof window === "undefined") {
-    return () => {};
-  }
-  window.addEventListener(localDataTeardownFailedEvent, listener);
-  return () =>
-    window.removeEventListener(localDataTeardownFailedEvent, listener);
-}
-
-export function onLocalDataTeardownTerminal(listener: () => void) {
-  if (typeof window === "undefined") {
-    return () => {};
-  }
-  window.addEventListener(localDataTeardownTerminalEvent, listener);
-  return () =>
-    window.removeEventListener(localDataTeardownTerminalEvent, listener);
-}
-
-export function onLocalDataCleared(listener: () => void) {
-  if (typeof window === "undefined") {
-    return () => {};
-  }
-  window.addEventListener(localDataClearedEvent, listener);
-  return () => window.removeEventListener(localDataClearedEvent, listener);
+  emitLocalDataEvent("cleared");
 }
 
 /**
@@ -271,7 +239,7 @@ export async function teardownLocalUserData(input: {
   // Abort UI work before a cache or database operation yields. Local write
   // helpers re-check their assertion inside write transactions, preventing an
   // operation that was already awaiting from committing after this point.
-  notifyLocalDataTeardownStarting();
+  emitLocalDataEvent("teardown-starting");
   try {
     await clearUserDataCaches(input.cacheStorage);
 
@@ -287,7 +255,7 @@ export async function teardownLocalUserData(input: {
       }
     }
   } catch (error) {
-    notifyLocalDataTeardownFailed();
+    emitLocalDataEvent("teardown-failed");
     throw error;
   }
 
@@ -307,7 +275,6 @@ export async function teardownLocalUserData(input: {
   }
 
   if (postDestructiveError) {
-    notifyLocalDataTeardownTerminal();
     throw new LocalDataTeardownError(
       "post-destructive",
       postDestructiveError instanceof Error

@@ -76,11 +76,7 @@ import {
   migrateLegacyDraftCartLocal,
   saveDraftCartLocal,
 } from "@/lib/powersync/draft-cart";
-import {
-  onLocalDataCleared,
-  onLocalDataTeardownFailed,
-  onLocalDataTeardownStarting,
-} from "@/lib/powersync/local-data-teardown";
+import { onLocalDataEvent } from "@/lib/powersync/local-data-teardown";
 import { TenantWorkController } from "@/lib/powersync/tenant-work";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
@@ -285,15 +281,15 @@ export function GlitterPosApp({
   // state. Clear every tenant-derived value immediately so a failed navigation
   // or a recovery screen cannot expose data from the previous account.
   useEffect(() => {
-    const stopTenantWork = onLocalDataTeardownStarting(() => {
+    const stopTenantWork = onLocalDataEvent("teardown-starting", () => {
       cancelTenantWork();
       setIsCheckingOut(false);
     });
-    const resumeTenantWork = onLocalDataTeardownFailed(() => {
+    const resumeTenantWork = onLocalDataEvent("teardown-failed", () => {
       tenantWorkControllerRef.current?.resumeAfterFailedTeardown();
       bumpTenantWorkGeneration();
     });
-    const clearTenantState = onLocalDataCleared(() => {
+    const clearTenantState = onLocalDataEvent("cleared", () => {
       cancelTenantWork();
       draftCartReadyRef.current = false;
       setView("sell");

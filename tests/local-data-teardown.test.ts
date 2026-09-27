@@ -7,10 +7,7 @@ import {
   resetReportedSyncFailures,
 } from "@/lib/observability/report-sync-failure";
 import {
-  onLocalDataCleared,
-  onLocalDataTeardownFailed,
-  onLocalDataTeardownStarting,
-  onLocalDataTeardownTerminal,
+  onLocalDataEvent,
   readLocalDataIdentity,
   saveLocalDataIdentity,
   teardownLocalUserData,
@@ -240,17 +237,14 @@ test("a post-destructive failure clears memory and prevents server sign-out", as
       },
     } as unknown as AbstractPowerSyncDatabase;
 
-    const stopTenantWork = onLocalDataTeardownStarting(() =>
+    const stopTenantWork = onLocalDataEvent("teardown-starting", () =>
       tenantWork.cancel()
     );
-    const resumeTenantWork = onLocalDataTeardownFailed(() =>
+    const resumeTenantWork = onLocalDataEvent("teardown-failed", () =>
       tenantWork.resumeAfterFailedTeardown()
     );
-    const observeCleared = onLocalDataCleared(() => {
+    const observeCleared = onLocalDataEvent("cleared", () => {
       events.push("clear-memory");
-    });
-    const observeTerminal = onLocalDataTeardownTerminal(() => {
-      events.push("teardown-terminal");
     });
     saveLocalDataIdentity(identity);
     storage.failRemovalFor("glitter-pos-local-data-identity-v1");
@@ -280,11 +274,7 @@ test("a post-destructive failure clears memory and prevents server sign-out", as
         /No se pudo limpiar el almacenamiento local/
       );
 
-      assert.deepEqual(events, [
-        "clear-powersync",
-        "clear-memory",
-        "teardown-terminal",
-      ]);
+      assert.deepEqual(events, ["clear-powersync", "clear-memory"]);
       assert.equal(staleWork.isCurrent(), false);
       assert.throws(
         () => tenantWork.begin().assertCurrent(),
@@ -302,7 +292,6 @@ test("a post-destructive failure clears memory and prevents server sign-out", as
       stopTenantWork();
       resumeTenantWork();
       observeCleared();
-      observeTerminal();
     }
   });
 });
@@ -324,10 +313,12 @@ test("tenant work resumes only after replacement tenant data is ready", async ()
       tenantId: "tenant-a",
     });
     const staleWork = tenantWork.begin();
-    const stopTenantWork = onLocalDataTeardownStarting(() =>
+    const stopTenantWork = onLocalDataEvent("teardown-starting", () =>
       tenantWork.cancel()
     );
-    const keepTenantWorkStopped = onLocalDataCleared(() => tenantWork.cancel());
+    const keepTenantWorkStopped = onLocalDataEvent("cleared", () =>
+      tenantWork.cancel()
+    );
 
     try {
       await teardownLocalUserData({
@@ -373,10 +364,10 @@ test("tenant work resumes for the existing identity after teardown fails", async
     const identity = { userId: "user-a", tenantId: "tenant-a" };
     const tenantWork = new TenantWorkController(identity);
     const staleWork = tenantWork.begin();
-    const stopTenantWork = onLocalDataTeardownStarting(() =>
+    const stopTenantWork = onLocalDataEvent("teardown-starting", () =>
       tenantWork.cancel()
     );
-    const resumeTenantWork = onLocalDataTeardownFailed(() =>
+    const resumeTenantWork = onLocalDataEvent("teardown-failed", () =>
       tenantWork.resumeAfterFailedTeardown()
     );
 
