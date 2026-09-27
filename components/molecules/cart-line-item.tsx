@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Edit3, Minus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clampDiscount, formatBs } from "@/lib/money";
+import { clampDiscount, formatBs, parseDiscountInput } from "@/lib/money";
 import type { Product } from "@/lib/types";
 import { ProductArt } from "@/components/atoms/product-art";
-import { parseCustomDiscount } from "@/components/screens/payment-screen.helpers";
 
 type CartLineItemProps = {
   productId: string;
@@ -39,6 +38,8 @@ export function CartLineItem({
     lineDiscountCents ? String(lineDiscountCents / 100) : ""
   );
   const [reason, setReason] = useState(lineDiscountReason ?? "");
+  const [discountError, setDiscountError] = useState<string | null>(null);
+  const discountErrorId = useId();
 
   useEffect(() => {
     if (discountOpen) {
@@ -54,14 +55,13 @@ export function CartLineItem({
   const lineTotal = Math.max(0, lineSubtotal - discount);
 
   function applyDiscount() {
-    setLineDiscount(
-      productId,
-      clampDiscount(
-        parseCustomDiscount(discountInput, lineSubtotal),
-        lineSubtotal
-      ),
-      reason
-    );
+    const value = parseDiscountInput(discountInput, lineSubtotal);
+    if (value == null) {
+      setDiscountError("Escribe un monto (5 o 5,50) o un porcentaje (10%).");
+      return;
+    }
+    setDiscountError(null);
+    setLineDiscount(productId, clampDiscount(value, lineSubtotal), reason);
     setDiscountOpen(false);
   }
 
@@ -119,7 +119,10 @@ export function CartLineItem({
           type="button"
           variant="ghost"
           size="icon-sm"
-          onClick={() => setDiscountOpen((open) => !open)}
+          onClick={() => {
+            setDiscountError(null);
+            setDiscountOpen((open) => !open);
+          }}
           aria-label={`Editar descuento de ${product.name}`}
         >
           <Edit3 />
@@ -139,10 +142,15 @@ export function CartLineItem({
         <div className="mt-1 grid grid-cols-[1fr_1fr_auto_auto] gap-2">
           <Input
             value={discountInput}
-            onChange={(event) => setDiscountInput(event.target.value)}
+            onChange={(event) => {
+              setDiscountInput(event.target.value);
+              setDiscountError(null);
+            }}
             inputMode="decimal"
             placeholder="Descuento"
             aria-label={`Descuento de ${product.name}`}
+            aria-invalid={discountError ? true : undefined}
+            aria-describedby={discountError ? discountErrorId : undefined}
             className="rounded-xl"
           />
           <Input
@@ -162,12 +170,21 @@ export function CartLineItem({
             onClick={() => {
               setDiscountInput("");
               setReason("");
+              setDiscountError(null);
               setLineDiscount(productId, 0);
               setDiscountOpen(false);
             }}
           >
             Quitar
           </Button>
+          {discountError ? (
+            <p
+              id={discountErrorId}
+              className="col-span-full text-sm text-destructive"
+            >
+              {discountError}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </article>

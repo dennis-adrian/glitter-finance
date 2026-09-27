@@ -31,7 +31,6 @@ import {
   stockValueLabel,
   type InventoryMovementReason,
 } from "@/lib/inventory";
-import { parseBolivianos } from "@/lib/money";
 import {
   productImageMaxBytes,
   productImageMimeTypes,
@@ -40,10 +39,10 @@ import { emptyProduct } from "@/lib/products";
 import { canonicalizeCategory, categories } from "@/lib/sample-data";
 import type { Product } from "@/lib/types";
 import {
-  hasValidProductForm,
   parseNonNegativeInteger,
   parsePositiveInteger,
   parseSignedInteger,
+  validateProductForm,
 } from "@/components/screens/product-editor.helpers";
 
 type ProductEditorProps = {
@@ -114,7 +113,8 @@ export function ProductEditor({
   const [inventoryMovementSubmitting, setInventoryMovementSubmitting] =
     useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const canSave = hasValidProductForm(name, price);
+  const productForm = validateProductForm({ name, price, cost });
+  const canSave = productForm.values != null;
   const trackingPersisted = product?.tracksInventory ?? false;
   const trackingDirty =
     Boolean(product) && tracksInventory !== trackingPersisted;
@@ -323,18 +323,30 @@ export function ProductEditor({
           onChange={(event) => setPrice(event.target.value)}
           inputMode="decimal"
           placeholder="15"
+          aria-invalid={productForm.errors.price ? true : undefined}
           className="h-12 rounded-xl"
         />
       </FormField>
+      {productForm.errors.price ? (
+        <p className="mt-1.5 text-sm text-destructive">
+          {productForm.errors.price}
+        </p>
+      ) : null}
       <FormField label="Costo unitario" hint="Opcional">
         <Input
           value={cost}
           onChange={(event) => setCost(event.target.value)}
           inputMode="decimal"
           placeholder="Desconocido"
+          aria-invalid={productForm.errors.cost ? true : undefined}
           className="h-12 rounded-xl"
         />
       </FormField>
+      {productForm.errors.cost ? (
+        <p className="mt-1.5 text-sm text-destructive">
+          {productForm.errors.cost}
+        </p>
+      ) : null}
       <p className="mt-1.5 text-sm text-muted-foreground">
         Se usa para calcular ganancias. Si queda vacío, el costo se marca como
         desconocido.
@@ -598,6 +610,10 @@ export function ProductEditor({
         disabled={!canSave}
         className="sticky bottom-0 mt-4 w-full font-extrabold tracking-wide shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
         onClick={() => {
+          const values = productForm.values;
+          if (!values) {
+            return;
+          }
           if (
             showInitialStockField &&
             initialStock.trim() &&
@@ -609,9 +625,7 @@ export function ProductEditor({
             return;
           }
           save({
-            name: name.trim(),
-            priceCents: parseBolivianos(price),
-            costCents: cost.trim() ? parseBolivianos(cost) : null,
+            ...values,
             category,
             imageTone,
             imagePath: product?.imagePath ?? null,

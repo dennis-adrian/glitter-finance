@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   Banknote,
   ChevronLeft,
@@ -14,9 +14,8 @@ import {
 import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clampDiscount, formatBs } from "@/lib/money";
+import { clampDiscount, formatBs, parseDiscountInput } from "@/lib/money";
 import type { PaymentMethod } from "@/lib/types";
-import { parseCustomDiscount } from "@/components/screens/payment-screen.helpers";
 
 type PaymentScreenProps = {
   subtotal: number;
@@ -41,12 +40,29 @@ export function PaymentScreen({
   const [reason, setReason] = useState("");
   const [custom, setCustom] = useState("");
   const [customOpen, setCustomOpen] = useState(false);
-  const total = Math.max(0, subtotal - discount);
+  const [customError, setCustomError] = useState<string | null>(null);
+  const customErrorId = useId();
+  const total = subtotal - clampDiscount(discount, subtotal);
+  // Never charge an amount that is not a whole number of cents.
+  const totalError =
+    Number.isSafeInteger(total) && total >= 0
+      ? null
+      : "No se pudo calcular el total. Vuelve al carrito y revisa los descuentos.";
 
   function apply(value: number) {
     const next = clampDiscount(value, subtotal);
     setDiscount(next);
     if (next === 0) setReason("");
+  }
+
+  function applyCustom() {
+    const value = parseDiscountInput(custom, subtotal);
+    if (value == null) {
+      setCustomError("Escribe un monto (7 o 7,50) o un porcentaje (10%).");
+      return;
+    }
+    setCustomError(null);
+    apply(value);
   }
 
   return (
@@ -68,11 +84,14 @@ export function PaymentScreen({
       <div className="py-8 text-center">
         <span className="text-sm text-muted-foreground">Monto total</span>
         <strong className="mt-1 mb-1.5 block text-3xl font-bold tabular-nums">
-          Cobrar {formatBs(total, true)}
+          {totalError ? "Cobrar" : `Cobrar ${formatBs(total, true)}`}
         </strong>
         <small className="text-sm text-muted-foreground">
           {count} productos
         </small>
+        {totalError ? (
+          <p className="mt-2 text-sm text-destructive">{totalError}</p>
+        ) : null}
         {discount ? (
           <p className="mt-2">
             <span className="inline-block rounded-full bg-primary/10 px-3 py-1 text-sm font-bold text-primary">
@@ -112,18 +131,25 @@ export function PaymentScreen({
           <div className="mt-2.5 grid grid-cols-[1fr_96px] gap-2">
             <Input
               value={custom}
-              onChange={(event) => setCustom(event.target.value)}
+              onChange={(event) => {
+                setCustom(event.target.value);
+                setCustomError(null);
+              }}
               inputMode="decimal"
               placeholder="Ej. 7 o 10%"
               aria-label="Monto o porcentaje de descuento"
+              aria-invalid={customError ? true : undefined}
+              aria-describedby={customError ? customErrorId : undefined}
             />
-            <Button
-              type="button"
-              onClick={() => apply(parseCustomDiscount(custom, subtotal))}
-            >
+            <Button type="button" onClick={applyCustom}>
               Aplicar
             </Button>
           </div>
+        ) : null}
+        {customOpen && customError ? (
+          <p id={customErrorId} className="mt-1.5 text-sm text-destructive">
+            {customError}
+          </p>
         ) : null}
         {discount ? (
           <Input
@@ -141,7 +167,7 @@ export function PaymentScreen({
         <div className="flex flex-col gap-2">
           <Button
             type="button"
-            disabled={!count || isSubmitting}
+            disabled={!count || isSubmitting || totalError != null}
             onClick={() => pay("cash", discount, reason)}
             className="w-full"
           >
@@ -152,7 +178,7 @@ export function PaymentScreen({
           <Button
             type="button"
             variant="secondary"
-            disabled={!count || isSubmitting}
+            disabled={!count || isSubmitting || totalError != null}
             onClick={() => pay("qr_transfer", discount, reason)}
             className="w-full"
           >
