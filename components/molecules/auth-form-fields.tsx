@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 // Building blocks shared by the sign-in, sign-up and password reset forms.
 
 export const authInputClassName =
-  "h-12! rounded-xl! border-[#e2dcd5] bg-white px-4 text-sm text-[#1e2d2b] shadow-none placeholder:text-[#5a6b68] focus-visible:border-[#00786f] focus-visible:ring-[#00786f]/15";
+  "h-12! rounded-xl! border-[#e2dcd5] bg-white px-4 text-base text-[#1e2d2b] md:text-sm shadow-none placeholder:text-[#5a6b68] focus-visible:border-[#00786f] focus-visible:ring-[#00786f]/15";
 
 export const authLinkClassName =
   "font-bold text-[#00786f] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40";
