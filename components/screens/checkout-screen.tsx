@@ -67,7 +67,8 @@ export function CheckoutScreen({
   const [reason, setReason] = useState("");
   const [custom, setCustom] = useState("");
   const [customOpen, setCustomOpen] = useState(false);
-  const [method, setMethod] = useState<PaymentMethod | null>(null);
+  // Cash is the most common payment at fairs, so it starts selected.
+  const [method, setMethod] = useState<PaymentMethod>("cash");
   const [received, setReceived] = useState("");
   const [showLines, setShowLines] = useState(false);
   const total = Math.max(0, subtotal - discount);
@@ -102,14 +103,12 @@ export function CheckoutScreen({
   }
 
   const cashShort = method === "cash" && tender.state === "short";
-  const canSubmit = Boolean(method) && !cashShort && !isSubmitting;
+  const canSubmit = !cashShort && !isSubmitting;
   const submitLabel = isSubmitting
     ? "Registrando…"
-    : !method
-      ? "Elegí un método de pago"
-      : cashShort
-        ? `Faltan ${formatBs(tender.missingCents, true)}`
-        : `Registrar venta · ${formatBs(total, true)}`;
+    : cashShort
+      ? `Faltan ${formatBs(tender.missingCents, true)}`
+      : `Registrar venta · ${formatBs(total, true)}`;
 
   return (
     <Screen
@@ -136,7 +135,6 @@ export function CheckoutScreen({
             size="lg"
             disabled={!canSubmit}
             onClick={() =>
-              method &&
               void pay({
                 method,
                 discountCents: discount,

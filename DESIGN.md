@@ -297,8 +297,8 @@ date presets, catalog status, and stock corrections.
   secondary text.
 - Optional icon before each label. It is a radio group: arrow keys move the
   selection.
-- May start with nothing selected when the choice must be explicit (payment
-  method).
+- Can start with nothing selected (`value={null}`) when a choice must be
+  explicit; the first segment is then the one that takes focus.
 
 ### Order (pedido)
 
@@ -323,14 +323,14 @@ date presets, catalog status, and stock corrections.
   method never records anything.
 - Sale discount presets: `2 Bs`, `5 Bs`, `10 Bs`, plus **Otro** (amount or
   `%`). Tap an active preset again to remove it.
-- Payment method: segmented control (**Efectivo**, **QR**) with nothing
-  selected by default.
+- Payment method: segmented control (**Efectivo**, **QR**) with **Efectivo**
+  selected by default, since cash is the most common payment at fairs.
 - Cash: received-amount presets (**Exacto** plus the total rounded up to 20,
   50, 100, and 200 Bs bills), a custom field, and a live **Cambio** or
   **Falta** readout. Short amounts disable the confirm button.
 - QR: a reminder to confirm the transfer arrived.
-- The footer button states what happens next: **Elegí un método de pago**,
-  **Faltan X Bs**, or **Registrar venta · total**.
+- The footer button states what happens next: **Faltan X Bs** (disabled) or
+  **Registrar venta · total**.
 - Confirmation screen: total, change to hand back, **Nueva venta**
   (primary), **Compartir recibo** (Web Share, clipboard fallback), and a link
   to the recorded sale.
