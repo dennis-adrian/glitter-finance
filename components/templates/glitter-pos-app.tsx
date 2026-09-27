@@ -1403,9 +1403,6 @@ export function GlitterPosApp({
         activeInvitation={activeInvitationState}
         inviteOrigin={inviteOrigin}
         onInvitationChange={setActiveInvitationState}
-        productCount={activeProducts.length}
-        saleCount={sales.filter((sale) => sale.status === "completed").length}
-        pendingCount={sales.length}
         openDiagnostics={() => navigate({ view: "diagnostics" })}
         back={() => back({ view: "more" })}
       />
@@ -1489,6 +1486,13 @@ export function GlitterPosApp({
     diagnostics: (
       <DiagnosticsScreen
         tenantContext={tenantContext}
+        localCounts={{
+          activeProducts: activeProducts.length,
+          archivedProducts: products.length - activeProducts.length,
+          completedSales: sales.filter((sale) => sale.status === "completed")
+            .length,
+          saleRecords: sales.length,
+        }}
         back={() => back({ view: "settings" })}
       />
     ),

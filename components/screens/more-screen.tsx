@@ -254,12 +254,11 @@ export function MoreScreen({ tenantContext, openSettings }: MoreScreenProps) {
       ) : null}
 
       <section className="overflow-hidden rounded-3xl border border-primary/10 bg-card shadow-[0_4px_12px_rgba(45,27,20,0.06)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]">
-        <button
-          type="button"
-          onClick={openSettings}
-          className="flex w-full items-center gap-3.5 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
-        >
-          <span className="grid size-14 shrink-0 place-items-center rounded-full bg-primary text-xl font-bold text-primary-foreground">
+        <div className="flex w-full items-center gap-3.5 p-4">
+          <span
+            className="grid size-14 shrink-0 place-items-center rounded-full bg-primary text-xl font-bold text-primary-foreground"
+            aria-hidden
+          >
             {initials}
           </span>
           <span className="min-w-0 flex-1">
@@ -270,8 +269,7 @@ export function MoreScreen({ tenantContext, openSettings }: MoreScreenProps) {
               {tenantContext.user.email ?? "Usuario autenticado"}
             </small>
           </span>
-          <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
-        </button>
+        </div>
 
         <div className="mx-4 border-t border-border pt-3 pb-4">
           <p className="mb-2 text-xs font-semibold text-muted-foreground">
@@ -372,7 +370,7 @@ export function MoreScreen({ tenantContext, openSettings }: MoreScreenProps) {
         <MenuItem
           icon={<Settings className="size-6" />}
           title="Ajustes"
-          description="Configurá tu cuenta y preferencias"
+          description="Equipo, apariencia y diagnósticos"
           onClick={openSettings}
         />
         <MenuItem

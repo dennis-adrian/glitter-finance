@@ -87,11 +87,19 @@ function readDeviceInfoSync(): DeviceInfo {
 
 type DiagnosticsScreenProps = {
   tenantContext: UserTenantContext;
+  /** Records currently loaded on this device, for support. */
+  localCounts: {
+    activeProducts: number;
+    archivedProducts: number;
+    completedSales: number;
+    saleRecords: number;
+  };
   back: () => void;
 };
 
 export function DiagnosticsScreen({
   tenantContext,
+  localCounts,
   back,
 }: DiagnosticsScreenProps) {
   const db = useOptionalPowerSyncDb();
@@ -334,6 +342,25 @@ export function DiagnosticsScreen({
         <DiagRow
           label="Correo electrónico"
           value={tenantContext.user.email ?? "—"}
+        />
+      </DiagPanel>
+
+      <DiagPanel title="Datos en este dispositivo">
+        <DiagRow
+          label="Productos activos"
+          value={String(localCounts.activeProducts)}
+        />
+        <DiagRow
+          label="Productos archivados"
+          value={String(localCounts.archivedProducts)}
+        />
+        <DiagRow
+          label="Ventas completadas"
+          value={String(localCounts.completedSales)}
+        />
+        <DiagRow
+          label="Registros de ventas"
+          value={String(localCounts.saleRecords)}
         />
       </DiagPanel>
 

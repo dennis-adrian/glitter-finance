@@ -273,8 +273,10 @@ footers are in flow, nothing else needs safe-area math.
 ### Navigation
 
 - Five destinations: **Vender**, **Ventas**, **Catálogo**, **Reportes**, **Más**
-  (`components/organisms/nav-items.ts`). Más holds account, stalls (puestos),
-  Ajustes, and sign-out.
+  (`components/organisms/nav-items.ts`). Más holds the account, puesto
+  switching and creation, Ajustes, and sign-out. Ajustes holds only settings:
+  Equipo (members and invite link), Apariencia, and Soporte (Diagnósticos,
+  which also shows the records loaded on the device).
 - Phones: bottom nav, about 56px plus the bottom safe area; icon above label;
   hidden on sub-screens (detail, editor, checkout) that have a back button.
 - Tablets/desktops: icon rail (`md`) that expands to a labeled sidebar

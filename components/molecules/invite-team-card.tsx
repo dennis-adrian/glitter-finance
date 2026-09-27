@@ -200,10 +200,10 @@ export function InviteTeamCard({
   const isBusy = isGenerating || isRevoking;
 
   return (
-    <section className="mb-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+    <section className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
       <div className="mb-3 flex items-center gap-2">
-        <Link2 className="size-5 text-primary" />
-        <h2 className="text-lg font-semibold">Invitar al equipo</h2>
+        <Link2 className="size-5 text-primary" aria-hidden />
+        <h3 className="text-base font-semibold">Invitar al equipo</h3>
       </div>
       <p className="mb-4 text-sm leading-snug text-muted-foreground">
         Cualquiera con este enlace puede unirse hasta que lo revoques o caduque.
