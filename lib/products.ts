@@ -5,7 +5,7 @@ import {
   defaultPlaceholderImageTone,
   encodePlaceholderImagePath,
 } from "@/lib/product-image-config";
-import { canonicalizeCategory } from "@/lib/categories";
+import { ALL_CATEGORIES, canonicalizeCategory } from "@/lib/categories";
 import type { Product, ProductInput } from "@/lib/types";
 import { characterCount } from "@/lib/validation";
 
@@ -32,6 +32,36 @@ export const PRODUCT_CATEGORY_MAX_LENGTH = 60;
 
 export function getProductInitial(name: string) {
   return name.trim().charAt(0).toUpperCase() || "P";
+}
+
+/**
+ * Text as product search compares it: trimmed, lowercase and without accents
+ * or other marks, so "lamina" finds "Lámina".
+ */
+export function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * The products in `category` (ALL_CATEGORIES for every one) whose name
+ * contains `query`, ignoring case and accents. Sell and the catalog filter
+ * the same way.
+ */
+export function filterProducts<T extends Pick<Product, "name" | "category">>(
+  products: T[],
+  category: string,
+  query: string
+): T[] {
+  const search = normalizeSearchText(query);
+  return products.filter(
+    (product) =>
+      (category === ALL_CATEGORIES || product.category === category) &&
+      normalizeSearchText(product.name).includes(search)
+  );
 }
 
 const INVALID_PRODUCT_MESSAGE = "Los datos del producto no son válidos.";

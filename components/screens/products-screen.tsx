@@ -7,6 +7,7 @@ import { CategoryRail } from "@/components/molecules/category-rail";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { ProductCatalogCard } from "@/components/molecules/product-catalog-card";
 import { categories } from "@/lib/categories";
+import { filterProducts } from "@/lib/products";
 import type { Product } from "@/lib/types";
 import { getProductStock } from "@/lib/inventory";
 
@@ -32,14 +33,7 @@ export function ProductsScreen(props: ProductsScreenProps) {
   const identity = props.userDisplayName || props.userEmail || null;
   const initials = identity ? identity.slice(0, 2).toUpperCase() : "?";
 
-  const filtered = props.products.filter((product) => {
-    const matchesCategory =
-      props.category === "Todos" || product.category === props.category;
-    const matchesQuery = product.name
-      .toLowerCase()
-      .includes(props.query.toLowerCase());
-    return matchesCategory && matchesQuery;
-  });
+  const filtered = filterProducts(props.products, props.category, props.query);
 
   return (
     <section className="screen">
@@ -88,7 +82,7 @@ export function ProductsScreen(props: ProductsScreenProps) {
             />
           ))}
         </div>
-      ) : (
+      ) : props.products.length === 0 ? (
         <EmptyState
           icon={<PackagePlus size={46} />}
           title="Nada por aquí todavía"
@@ -103,6 +97,12 @@ export function ProductsScreen(props: ProductsScreenProps) {
               AGREGAR TU PRIMER PRODUCTO
             </Button>
           }
+        />
+      ) : (
+        <EmptyState
+          icon={<Search size={46} />}
+          title="No se encontraron productos"
+          body="Prueba con otra categoría o término de búsqueda."
         />
       )}
       <Button

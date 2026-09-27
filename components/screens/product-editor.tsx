@@ -40,7 +40,11 @@ import {
 } from "@/lib/product-image-config";
 import { downscaleProductImage } from "@/lib/product-image-downscale";
 import { emptyProduct, PRODUCT_NAME_MAX_LENGTH } from "@/lib/products";
-import { canonicalizeCategory, categories } from "@/lib/categories";
+import {
+  ALL_CATEGORIES,
+  canonicalizeCategory,
+  categories,
+} from "@/lib/categories";
 import type { Product, ProductInput } from "@/lib/types";
 import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import {
@@ -408,7 +412,7 @@ export function ProductEditor({
           </SelectTrigger>
           <SelectContent>
             {categories
-              .filter((item) => item !== "Todos")
+              .filter((item) => item !== ALL_CATEGORIES)
               .map((item) => (
                 <SelectItem key={item} value={item}>
                   {item}

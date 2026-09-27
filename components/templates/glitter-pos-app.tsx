@@ -32,6 +32,7 @@ import { MoreScreen } from "@/components/screens/more-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
 import { unwrapActionResult } from "@/lib/action-result";
+import { ALL_CATEGORIES } from "@/lib/categories";
 import { paymentLabels, saleTotal } from "@/lib/sales";
 import { cartSubtotalCents } from "@/lib/sales/pricing";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
@@ -196,8 +197,8 @@ export function GlitterPosApp({
   const [activeInvitationState, setActiveInvitationState] =
     useState(activeInvitation);
   const [previousView, setPreviousView] = useState<View>("products");
-  const [category, setCategory] = useState("Todos");
-  const [catalogCategory, setCatalogCategory] = useState("Todos");
+  const [category, setCategory] = useState(ALL_CATEGORIES);
+  const [catalogCategory, setCatalogCategory] = useState(ALL_CATEGORIES);
   const [query, setQuery] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -311,8 +312,8 @@ export function GlitterPosApp({
       draftCartReadyRef.current = false;
       setView("sell");
       setPreviousView("products");
-      setCategory("Todos");
-      setCatalogCategory("Todos");
+      setCategory(ALL_CATEGORIES);
+      setCatalogCategory(ALL_CATEGORIES);
       setQuery("");
       setCatalogQuery("");
       setEditingProduct(null);

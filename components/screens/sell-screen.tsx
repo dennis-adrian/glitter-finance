@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/molecules/empty-state";
 import { ProductTile } from "@/components/molecules/product-tile";
 import { CheckoutDock } from "@/components/organisms/checkout-dock";
 import { categories } from "@/lib/categories";
+import { filterProducts } from "@/lib/products";
 import type { Product } from "@/lib/types";
 
 type SellScreenProps = {
@@ -29,14 +30,7 @@ type SellScreenProps = {
 };
 
 export function SellScreen(props: SellScreenProps) {
-  const filtered = props.products.filter((product) => {
-    const matchesCategory =
-      props.category === "Todos" || product.category === props.category;
-    const matchesQuery = product.name
-      .toLowerCase()
-      .includes(props.query.toLowerCase());
-    return matchesCategory && matchesQuery;
-  });
+  const filtered = filterProducts(props.products, props.category, props.query);
 
   return (
     <section className="screen">
