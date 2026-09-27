@@ -3,12 +3,9 @@ import { buildLoginRedirectPath } from "@/lib/auth/oauth";
 import { sanitizeRedirectPath } from "@/lib/auth/redirect";
 import { createClient } from "@/lib/supabase/server";
 
-const AUTH_CALLBACK_ERROR_MESSAGE =
-  "No se pudo completar el inicio de sesión. Intentá de nuevo.";
-
 function authErrorUrl(requestUrl: URL, next: string) {
   return new URL(
-    buildLoginRedirectPath({ error: AUTH_CALLBACK_ERROR_MESSAGE }, next),
+    buildLoginRedirectPath({ error: "auth_callback_failed" }, next),
     requestUrl.origin
   );
 }

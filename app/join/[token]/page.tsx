@@ -6,6 +6,7 @@ import {
   getInvitationByToken,
   isInvitationValid,
 } from "@/lib/invitations/repository";
+import { buildLoginRedirectPath } from "@/lib/auth/oauth";
 import { resolveUserTenantContext } from "@/lib/auth/user-context";
 
 type JoinPageProps = {
@@ -46,7 +47,7 @@ export default async function JoinPage({ params }: JoinPageProps) {
   // up only in the inviter's tenant, so this render never bootstraps one.
   const context = await resolveUserTenantContext();
   if (!context) {
-    redirect(`/login?next=${encodeURIComponent(`/join/${token}`)}`);
+    redirect(buildLoginRedirectPath({}, `/join/${token}`));
   }
 
   return (

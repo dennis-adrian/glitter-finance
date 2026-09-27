@@ -12,16 +12,11 @@ import {
   SIGN_UP_ORIGIN_UNAVAILABLE_MESSAGE,
   SIGN_UP_TEMPORARY_ERROR_MESSAGE,
 } from "@/lib/auth/signup-error";
+import { LOGIN_ERROR_MESSAGES } from "@/lib/auth/login-messages";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import { isAbsoluteHttpUrl } from "@/lib/invitations/validation";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { createClient } from "@/lib/supabase/server";
-
-const ACCOUNT_PREPARATION_ERROR_MESSAGE = "No se pudo preparar la cuenta.";
-const GOOGLE_SIGN_IN_ERROR_MESSAGE =
-  "No se pudo iniciar sesión con Google. Intentá de nuevo.";
-const GOOGLE_SIGN_IN_ORIGIN_ERROR_MESSAGE =
-  "No se pudo determinar la URL de la app para iniciar sesión con Google.";
 
 export type SignUpState = {
   error: string | null;
@@ -81,7 +76,7 @@ export async function signInWithPassword(
     await ensureUserTenantContext();
   } catch (err) {
     console.error("[auth] Failed to prepare account after sign-in", err);
-    return { error: ACCOUNT_PREPARATION_ERROR_MESSAGE };
+    return { error: LOGIN_ERROR_MESSAGES.account_preparation_failed };
   }
 
   redirect(next);
@@ -97,10 +92,7 @@ export async function signInWithGoogle(formData: FormData) {
 
   if (!callbackUrl) {
     redirect(
-      buildLoginRedirectPath(
-        { error: GOOGLE_SIGN_IN_ORIGIN_ERROR_MESSAGE },
-        next
-      )
+      buildLoginRedirectPath({ error: "google_origin_unavailable" }, next)
     );
   }
 
@@ -130,9 +122,7 @@ export async function signInWithGoogle(formData: FormData) {
         status: signInResult.error.status ?? null,
       });
     }
-    redirect(
-      buildLoginRedirectPath({ error: GOOGLE_SIGN_IN_ERROR_MESSAGE }, next)
-    );
+    redirect(buildLoginRedirectPath({ error: "google_sign_in_failed" }, next));
   }
 
   redirect(signInResult.data.url);
@@ -200,15 +190,7 @@ export async function signUpWithPassword(
   }
 
   if (!data.session) {
-    redirect(
-      buildLoginRedirectPath(
-        {
-          message:
-            "Cuenta creada. Revisa tu correo electrónico para confirmarla y luego inicia sesión.",
-        },
-        next
-      )
-    );
+    redirect(buildLoginRedirectPath({ message: "signup_check_email" }, next));
   }
 
   if (isInviteRedirectPath(next)) {
@@ -220,7 +202,7 @@ export async function signUpWithPassword(
   } catch (err) {
     console.error("[auth] Failed to prepare account after sign-up", err);
     redirect(
-      buildLoginRedirectPath({ error: ACCOUNT_PREPARATION_ERROR_MESSAGE }, next)
+      buildLoginRedirectPath({ error: "account_preparation_failed" }, next)
     );
   }
 

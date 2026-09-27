@@ -2,6 +2,10 @@ import Link from "next/link";
 import { BarChart2, CheckCircle2, ChevronLeft, WifiOff } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { AuthForm } from "@/components/molecules/auth-form";
+import {
+  loginErrorMessage,
+  loginStatusMessage,
+} from "@/lib/auth/login-messages";
 import { resolveAuthRedirectPath } from "@/lib/auth/oauth";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { cn } from "@/lib/utils";
@@ -174,8 +178,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
   const origin = await getRequestOrigin();
   const next = resolveAuthRedirectPath(firstValue(params.next) ?? null, origin);
-  const error = firstValue(params.error);
-  const message = firstValue(params.message);
+  // Codes only: unknown values (or free text) show nothing.
+  const error = loginErrorMessage(firstValue(params.error)) ?? undefined;
+  const message = loginStatusMessage(firstValue(params.message)) ?? undefined;
   const requestedMode = firstValue(params.mode);
   const mode: AuthMode =
     requestedMode === "signup"
