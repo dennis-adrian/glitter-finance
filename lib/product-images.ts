@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicEnv } from "@/lib/env";
 import {
   isPlaceholderImagePath,
+  productImagePublicPathPrefix,
   productImagesBucket,
 } from "@/lib/product-image-config";
 
@@ -17,7 +18,7 @@ export function getProductImagePublicUrl(path: string | null | undefined) {
     .join("/");
   const supabaseUrl = getPublicEnv().supabaseUrl.replace(/\/$/, "");
 
-  return `${supabaseUrl}/storage/v1/object/public/${productImagesBucket}/${encodedPath}`;
+  return `${supabaseUrl}${productImagePublicPathPrefix}${encodedPath}`;
 }
 
 /**

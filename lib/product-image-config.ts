@@ -10,6 +10,16 @@ export const productImageMimeTypes = ["image/jpeg", "image/png"] as const;
 
 export type ProductImageMimeType = (typeof productImageMimeTypes)[number];
 
+/**
+ * Cache-Control max-age, in seconds, set on uploaded images. Every upload gets
+ * a new object name (buildProductImageObjectPath), so a URL's content never
+ * changes and browsers and the Storage CDN may keep it for a year.
+ */
+export const productImageCacheControl = String(365 * 24 * 60 * 60);
+
+/** Path of the bucket's public object URLs (getProductImagePublicUrl). */
+export const productImagePublicPathPrefix = `/storage/v1/object/public/${productImagesBucket}/`;
+
 const productImageExtensionByMimeType: Record<ProductImageMimeType, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",

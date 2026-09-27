@@ -11,9 +11,16 @@ import {
   productImageFormatsLabel,
   productImageMaxBytes,
   productImageMaxSizeLabel,
+  productImagePublicPathPrefix,
   unreferencedProductImagePaths,
 } from "@/lib/product-image-config";
+import { getProductImagePublicUrl } from "@/lib/product-images";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
+import {
+  isStaticAssetCacheName,
+  PRODUCT_IMAGE_CACHE_NAME,
+  PRODUCT_IMAGE_PATH_PREFIX,
+} from "@/lib/pwa/cache-names";
 import { updateProductLocal } from "@/lib/powersync/write-products";
 
 const tenantId = "70000000-0000-4000-8000-000000000001";
@@ -85,6 +92,19 @@ test("the mapper keeps a placeholder's tone and derives one otherwise", () => {
   assert.equal(placeholder.imageUrl, null);
   assert.equal(uploaded.imageTone, unknownTone.imageTone);
   assert.notEqual(uploaded.imageUrl, null);
+});
+
+test("the service worker caches the public image URLs until logout", () => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://example.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??= "publishable-key";
+
+  assert.equal(PRODUCT_IMAGE_PATH_PREFIX, productImagePublicPathPrefix);
+  assert.ok(
+    new URL(getProductImagePublicUrl(imageA) ?? "").pathname.startsWith(
+      PRODUCT_IMAGE_PATH_PREFIX
+    )
+  );
+  assert.equal(isStaticAssetCacheName(PRODUCT_IMAGE_CACHE_NAME), false);
 });
 
 test("builds a fresh object path in the product folder", () => {

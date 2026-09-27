@@ -14,7 +14,7 @@ PWA.
 - Payment screen with sale-level discounts and cash/QR checkout.
 - Immutable local sales with snapshotted price/cost data, recent sales, voids, refunds, and basic reports.
 - PowerSync-backed local SQLite reads/writes for products, sales, sale lines, refunds, and local-only draft carts.
-- Offline app shell through Serwist, with Supabase and PowerSync API responses kept network-only so synced data remains owned by PowerSync/local SQLite.
+- Offline app shell through Serwist, with Supabase and PowerSync API responses kept network-only so synced data remains owned by PowerSync/local SQLite. Product photos from Supabase Storage are the one exception: the service worker caches them so Sell tiles keep their images offline.
 - Sync status visibility and a tester diagnostics surface for pending queue count, offline/reconnect state, errors, and last sync time.
 
 ## Run locally

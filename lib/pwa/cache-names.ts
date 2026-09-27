@@ -24,6 +24,14 @@ export const POWERSYNC_WASM_CACHE_NAME = "glitter-pos-static-powersync";
 export const PRODUCT_IMAGE_CACHE_NAME = "glitter-pos-product-images";
 
 /**
+ * Path of public product photo URLs (productImagePublicPathPrefix in
+ * lib/product-image-config.ts, repeated here to keep that module out of the
+ * service worker bundle).
+ */
+export const PRODUCT_IMAGE_PATH_PREFIX =
+  "/storage/v1/object/public/product-images/";
+
+/**
  * Caches that only ever hold build assets: the precache and the static asset
  * caches. Nothing in them belongs to a user or tenant, and the app needs them
  * to start offline, so the local data teardown keeps them and deletes every

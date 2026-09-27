@@ -14,11 +14,14 @@ import type {
   PrecacheEntry,
   RuntimeCaching,
   SerwistGlobalConfig,
+  SerwistPlugin,
 } from "serwist";
 import {
   OFFLINE_PAGE_URL,
   PAGE_CACHE_NAME,
   POWERSYNC_WASM_CACHE_NAME,
+  PRODUCT_IMAGE_CACHE_NAME,
+  PRODUCT_IMAGE_PATH_PREFIX,
   STATIC_CACHE_NAME,
   SW_CACHE_ID,
 } from "../lib/pwa/cache-names";
@@ -43,7 +46,43 @@ const isIdentitySensitivePath = (pathname: string) =>
   pathname === "/auth" ||
   pathname.startsWith("/auth/");
 
+// Photos the editor uploads are a few hundred KB (downscaleProductImage).
+// Larger, older originals are left to the HTTP cache, so the photo cache
+// cannot crowd the storage quota the local database shares.
+const PRODUCT_IMAGE_MAX_CACHED_BYTES = 1024 * 1024;
+const skipLargeResponses: SerwistPlugin = {
+  cacheWillUpdate: async ({ response }) => {
+    const length = Number(response.headers.get("content-length"));
+    return Number.isFinite(length) && length > PRODUCT_IMAGE_MAX_CACHED_BYTES
+      ? null
+      : response;
+  },
+};
+
 const runtimeCaching: RuntimeCaching[] = [
+  // Product photos (public Supabase Storage objects), so Sell tiles keep
+  // them offline. Each upload gets a new object name, so a cached photo is
+  // never stale. ProductArt requests them with CORS: an opaque response
+  // could not be checked here, and Chrome counts each one as several MB of
+  // quota. Logout clears this cache (clearUserDataCaches).
+  {
+    matcher: ({ url }) => url.pathname.startsWith(PRODUCT_IMAGE_PATH_PREFIX),
+    handler: new CacheFirst({
+      cacheName: PRODUCT_IMAGE_CACHE_NAME,
+      plugins: [
+        new CacheableResponsePlugin({ statuses: [200] }),
+        skipLargeResponses,
+        new ExpirationPlugin({
+          maxEntries: 300,
+          maxAgeSeconds: 30 * 24 * 60 * 60,
+          maxAgeFrom: "last-used",
+          purgeOnQuotaError: true,
+        }),
+      ],
+    }),
+  },
+  // Every other Supabase and PowerSync request: synced data belongs to
+  // PowerSync and the local database, never to a cache.
   {
     matcher: isSupabaseOrPowerSync,
     handler: new NetworkOnly(),

@@ -21,6 +21,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildProductImageObjectPath,
   encodePlaceholderImagePath,
+  productImageCacheControl,
   isPlaceholderImagePath,
   placeholderImagePathPattern,
   productImageFileError,
@@ -180,6 +181,7 @@ export async function uploadProductImageLocal(
     .from(productImagesBucket)
     .upload(objectPath, file, {
       contentType: file.type,
+      cacheControl: productImageCacheControl,
       upsert: false,
     });
 

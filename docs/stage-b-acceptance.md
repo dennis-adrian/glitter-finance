@@ -84,7 +84,8 @@ Expected:
 
 ## Offline PWA Relaunch
 
-1. Launch the installed PWA online and wait for synced state.
+1. Launch the installed PWA online and wait for synced state. Scroll Sell
+   Mode so every product photo has loaded once.
 2. Close the PWA.
 3. Enable airplane mode.
 4. Relaunch the installed PWA.
@@ -96,8 +97,8 @@ Expected:
 Expected:
 
 - Steps 4 and 5 open Sell Mode from the saved app shell and local PowerSync
-  data, not the "Sin conexión" screen. Neither the shell nor the PowerSync
-  SQLite files expire.
+  data, not the "Sin conexión" screen, with the product photos seen in step
+  1. Neither the shell nor the PowerSync SQLite files expire.
 - Step 6 shows the "Sin conexión" screen: signing out removed the saved app
   shell. After disabling airplane mode, "Reintentar" opens the login screen.
 - First-ever offline login is not required and remains out of scope.

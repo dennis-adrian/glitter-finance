@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireExpectedTenantContext } from "@/lib/auth/user-context";
 import {
   buildProductImageObjectPath,
+  productImageCacheControl,
   productImageFileError,
   productImagesBucket,
   unreferencedProductImagePaths,
@@ -110,6 +111,7 @@ async function uploadProductImageForTenant(
     .from(productImagesBucket)
     .upload(objectPath, new Uint8Array(await image.arrayBuffer()), {
       contentType: image.type,
+      cacheControl: productImageCacheControl,
       upsert: false,
     });
 
