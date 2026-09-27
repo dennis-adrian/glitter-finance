@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { UserFacingError } from "@/lib/action-result";
 import { inventoryMovementReasonEnum } from "@/lib/db/schema";
 import {
   computeStockByProduct,
   isValidMovementDelta,
   MAX_QUANTITY,
   movementDeltaError,
+  normalizeInventoryMovement,
   resolveInitialStockDelta,
   type InventoryMovement,
 } from "@/lib/inventory";
@@ -200,6 +202,33 @@ test("movement deltas stay within the quantity bound", () => {
     false
   );
   assert.match(movementDeltaError("initial"), /0 a 1\.000\.000/);
+});
+
+test("movements from a server action get the local writer's checks", () => {
+  assert.deepEqual(
+    normalizeInventoryMovement({ delta: 0, reason: "initial", note: "  " }),
+    { delta: 0, reason: "initial", note: null }
+  );
+  assert.deepEqual(
+    normalizeInventoryMovement({ delta: -2, reason: "loss", note: " rota " }),
+    { delta: -2, reason: "loss", note: "rota" }
+  );
+
+  const invalid: [Record<string, unknown>, RegExp][] = [
+    [{ delta: 3, reason: "loss" }, /entero de 1/],
+    [{ delta: "5", reason: "restock" }, /entero de 1/],
+    [{ delta: 5 }, /tipo de movimiento/],
+    [{ delta: 5, reason: "sale" }, /tipo de movimiento/],
+    [{ delta: 5, reason: "restock", note: 42 }, /nota/],
+  ];
+  for (const [input, message] of invalid) {
+    assert.throws(
+      () => normalizeInventoryMovement(input),
+      (error: unknown) =>
+        error instanceof UserFacingError && message.test(error.message),
+      JSON.stringify(input)
+    );
+  }
 });
 
 test("switching tracking on always records an initial count", () => {

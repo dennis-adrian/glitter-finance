@@ -635,7 +635,7 @@ export function ProductEditor({
           </div>
         ) : null}
         {inventoryActionError ? (
-          <p className="mt-2 text-sm text-destructive">
+          <p className="mt-2 text-sm text-destructive" role="alert">
             {inventoryActionError}
           </p>
         ) : null}

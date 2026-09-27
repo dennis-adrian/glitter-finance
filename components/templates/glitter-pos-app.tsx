@@ -13,6 +13,7 @@ import {
   refundSale as refundSaleAction,
   voidSale as voidSaleAction,
 } from "@/app/sales/actions";
+import { addInventoryMovement as addInventoryMovementAction } from "@/app/inventory/actions";
 import { toast as sonnerToast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { BottomNav } from "@/components/organisms/bottom-nav";
@@ -814,20 +815,6 @@ export function GlitterPosApp({
       });
       const needsInitialMovement = initialStockDelta != null;
 
-      const inventoryPersistenceRequired =
-        !db &&
-        input.tracksInventory &&
-        (needsInitialMovement ||
-          !editingProduct ||
-          !editingProduct.tracksInventory);
-      if (inventoryPersistenceRequired) {
-        showToast(
-          "Conecta para guardar productos con inventario activado.",
-          "danger"
-        );
-        return;
-      }
-
       if (db) {
         work.assertCurrent();
         // The initial count is written in the product's own transaction.
@@ -878,6 +865,22 @@ export function GlitterPosApp({
           "No se pudo guardar el producto"
         );
         work.assertCurrent();
+        upsertProduct(product);
+
+        if (needsInitialMovement) {
+          const productId = product.id;
+          const movement = await unwrapActionResult(
+            () =>
+              addInventoryMovementAction(tenant.id, {
+                productId,
+                delta: initialStockDelta,
+                reason: "initial",
+              }),
+            "No se pudo guardar el stock inicial"
+          );
+          work.assertCurrent();
+          addInventoryMovementToState(movement);
+        }
 
         if (imageFile) {
           const productId = product.id;
@@ -927,6 +930,16 @@ export function GlitterPosApp({
     }
   }
 
+  // Without PowerSync nothing watches inventory_movements, so a movement the
+  // server action recorded is added here; stock is derived from this list.
+  function addInventoryMovementToState(movement: InventoryMovement) {
+    setInventoryMovements((current) =>
+      [...current, movement].sort(compareMovementsOldestFirst)
+    );
+  }
+
+  // Throws when the movement was not recorded: the editor shows the message
+  // next to the stock fields and keeps what was typed.
   async function handleInventoryMovement(input: {
     productId: string;
     delta: number;
@@ -935,38 +948,43 @@ export function GlitterPosApp({
   }) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
-      return;
-    }
-    const db = powerSyncDb;
-    if (!db) {
-      showToast("Conecta para ajustar el inventario.", "info");
-      return;
+      throw new Error("Tu cuenta aún no está configurada.");
     }
     const work = beginTenantWork();
+    const db = powerSyncDb;
     try {
-      work.assertCurrent();
-      await addInventoryMovement(db, {
-        tenantId: tenant.id,
-        userId: tenantContext.user.id,
-        productId: input.productId,
-        delta: input.delta,
-        reason: input.reason,
-        note: input.note,
-        assertCurrent: work.assertCurrent,
-      });
+      if (db) {
+        work.assertCurrent();
+        await addInventoryMovement(db, {
+          tenantId: tenant.id,
+          userId: tenantContext.user.id,
+          productId: input.productId,
+          delta: input.delta,
+          reason: input.reason,
+          note: input.note,
+          assertCurrent: work.assertCurrent,
+        });
+      } else {
+        work.assertCurrent();
+        const movement = await unwrapActionResult(
+          () =>
+            addInventoryMovementAction(tenant.id, {
+              productId: input.productId,
+              delta: input.delta,
+              reason: input.reason,
+              note: input.note,
+            }),
+          "No se pudo actualizar el inventario"
+        );
+        work.assertCurrent();
+        addInventoryMovementToState(movement);
+      }
       work.assertCurrent();
       showToast("Inventario actualizado", "success");
     } catch (error) {
       if (!work.isCurrent()) {
         return;
       }
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "No se pudo actualizar el inventario",
-        "danger"
-      );
       throw error;
     }
   }

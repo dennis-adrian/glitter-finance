@@ -1,5 +1,7 @@
+import { UserFacingError } from "@/lib/action-result";
 import type { inventoryMovementReasonEnum } from "@/lib/db/schema";
 import type { Product, Sale } from "@/lib/types";
+import { normalizeNote } from "@/lib/validation";
 
 /** Default low-stock threshold when a product has no per-product override. */
 export const DEFAULT_LOW_STOCK_THRESHOLD = 5;
@@ -86,6 +88,33 @@ export function movementDeltaError(reason: InventoryMovementReason) {
   return Object.hasOwn(MOVEMENT_DELTA_RULES, reason)
     ? MOVEMENT_DELTA_RULES[reason].message
     : "El tipo de movimiento de inventario no es válido.";
+}
+
+/**
+ * A movement's delta, reason and note as they may be stored: a delta
+ * Postgres accepts for the reason (isValidMovementDelta) and a trimmed note
+ * within MAX_NOTE_LENGTH, blank as null. The PowerSync writer and the server
+ * action both call it, so the two paths accept the same movements. Throws
+ * UserFacingError.
+ */
+export function normalizeInventoryMovement(input: {
+  delta?: unknown;
+  reason?: unknown;
+  note?: unknown;
+}): { delta: number; reason: InventoryMovementReason; note: string | null } {
+  const reason = input.reason as InventoryMovementReason;
+  if (
+    typeof input.reason !== "string" ||
+    typeof input.delta !== "number" ||
+    !isValidMovementDelta(reason, input.delta)
+  ) {
+    throw new UserFacingError(movementDeltaError(reason));
+  }
+  return {
+    delta: input.delta,
+    reason,
+    note: normalizeNote(input.note, "La nota"),
+  };
 }
 
 /**

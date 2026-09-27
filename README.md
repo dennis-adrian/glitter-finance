@@ -79,8 +79,10 @@ called from `instrumentation.ts`) and refuses to serve requests while any is
 missing, so a misconfigured deploy fails at once, `/api/health` included.
 
 **Local-only (no PowerSync):** leave `NEXT_PUBLIC_POWERSYNC_URL` empty. The app
-loads products and sales from Supabase on the server and uses server actions for
-writes. The sync pill is hidden and no local SQLite store is opened.
+loads products, sales and stock movements from Supabase on the server and uses
+server actions for every write (products, sales, voids, refunds and stock
+movements). The sync pill is hidden and no local SQLite store is opened, so
+nothing works offline.
 
 **Staging / production:** set `NEXT_PUBLIC_POWERSYNC_URL` to the PowerSync Cloud
 instance URL for that environment (see [PowerSync setup](#powersync-setup) below).

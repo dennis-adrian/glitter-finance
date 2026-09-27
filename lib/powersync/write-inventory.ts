@@ -3,11 +3,9 @@
 
 import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import {
-  isValidMovementDelta,
-  movementDeltaError,
+  normalizeInventoryMovement,
   type InventoryMovementReason,
 } from "@/lib/inventory";
-import { normalizeNote } from "@/lib/validation";
 
 function nowIso() {
   return new Date().toISOString();
@@ -53,24 +51,19 @@ type PreparedInventoryMovement = {
 
 /**
  * The row for a movement, checked so a row Postgres would reject never
- * enters the upload queue. Throws with a message for the user. More than one
+ * enters the upload queue (normalizeInventoryMovement). More than one
  * `initial` per product is allowed: the latest one is the stock baseline (see
  * computeStockByProduct).
  */
 export function prepareInventoryMovement(
   input: Omit<AddInventoryMovementInput, "assertCurrent">
 ): PreparedInventoryMovement {
-  if (!isValidMovementDelta(input.reason, input.delta)) {
-    throw new Error(movementDeltaError(input.reason));
-  }
   return {
     id: uuid(),
     tenantId: input.tenantId,
     productId: input.productId,
     userId: input.userId,
-    delta: input.delta,
-    reason: input.reason,
-    note: normalizeNote(input.note, "La nota"),
+    ...normalizeInventoryMovement(input),
     createdAt: nowIso(),
   };
 }
