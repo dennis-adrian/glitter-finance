@@ -5,10 +5,10 @@ import { useEffect } from "react";
 
 export default function GlobalError({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     Sentry.captureException(error);
@@ -31,13 +31,19 @@ export default function GlobalError({
         }}
       >
         <main>
+          {/* Replaces the root layout and its metadata; React hoists this
+              into <head>. */}
+          <title>Error · Billetera Ferial</title>
           <h1>Algo salió mal</h1>
           <p>
             El error fue registrado. Puedes intentar cargar la aplicación otra
             vez.
           </p>
+          {/* retry() fetches the page from the server again; reset() would
+              only re-render the payload that already failed. */}
           <button
-            onClick={reset}
+            type="button"
+            onClick={() => retry()}
             style={{
               background: "#6822e2",
               border: 0,
