@@ -6,7 +6,6 @@ type PublicEnv = {
 };
 
 type ServerEnv = PublicEnv & {
-  databaseUrl?: string;
   supabaseSecretKey?: string;
   invitationSecretKey?: string;
 };
@@ -43,7 +42,6 @@ export function getPublicEnv(): PublicEnv {
 export function getServerEnv(): ServerEnv {
   return {
     ...getPublicEnv(),
-    databaseUrl: process.env.DATABASE_URL,
     supabaseSecretKey: process.env.SUPABASE_SECRET_KEY,
     invitationSecretKey: process.env.INVITATION_SECRET_KEY,
   };
