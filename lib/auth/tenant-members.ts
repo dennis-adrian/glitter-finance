@@ -1,3 +1,5 @@
+import "server-only";
+
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tenantUsers } from "@/lib/db/schema";

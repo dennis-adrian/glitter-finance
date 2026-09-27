@@ -1,3 +1,5 @@
+import "server-only";
+
 import { cache } from "react";
 import { sql } from "drizzle-orm";
 import type { User } from "@supabase/supabase-js";
