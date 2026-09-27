@@ -1,9 +1,12 @@
+import { MAX_QUANTITY, MAX_QUANTITY_LABEL } from "@/lib/inventory";
 import {
   formatBs,
   isValidCents,
   MAX_PRICE_CENTS,
   parseBolivianos,
 } from "@/lib/money";
+import { PRODUCT_NAME_MAX_LENGTH } from "@/lib/products";
+import { characterCount } from "@/lib/validation";
 
 export type ProductFormValues = {
   name: string;
@@ -12,6 +15,7 @@ export type ProductFormValues = {
 };
 
 export type ProductFormErrors = {
+  name?: string;
   price?: string;
   cost?: string;
 };
@@ -31,6 +35,9 @@ export function validateProductForm(form: {
 }): { values: ProductFormValues | null; errors: ProductFormErrors } {
   const errors: ProductFormErrors = {};
   const name = form.name.trim();
+  if (characterCount(name) > PRODUCT_NAME_MAX_LENGTH) {
+    errors.name = `El nombre no puede superar ${PRODUCT_NAME_MAX_LENGTH} caracteres.`;
+  }
 
   const priceCents = form.price.trim() ? parseBolivianos(form.price) : null;
   if (form.price.trim()) {
@@ -54,38 +61,61 @@ export function validateProductForm(form: {
   }
 
   const valid =
-    Boolean(name) && priceCents != null && !errors.price && !errors.cost;
+    Boolean(name) &&
+    priceCents != null &&
+    !errors.name &&
+    !errors.price &&
+    !errors.cost;
   return {
     values: valid ? { name, priceCents, costCents } : null,
     errors,
   };
 }
 
-/** Whole positive integers only — rejects decimals and trailing junk. */
+// Stock amounts are whole numbers up to MAX_QUANTITY: a larger count is a
+// typo, and Postgres would reject one beyond its integer range.
+function parseWholeNumber(value: string, pattern: RegExp) {
+  const trimmed = value.trim();
+  if (!pattern.test(trimmed)) {
+    return null;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  return Math.abs(parsed) <= MAX_QUANTITY ? parsed : null;
+}
+
+/** Whole integers from 1 to MAX_QUANTITY — rejects decimals and junk. */
 export function parsePositiveInteger(value: string) {
-  const trimmed = value.trim();
-  if (!/^\+?\d+$/.test(trimmed)) {
-    return null;
-  }
-  const parsed = Number.parseInt(trimmed, 10);
-  return parsed > 0 ? parsed : null;
+  const parsed = parseWholeNumber(value, /^\+?\d+$/);
+  return parsed != null && parsed > 0 ? parsed : null;
 }
 
-/** Whole integers from 0 up — rejects negatives, decimals and trailing junk. */
+/** Whole integers from 0 to MAX_QUANTITY — rejects negatives and junk. */
 export function parseNonNegativeInteger(value: string) {
-  const trimmed = value.trim();
-  if (!/^\+?\d+$/.test(trimmed)) {
-    return null;
-  }
-  return Number.parseInt(trimmed, 10);
+  return parseWholeNumber(value, /^\+?\d+$/);
 }
 
-/** Non-zero whole integers only — rejects decimals and trailing junk. */
+/** Non-zero whole integers within ±MAX_QUANTITY — rejects decimals and junk. */
 export function parseSignedInteger(value: string) {
-  const trimmed = value.trim();
-  if (!/^(?:\+?\d+|-\d+)$/.test(trimmed)) {
+  const parsed = parseWholeNumber(value, /^(?:\+?\d+|-\d+)$/);
+  return parsed != null && parsed !== 0 ? parsed : null;
+}
+
+export const INITIAL_STOCK_ERROR = `El stock inicial debe ser un número entero de 0 a ${MAX_QUANTITY_LABEL}, sin decimales.`;
+
+/**
+ * Why a typed stock amount cannot be recorded, or null when it is valid or
+ * blank. `signed` is the adjustment field, which also takes negatives.
+ */
+export function stockAmountError(value: string, signed = false) {
+  if (!value.trim()) {
     return null;
   }
-  const parsed = Number.parseInt(trimmed, 10);
-  return parsed !== 0 ? parsed : null;
+  if (signed) {
+    return parseSignedInteger(value) == null
+      ? `Usa un número entero distinto de cero, de -${MAX_QUANTITY_LABEL} a ${MAX_QUANTITY_LABEL}.`
+      : null;
+  }
+  return parsePositiveInteger(value) == null
+    ? `Usa un número entero de 1 a ${MAX_QUANTITY_LABEL}, sin decimales ni texto extra.`
+    : null;
 }

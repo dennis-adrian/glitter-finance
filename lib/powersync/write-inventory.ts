@@ -4,8 +4,10 @@
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import {
   isValidMovementDelta,
+  movementDeltaError,
   type InventoryMovementReason,
 } from "@/lib/inventory";
+import { normalizeNote } from "@/lib/validation";
 
 function nowIso() {
   return new Date().toISOString();
@@ -46,12 +48,9 @@ export async function addInventoryMovement(
   // queue. More than one `initial` per product is allowed: the latest one is
   // the stock baseline (see computeStockByProduct).
   if (!isValidMovementDelta(input.reason, input.delta)) {
-    throw new Error(
-      input.reason === "initial"
-        ? "El stock inicial debe ser un número entero de 0 o más."
-        : "La cantidad debe ser un número entero distinto de cero."
-    );
+    throw new Error(movementDeltaError(input.reason));
   }
+  const note = normalizeNote(input.note, "La nota");
 
   const movementId = uuid();
   const now = nowIso();
@@ -70,7 +69,7 @@ export async function addInventoryMovement(
         input.userId,
         input.delta,
         input.reason,
-        input.note?.trim() || null,
+        note,
         now,
         now,
       ]

@@ -35,13 +35,16 @@ import {
   productImageMaxBytes,
   productImageMimeTypes,
 } from "@/lib/product-image-config";
-import { emptyProduct } from "@/lib/products";
+import { emptyProduct, PRODUCT_NAME_MAX_LENGTH } from "@/lib/products";
 import { canonicalizeCategory, categories } from "@/lib/sample-data";
 import type { Product } from "@/lib/types";
+import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import {
+  INITIAL_STOCK_ERROR,
   parseNonNegativeInteger,
   parsePositiveInteger,
   parseSignedInteger,
+  stockAmountError,
   validateProductForm,
 } from "@/components/screens/product-editor.helpers";
 
@@ -128,6 +131,10 @@ export function ProductEditor({
   const canAdjust = parseSignedInteger(adjustmentAmount) != null;
   const canLoss = parsePositiveInteger(lossAmount) != null;
   const canGift = parsePositiveInteger(giftAmount) != null;
+  const restockError = stockAmountError(restockAmount);
+  const adjustmentError = stockAmountError(adjustmentAmount, true);
+  const lossError = stockAmountError(lossAmount);
+  const giftError = stockAmountError(giftAmount);
   const previewProduct = {
     ...(product ?? emptyProduct),
     name: name || "Producto",
@@ -196,11 +203,7 @@ export function ProductEditor({
       ? parseSignedInteger(rawAmount)
       : parsePositiveInteger(rawAmount);
     if (amount == null) {
-      if (rawAmount.trim()) {
-        setInventoryActionError(
-          "Usa un número entero sin decimales ni texto extra."
-        );
-      }
+      setInventoryActionError(stockAmountError(rawAmount, options?.signed));
       return;
     }
     const delta =
@@ -314,9 +317,16 @@ export function ProductEditor({
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Ej. Llaveros artesanales"
+          maxLength={PRODUCT_NAME_MAX_LENGTH}
+          aria-invalid={productForm.errors.name ? true : undefined}
           className="h-12 rounded-xl"
         />
       </FormField>
+      {productForm.errors.name ? (
+        <p className="mt-1.5 text-sm text-destructive">
+          {productForm.errors.name}
+        </p>
+      ) : null}
       <FormField label="Precio de venta">
         <Input
           value={price}
@@ -441,6 +451,7 @@ export function ProductEditor({
                   onChange={(event) => setRestockAmount(event.target.value)}
                   inputMode="numeric"
                   placeholder="+5"
+                  aria-invalid={restockError ? true : undefined}
                   className="h-14 flex-1 rounded-xl"
                 />
                 <Button
@@ -454,6 +465,11 @@ export function ProductEditor({
                   <Plus />
                 </Button>
               </div>
+              {restockError ? (
+                <p className="mt-1.5 text-sm text-destructive">
+                  {restockError}
+                </p>
+              ) : null}
             </div>
 
             <Button
@@ -480,14 +496,21 @@ export function ProductEditor({
                         setAdjustmentAmount(event.target.value)
                       }
                       placeholder="±2"
+                      aria-invalid={adjustmentError ? true : undefined}
                       className="h-14 rounded-xl"
                     />
+                    {adjustmentError ? (
+                      <p className="text-sm text-destructive">
+                        {adjustmentError}
+                      </p>
+                    ) : null}
                     <Input
                       value={adjustmentNote}
                       onChange={(event) =>
                         setAdjustmentNote(event.target.value)
                       }
                       placeholder="Nota opcional"
+                      maxLength={MAX_NOTE_LENGTH}
                       className="h-14 rounded-xl"
                     />
                     <Button
@@ -517,12 +540,17 @@ export function ProductEditor({
                       onChange={(event) => setLossAmount(event.target.value)}
                       inputMode="numeric"
                       placeholder="2"
+                      aria-invalid={lossError ? true : undefined}
                       className="h-14 rounded-xl"
                     />
+                    {lossError ? (
+                      <p className="text-sm text-destructive">{lossError}</p>
+                    ) : null}
                     <Input
                       value={lossNote}
                       onChange={(event) => setLossNote(event.target.value)}
                       placeholder="Nota opcional"
+                      maxLength={MAX_NOTE_LENGTH}
                       className="h-14 rounded-xl"
                     />
                     <Button
@@ -553,12 +581,17 @@ export function ProductEditor({
                       onChange={(event) => setGiftAmount(event.target.value)}
                       inputMode="numeric"
                       placeholder="1"
+                      aria-invalid={giftError ? true : undefined}
                       className="h-14 rounded-xl"
                     />
+                    {giftError ? (
+                      <p className="text-sm text-destructive">{giftError}</p>
+                    ) : null}
                     <Input
                       value={giftNote}
                       onChange={(event) => setGiftNote(event.target.value)}
                       placeholder="Nota opcional"
+                      maxLength={MAX_NOTE_LENGTH}
                       className="h-14 rounded-xl"
                     />
                     <Button
@@ -619,9 +652,7 @@ export function ProductEditor({
             initialStock.trim() &&
             parseNonNegativeInteger(initialStock) == null
           ) {
-            setInventoryActionError(
-              "El stock inicial debe ser un número entero de 0 o más, sin decimales."
-            );
+            setInventoryActionError(INITIAL_STOCK_ERROR);
             return;
           }
           save({

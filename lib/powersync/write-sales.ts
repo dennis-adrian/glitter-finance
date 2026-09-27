@@ -12,6 +12,7 @@ import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { clampDiscount } from "@/lib/money";
 import { isWithinVoidWindow, VOID_WINDOW_EXPIRED_MESSAGE } from "@/lib/sales";
 import type { PaymentMethod, Product } from "@/lib/types";
+import { normalizeNote } from "@/lib/validation";
 
 function nowIso() {
   return new Date().toISOString();
@@ -229,6 +230,8 @@ export async function refundSaleLocal(
   db: AbstractPowerSyncDatabase,
   input: RefundSaleLocalInput
 ): Promise<void> {
+  const reason = normalizeNote(input.reason, "El motivo");
+
   // Atomic check + INSERT. Most important for refunds because the local
   // SQLite refunds mirror has no UNIQUE(original_sale_id) constraint
   // (only the Postgres source does). Two simultaneous refund attempts
@@ -265,15 +268,7 @@ export async function refundSaleLocal(
       `INSERT INTO refunds
         (id, tenant_id, original_sale_id, user_id, reason, created_at, client_created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        uuid(),
-        input.tenantId,
-        input.saleId,
-        input.userId,
-        input.reason?.trim() || null,
-        now,
-        now,
-      ]
+      [uuid(), input.tenantId, input.saleId, input.userId, reason, now, now]
     );
   });
 }

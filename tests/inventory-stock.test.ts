@@ -4,6 +4,8 @@ import { inventoryMovementReasonEnum } from "@/lib/db/schema";
 import {
   computeStockByProduct,
   isValidMovementDelta,
+  MAX_QUANTITY,
+  movementDeltaError,
   resolveInitialStockDelta,
   type InventoryMovement,
 } from "@/lib/inventory";
@@ -153,6 +155,20 @@ test("movement deltas follow the Postgres sign discipline for every reason", () 
       assert.equal(isValidMovementDelta(reason, delta), false, reason);
     }
   }
+});
+
+test("movement deltas stay within the quantity bound", () => {
+  assert.equal(isValidMovementDelta("restock", MAX_QUANTITY), true);
+  assert.equal(isValidMovementDelta("restock", MAX_QUANTITY + 1), false);
+  assert.equal(isValidMovementDelta("loss", -MAX_QUANTITY), true);
+  assert.equal(isValidMovementDelta("gift", -(MAX_QUANTITY + 1)), false);
+  assert.equal(isValidMovementDelta("adjustment", -(MAX_QUANTITY + 1)), false);
+  assert.equal(isValidMovementDelta("initial", Number.NaN), false);
+  assert.equal(
+    isValidMovementDelta("unknown" as InventoryMovement["reason"], 1),
+    false
+  );
+  assert.match(movementDeltaError("initial"), /0 a 1\.000\.000/);
 });
 
 test("switching tracking on always records an initial count", () => {

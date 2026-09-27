@@ -5,6 +5,7 @@ import { RotateCcw, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { Sale } from "@/lib/types";
+import { MAX_NOTE_LENGTH } from "@/lib/validation";
 
 type SaleAction = "void" | "refund";
 
@@ -176,6 +177,7 @@ export function SaleActionDialog({
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               placeholder="Ej.: Producto devuelto"
+              maxLength={MAX_NOTE_LENGTH}
               className="min-h-20 resize-none rounded-xl"
               disabled={isPending}
             />

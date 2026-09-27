@@ -27,18 +27,45 @@ export type ProductStock = {
 };
 
 /**
- * Mirrors inventory_movements_sign_discipline_check in lib/db/schema.ts. Typed
- * by reason so a new enum value cannot ship without a sign rule.
+ * Most units in one stock movement, sale line or low-stock threshold. Far
+ * above any real stall's stock, so a larger count is a typo, and far below
+ * the Postgres integer limit, which a typo would otherwise overflow.
+ */
+export const MAX_QUANTITY = 1_000_000;
+
+export const MAX_QUANTITY_LABEL = new Intl.NumberFormat("es-BO").format(
+  MAX_QUANTITY
+);
+
+/**
+ * Mirrors inventory_movements_sign_discipline_check in lib/db/schema.ts, plus
+ * the MAX_QUANTITY bound. Typed by reason so a new enum value cannot ship
+ * without a sign rule and its message.
  */
 const MOVEMENT_DELTA_RULES: Record<
   InventoryMovementReason,
-  (delta: number) => boolean
+  { isValid: (delta: number) => boolean; message: string }
 > = {
-  initial: (delta) => delta >= 0,
-  restock: (delta) => delta > 0,
-  adjustment: (delta) => delta !== 0,
-  loss: (delta) => delta < 0,
-  gift: (delta) => delta < 0,
+  initial: {
+    isValid: (delta) => delta >= 0,
+    message: `El stock inicial debe ser un número entero de 0 a ${MAX_QUANTITY_LABEL}.`,
+  },
+  restock: {
+    isValid: (delta) => delta > 0,
+    message: `La cantidad debe ser un número entero de 1 a ${MAX_QUANTITY_LABEL}.`,
+  },
+  adjustment: {
+    isValid: (delta) => delta !== 0,
+    message: `El ajuste debe ser un número entero distinto de cero, de -${MAX_QUANTITY_LABEL} a ${MAX_QUANTITY_LABEL}.`,
+  },
+  loss: {
+    isValid: (delta) => delta < 0,
+    message: `La cantidad debe ser un número entero de 1 a ${MAX_QUANTITY_LABEL}.`,
+  },
+  gift: {
+    isValid: (delta) => delta < 0,
+    message: `La cantidad debe ser un número entero de 1 a ${MAX_QUANTITY_LABEL}.`,
+  },
 };
 
 /** Whether Postgres would accept this delta for this movement reason. */
@@ -46,7 +73,19 @@ export function isValidMovementDelta(
   reason: InventoryMovementReason,
   delta: number
 ) {
-  return Number.isInteger(delta) && MOVEMENT_DELTA_RULES[reason](delta);
+  return (
+    Object.hasOwn(MOVEMENT_DELTA_RULES, reason) &&
+    Number.isInteger(delta) &&
+    Math.abs(delta) <= MAX_QUANTITY &&
+    MOVEMENT_DELTA_RULES[reason].isValid(delta)
+  );
+}
+
+/** What a valid delta for `reason` looks like, for an error message. */
+export function movementDeltaError(reason: InventoryMovementReason) {
+  return Object.hasOwn(MOVEMENT_DELTA_RULES, reason)
+    ? MOVEMENT_DELTA_RULES[reason].message
+    : "El tipo de movimiento de inventario no es válido.";
 }
 
 /**

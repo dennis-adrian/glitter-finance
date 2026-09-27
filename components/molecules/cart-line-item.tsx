@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clampDiscount, formatBs, parseDiscountInput } from "@/lib/money";
 import type { Product } from "@/lib/types";
+import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import { ProductArt } from "@/components/atoms/product-art";
 
 type CartLineItemProps = {
@@ -158,6 +159,7 @@ export function CartLineItem({
             onChange={(event) => setReason(event.target.value)}
             placeholder="Motivo opcional"
             aria-label={`Motivo opcional del descuento de ${product.name}`}
+            maxLength={MAX_NOTE_LENGTH}
             className="rounded-xl"
           />
           <Button type="button" size="sm" onClick={applyDiscount}>

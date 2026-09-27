@@ -28,6 +28,7 @@ import {
   productImagesBucket,
 } from "@/lib/product-image-config";
 import { removeProductImageObjects } from "@/lib/product-images";
+import { normalizeProductInput } from "@/lib/products";
 import type { ProductInput } from "@/lib/types";
 
 function nowIso() {
@@ -38,13 +39,6 @@ function uuid() {
   return crypto.randomUUID();
 }
 
-function resolveInputImagePath(input: ProductInput): string {
-  if (isPlaceholderImagePath(input.imagePath)) {
-    return encodePlaceholderImagePath(input.imageTone);
-  }
-  return input.imagePath as string;
-}
-
 export async function createProductLocal(
   db: AbstractPowerSyncDatabase,
   input: {
@@ -53,6 +47,8 @@ export async function createProductLocal(
     assertCurrent?: () => void;
   }
 ): Promise<{ productId: string }> {
+  // Checked here so a row Postgres would reject never enters the upload queue.
+  const product = normalizeProductInput(input.product);
   const productId = uuid();
   const now = nowIso();
   input.assertCurrent?.();
@@ -64,13 +60,15 @@ export async function createProductLocal(
     [
       productId,
       input.tenantId,
-      input.product.name,
-      input.product.priceCents,
-      input.product.costCents,
-      input.product.category,
-      resolveInputImagePath(input.product),
-      input.product.tracksInventory ? 1 : 0,
-      input.product.lowStockThreshold ?? null,
+      product.name,
+      product.priceCents,
+      product.costCents,
+      product.category,
+      // A new product starts with a placeholder. An image is attached after
+      // the insert, by uploadProductImageLocal.
+      encodePlaceholderImagePath(product.imageTone),
+      product.tracksInventory ? 1 : 0,
+      product.lowStockThreshold ?? null,
       now,
       now,
     ]
@@ -92,8 +90,9 @@ export async function updateProductLocal(
   // placeholder, and an uploaded image is never rewritten here: the editor's
   // copy of image_path can be older than an image another device uploaded
   // meanwhile, and writing it back would restore a replaced (deleted) image.
-  const placeholderPath = isPlaceholderImagePath(input.product.imagePath)
-    ? encodePlaceholderImagePath(input.product.imageTone)
+  const product = normalizeProductInput(input.product);
+  const placeholderPath = isPlaceholderImagePath(product.imagePath)
+    ? encodePlaceholderImagePath(product.imageTone)
     : null;
   input.assertCurrent?.();
   await db.execute(
@@ -107,14 +106,14 @@ export async function updateProductLocal(
            tracks_inventory = ?, low_stock_threshold = ?, updated_at = ?
      WHERE id = ? AND tenant_id = ?`,
     [
-      input.product.name,
-      input.product.priceCents,
-      input.product.costCents,
-      input.product.category,
+      product.name,
+      product.priceCents,
+      product.costCents,
+      product.category,
       `${placeholderImagePrefix}%`,
       placeholderPath,
-      input.product.tracksInventory ? 1 : 0,
-      input.product.lowStockThreshold ?? null,
+      product.tracksInventory ? 1 : 0,
+      product.lowStockThreshold ?? null,
       nowIso(),
       input.productId,
       input.tenantId,

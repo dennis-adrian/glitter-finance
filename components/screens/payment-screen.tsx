@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clampDiscount, formatBs, parseDiscountInput } from "@/lib/money";
 import type { PaymentMethod } from "@/lib/types";
+import { MAX_NOTE_LENGTH } from "@/lib/validation";
 
 type PaymentScreenProps = {
   subtotal: number;
@@ -157,6 +158,7 @@ export function PaymentScreen({
             onChange={(event) => setReason(event.target.value)}
             placeholder="Motivo opcional"
             aria-label="Motivo opcional del descuento"
+            maxLength={MAX_NOTE_LENGTH}
             className="mt-2.5 h-12 rounded-xl"
           />
         ) : null}
