@@ -5,7 +5,9 @@
 //   connection; the PowerSync Cloud instance verifies it against Supabase's
 //   JWKS (configured via the "Use Supabase Auth" checkbox in the instance's
 //   Client Auth panel). The token's `app_metadata.tenant_id` claim is what
-//   the sync streams use to scope each device's data.
+//   the sync streams use to scope each device's data, so a token whose claim
+//   is not the tenant this device's local data belongs to is never handed
+//   over (see TenantClaimMismatchError).
 //
 // - uploadData: drains PowerSync's local CRUD queue. Sale, void, and refund
 //   transactions go through authenticated Postgres RPCs so the remote commit is
@@ -197,8 +199,41 @@ function readTenantIdFromAccessToken(token: string): string | null {
   }
 }
 
+/**
+ * The session's tenant claim is not the tenant this device's local data
+ * belongs to, even after a refresh. Handing that token to PowerSync would
+ * sync another tenant's rows into this database, so fetchCredentials throws
+ * instead, and PowerSync retries with backoff. It fixes itself when the
+ * refreshed claim catches up (right after a switch or a join); when the
+ * active tenant changed on another device, reloading the app moves this
+ * device to it.
+ */
+export class TenantClaimMismatchError extends Error {
+  constructor() {
+    super(
+      "La sesión todavía no corresponde al puesto de este dispositivo. Si no se corrige sola, recarga la app."
+    );
+    this.name = "TenantClaimMismatchError";
+  }
+}
+
+// PowerSync retries fetchCredentials every few seconds while it throws. A
+// device left on the previous tenant would otherwise refresh its session on
+// every retry until it reloads.
+const CLAIM_REFRESH_INTERVAL_MS = 30_000;
+
 export class SupabaseConnector implements PowerSyncBackendConnector {
-  constructor(private readonly supabase: SupabaseClient) {}
+  private lastClaimRefreshAt: number | null = null;
+
+  /**
+   * `expectedTenantId` is the tenant the local database belongs to. Null
+   * when the user has no active tenant: the sync streams then match no rows
+   * whatever the claim says, so there is nothing to compare.
+   */
+  constructor(
+    private readonly supabase: SupabaseClient,
+    private readonly expectedTenantId: string | null
+  ) {}
 
   async fetchCredentials(): Promise<PowerSyncCredentials | null> {
     const { data, error } = await this.supabase.auth.getSession();
@@ -211,38 +246,49 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     }
     let session = data.session;
 
-    // Tenant bootstrap updates app_metadata server-side. The browser can still
-    // hold the pre-bootstrap access token, so refresh once before PowerSync
-    // evaluates sync rules that depend on app_metadata.tenant_id.
-    let tenantId = readTenantIdFromAccessToken(session.access_token);
-    if (!tenantId) {
+    // A bootstrap, switch or join updates app_metadata server-side, and the
+    // browser can still hold an older, unexpired token. Refresh once before
+    // PowerSync evaluates sync streams that depend on app_metadata.tenant_id.
+    if (!this.claimsExpectedTenant(session.access_token)) {
+      const now = Date.now();
+      if (
+        this.lastClaimRefreshAt !== null &&
+        now - this.lastClaimRefreshAt < CLAIM_REFRESH_INTERVAL_MS
+      ) {
+        throw new TenantClaimMismatchError();
+      }
+      this.lastClaimRefreshAt = now;
       const refreshed = await this.supabase.auth.refreshSession();
-      if (!refreshed.error && refreshed.data.session) {
-        session = refreshed.data.session;
-        tenantId = readTenantIdFromAccessToken(session.access_token);
-      } else if (refreshed.error) {
+      if (refreshed.error || !refreshed.data.session) {
         console.warn(
           "[PowerSync] Supabase session refresh failed",
-          refreshed.error.message
+          refreshed.error?.message ?? "no session"
         );
+        throw new TenantClaimMismatchError();
+      }
+      session = refreshed.data.session;
+      if (!this.claimsExpectedTenant(session.access_token)) {
+        console.warn(
+          "[PowerSync] Supabase session claims another tenant than the local data"
+        );
+        throw new TenantClaimMismatchError();
       }
     }
 
-    const endpoint = getPublicEnv().powersyncUrl;
-
-    if (!tenantId) {
-      console.warn(
-        "[PowerSync] Supabase session is missing app_metadata.tenant_id"
-      );
-    }
-
     return {
-      endpoint,
+      endpoint: getPublicEnv().powersyncUrl,
       token: session.access_token,
       expiresAt: session.expires_at
         ? new Date(session.expires_at * 1000)
         : undefined,
     };
+  }
+
+  private claimsExpectedTenant(accessToken: string): boolean {
+    return (
+      this.expectedTenantId === null ||
+      readTenantIdFromAccessToken(accessToken) === this.expectedTenantId
+    );
   }
 
   async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {

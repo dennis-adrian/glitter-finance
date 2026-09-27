@@ -9,6 +9,7 @@ import { UpdateType } from "@powersync/web";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   SupabaseConnector,
+  TenantClaimMismatchError,
   UnappliedUpdateError,
 } from "@/lib/powersync/connector";
 
@@ -93,7 +94,7 @@ test("uploads a sale transaction through one RPC before completing", async () =>
     },
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.equal(rpcCalls.length, 1);
   assert.equal(rpcCalls[0].name, "powersync_create_sale");
@@ -150,7 +151,7 @@ test("uploads non-financial transaction operations sequentially", async () => {
     },
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.deepEqual(events, [
     "uploaded:products",
@@ -199,7 +200,7 @@ test("advances the queue when resolving a local failure marker fails", async () 
     },
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.equal(completeCount, 1);
   assert.equal(rpcCalls, 1);
@@ -239,7 +240,7 @@ test("passes the local void timestamp to the atomic void RPC", async () => {
     execute: async () => undefined,
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.deepEqual(rpcCalls, [
     {
@@ -290,7 +291,7 @@ test("reconciles a generated refund ID before completing", async () => {
     },
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.equal(localWrites.length, 2);
   assert.match(localWrites[0].sql, /UPDATE OR IGNORE ps_data__refunds/);
@@ -331,7 +332,7 @@ test("keeps a newly inserted refund unchanged", async () => {
     execute: async () => undefined,
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.equal(reconciliationCount, 0);
 });
@@ -373,7 +374,7 @@ test("records a permanent RPC failure and leaves the transaction queued", async 
   } as unknown as AbstractPowerSyncDatabase;
 
   await assert.rejects(
-    () => new SupabaseConnector(supabase).uploadData(db),
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
     permanentError
   );
 
@@ -412,7 +413,7 @@ test("preserves the upload error when recording the failure also fails", async (
   } as unknown as AbstractPowerSyncDatabase;
 
   await assert.rejects(
-    () => new SupabaseConnector(supabase).uploadData(db),
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
     (error) => error === permanentError
   );
 
@@ -499,7 +500,7 @@ test("reverts the local void when the server kept the sale for a refund", async 
     localWrites,
   });
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.equal(localWrites.length, 1);
   assert.match(localWrites[0].sql, /UPDATE ps_data__sales/);
@@ -521,7 +522,7 @@ test("drops the local refund when the server had already voided the sale", async
     localWrites,
   });
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.equal(localWrites.length, 1);
   assert.match(localWrites[0].sql, /DELETE FROM ps_data__refunds/);
@@ -548,7 +549,7 @@ test("retries a future-timestamp rejection without recording a failure", async (
   });
 
   await assert.rejects(
-    () => new SupabaseConnector(supabase).uploadData(db),
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
     (error) => error === clockError
   );
 
@@ -574,7 +575,7 @@ test("treats a permission denial without a session as transient", async () => {
   });
 
   await assert.rejects(
-    () => new SupabaseConnector(supabase).uploadData(db),
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
     (error) => error === denial
   );
 
@@ -600,7 +601,7 @@ test("records a permission denial for a signed-in user", async () => {
   });
 
   await assert.rejects(
-    () => new SupabaseConnector(supabase).uploadData(db),
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
     (error) => error === denial
   );
 
@@ -628,7 +629,7 @@ test("records a missing RPC as a failure that says what to fix", async () => {
   });
 
   await assert.rejects(
-    () => new SupabaseConnector(supabase).uploadData(db),
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
     (error) => error === missingRpc
   );
 
@@ -669,7 +670,7 @@ test("records a product update that matched no row", async () => {
   });
 
   await assert.rejects(
-    () => new SupabaseConnector(supabase).uploadData(db),
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
     (error) =>
       error instanceof UnappliedUpdateError &&
       error.code === "42501" &&
@@ -766,7 +767,7 @@ test("deletes the replaced image once the new image path is applied", async () =
     localWrites: [],
   });
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.deepEqual(removed, [[oldImage]]);
   assert.deepEqual(events, [
@@ -794,7 +795,7 @@ test("deletes its own upload when a newer edit kept another image", async () => 
     localWrites: [],
   });
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.deepEqual(removed, [[newImage]]);
   assert.ok(events.includes("complete"));
@@ -817,7 +818,7 @@ test("completes the upload when deleting the replaced image fails", async () => 
     localWrites: [],
   });
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.deepEqual(removed, [[oldImage]]);
   assert.ok(events.includes("complete"));
@@ -840,8 +841,142 @@ test("keeps seed images and placeholders when the image path changes", async () 
     localWrites: [],
   });
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.deepEqual(removed, []);
   assert.ok(events.includes("complete"));
+});
+
+function accessToken(tenantId: string | null) {
+  const encode = (value: unknown) =>
+    Buffer.from(JSON.stringify(value)).toString("base64url");
+  return [
+    encode({ alg: "ES256" }),
+    encode({ app_metadata: tenantId ? { tenant_id: tenantId } : {} }),
+    "signature",
+  ].join(".");
+}
+
+function authSupabase(input: {
+  token: string;
+  refreshedToken?: string;
+  refreshError?: Error;
+  events: string[];
+}) {
+  const session = (token: string) => ({
+    access_token: token,
+    expires_at: 2_000_000_000,
+  });
+  return {
+    auth: {
+      getSession: async () => ({
+        data: { session: session(input.token) },
+        error: null,
+      }),
+      refreshSession: async () => {
+        input.events.push("refresh");
+        return input.refreshError || !input.refreshedToken
+          ? { data: { session: null }, error: input.refreshError ?? null }
+          : { data: { session: session(input.refreshedToken) }, error: null };
+      },
+    },
+  } as unknown as SupabaseClient;
+}
+
+function withPublicEnv() {
+  process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://example.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??= "publishable-key";
+}
+
+test("hands over a token that already claims the local tenant", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const token = accessToken("tenant-1");
+  const connector = new SupabaseConnector(
+    authSupabase({ token, events }),
+    "tenant-1"
+  );
+
+  const credentials = await connector.fetchCredentials();
+
+  assert.equal(credentials?.token, token);
+  assert.deepEqual(events, []);
+});
+
+test("refreshes a token that claims another tenant and uses the new one", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const refreshedToken = accessToken("tenant-1");
+  const connector = new SupabaseConnector(
+    authSupabase({ token: accessToken("tenant-2"), refreshedToken, events }),
+    "tenant-1"
+  );
+
+  const credentials = await connector.fetchCredentials();
+
+  assert.equal(credentials?.token, refreshedToken);
+  assert.deepEqual(events, ["refresh"]);
+});
+
+test("never hands over a token that still claims another tenant", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const connector = new SupabaseConnector(
+    authSupabase({
+      token: accessToken("tenant-2"),
+      refreshedToken: accessToken("tenant-2"),
+      events,
+    }),
+    "tenant-1"
+  );
+
+  await assert.rejects(connector.fetchCredentials(), TenantClaimMismatchError);
+  assert.deepEqual(events, ["refresh"]);
+});
+
+test("does not refresh again on every PowerSync retry", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const connector = new SupabaseConnector(
+    authSupabase({
+      token: accessToken("tenant-2"),
+      refreshedToken: accessToken("tenant-2"),
+      events,
+    }),
+    "tenant-1"
+  );
+
+  await assert.rejects(connector.fetchCredentials(), TenantClaimMismatchError);
+  await assert.rejects(connector.fetchCredentials(), TenantClaimMismatchError);
+  assert.deepEqual(events, ["refresh"]);
+});
+
+test("waits instead of syncing when the claim is missing and refresh fails", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const connector = new SupabaseConnector(
+    authSupabase({
+      token: accessToken(null),
+      refreshError: new Error("Failed to fetch"),
+      events,
+    }),
+    "tenant-1"
+  );
+
+  await assert.rejects(connector.fetchCredentials(), TenantClaimMismatchError);
+});
+
+test("does not compare claims when the user has no active tenant", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const token = accessToken("tenant-2");
+  const connector = new SupabaseConnector(
+    authSupabase({ token, events }),
+    null
+  );
+
+  const credentials = await connector.fetchCredentials();
+
+  assert.equal(credentials?.token, token);
+  assert.deepEqual(events, []);
 });

@@ -198,7 +198,12 @@ export function PowerSyncProvider({
 
       const db = instance;
       const supabase = createSupabaseClient();
-      const connector = new SupabaseConnector(supabase);
+      // Only hands PowerSync a token whose tenant claim is this identity's,
+      // so another tenant's rows can never sync into this database.
+      const connector = new SupabaseConnector(
+        supabase,
+        currentIdentity.tenantId
+      );
 
       // A device database belongs to exactly one authenticated user + active
       // tenant. An absent identity is deliberately treated as untrusted (for
