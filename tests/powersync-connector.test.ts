@@ -218,11 +218,14 @@ test("passes the local void timestamp to the atomic void RPC", async () => {
   const supabase = {
     rpc: async (name: string, args: unknown) => {
       rpcCalls.push({ name, args });
-      return { error: null };
+      return { data: "sale-1", error: null };
     },
   } as unknown as SupabaseClient;
   const db = {
     ...emptySyncFailureState(),
+    writeTransaction: async () => {
+      throw new Error("An applied void must not touch local rows.");
+    },
     getNextCrudTransaction: async () => ({
       crud: operations,
       transactionId: 21,
@@ -410,4 +413,107 @@ test("preserves the upload error when recording the failure also fails", async (
 
   assert.equal(completeCount, 0);
   assert.equal(recordingAttempts, 1);
+});
+
+function voidTransaction() {
+  return [
+    operation({
+      clientId: 6,
+      table: "sales",
+      id: "sale-1",
+      op: UpdateType.PATCH,
+      data: {
+        voided_at: "2026-08-08T20:00:00.000Z",
+        voided_by_user_id: "user-1",
+      },
+    }),
+  ];
+}
+
+function refundTransaction() {
+  return [
+    operation({
+      clientId: 7,
+      table: "refunds",
+      id: "local-refund",
+      op: UpdateType.PUT,
+      data: { original_sale_id: "sale-1", tenant_id: "tenant-1" },
+    }),
+  ];
+}
+
+/** A db that records local writes made inside writeTransaction. */
+function recordingDb(input: {
+  crud: CrudEntry[];
+  transactionId: number;
+  events: string[];
+  localWrites: { sql: string; params?: unknown[] }[];
+}) {
+  return {
+    ...emptySyncFailureState(),
+    getNextCrudTransaction: async () => ({
+      crud: input.crud,
+      transactionId: input.transactionId,
+      complete: async () => {
+        input.events.push("complete");
+      },
+    }),
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        getOptional: async () => null,
+        execute: async (sql: string, params?: unknown[]) => {
+          input.localWrites.push({ sql, params });
+          input.events.push(
+            /sync_failures/.test(sql) ? "record-failure" : "local-write"
+          );
+          return { rowsAffected: 1 };
+        },
+      } as unknown as Transaction),
+    execute: async () => {
+      input.events.push("resolve-marker");
+    },
+  } as unknown as AbstractPowerSyncDatabase;
+}
+
+test("reverts the local void when the server kept the sale for a refund", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const supabase = {
+    rpc: async () => ({ data: null, error: null }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: voidTransaction(),
+    transactionId: 30,
+    events,
+    localWrites,
+  });
+
+  await new SupabaseConnector(supabase).uploadData(db);
+
+  assert.equal(localWrites.length, 1);
+  assert.match(localWrites[0].sql, /UPDATE ps_data__sales/);
+  assert.match(localWrites[0].sql, /json_remove\(data, '\$\.voided_at'/);
+  assert.deepEqual(localWrites[0].params, ["sale-1"]);
+  assert.deepEqual(events, ["local-write", "complete", "resolve-marker"]);
+});
+
+test("drops the local refund when the server had already voided the sale", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const supabase = {
+    rpc: async () => ({ data: null, error: null }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: refundTransaction(),
+    transactionId: 31,
+    events,
+    localWrites,
+  });
+
+  await new SupabaseConnector(supabase).uploadData(db);
+
+  assert.equal(localWrites.length, 1);
+  assert.match(localWrites[0].sql, /DELETE FROM ps_data__refunds/);
+  assert.deepEqual(localWrites[0].params, ["local-refund"]);
+  assert.deepEqual(events, ["local-write", "complete", "resolve-marker"]);
 });

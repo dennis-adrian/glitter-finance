@@ -12,6 +12,9 @@
 //   atomic. Other supported transactions contain exactly one row operation.
 //   Permanent errors are copied into a local-only dead-letter table while the
 //   transaction remains queued; all errors are re-thrown for PowerSync backoff.
+//   When a void or refund loses a cross-device conflict, the RPC applies
+//   nothing and returns NULL; the local row is then reverted so the device
+//   matches the server.
 
 import {
   type AbstractPowerSyncDatabase,
@@ -175,15 +178,38 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
           voided_at_value: plan.voidedAt,
         });
         if (result.error) throw result.error;
+        if (result.data === null) {
+          // Another device refunded the sale before this void arrived, so the
+          // server kept it unvoided. Undo the local void; the refund arrives
+          // with the next checkpoint.
+          await database.writeTransaction(async (tx) => {
+            // Bypass the managed view so the revert is not queued as a new
+            // upload.
+            await tx.execute(
+              `UPDATE ps_data__sales
+               SET data = json_remove(data, '$.voided_at', '$.voided_by_user_id')
+               WHERE id = ?`,
+              [plan.saleId]
+            );
+          });
+        }
       } else if (plan.kind === "create-refund") {
         const result = await this.supabase.rpc("powersync_create_refund", {
           refund_row: plan.refund,
         });
         if (result.error) throw result.error;
-        if (typeof result.data !== "string") {
+        if (result.data === null) {
+          // The sale was voided before this refund arrived, and a voided sale
+          // is never refunded. Drop the local refund; the void arrives with
+          // the next checkpoint.
+          await database.writeTransaction(async (tx) => {
+            await tx.execute(`DELETE FROM ps_data__refunds WHERE id = ?`, [
+              plan.refund.id,
+            ]);
+          });
+        } else if (typeof result.data !== "string") {
           throw new Error("The refund RPC did not return a canonical ID.");
-        }
-        if (result.data !== plan.refund.id) {
+        } else if (result.data !== plan.refund.id) {
           await database.writeTransaction(async (tx) => {
             // Bypass the managed view so reconciliation does not enqueue a
             // second mutation for a row that only ever existed locally.
