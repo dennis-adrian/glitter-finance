@@ -194,6 +194,7 @@ async function seedData(userId: string) {
 
   // Completed sale, cash, no discount.
   await createSaleForTenant({
+    saleId: crypto.randomUUID(),
     tenantId: QA_TENANT_ID,
     userId,
     userName: QA_DISPLAY_NAME,
@@ -207,6 +208,7 @@ async function seedData(userId: string) {
 
   // Completed sale, QR, with a sale-level discount.
   await createSaleForTenant({
+    saleId: crypto.randomUUID(),
     tenantId: QA_TENANT_ID,
     userId,
     userName: QA_DISPLAY_NAME,
@@ -219,6 +221,7 @@ async function seedData(userId: string) {
   // Voided sale. Set the void columns directly (service role) so we are not
   // blocked by the 10-minute void window the repository enforces.
   const toVoid = await createSaleForTenant({
+    saleId: crypto.randomUUID(),
     tenantId: QA_TENANT_ID,
     userId,
     userName: QA_DISPLAY_NAME,
@@ -233,6 +236,7 @@ async function seedData(userId: string) {
 
   // Refunded sale. Refunds carry no time window, so the repository path works.
   const toRefund = await createSaleForTenant({
+    saleId: crypto.randomUUID(),
     tenantId: QA_TENANT_ID,
     userId,
     userName: QA_DISPLAY_NAME,

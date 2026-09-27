@@ -21,6 +21,8 @@ import { normalizeNote } from "@/lib/validation";
 export type CreateSaleLineInput = SaleLineRequest;
 
 export type CreateSaleInput = {
+  /** Chosen by the caller, so retrying a checkout records it only once. */
+  saleId: string;
   tenantId: string;
   userId: string;
   userName: string;
@@ -230,10 +232,11 @@ export async function createSaleForTenant(
   // get the same app-server instant (PRD §9, "Timestamps").
   const createdAt = new Date();
 
-  return await db.transaction(async (tx) => {
+  const recorded = await db.transaction(async (tx) => {
     const [sale] = await tx
       .insert(sales)
       .values({
+        id: input.saleId,
         tenantId: input.tenantId,
         userId: input.userId,
         paymentMethod: input.paymentMethod,
@@ -242,10 +245,26 @@ export async function createSaleForTenant(
         createdAt,
         clientCreatedAt: createdAt,
       })
+      .onConflictDoNothing({ target: sales.id })
       .returning();
 
     if (!sale) {
-      throw new Error("No se pudo registrar la venta.");
+      // The id is taken: this is a retry of a checkout that was already
+      // recorded, e.g. after its response was lost. The recorded sale is
+      // returned below, once it has been checked to be this user's sale in
+      // this tenant. The PowerSync RPC is retry-safe the same way.
+      const [existing] = await tx
+        .select({ tenantId: sales.tenantId, userId: sales.userId })
+        .from(sales)
+        .where(eq(sales.id, input.saleId))
+        .limit(1);
+      if (
+        existing?.tenantId !== input.tenantId ||
+        existing.userId !== input.userId
+      ) {
+        throw new Error("No se pudo registrar la venta: el id ya está en uso.");
+      }
+      return null;
     }
 
     const insertedLines = await tx
@@ -276,8 +295,10 @@ export async function createSaleForTenant(
       status: sale.voidedAt ? "voided" : "completed",
       voidedAt: sale.voidedAt ? toIso(sale.voidedAt) : undefined,
       voidedByUserId: sale.voidedByUserId ?? undefined,
-    };
+    } satisfies Sale;
   });
+
+  return recorded ?? getSaleForTenant(input.tenantId, input.saleId);
 }
 
 export async function getSalesForTenant(tenantId: string): Promise<Sale[]> {

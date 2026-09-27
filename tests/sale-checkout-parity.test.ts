@@ -2,10 +2,11 @@
 // PowerSync writer (lib/powersync/write-sales.ts) and the server action's
 // repository (lib/sales/repository.ts). The repository runs against an
 // in-memory stand-in for Drizzle, installed through the global lib/db reuses
-// across hot reloads.
+// across hot reloads. The stand-in ignores WHERE clauses: each test starts
+// from empty sale tables.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { beforeEach } from "node:test";
 import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import {
   products,
@@ -15,9 +16,9 @@ import {
   tenantUsers,
 } from "@/lib/db/schema";
 import { buildSalesFromLocal } from "@/lib/powersync/sales-from-local";
-import { computeCategoryTotals } from "@/lib/sales";
 import { createSaleLocal } from "@/lib/powersync/write-sales";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
+import { computeCategoryTotals } from "@/lib/sales";
 import type { Product } from "@/lib/types";
 
 type Row = Record<string, unknown>;
@@ -25,6 +26,7 @@ type Call = { method: string; args: unknown[] };
 
 const TENANT_ID = "00000000-0000-4000-8000-000000000001";
 const USER_ID = "00000000-0000-4000-8000-000000000002";
+const OTHER_TENANT_ID = "00000000-0000-4000-8000-000000000003";
 
 function productRow(
   id: string,
@@ -97,22 +99,40 @@ function fakeDb() {
     select: () => query((calls) => [...(tables.get(arg(calls, "from")) ?? [])]),
     insert: (table: unknown) =>
       query((calls) => {
+        const stored = tables.get(table)!;
+        const skipConflicts = calls.some(
+          (call) => call.method === "onConflictDoNothing"
+        );
         const values = arg(calls, "values") as Row | Row[];
-        const rows = (Array.isArray(values) ? values : [values]).map((row) => ({
-          id: crypto.randomUUID(),
-          voidedAt: null,
-          voidedByUserId: null,
-          ...row,
-        }));
-        tables.get(table)!.push(...rows);
+        const rows = (Array.isArray(values) ? values : [values])
+          .map((row) => ({
+            id: crypto.randomUUID(),
+            voidedAt: null,
+            voidedByUserId: null,
+            ...row,
+          }))
+          .filter(
+            (row) =>
+              !skipConflicts ||
+              !stored.some((existing) => existing.id === row.id)
+          );
+        stored.push(...rows);
         return rows;
       }),
     transaction: async <T>(run: (tx: unknown) => Promise<T>) => run(db),
   };
-  return { db, tables };
+
+  function reset() {
+    for (const table of [sales, saleLines, refunds, tenantUsers]) {
+      tables.get(table)!.length = 0;
+    }
+  }
+
+  return { db, tables, reset };
 }
 
 const fake = fakeDb();
+beforeEach(() => fake.reset());
 
 // lib/db reads its Drizzle instance from this global when one is set.
 async function loadRepository() {
@@ -134,47 +154,55 @@ function recordingPowerSyncDb() {
   return { db, statements };
 }
 
+const [sticker, print] = productRows.map(
+  (row) => mapDbProductToProduct(row) as Product
+);
+const cart = [
+  {
+    product: sticker,
+    quantity: 3,
+    lineDiscountCents: 700,
+    lineDiscountReason: " dañado ",
+  },
+  { product: print, quantity: 2, lineDiscountCents: 99_999 },
+];
+const checkout = {
+  paymentMethod: "qr_transfer" as const,
+  saleDiscountCents: 1_000_000,
+  saleDiscountReason: "cierre",
+  lines: cart.map((line) => ({
+    productId: line.product.id,
+    quantity: line.quantity,
+    lineDiscountCents: line.lineDiscountCents,
+    lineDiscountReason: line.lineDiscountReason,
+  })),
+};
+
+function serverSale(saleId: string, tenantId = TENANT_ID) {
+  return {
+    ...checkout,
+    saleId,
+    tenantId,
+    userId: USER_ID,
+    userName: "Vendedora",
+  };
+}
+
 test("the server action and the PowerSync writer record the same sale", async () => {
   const { createSaleForTenant } = await loadRepository();
-  const [sticker, print] = productRows.map(
-    (row) => mapDbProductToProduct(row) as Product
-  );
-  const cart = [
-    {
-      product: sticker,
-      quantity: 3,
-      lineDiscountCents: 700,
-      lineDiscountReason: " dañado ",
-    },
-    { product: print, quantity: 2, lineDiscountCents: 99_999 },
-  ];
-  const sale = {
-    paymentMethod: "qr_transfer" as const,
-    saleDiscountCents: 1_000_000,
-    saleDiscountReason: "cierre",
-  };
 
   const local = recordingPowerSyncDb();
   await createSaleLocal(local.db, {
     tenantId: TENANT_ID,
     userId: USER_ID,
-    ...sale,
+    paymentMethod: checkout.paymentMethod,
+    saleDiscountCents: checkout.saleDiscountCents,
+    saleDiscountReason: checkout.saleDiscountReason,
     lines: cart,
   });
   const [localHeader, ...localLines] = local.statements;
 
-  const recorded = await createSaleForTenant({
-    tenantId: TENANT_ID,
-    userId: USER_ID,
-    userName: "Vendedora",
-    ...sale,
-    lines: cart.map((line) => ({
-      productId: line.product.id,
-      quantity: line.quantity,
-      lineDiscountCents: line.lineDiscountCents,
-      lineDiscountReason: line.lineDiscountReason,
-    })),
-  });
+  const recorded = await createSaleForTenant(serverSale(crypto.randomUUID()));
   const [serverHeader] = fake.tables.get(sales)!;
   const serverLines = fake.tables.get(saleLines)!;
 
@@ -206,15 +234,44 @@ test("the server action and the PowerSync writer record the same sale", async ()
   assert.equal(recorded.saleDiscountCents, 3800);
 });
 
+test("retrying a recorded checkout returns the sale instead of a duplicate", async () => {
+  const { createSaleForTenant } = await loadRepository();
+  const saleId = crypto.randomUUID();
+
+  const first = await createSaleForTenant(serverSale(saleId));
+  const retry = await createSaleForTenant(serverSale(saleId));
+
+  assert.equal(fake.tables.get(sales)!.length, 1);
+  assert.equal(fake.tables.get(saleLines)!.length, 2);
+  assert.equal(first.id, saleId);
+  assert.equal(retry.id, saleId);
+  assert.deepEqual(
+    retry.lines.map((line) => line.lineTotalCents),
+    first.lines.map((line) => line.lineTotalCents)
+  );
+});
+
+test("a sale id already used in another tenant is never returned", async () => {
+  const { createSaleForTenant } = await loadRepository();
+  const saleId = crypto.randomUUID();
+  await createSaleForTenant(serverSale(saleId));
+
+  await assert.rejects(
+    createSaleForTenant(serverSale(saleId, OTHER_TENANT_ID)),
+    /id ya está en uso/
+  );
+  assert.equal(fake.tables.get(sales)!.length, 1);
+});
+
 test("legacy sale-line categories report under their current name", async () => {
-  const { getSalesForTenant } = await loadRepository();
+  const { createSaleForTenant, getSalesForTenant } = await loadRepository();
+  await createSaleForTenant(serverSale(crypto.randomUUID()));
   const [sale] = fake.tables.get(sales)!;
-  const legacyLine = {
+  fake.tables.get(saleLines)!.push({
     ...fake.tables.get(saleLines)![0],
     id: crypto.randomUUID(),
     category: "Pegatinas",
-  };
-  fake.tables.get(saleLines)!.push(legacyLine);
+  });
 
   const serverSales = await getSalesForTenant(TENANT_ID);
   const localSales = buildSalesFromLocal(

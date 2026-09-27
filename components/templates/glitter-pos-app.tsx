@@ -200,6 +200,11 @@ export function GlitterPosApp({
     "sales" | "reports"
   >("sales");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  // The server-action checkout's sale id, kept while the same checkout is
+  // retried (see handlePayment).
+  const checkoutAttemptRef = useRef<{ key: string; saleId: string } | null>(
+    null
+  );
   const [tenantMembers, setTenantMembers] =
     useState<TenantMember[]>(initialTenantMembers);
   const [inventoryMovements, setInventoryMovements] = useState<
@@ -1043,10 +1048,11 @@ export function GlitterPosApp({
     setIsCheckingOut(true);
 
     try {
-      // Local-first when PowerSync is initialized; the watch subscription
-      // picks up the new rows and updates the sales list, and the upload
-      // queue replicates to Supabase in the background. Fall back to the
-      // server action during the brief window before PowerSync is ready.
+      // Local-first when PowerSync is ready: the watch subscription picks up
+      // the new rows and updates the sales list, and the upload queue
+      // replicates to Supabase in the background. Without PowerSync
+      // (local-only mode, when it is not configured) the server action
+      // records the sale.
       if (db) {
         work.assertCurrent();
         const { totalCents } = await createSaleLocal(db, {
@@ -1071,21 +1077,42 @@ export function GlitterPosApp({
         );
       } else {
         work.assertCurrent();
+        const lines = cartDetails.map((line) => ({
+          productId: line.productId,
+          quantity: line.quantity,
+          lineDiscountCents: line.lineDiscountCents,
+          lineDiscountReason: line.lineDiscountReason,
+        }));
+        // A retry of the same checkout (the response was lost, or the
+        // network failed after the server recorded it) reuses the sale id,
+        // so the server returns the recorded sale instead of a duplicate.
+        // Any change to the checkout starts a new attempt.
+        const checkoutKey = JSON.stringify([
+          tenant.id,
+          method,
+          discount,
+          reason ?? "",
+          lines,
+        ]);
+        if (checkoutAttemptRef.current?.key !== checkoutKey) {
+          checkoutAttemptRef.current = {
+            key: checkoutKey,
+            saleId: crypto.randomUUID(),
+          };
+        }
+        const { saleId } = checkoutAttemptRef.current;
         const sale = await unwrapActionResult(
           () =>
             createSale(tenant.id, {
+              saleId,
               paymentMethod: method,
               saleDiscountCents: discount,
               saleDiscountReason: reason,
-              lines: cartDetails.map((line) => ({
-                productId: line.productId,
-                quantity: line.quantity,
-                lineDiscountCents: line.lineDiscountCents,
-                lineDiscountReason: line.lineDiscountReason,
-              })),
+              lines,
             }),
           "No se pudo registrar la venta"
         );
+        checkoutAttemptRef.current = null;
         work.assertCurrent();
         recordSale(sale);
         showToast(

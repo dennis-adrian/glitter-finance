@@ -63,6 +63,7 @@ test("payment methods are the enum values only", () => {
 test("a checkout request keeps only the fields a sale uses", () => {
   assert.deepEqual(
     parseCheckoutRequest({
+      saleId: PRODUCT_ID,
       paymentMethod: "cash",
       saleDiscountCents: 500,
       saleDiscountReason: "cliente",
@@ -77,6 +78,7 @@ test("a checkout request keeps only the fields a sale uses", () => {
       ],
     }),
     {
+      saleId: PRODUCT_ID.toLowerCase(),
       paymentMethod: "cash",
       saleDiscountCents: 500,
       saleDiscountReason: "cliente",
@@ -94,12 +96,15 @@ test("a checkout request keeps only the fields a sale uses", () => {
 
 test("malformed checkout requests fail with a friendly message", () => {
   const valid = {
+    saleId: PRODUCT_ID,
     paymentMethod: "cash",
     saleDiscountCents: 0,
     lines: [{ productId: PRODUCT_ID, quantity: 1 }],
   };
   const cases: [unknown, RegExp][] = [
     [null, /datos de la venta/],
+    [{ ...valid, saleId: undefined }, /datos de la venta/],
+    [{ ...valid, saleId: "sale-1" }, /datos de la venta/],
     [{ ...valid, paymentMethod: "card" }, /datos de la venta/],
     [{ ...valid, saleDiscountCents: "5" }, /datos de la venta/],
     [{ ...valid, saleDiscountReason: 3 }, /datos de la venta/],
