@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  ACTIVE_TENANT_CHANGED_MESSAGE,
   getDisplayName,
   parseTenantId,
+  requireExpectedTenant,
   resolveUserTenantContextFor,
   type MembershipRow,
 } from "@/lib/auth/tenant-context";
@@ -69,6 +71,42 @@ test("the join page resolves the user without ever bootstrapping a tenant", () =
 
   assert.match(page, /resolveUserTenantContext\(\)/);
   assert.doesNotMatch(page, /ensureUserTenantContext/);
+});
+
+test("an action runs only for the tenant its screen renders", () => {
+  const context = resolveUserTenantContextFor(user(TENANT_A), [
+    membership(TENANT_A, "Puesto A"),
+    membership(TENANT_B, "Puesto B"),
+  ]);
+
+  assert.equal(
+    requireExpectedTenant(context, TENANT_A, "Sin cuenta.").tenant.id,
+    TENANT_A
+  );
+  assert.equal(
+    requireExpectedTenant(context, ` ${TENANT_A.toUpperCase()} `, "Sin cuenta.")
+      .tenant.id,
+    TENANT_A
+  );
+  assert.throws(() => requireExpectedTenant(context, TENANT_B, "Sin cuenta."), {
+    message: ACTIVE_TENANT_CHANGED_MESSAGE,
+  });
+});
+
+test("an action without an active tenant or a valid tenant id is refused", () => {
+  const empty = resolveUserTenantContextFor(user(), []);
+
+  assert.throws(() => requireExpectedTenant(empty, TENANT_A, "Sin cuenta."), {
+    message: "Sin cuenta.",
+  });
+  assert.throws(() => requireExpectedTenant(null, TENANT_A, "Sin cuenta."), {
+    message: "Sin cuenta.",
+  });
+  for (const invalid of [undefined, "", "tenant-1", 42]) {
+    assert.throws(() => requireExpectedTenant(empty, invalid, "Sin cuenta."), {
+      message: "Identificador de cuenta inválido.",
+    });
+  }
 });
 
 test("tenant ids are normalized to the lowercase form Postgres returns", () => {

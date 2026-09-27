@@ -281,6 +281,7 @@ export function SettingsScreen({
 
       {tenantContext.tenant ? (
         <InviteTeamCard
+          tenantId={tenantContext.tenant.id}
           initialInvitation={activeInvitation}
           origin={inviteOrigin}
           onInvitationChange={onInvitationChange}

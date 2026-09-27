@@ -932,8 +932,8 @@ export function GlitterPosApp({
       } else {
         work.assertCurrent();
         let product = editingProduct
-          ? await updateProductAction(editingProduct.id, input)
-          : await createProduct(input);
+          ? await updateProductAction(tenant.id, editingProduct.id, input)
+          : await createProduct(tenant.id, input);
         work.assertCurrent();
 
         if (input.imageFile) {
@@ -941,7 +941,7 @@ export function GlitterPosApp({
           formData.set("image", input.imageFile);
           try {
             work.assertCurrent();
-            product = await uploadProductImage(product.id, formData);
+            product = await uploadProductImage(tenant.id, product.id, formData);
             work.assertCurrent();
           } catch (error) {
             if (!work.isCurrent()) {
@@ -1072,7 +1072,7 @@ export function GlitterPosApp({
         );
       } else {
         work.assertCurrent();
-        const sale = await createSale({
+        const sale = await createSale(tenant.id, {
           paymentMethod: method,
           saleDiscountCents: discount,
           saleDiscountReason: reason,
@@ -1127,7 +1127,7 @@ export function GlitterPosApp({
         });
       } else {
         work.assertCurrent();
-        const sale = await voidSaleAction(saleId);
+        const sale = await voidSaleAction(tenant.id, saleId);
         work.assertCurrent();
         upsertSale(sale);
       }
@@ -1166,7 +1166,7 @@ export function GlitterPosApp({
         });
       } else {
         work.assertCurrent();
-        const sale = await refundSaleAction(saleId, reason);
+        const sale = await refundSaleAction(tenant.id, saleId, reason);
         work.assertCurrent();
         upsertSale(sale);
       }
@@ -1261,7 +1261,7 @@ export function GlitterPosApp({
               });
             } else {
               work.assertCurrent();
-              const product = await restoreProductAction(productId);
+              const product = await restoreProductAction(tenant.id, productId);
               work.assertCurrent();
               upsertProduct(product);
             }
@@ -1364,7 +1364,7 @@ export function GlitterPosApp({
               });
             } else {
               work.assertCurrent();
-              const product = await archiveProductAction(productId);
+              const product = await archiveProductAction(tenant.id, productId);
               work.assertCurrent();
               upsertProduct(product);
             }

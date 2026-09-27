@@ -47,6 +47,9 @@ export type TenantContextUser = {
   app_metadata?: Record<string, unknown>;
 };
 
+export const ACTIVE_TENANT_CHANGED_MESSAGE =
+  "Tu puesto activo cambió en otro dispositivo. Recarga la app para continuar.";
+
 const INVALID_TENANT_ID_MESSAGE = "Identificador de cuenta inválido.";
 
 const TENANT_ID_RE =
@@ -153,4 +156,27 @@ export function resolveUserTenantContextFor(
     ...toUserTenantContext(user, memberships, active),
     claimedTenantId: active && active.tenantId === claimed ? claimed : null,
   };
+}
+
+/**
+ * The account-wide active tenant can change on another device while this
+ * one still shows the previous tenant. A tenant-scoped action therefore
+ * receives the tenant its screen renders (`expectedTenantId`), and only runs
+ * when that is still the active one, instead of writing into whichever
+ * tenant is active now.
+ */
+export function requireExpectedTenant<T extends UserTenantContext>(
+  context: T | null,
+  expectedTenantId: unknown,
+  missingTenantMessage: string
+): T & { tenant: NonNullable<T["tenant"]> } {
+  const expected = parseTenantId(expectedTenantId);
+  const tenant = context?.tenant;
+  if (!context || !tenant) {
+    throw new Error(missingTenantMessage);
+  }
+  if (tenant.id.toLowerCase() !== expected) {
+    throw new Error(ACTIVE_TENANT_CHANGED_MESSAGE);
+  }
+  return { ...context, tenant };
 }

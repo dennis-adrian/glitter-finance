@@ -2,7 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { resolveUserTenantContext } from "@/lib/auth/user-context";
+import { requireExpectedTenantContext } from "@/lib/auth/user-context";
 import {
   buildProductImageObjectPath,
   productImageMaxBytes,
@@ -24,31 +24,39 @@ import type { Product, ProductInput } from "@/lib/types";
 const PRODUCT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function requireTenantId() {
-  const context = await resolveUserTenantContext();
-
-  if (!context?.tenant) {
-    throw new Error("Se requiere una cuenta para gestionar productos.");
-  }
-
+// Every action takes `expectedTenantId`, the tenant the calling screen
+// renders, and refuses to run once another tenant became the active one.
+async function requireTenantId(expectedTenantId: string) {
+  const context = await requireExpectedTenantContext(
+    expectedTenantId,
+    "Se requiere una cuenta para gestionar productos."
+  );
   return context.tenant.id;
 }
 
-export async function createProduct(input: ProductInput) {
-  const tenantId = await requireTenantId();
+export async function createProduct(
+  expectedTenantId: string,
+  input: ProductInput
+) {
+  const tenantId = await requireTenantId(expectedTenantId);
   return createProductForTenant(tenantId, input);
 }
 
-export async function updateProduct(productId: string, input: ProductInput) {
-  const tenantId = await requireTenantId();
+export async function updateProduct(
+  expectedTenantId: string,
+  productId: string,
+  input: ProductInput
+) {
+  const tenantId = await requireTenantId(expectedTenantId);
   return updateProductForTenant(tenantId, productId, input);
 }
 
 export async function uploadProductImage(
+  expectedTenantId: string,
   productId: string,
   formData: FormData
 ) {
-  const tenantId = await requireTenantId();
+  const tenantId = await requireTenantId(expectedTenantId);
   const image = formData.get("image");
 
   if (!(image instanceof File)) {
@@ -134,12 +142,18 @@ async function removeUnreferencedProductImages(paths: string[]) {
   }
 }
 
-export async function archiveProduct(productId: string) {
-  const tenantId = await requireTenantId();
+export async function archiveProduct(
+  expectedTenantId: string,
+  productId: string
+) {
+  const tenantId = await requireTenantId(expectedTenantId);
   return archiveProductForTenant(tenantId, productId);
 }
 
-export async function restoreProduct(productId: string) {
-  const tenantId = await requireTenantId();
+export async function restoreProduct(
+  expectedTenantId: string,
+  productId: string
+) {
+  const tenantId = await requireTenantId(expectedTenantId);
   return restoreProductForTenant(tenantId, productId);
 }

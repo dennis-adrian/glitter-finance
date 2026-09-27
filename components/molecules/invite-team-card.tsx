@@ -13,6 +13,8 @@ import {
 import type { TenantInvitation } from "@/lib/types";
 
 type InviteTeamCardProps = {
+  /** The tenant this screen renders; the server refuses any other. */
+  tenantId: string;
   initialInvitation: TenantInvitation | null;
   origin: string;
   onInvitationChange?: (invitation: TenantInvitation | null) => void;
@@ -43,6 +45,7 @@ function formatRelativeExpiry(expiresAt: string): string | null {
 }
 
 export function InviteTeamCard({
+  tenantId,
   initialInvitation,
   origin,
   onInvitationChange,
@@ -116,7 +119,7 @@ export function InviteTeamCard({
     setError(null);
     setIsGenerating(true);
     try {
-      const result = await createInvitation();
+      const result = await createInvitation(tenantId);
       if (!isAbsoluteHttpUrl(result.link)) {
         setInvitation(result.invitation);
         setInviteLink("");
@@ -145,7 +148,7 @@ export function InviteTeamCard({
     setError(null);
     setIsRevoking(true);
     try {
-      await revokeInvitation(invitation.id);
+      await revokeInvitation(tenantId, invitation.id);
       setInvitation(null);
       setInviteLink("");
       onInvitationChange?.(null);

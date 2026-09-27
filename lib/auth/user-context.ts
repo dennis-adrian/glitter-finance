@@ -10,6 +10,7 @@ import {
   getDisplayName,
   personalTenantName,
   readClaimedTenantId,
+  requireExpectedTenant,
   resolveActiveMembership,
   resolveUserTenantContextFor,
   toUserTenantContext,
@@ -81,6 +82,21 @@ export const resolveUserTenantContext = cache(
     );
   }
 );
+
+/**
+ * For tenant-scoped server actions: the context, once the tenant the calling
+ * screen renders is confirmed to still be the active one.
+ */
+export async function requireExpectedTenantContext(
+  expectedTenantId: unknown,
+  missingTenantMessage: string
+) {
+  return requireExpectedTenant(
+    await resolveUserTenantContext(),
+    expectedTenantId,
+    missingTenantMessage
+  );
+}
 
 /**
  * Resolves the active tenant and writes it back to the claim, creating the

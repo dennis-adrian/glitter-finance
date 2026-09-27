@@ -1,6 +1,6 @@
 "use server";
 
-import { resolveUserTenantContext } from "@/lib/auth/user-context";
+import { requireExpectedTenantContext } from "@/lib/auth/user-context";
 import {
   createSaleForTenant,
   refundSaleForTenant,
@@ -16,12 +16,17 @@ export type CreateSaleActionInput = {
   lines: CreateSaleLineInput[];
 };
 
-export async function createSale(input: CreateSaleActionInput) {
-  const context = await resolveUserTenantContext();
+// Every action takes `expectedTenantId`, the tenant the calling screen
+// renders, and refuses to run once another tenant became the active one.
 
-  if (!context?.tenant) {
-    throw new Error("Se requiere una cuenta para registrar una venta.");
-  }
+export async function createSale(
+  expectedTenantId: string,
+  input: CreateSaleActionInput
+) {
+  const context = await requireExpectedTenantContext(
+    expectedTenantId,
+    "Se requiere una cuenta para registrar una venta."
+  );
 
   return createSaleForTenant({
     tenantId: context.tenant.id,
@@ -34,12 +39,11 @@ export async function createSale(input: CreateSaleActionInput) {
   });
 }
 
-export async function voidSale(saleId: string) {
-  const context = await resolveUserTenantContext();
-
-  if (!context?.tenant) {
-    throw new Error("Se requiere una cuenta para anular una venta.");
-  }
+export async function voidSale(expectedTenantId: string, saleId: string) {
+  const context = await requireExpectedTenantContext(
+    expectedTenantId,
+    "Se requiere una cuenta para anular una venta."
+  );
 
   return voidSaleForTenant({
     tenantId: context.tenant.id,
@@ -48,12 +52,15 @@ export async function voidSale(saleId: string) {
   });
 }
 
-export async function refundSale(saleId: string, reason?: string) {
-  const context = await resolveUserTenantContext();
-
-  if (!context?.tenant) {
-    throw new Error("Se requiere una cuenta para registrar un reembolso.");
-  }
+export async function refundSale(
+  expectedTenantId: string,
+  saleId: string,
+  reason?: string
+) {
+  const context = await requireExpectedTenantContext(
+    expectedTenantId,
+    "Se requiere una cuenta para registrar un reembolso."
+  );
 
   return refundSaleForTenant({
     tenantId: context.tenant.id,

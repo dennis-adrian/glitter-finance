@@ -4,7 +4,7 @@ import { randomBytes } from "crypto";
 import { getDisplayName } from "@/lib/auth/tenant-context";
 import {
   getAuthenticatedUser,
-  resolveUserTenantContext,
+  requireExpectedTenantContext,
   setActiveTenantClaim,
 } from "@/lib/auth/user-context";
 import { DEFAULT_INVITE_TTL_MS } from "@/lib/invitations/constants";
@@ -23,11 +23,14 @@ function generateInviteToken() {
   return randomBytes(32).toString("base64url");
 }
 
-export async function createInvitation() {
-  const context = await resolveUserTenantContext();
-  if (!context?.tenant) {
-    throw new Error("No se encontró una cuenta activa.");
-  }
+const NO_ACTIVE_TENANT_MESSAGE = "No se encontró una cuenta activa.";
+
+/** `expectedTenantId` is the tenant the calling screen renders. */
+export async function createInvitation(expectedTenantId: string) {
+  const context = await requireExpectedTenantContext(
+    expectedTenantId,
+    NO_ACTIVE_TENANT_MESSAGE
+  );
 
   const origin = await getRequestOrigin();
   if (!origin) {
@@ -59,11 +62,14 @@ export async function createInvitation() {
   };
 }
 
-export async function revokeInvitation(invitationId: string) {
-  const context = await resolveUserTenantContext();
-  if (!context?.tenant) {
-    throw new Error("No se encontró una cuenta activa.");
-  }
+export async function revokeInvitation(
+  expectedTenantId: string,
+  invitationId: string
+) {
+  const context = await requireExpectedTenantContext(
+    expectedTenantId,
+    NO_ACTIVE_TENANT_MESSAGE
+  );
 
   await revokeInvitationById(invitationId, context.tenant.id);
 }
