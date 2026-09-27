@@ -20,7 +20,7 @@ const FOCUSABLE_SELECTOR =
 
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(
-    container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
   ).filter((element) => {
     if (element.closest("[inert]")) return false;
     return element.getClientRects().length > 0;

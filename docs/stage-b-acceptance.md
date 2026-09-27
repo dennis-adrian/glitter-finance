@@ -17,13 +17,17 @@ and on real installed PWAs for both iPhone Safari and Android Chrome.
 Run locally before manual QA:
 
 ```bash
-npm exec -- tsc --noEmit
-npm run build
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
 ```
 
 Expected:
 
 - TypeScript passes.
+- Lint reports no errors.
+- Unit tests pass.
 - Production build passes.
 - `/manifest.webmanifest` includes app icons.
 - `/serwist/sw.js` is served by the app.

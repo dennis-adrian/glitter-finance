@@ -49,6 +49,18 @@ The seeded account includes a demo tenant, active and archived products, a few
 product images from `supabase/product-images/seed`, recent sales, a voided sale,
 and a refunded sale for report/history testing.
 
+### Checks
+
+```bash
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm format:check
+```
+
+CI (`.github/workflows/ci.yml`) runs the same checks on every pull request and
+on pushes to `main`, `develop`, and `staging`.
+
 ## Environment
 
 Copy `.env.example` to `.env.local` and fill in:
