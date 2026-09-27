@@ -6,20 +6,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   async headers() {
     return [
-      // Advertise the client hint app-wide so the browser starts sending it.
+      // Advertise the client hint app-wide. Browsers only act on Accept-CH
+      // from the page (navigation) response, which then makes them send the
+      // hint on the color-scheme-varying manifest request too.
       {
         source: "/:path*",
         headers: [{ key: "Accept-CH", value: "Sec-CH-Prefers-Color-Scheme" }],
-      },
-      // Only the (color-scheme-varying) manifest response is Critical — asking
-      // the browser to withhold first paint until it has the hint. Applying
-      // Critical-CH app-wide would impose that cost on every route.
-      {
-        source: "/manifest.webmanifest",
-        headers: [
-          { key: "Accept-CH", value: "Sec-CH-Prefers-Color-Scheme" },
-          { key: "Critical-CH", value: "Sec-CH-Prefers-Color-Scheme" },
-        ],
       },
     ];
   },
