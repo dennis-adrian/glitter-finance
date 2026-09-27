@@ -678,3 +678,170 @@ test("records a product update that matched no row", async () => {
 
   assert.deepEqual(events, ["record-failure", "record-failure"]);
 });
+
+const imageTenantId = "70000000-0000-4000-8000-000000000001";
+const imageProductId = "80000000-0000-4000-8000-000000000001";
+const oldImage = `${imageTenantId}/products/${imageProductId}/aaaaaaaa-0000-4000-8000-000000000001.jpg`;
+const newImage = `${imageTenantId}/products/${imageProductId}/bbbbbbbb-0000-4000-8000-000000000002.png`;
+
+/**
+ * A Supabase client whose products row holds `storedBefore` and, after the
+ * PATCH, `storedAfter` (a newer edit may keep the stored image).
+ */
+function imageSupabase(input: {
+  storedBefore: string;
+  storedAfter: string;
+  events: string[];
+  removed: string[][];
+  removeError?: Error;
+}) {
+  return {
+    from: (table: string) => ({
+      select: (columns: string) => ({
+        eq: () => ({
+          maybeSingle: async () => {
+            input.events.push(`read:${table}:${columns}`);
+            return {
+              data: {
+                tenant_id: imageTenantId,
+                image_path: input.storedBefore,
+              },
+              error: null,
+            };
+          },
+        }),
+      }),
+      update: (data: Record<string, unknown>) => ({
+        eq: (_column: string, id: string) => ({
+          select: async (columns: string) => {
+            input.events.push(
+              `patch:${table}:${Object.keys(data).sort().join(",")}:${columns}`
+            );
+            return {
+              data: [{ id, image_path: input.storedAfter }],
+              error: null,
+            };
+          },
+        }),
+      }),
+    }),
+    storage: {
+      from: (bucket: string) => ({
+        remove: async (paths: string[]) => {
+          input.events.push(`remove:${bucket}`);
+          input.removed.push(paths);
+          if (input.removeError) throw input.removeError;
+          return { data: [], error: null };
+        },
+      }),
+    },
+  } as unknown as SupabaseClient;
+}
+
+function imagePatch(imagePath: string) {
+  return [
+    operation({
+      clientId: 9,
+      table: "products",
+      id: imageProductId,
+      op: UpdateType.PATCH,
+      data: { image_path: imagePath, updated_at: "2026-09-26T12:00:00.000Z" },
+    }),
+  ];
+}
+
+test("deletes the replaced image once the new image path is applied", async () => {
+  const events: string[] = [];
+  const removed: string[][] = [];
+  const supabase = imageSupabase({
+    storedBefore: oldImage,
+    storedAfter: newImage,
+    events,
+    removed,
+  });
+  const db = recordingDb({
+    crud: imagePatch(newImage),
+    transactionId: 40,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase).uploadData(db);
+
+  assert.deepEqual(removed, [[oldImage]]);
+  assert.deepEqual(events, [
+    "read:products:tenant_id, image_path",
+    "patch:products:image_path,updated_at:image_path",
+    "remove:product-images",
+    "complete",
+    "resolve-marker",
+  ]);
+});
+
+test("deletes its own upload when a newer edit kept another image", async () => {
+  const events: string[] = [];
+  const removed: string[][] = [];
+  const supabase = imageSupabase({
+    storedBefore: oldImage,
+    storedAfter: oldImage,
+    events,
+    removed,
+  });
+  const db = recordingDb({
+    crud: imagePatch(newImage),
+    transactionId: 41,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase).uploadData(db);
+
+  assert.deepEqual(removed, [[newImage]]);
+  assert.ok(events.includes("complete"));
+});
+
+test("completes the upload when deleting the replaced image fails", async () => {
+  const events: string[] = [];
+  const removed: string[][] = [];
+  const supabase = imageSupabase({
+    storedBefore: oldImage,
+    storedAfter: newImage,
+    events,
+    removed,
+    removeError: new Error("Storage unavailable"),
+  });
+  const db = recordingDb({
+    crud: imagePatch(newImage),
+    transactionId: 42,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase).uploadData(db);
+
+  assert.deepEqual(removed, [[oldImage]]);
+  assert.ok(events.includes("complete"));
+  assert.equal(events.includes("record-failure"), false);
+});
+
+test("keeps seed images and placeholders when the image path changes", async () => {
+  const events: string[] = [];
+  const removed: string[][] = [];
+  const supabase = imageSupabase({
+    storedBefore: "seed/print-seed.jpg",
+    storedAfter: "placeholder:coral",
+    events,
+    removed,
+  });
+  const db = recordingDb({
+    crud: imagePatch("placeholder:coral"),
+    transactionId: 43,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase).uploadData(db);
+
+  assert.deepEqual(removed, []);
+  assert.ok(events.includes("complete"));
+});

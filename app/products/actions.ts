@@ -1,5 +1,6 @@
 "use server";
 
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import {
@@ -7,7 +8,9 @@ import {
   productImageMaxBytes,
   productImageMimeTypes,
   productImagesBucket,
+  unreferencedProductImagePaths,
 } from "@/lib/product-image-config";
+import { removeProductImageObjects } from "@/lib/product-images";
 import {
   archiveProductForTenant,
   createProductForTenant,
@@ -16,7 +19,7 @@ import {
   updateProductImageForTenant,
   updateProductForTenant,
 } from "@/lib/products/repository";
-import type { ProductInput } from "@/lib/types";
+import type { Product, ProductInput } from "@/lib/types";
 
 const PRODUCT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -91,7 +94,44 @@ export async function uploadProductImage(
     throw new Error("No se pudo subir la imagen.");
   }
 
-  return updateProductImageForTenant(tenantId, current.id, objectPath);
+  let product: Product;
+  try {
+    product = await updateProductImageForTenant(
+      tenantId,
+      current.id,
+      objectPath
+    );
+  } catch (updateError) {
+    await removeUnreferencedProductImages([objectPath]);
+    throw updateError;
+  }
+
+  // The replaced image, or this upload if a newer edit kept another image.
+  await removeUnreferencedProductImages(
+    unreferencedProductImagePaths({
+      tenantId,
+      productId: current.id,
+      requestedPath: objectPath,
+      previousPath: current.imagePath,
+      storedPath: product.imagePath,
+    })
+  );
+  return product;
+}
+
+// Cleanup runs with the service role, so it works even before the Storage
+// delete policy is installed. Callers pass only paths inside the caller's
+// tenant folder (unreferencedProductImagePaths checks it).
+async function removeUnreferencedProductImages(paths: string[]) {
+  if (paths.length === 0) return;
+  try {
+    await removeProductImageObjects(createAdminClient(), paths);
+  } catch (error) {
+    console.warn("[uploadProductImage] could not remove unused images", {
+      paths,
+      error,
+    });
+  }
 }
 
 export async function archiveProduct(productId: string) {

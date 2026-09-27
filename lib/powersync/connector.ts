@@ -25,6 +25,8 @@ import {
 } from "@powersync/web";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicEnv } from "@/lib/env";
+import { unreferencedProductImagePaths } from "@/lib/product-image-config";
+import { removeProductImageObjects } from "@/lib/product-images";
 import { reportPermanentSyncFailure } from "@/lib/observability/report-sync-failure";
 import {
   reconcileSyncFailures,
@@ -422,6 +424,10 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         break;
       }
       case UpdateType.PATCH: {
+        if (op.table === "products" && op.opData && "image_path" in op.opData) {
+          await this.uploadProductImagePatch(op);
+          return;
+        }
         const patch = await table
           .update(op.opData ?? {})
           .eq("id", op.id)
@@ -440,5 +446,44 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     if (result.error) {
       throw result.error;
     }
+  }
+
+  /**
+   * A products PATCH that changes image_path. Once Postgres has applied it,
+   * the uploaded image it replaced is deleted from Storage. When a newer edit
+   * from another device wins instead (last-write-wins), the image this device
+   * uploaded is the one nothing references, so that one is deleted. Removal
+   * is best-effort and never fails the upload.
+   */
+  private async uploadProductImagePatch(op: CrudEntry): Promise<void> {
+    const data = op.opData ?? {};
+    const before = await this.supabase
+      .from("products")
+      .select("tenant_id, image_path")
+      .eq("id", op.id)
+      .maybeSingle();
+    if (before.error) throw before.error;
+
+    const patch = await this.supabase
+      .from("products")
+      .update(data)
+      .eq("id", op.id)
+      .select("image_path");
+    if (patch.error) throw patch.error;
+    const stored = patch.data?.[0];
+    if (!stored) throw new UnappliedUpdateError(op.table);
+    if (!before.data) return;
+
+    await removeProductImageObjects(
+      this.supabase,
+      unreferencedProductImagePaths({
+        tenantId: before.data.tenant_id,
+        productId: op.id,
+        requestedPath:
+          typeof data.image_path === "string" ? data.image_path : null,
+        previousPath: before.data.image_path,
+        storedPath: stored.image_path,
+      })
+    );
   }
 }

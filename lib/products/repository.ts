@@ -1,11 +1,14 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, type SQL, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
 import {
   encodePlaceholderImagePath,
   mapDbProductToProduct,
 } from "@/lib/product-mapper";
-import { isPlaceholderImagePath } from "@/lib/product-image-config";
+import {
+  isPlaceholderImagePath,
+  placeholderImagePrefix,
+} from "@/lib/product-image-config";
 import type { Product, ProductInput } from "@/lib/types";
 
 function resolveInputImagePath(input: ProductInput) {
@@ -78,7 +81,7 @@ export async function updateProductForTenant(
     priceCents: number;
     costCents: number | null;
     category: string;
-    imagePath: string | null;
+    imagePath?: SQL;
     tracksInventory?: boolean;
     lowStockThreshold?: number | null;
     updatedAt: Date;
@@ -87,9 +90,22 @@ export async function updateProductForTenant(
     priceCents: input.priceCents,
     costCents: input.costCents,
     category: input.category,
-    imagePath: resolveInputImagePath(input) ?? null,
     updatedAt: new Date(),
   };
+
+  // Same rule as updateProductLocal: the editor only picks a placeholder
+  // tone, which applies while the row still shows a placeholder. Uploaded
+  // images change only through updateProductImageForTenant, so an editor
+  // opened before another device replaced the image cannot restore the old,
+  // deleted one.
+  if (isPlaceholderImagePath(input.imagePath)) {
+    updates.imagePath = sql`CASE
+      WHEN ${products.imagePath} IS NULL
+        OR ${products.imagePath} LIKE ${`${placeholderImagePrefix}%`}
+        THEN ${encodePlaceholderImagePath(input.imageTone)}
+      ELSE ${products.imagePath}
+    END`;
+  }
 
   if ("tracksInventory" in input) {
     updates.tracksInventory = input.tracksInventory ?? false;
