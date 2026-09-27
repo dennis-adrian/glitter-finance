@@ -14,6 +14,12 @@
 > that were open during planning and are now settled in code: full reason enum
 > (§13.4), nullable per-product `low_stock_threshold` + global default (§13.3),
 > and the double-`initial` write-path guard (§5.1).
+>
+> v1.3 — an `initial` movement is now the stock **baseline**: the latest one
+> per product wins, and movements and sales before it are ignored (§3, §7.2).
+> `initial` may be 0, and turning tracking on always records one, so a product
+> with earlier sales no longer starts out oversold (§4, §5.1). The partial
+> unique index on `initial` was dropped, as §5.1 already required.
 
 ---
 
@@ -98,6 +104,10 @@ stock(product) =   Σ inventory_movements.delta            (for that product)
                  + Σ sale_line.quantity on refunded sales  (units returned)
 ```
 
+Only rows at or after the product's **baseline** count: its latest `initial`
+movement, which is a stock count taken when tracking started. Earlier movements
+and sales are already reflected in that count (see §7.2).
+
 Negative results are allowed and meaningful (oversold). Nothing in the formula
 prevents or clamps them.
 
@@ -155,7 +165,7 @@ event for a tracked product.
 | `tenant_id`         | uuid                             | Tenant scope. Composite FK target with `product_id`.                 |
 | `product_id`        | uuid                             | Composite FK `(product_id, tenant_id) → products(id, tenant_id)`.    |
 | `user_id`           | uuid                             | Who recorded it. FK to `auth.users` (hand-written), self-attributed. |
-| `delta`             | integer (signed, non-zero)       | Units added (+) or removed (−).                                      |
+| `delta`             | integer (signed)                 | Units added (+) or removed (−). Only `initial` may be 0.             |
 | `reason`            | enum `inventory_movement_reason` | `initial` \| `restock` \| `adjustment` \| `loss` \| `gift`.          |
 | `note`              | text, nullable                   | Optional free text (e.g. "caja dañada en transporte").               |
 | `created_at`        | timestamptz / text               | Server/display time.                                                 |
@@ -163,7 +173,8 @@ event for a tracked product.
 
 Sign discipline (enforced by a CHECK, see §6.2):
 
-- `initial`, `restock` → `delta > 0`.
+- `initial` → `delta >= 0` (a count of 0 is a valid starting point).
+- `restock` → `delta > 0`.
 - `loss`, `gift` → `delta < 0`.
 - `adjustment` → any non-zero (a manual correction in either direction).
 
@@ -186,26 +197,31 @@ MVP can ship with a single global constant.
 
 In the Product Editor (`components/screens/product-editor.tsx`), a
 `tracks_inventory` toggle. When turned on, an **initial stock** numeric field
-appears. Saving with an initial count writes exactly one `inventory_movements`
-row with `reason = 'initial'` and `delta = <count>`. Setting initial stock is a
-calm catalog-setup action (like images per parent §7.1), not a mid-sale action.
+appears. Saving writes one `inventory_movements` row with `reason = 'initial'`
+and `delta = <count>` — or `0` when the field is left blank — so every tracked
+product has a baseline and sales made before tracking started never count
+against it. (A product that was already tracked without an `initial` gets one
+only when a count is entered, so earlier restocks are not silently discarded.)
+Setting initial stock is a calm catalog-setup action (like images per parent
+§7.1), not a mid-sale action.
 
-The `initial` movement is written **once per product**. Subsequent changes to
-on-hand stock are made through restock / adjustment (below), never by re-editing
-an "initial" value. This preserves the append-only ledger.
+The `initial` movement is written **once per product** by the app. Subsequent
+changes to on-hand stock are made through restock / adjustment (below), never by
+re-editing an "initial" value. This preserves the append-only ledger.
 
 **Double-`initial` rule (decided).** The `initial` movement is written only when
-the product has no existing `initial` movement. This is guarded at two layers:
+the product has no known `initial` movement. This is guarded at two layers:
 the editor hides the initial-stock field once an `initial` movement exists
 (`showInitialStockField` / `hasInitialMovement`), and the save path re-checks
-with `productHasInitialMovement` before writing (`needsInitialMovement` in
-`glitter-pos-app.tsx`), so the UI guard cannot be bypassed. No database
-uniqueness constraint is added: two members enabling tracking offline on the
-same product could each write an `initial`, which is an accepted, rare, and
-self-correcting race — reconcile with a normal `adjustment`, exactly as
-overselling is handled. A partial unique index was rejected because the second
-offline write would fail at upload and leave a phantom local row (the same
-issue documented for refunds in `lib/powersync/write-sales.ts`).
+with `productHasInitialMovement` before writing (`resolveInitialStockDelta` in
+`lib/inventory.ts`, called from `glitter-pos-app.tsx`). No database uniqueness
+constraint is added: two members enabling tracking offline on the same product
+could each write an `initial`, which is an accepted, rare, and self-correcting
+race. Both rows sync, and every device takes the **latest** `initial` as the
+baseline (ties broken by id), so they converge on the same count; reconcile
+with a normal `adjustment` if needed, exactly as overselling is handled. A
+partial unique index was rejected because the second offline write would fail
+at upload and block the device's upload queue.
 
 ### 5.2 Restock and adjustment
 
@@ -312,7 +328,7 @@ Drizzle migrations that create `inventory_movements`.
   - SELECT `USING current_user_has_tenant(tenant_id)`.
   - INSERT `WITH CHECK current_user_has_tenant(tenant_id) AND user_id = auth.uid()`.
 
-Domain checks (`delta <> 0`, sign discipline for `reason`) and indexes on
+Domain checks (sign discipline for `reason`, see §4) and indexes on
 `(tenant_id, product_id)` / `(tenant_id, created_at)` live in
 `lib/db/schema.ts` and are applied via Drizzle-generated migrations — not in
 this hand-written file.
@@ -403,6 +419,9 @@ helper.
 A pure selector, e.g. `computeStockByProduct(movements, sales)` in
 `lib/inventory.ts`, returning `Map<productId, number>`:
 
+- Find each product's baseline: its latest `initial` movement (by
+  `created_at`, then `id`). Ignore earlier `initial` rows, and any other
+  movement or sale created before the baseline.
 - Sum `movements.delta` per `product_id`.
 - Subtract sold units using the **same sign convention as `computeMetrics` /
   `computeProductTotals`**: iterate sales with `status !== 'voided'`, sign =
