@@ -28,6 +28,19 @@ export async function getProductsForTenant(
   return rows.map(mapDbProductToProduct);
 }
 
+export async function findProductForTenant(
+  tenantId: string,
+  productId: string
+): Promise<Product | null> {
+  const [product] = await db
+    .select()
+    .from(products)
+    .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))
+    .limit(1);
+
+  return product ? mapDbProductToProduct(product) : null;
+}
+
 export async function createProductForTenant(
   tenantId: string,
   input: ProductInput

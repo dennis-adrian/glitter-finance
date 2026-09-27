@@ -118,6 +118,9 @@ enabled = true
 file_size_limit = "50MiB"
 
 [storage.buckets.product-images]
+# Local stack only. Hosted projects get the same limits from
+# supabase/manual/20260926130000_product_images_storage_rules.sql; keep both in
+# step with lib/product-image-config.ts.
 public = true
 file_size_limit = "5MiB"
 allowed_mime_types = ["image/png", "image/jpeg"]

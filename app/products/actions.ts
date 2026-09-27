@@ -1,8 +1,9 @@
 "use server";
 
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import {
+  buildProductImageObjectPath,
   productImageMaxBytes,
   productImageMimeTypes,
   productImagesBucket,
@@ -10,16 +11,15 @@ import {
 import {
   archiveProductForTenant,
   createProductForTenant,
+  findProductForTenant,
   restoreProductForTenant,
   updateProductImageForTenant,
   updateProductForTenant,
 } from "@/lib/products/repository";
 import type { ProductInput } from "@/lib/types";
 
-const imageExtensionByMimeType: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-};
+const PRODUCT_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function requireTenantId() {
   const context = await ensureUserTenantContext();
@@ -64,10 +64,24 @@ export async function uploadProductImage(
     throw new Error("La imagen debe estar en formato JPG o PNG.");
   }
 
-  const extension = imageExtensionByMimeType[image.type] ?? "jpg";
-  const objectPath = `${tenantId}/products/${productId}/${crypto.randomUUID()}.${extension}`;
-  const { error } = await createAdminClient()
-    .storage.from(productImagesBucket)
+  // Check the product before uploading, so a wrong id leaves no file behind.
+  const current = PRODUCT_ID_RE.test(productId)
+    ? await findProductForTenant(tenantId, productId)
+    : null;
+  if (!current) {
+    throw new Error("No se encontró el producto.");
+  }
+
+  // Upload with the user's session, not the service role, so Storage applies
+  // the tenant-folder policy and the bucket limits to this path too.
+  const objectPath = buildProductImageObjectPath(
+    tenantId,
+    current.id,
+    image.type
+  );
+  const supabase = await createClient();
+  const { error } = await supabase.storage
+    .from(productImagesBucket)
     .upload(objectPath, new Uint8Array(await image.arrayBuffer()), {
       contentType: image.type,
       upsert: false,
@@ -77,7 +91,7 @@ export async function uploadProductImage(
     throw new Error("No se pudo subir la imagen.");
   }
 
-  return updateProductImageForTenant(tenantId, productId, objectPath);
+  return updateProductImageForTenant(tenantId, current.id, objectPath);
 }
 
 export async function archiveProduct(productId: string) {

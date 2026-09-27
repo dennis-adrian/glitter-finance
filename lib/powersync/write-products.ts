@@ -9,7 +9,8 @@
 // without it could never win over an edit another device made meanwhile.
 //
 // Image upload goes directly from the browser to Supabase Storage using the
-// user's JWT (gated by the policy in supabase/migrations/...product_image_upload_policy.sql).
+// user's JWT, within the bucket limits and tenant-folder policy in
+// supabase/manual/20260926130000_product_images_storage_rules.sql.
 // The metadata write to products.image_path stays in the local SQLite store,
 // which PowerSync replicates to Postgres alongside other product writes.
 
@@ -17,17 +18,13 @@ import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { encodePlaceholderImagePath } from "@/lib/product-mapper";
 import {
+  buildProductImageObjectPath,
   isPlaceholderImagePath,
   productImageMaxBytes,
   productImageMimeTypes,
   productImagesBucket,
 } from "@/lib/product-image-config";
 import type { ProductInput } from "@/lib/types";
-
-const imageExtensionByMimeType: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-};
 
 function nowIso() {
   return new Date().toISOString();
@@ -162,8 +159,11 @@ export async function uploadProductImageLocal(
     throw new Error("La imagen debe estar en formato JPG o PNG.");
   }
 
-  const extension = imageExtensionByMimeType[file.type] ?? "jpg";
-  const objectPath = `${tenantId}/products/${productId}/${uuid()}.${extension}`;
+  const objectPath = buildProductImageObjectPath(
+    tenantId,
+    productId,
+    file.type
+  );
 
   input.assertCurrent?.();
   const { error } = await supabase.storage
