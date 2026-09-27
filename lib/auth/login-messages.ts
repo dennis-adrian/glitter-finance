@@ -10,7 +10,11 @@ export const LOGIN_ERROR_MESSAGES = {
     "No se pudo iniciar sesión con Google. Intentá de nuevo.",
   google_origin_unavailable:
     "No se pudo determinar la URL de la app para iniciar sesión con Google.",
+  auth_link_other_browser:
+    "No se pudo terminar el inicio de sesión en este navegador. Si abriste el enlace para confirmar tu correo, ya está confirmado: iniciá sesión con tu contraseña.",
   account_preparation_failed: "No se pudo preparar la cuenta.",
+  email_link_invalid:
+    "El enlace no es válido o ya venció. Si ya confirmaste tu correo, iniciá sesión con tu contraseña.",
 } as const;
 
 export const LOGIN_STATUS_MESSAGES = {

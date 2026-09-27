@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pretty, render } from "react-email";
 import { AccountConfirmationEmail } from "@/emails/account-confirmation";
+import { buildEmailLinkTemplate } from "@/lib/auth/email-link";
 
 const outputPath = resolve(
   process.cwd(),
@@ -9,17 +10,21 @@ const outputPath = resolve(
 );
 
 async function main() {
+  // A token-hash link to /auth/confirm, not {{ .ConfirmationURL }}: see
+  // lib/auth/email-link.ts.
+  const confirmationUrl = buildEmailLinkTemplate("email");
   const html = await pretty(
     await render(
       <AccountConfirmationEmail
-        confirmationUrl="{{ .ConfirmationURL }}"
+        confirmationUrl={confirmationUrl}
         siteUrl="{{ .SiteURL }}"
       />
     )
   );
 
-  if (!html.includes("{{ .ConfirmationURL }}")) {
-    throw new Error("Exported email is missing {{ .ConfirmationURL }}.");
+  // The href is HTML-escaped (& becomes &amp;); browsers decode it back.
+  if (!html.includes(confirmationUrl.replaceAll("&", "&amp;"))) {
+    throw new Error(`Exported email is missing the link ${confirmationUrl}.`);
   }
 
   if (!html.includes("{{ .SiteURL }}")) {

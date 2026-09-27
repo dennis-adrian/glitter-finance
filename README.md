@@ -129,11 +129,22 @@ pnpm email:export
 ```
 
 The export is written to
-`.react-email/out/account-confirmation.html` with Supabase's
-`{{ .ConfirmationURL }}` and `{{ .SiteURL }}` variables intact. In the hosted
+`.react-email/out/account-confirmation.html` with Supabase's `{{ .SiteURL }}`,
+`{{ .TokenHash }}` and `{{ .RedirectTo }}` variables intact. In the hosted
 project, open **Authentication → Email Templates → Confirm signup**, set the
 subject to `Confirmá tu correo | Billetera Ferial`, and paste the exported HTML.
 Resend remains the configured SMTP provider; no Auth Hook is required.
+
+The button links to
+`{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next={{ .RedirectTo }}`,
+not to `{{ .ConfirmationURL }}`. `app/auth/confirm` verifies the token hash
+with `verifyOtp`, which works in any browser. The default link goes through a
+PKCE code exchange that needs a cookie only the browser that signed up has, so
+it failed when the email was opened in the installed iOS app, an email app's
+browser or another device. `next` carries the redirect URL the app sent
+(`/auth/callback?next=…`), and the confirm route continues to that URL's
+`next` path, such as an invitation link. `/auth/callback` still serves Google
+sign-in and emails that use the default link.
 
 ### PowerSync setup
 

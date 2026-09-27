@@ -1,13 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isAuthPKCECodeVerifierMissingError } from "@supabase/supabase-js";
+import type { LoginErrorCode } from "@/lib/auth/login-messages";
 import { buildLoginRedirectPath } from "@/lib/auth/oauth";
 import { sanitizeRedirectPath } from "@/lib/auth/redirect";
 import { createClient } from "@/lib/supabase/server";
 
-function authErrorUrl(requestUrl: URL, next: string) {
-  return new URL(
-    buildLoginRedirectPath({ error: "auth_callback_failed" }, next),
-    requestUrl.origin
-  );
+function authErrorUrl(
+  requestUrl: URL,
+  next: string,
+  error: LoginErrorCode = "auth_callback_failed"
+) {
+  return new URL(buildLoginRedirectPath({ error }, next), requestUrl.origin);
 }
 
 export async function GET(request: NextRequest) {
@@ -36,7 +39,19 @@ export async function GET(request: NextRequest) {
           "Auth callback: exchangeCodeForSession failed",
           error.message
         );
-        return NextResponse.redirect(authErrorUrl(requestUrl, safeNext));
+        // Emails that still use Supabase's {{ .ConfirmationURL }} land here
+        // with a code, and opened in another browser (the iOS PWA, an email
+        // app) there is no verifier to exchange it with. Supabase confirmed
+        // the address before redirecting, so password sign-in works.
+        return NextResponse.redirect(
+          authErrorUrl(
+            requestUrl,
+            safeNext,
+            isAuthPKCECodeVerifierMissingError(error)
+              ? "auth_link_other_browser"
+              : "auth_callback_failed"
+          )
+        );
       }
     } catch (error) {
       console.error("Auth callback: session exchange failed", error);
