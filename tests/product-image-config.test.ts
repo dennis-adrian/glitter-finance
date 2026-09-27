@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import {
   buildProductImageObjectPath,
   encodePlaceholderImagePath,
@@ -227,9 +227,13 @@ test("placeholders, seed images and unchanged paths are never freed", () => {
 test("a product edit never writes the editor's copy of an uploaded image", async () => {
   const writes: { sql: string; params: unknown[] }[] = [];
   const db = {
-    execute: async (sql: string, params: unknown[]) => {
-      writes.push({ sql, params });
-    },
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        getOptional: async () => ({ id: productId }),
+        execute: async (sql: string, params: unknown[]) => {
+          writes.push({ sql, params });
+        },
+      } as unknown as Transaction),
   } as unknown as AbstractPowerSyncDatabase;
   const product = {
     name: "Print",

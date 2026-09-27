@@ -33,6 +33,7 @@ import { cartSubtotalCents } from "@/lib/sales/pricing";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
 import {
   buildSalesFromLocal,
+  compareSalesNewestFirst,
   type LocalRefundRow,
   type LocalSaleLineRow,
   type LocalSaleRow,
@@ -78,6 +79,10 @@ import {
   saveDraftCartLocal,
 } from "@/lib/powersync/draft-cart";
 import { onLocalDataEvent } from "@/lib/powersync/local-data-teardown";
+import {
+  mergeLocalRowsOverServer,
+  watchLocalTables,
+} from "@/lib/powersync/local-watch";
 import { TenantWorkController } from "@/lib/powersync/tenant-work";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
@@ -131,6 +136,17 @@ function rowToInventoryMovement(row: InventoryMovementRow): InventoryMovement {
     createdAt: row.created_at,
     clientCreatedAt: row.client_created_at,
   };
+}
+
+// The order of the inventory_movements watch: created_at, then id.
+function compareMovementsOldestFirst(
+  a: InventoryMovement,
+  b: InventoryMovement
+) {
+  return (
+    Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  );
 }
 
 type GlitterPosAppProps = {
@@ -200,6 +216,11 @@ export function GlitterPosApp({
     () => initialTenantMembers.length === 0
   );
   const initialTenantMembersRef = useRef(initialTenantMembers);
+  // The server-rendered data the local rows are merged over until the first
+  // sync completes (see the watches below).
+  const initialProductsRef = useRef(initialProducts);
+  const initialSalesRef = useRef(initialSales);
+  const initialInventoryMovementsRef = useRef(initialInventoryMovements);
   const teamSyncEverConfirmedRef = useRef(false);
   const [tenantWorkGeneration, setTenantWorkGeneration] = useState(0);
   const tenantWorkGenerationRef = useRef(0);
@@ -299,6 +320,9 @@ export function GlitterPosApp({
   }, [initialTenantMembers]);
 
   useEffect(() => {
+    initialProductsRef.current = initialProducts;
+    initialSalesRef.current = initialSales;
+    initialInventoryMovementsRef.current = initialInventoryMovements;
     hydrateProducts(initialProducts);
     hydrateSales(initialSales);
     setTenantMembers(initialTenantMembers);
@@ -336,10 +360,11 @@ export function GlitterPosApp({
   }, [cart]);
 
   // Subscribe to the local PowerSync SQLite store and push updates into
-  // Zustand. Server-prop hydration above gives the first paint; this watch
-  // takes over once PowerSync has finished its initial sync, then keeps the
-  // UI live as new rows replicate down. We gate on `hasSynced` so the first
-  // onResult doesn't fire with an empty store and wipe the server data.
+  // Zustand. Server-prop hydration above gives the first paint. Until the
+  // first sync completes, the local store holds only this device's own
+  // writes, so they are merged over the server data (an empty store must not
+  // wipe it); from then on the local rows replace it and keep the UI live as
+  // new rows replicate down. See lib/powersync/local-watch.ts.
   //
   // Tenant filter: sync rules already scope replication by tenant_id and
   // sign-out wipes the local store via disconnectAndClear, but we also
@@ -417,131 +442,100 @@ export function GlitterPosApp({
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
-
-    const controller = new AbortController();
+    const db = powerSyncDb;
     const generation = tenantWorkGenerationRef.current;
-    const isCurrent = () =>
-      !controller.signal.aborted &&
-      tenantWorkGenerationRef.current === generation;
-    let unregister: (() => void) | undefined;
+    const isCurrent = (signal: AbortSignal) =>
+      !signal.aborted && tenantWorkGenerationRef.current === generation;
 
-    function startWatching(db: NonNullable<typeof powerSyncDb>) {
+    return watchLocalTables(db, ({ signal, synced }) => {
       db.watch(
         "SELECT * FROM products WHERE tenant_id = ? ORDER BY created_at DESC",
         [activeTenantId],
         {
           onResult: (results) => {
-            if (!isCurrent() || !db.currentStatus?.hasSynced) {
-              return;
-            }
+            if (!isCurrent(signal)) return;
             const rows = ((results.rows as unknown as { _array?: ProductRow[] })
               ?._array ?? []) as ProductRow[];
-            hydrateProducts(rows.map(rowToProduct));
+            const localProducts = rows.map(rowToProduct);
+            hydrateProducts(
+              synced
+                ? localProducts
+                : mergeLocalRowsOverServer(
+                    initialProductsRef.current,
+                    localProducts
+                  )
+            );
           },
           onError: (error) => {
             console.error("[PowerSync] products watch error", error);
             reportClientFailure("powersync_products_watch", error);
           },
         },
-        { signal: controller.signal }
+        { signal }
       );
-    }
-
-    if (powerSyncDb.currentStatus?.hasSynced) {
-      startWatching(powerSyncDb);
-    } else {
-      unregister = powerSyncDb.registerListener({
-        statusChanged: (status) => {
-          if (status.hasSynced && isCurrent()) {
-            startWatching(powerSyncDb);
-            unregister?.();
-            unregister = undefined;
-          }
-        },
-      });
-    }
-
-    return () => {
-      controller.abort();
-      unregister?.();
-    };
+    });
   }, [powerSyncDb, hydrateProducts, activeTenantId, tenantWorkGeneration]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
-
-    const controller = new AbortController();
+    const db = powerSyncDb;
     const generation = tenantWorkGenerationRef.current;
-    const isCurrent = () =>
-      !controller.signal.aborted &&
-      tenantWorkGenerationRef.current === generation;
-    let unregister: (() => void) | undefined;
+    const isCurrent = (signal: AbortSignal) =>
+      !signal.aborted && tenantWorkGenerationRef.current === generation;
 
-    function startWatching(db: NonNullable<typeof powerSyncDb>) {
+    return watchLocalTables(db, ({ signal, synced }) => {
       db.watch(
         "SELECT * FROM inventory_movements WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
         [activeTenantId],
         {
           onResult: (results) => {
-            if (!isCurrent() || !db.currentStatus?.hasSynced) {
-              return;
-            }
+            if (!isCurrent(signal)) return;
             const rows = ((
               results.rows as unknown as { _array?: InventoryMovementRow[] }
             )?._array ?? []) as InventoryMovementRow[];
-            setInventoryMovements(rows.map(rowToInventoryMovement));
-            setInventoryWatchReady(true);
+            const localMovements = rows.map(rowToInventoryMovement);
+            if (synced) {
+              setInventoryMovements(localMovements);
+              setInventoryWatchReady(true);
+            } else {
+              // Stock readiness still follows the server data until then.
+              setInventoryMovements(
+                mergeLocalRowsOverServer(
+                  initialInventoryMovementsRef.current,
+                  localMovements
+                ).sort(compareMovementsOldestFirst)
+              );
+            }
           },
           onError: (error) => {
             console.error("[PowerSync] inventory_movements watch error", error);
             reportClientFailure("powersync_inventory_watch", error);
           },
         },
-        { signal: controller.signal }
+        { signal }
       );
-    }
-
-    if (powerSyncDb.currentStatus?.hasSynced) {
-      startWatching(powerSyncDb);
-    } else {
-      unregister = powerSyncDb.registerListener({
-        statusChanged: (status) => {
-          if (status.hasSynced && isCurrent()) {
-            startWatching(powerSyncDb);
-            unregister?.();
-            unregister = undefined;
-          }
-        },
-      });
-    }
-
-    return () => {
-      controller.abort();
-      unregister?.();
-    };
+    });
   }, [powerSyncDb, activeTenantId, tenantWorkGeneration]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
-
+    const db = powerSyncDb;
     const generation = tenantWorkGenerationRef.current;
-    const controller = new AbortController();
-    const isCurrent = () =>
-      !controller.signal.aborted &&
-      tenantWorkGenerationRef.current === generation;
+    const isCurrent = (signal: AbortSignal) =>
+      !signal.aborted && tenantWorkGenerationRef.current === generation;
     setTeamSyncConfirmed(initialTenantMembersRef.current.length === 0);
     teamSyncEverConfirmedRef.current = false;
-    let unregister: (() => void) | undefined;
 
-    function startWatching(db: NonNullable<typeof powerSyncDb>) {
+    return watchLocalTables(db, ({ signal, synced }) => {
+      // Memberships are never written on the device: before the first sync
+      // there is nothing local to show, and the server members stay.
+      if (!synced) return;
       db.watch(
         "SELECT * FROM tenant_users WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
         [activeTenantId],
         {
           onResult: (results) => {
-            if (!isCurrent()) {
-              return;
-            }
+            if (!isCurrent(signal)) return;
             const rows = ((
               results.rows as unknown as { _array?: LocalTenantUserRow[] }
             )?._array ?? []) as LocalTenantUserRow[];
@@ -569,28 +563,9 @@ export function GlitterPosApp({
             reportClientFailure("powersync_tenant_users_watch", error);
           },
         },
-        { signal: controller.signal }
+        { signal }
       );
-    }
-
-    if (powerSyncDb.currentStatus?.hasSynced) {
-      startWatching(powerSyncDb);
-    } else {
-      unregister = powerSyncDb.registerListener({
-        statusChanged: (status) => {
-          if (status.hasSynced && isCurrent()) {
-            startWatching(powerSyncDb);
-            unregister?.();
-            unregister = undefined;
-          }
-        },
-      });
-    }
-
-    return () => {
-      controller.abort();
-      unregister?.();
-    };
+    });
   }, [powerSyncDb, activeTenantId, tenantWorkGeneration]);
 
   // Subscribe to sales + sale_lines + refunds. PowerSync's onChange fires
@@ -603,12 +578,10 @@ export function GlitterPosApp({
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
 
-    const controller = new AbortController();
+    const db = powerSyncDb;
     const generation = tenantWorkGenerationRef.current;
-    const isCurrent = () =>
-      !controller.signal.aborted &&
-      tenantWorkGenerationRef.current === generation;
-    let unregister: (() => void) | undefined;
+    const isCurrent = (signal: AbortSignal) =>
+      !signal.aborted && tenantWorkGenerationRef.current === generation;
 
     function resolveUserName(userId: string) {
       return (
@@ -617,10 +590,8 @@ export function GlitterPosApp({
       );
     }
 
-    async function rebuildSales(db: NonNullable<typeof powerSyncDb>) {
-      if (!isCurrent() || !db.currentStatus?.hasSynced) {
-        return;
-      }
+    async function rebuildSales(signal: AbortSignal, synced: boolean) {
+      if (!isCurrent(signal)) return;
       try {
         // Tenant-scoped reads: see the note on the products watch above.
         const [saleRows, lineRows, refundRows] = await Promise.all([
@@ -637,53 +608,45 @@ export function GlitterPosApp({
             [activeTenantId]
           ),
         ]);
-        if (!isCurrent()) return;
+        if (!isCurrent(signal)) return;
+        const localSales = buildSalesFromLocal(
+          saleRows,
+          lineRows,
+          refundRows,
+          resolveUserName
+        );
         hydrateSales(
-          buildSalesFromLocal(saleRows, lineRows, refundRows, resolveUserName)
+          synced
+            ? localSales
+            : mergeLocalRowsOverServer(
+                initialSalesRef.current,
+                localSales
+              ).sort(compareSalesNewestFirst)
         );
       } catch (error) {
-        if (isCurrent()) {
+        if (isCurrent(signal)) {
           console.error("[PowerSync] sales rebuild failed", error);
           reportClientFailure("powersync_sales_rebuild", error);
         }
       }
     }
 
-    function startWatching(db: NonNullable<typeof powerSyncDb>) {
+    return watchLocalTables(db, ({ signal, synced }) => {
       db.onChange(
         {
-          onChange: () => rebuildSales(db),
+          onChange: () => rebuildSales(signal, synced),
           onError: (error) => {
             console.error("[PowerSync] sales onChange error", error);
             reportClientFailure("powersync_sales_watch", error);
           },
         },
         {
-          signal: controller.signal,
+          signal,
           tables: ["sales", "sale_lines", "refunds"],
           triggerImmediate: true,
         }
       );
-    }
-
-    if (powerSyncDb.currentStatus?.hasSynced) {
-      startWatching(powerSyncDb);
-    } else {
-      unregister = powerSyncDb.registerListener({
-        statusChanged: (status) => {
-          if (status.hasSynced && isCurrent()) {
-            startWatching(powerSyncDb);
-            unregister?.();
-            unregister = undefined;
-          }
-        },
-      });
-    }
-
-    return () => {
-      controller.abort();
-      unregister?.();
-    };
+    });
   }, [
     powerSyncDb,
     hydrateSales,

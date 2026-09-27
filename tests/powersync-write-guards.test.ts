@@ -3,7 +3,11 @@ import test from "node:test";
 import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import { addInventoryMovement } from "@/lib/powersync/write-inventory";
 import {
+  archiveProductLocal,
   createProductLocal,
+  PRODUCT_NOT_ON_DEVICE_MESSAGE,
+  restoreProductLocal,
+  updateProductLocal,
   uploadProductImageLocal,
 } from "@/lib/powersync/write-products";
 import { createSaleLocal } from "@/lib/powersync/write-sales";
@@ -91,6 +95,7 @@ test("image metadata write re-checks cancellation after storage upload", async (
   let metadataWrites = 0;
   let removed = false;
   const db = {
+    getOptional: async () => ({ id: "product-1" }),
     execute: async () => {
       metadataWrites += 1;
     },
@@ -124,4 +129,55 @@ test("image metadata write re-checks cancellation after storage upload", async (
 
   assert.equal(metadataWrites, 0);
   assert.equal(removed, true);
+});
+
+test("product edits refuse a product that is not on the device yet", async () => {
+  let uploads = 0;
+  let writes = 0;
+  const db = {
+    getOptional: async () => null,
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        getOptional: async () => null,
+        execute: async () => {
+          writes += 1;
+        },
+      } as unknown as Transaction),
+  } as unknown as AbstractPowerSyncDatabase;
+  const input = { tenantId: "tenant-1", productId: "product-1" };
+  const product = {
+    name: "Producto",
+    priceCents: 100,
+    costCents: null,
+    category: "General",
+    imageTone: "violet",
+    tracksInventory: false,
+  };
+  const supabase = {
+    storage: {
+      from: () => ({
+        upload: async () => {
+          uploads += 1;
+          return { error: null };
+        },
+      }),
+    },
+  };
+
+  for (const edit of [
+    updateProductLocal(db, { ...input, product }),
+    archiveProductLocal(db, input),
+    restoreProductLocal(db, input),
+    uploadProductImageLocal(supabase as never, db, {
+      ...input,
+      file: { size: 1, type: "image/png" } as File,
+    }),
+  ]) {
+    await assert.rejects(edit, (error: Error) => {
+      assert.equal(error.message, PRODUCT_NOT_ON_DEVICE_MESSAGE);
+      return true;
+    });
+  }
+  assert.equal(writes, 0);
+  assert.equal(uploads, 0);
 });

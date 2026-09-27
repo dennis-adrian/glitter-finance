@@ -96,7 +96,10 @@ export function buildSalesFromLocal(
     ];
   });
 
-  return [...completedSales, ...refundSales].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  return [...completedSales, ...refundSales].sort(compareSalesNewestFirst);
+}
+
+/** The order of every sales list: newest first. */
+export function compareSalesNewestFirst(a: Sale, b: Sale) {
+  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }

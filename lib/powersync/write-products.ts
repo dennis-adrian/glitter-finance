@@ -16,7 +16,7 @@
 // connector deletes the image an upload replaced once Postgres has applied the
 // new path.
 
-import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildProductImageObjectPath,
@@ -37,6 +37,28 @@ function nowIso() {
 
 function uuid() {
   return crypto.randomUUID();
+}
+
+/**
+ * Before the first sync completes, the local store holds only this device's
+ * own writes, so a product listed from the server-rendered catalog may not
+ * be there yet. An UPDATE would then match no row and the edit would be
+ * dropped without a word.
+ */
+export const PRODUCT_NOT_ON_DEVICE_MESSAGE =
+  "Este producto todavía se está sincronizando en este dispositivo. Inténtalo de nuevo en un momento.";
+
+async function assertProductOnDevice(
+  db: Pick<Transaction, "getOptional">,
+  input: { tenantId: string; productId: string }
+) {
+  const row = await db.getOptional<{ id: string }>(
+    `SELECT id FROM products WHERE id = ? AND tenant_id = ?`,
+    [input.productId, input.tenantId]
+  );
+  if (!row) {
+    throw new Error(PRODUCT_NOT_ON_DEVICE_MESSAGE);
+  }
 }
 
 export async function createProductLocal(
@@ -94,31 +116,34 @@ export async function updateProductLocal(
   const placeholderPath = isPlaceholderImagePath(product.imagePath)
     ? encodePlaceholderImagePath(product.imageTone)
     : null;
-  input.assertCurrent?.();
-  await db.execute(
-    `UPDATE products
-       SET name = ?, price_cents = ?, cost_cents = ?, category = ?,
-           image_path = CASE
-             WHEN image_path IS NULL OR image_path LIKE ?
-               THEN coalesce(?, image_path)
-             ELSE image_path
-           END,
-           tracks_inventory = ?, low_stock_threshold = ?, updated_at = ?
-     WHERE id = ? AND tenant_id = ?`,
-    [
-      product.name,
-      product.priceCents,
-      product.costCents,
-      product.category,
-      placeholderImagePathPattern,
-      placeholderPath,
-      product.tracksInventory ? 1 : 0,
-      product.lowStockThreshold ?? null,
-      nowIso(),
-      input.productId,
-      input.tenantId,
-    ]
-  );
+  await db.writeTransaction(async (tx) => {
+    await assertProductOnDevice(tx, input);
+    input.assertCurrent?.();
+    await tx.execute(
+      `UPDATE products
+         SET name = ?, price_cents = ?, cost_cents = ?, category = ?,
+             image_path = CASE
+               WHEN image_path IS NULL OR image_path LIKE ?
+                 THEN coalesce(?, image_path)
+               ELSE image_path
+             END,
+             tracks_inventory = ?, low_stock_threshold = ?, updated_at = ?
+       WHERE id = ? AND tenant_id = ?`,
+      [
+        product.name,
+        product.priceCents,
+        product.costCents,
+        product.category,
+        placeholderImagePathPattern,
+        placeholderPath,
+        product.tracksInventory ? 1 : 0,
+        product.lowStockThreshold ?? null,
+        nowIso(),
+        input.productId,
+        input.tenantId,
+      ]
+    );
+  });
 }
 
 export async function archiveProductLocal(
@@ -126,24 +151,30 @@ export async function archiveProductLocal(
   input: { tenantId: string; productId: string; assertCurrent?: () => void }
 ): Promise<void> {
   const now = nowIso();
-  input.assertCurrent?.();
-  await db.execute(
-    `UPDATE products SET archived_at = ?, updated_at = ?
-     WHERE id = ? AND tenant_id = ? AND archived_at IS NULL`,
-    [now, now, input.productId, input.tenantId]
-  );
+  await db.writeTransaction(async (tx) => {
+    await assertProductOnDevice(tx, input);
+    input.assertCurrent?.();
+    await tx.execute(
+      `UPDATE products SET archived_at = ?, updated_at = ?
+       WHERE id = ? AND tenant_id = ? AND archived_at IS NULL`,
+      [now, now, input.productId, input.tenantId]
+    );
+  });
 }
 
 export async function restoreProductLocal(
   db: AbstractPowerSyncDatabase,
   input: { tenantId: string; productId: string; assertCurrent?: () => void }
 ): Promise<void> {
-  input.assertCurrent?.();
-  await db.execute(
-    `UPDATE products SET archived_at = NULL, updated_at = ?
-     WHERE id = ? AND tenant_id = ?`,
-    [nowIso(), input.productId, input.tenantId]
-  );
+  await db.writeTransaction(async (tx) => {
+    await assertProductOnDevice(tx, input);
+    input.assertCurrent?.();
+    await tx.execute(
+      `UPDATE products SET archived_at = NULL, updated_at = ?
+       WHERE id = ? AND tenant_id = ?`,
+      [nowIso(), input.productId, input.tenantId]
+    );
+  });
 }
 
 /**
@@ -176,6 +207,9 @@ export async function uploadProductImageLocal(
     file.type
   );
 
+  // Checked before uploading, so no object is stored for a row that the
+  // metadata write below could not update.
+  await assertProductOnDevice(db, { tenantId, productId });
   input.assertCurrent?.();
   const { error } = await supabase.storage
     .from(productImagesBucket)
