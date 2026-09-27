@@ -186,6 +186,8 @@ export function GlitterPosApp({
   const removeFromCart = usePosStore((state) => state.removeFromCart);
   const setLineDiscount = usePosStore((state) => state.setLineDiscount);
   const clearCart = usePosStore((state) => state.clearCart);
+  const restoreCart = usePosStore((state) => state.restoreCart);
+  const cartRevision = usePosStore((state) => state.cartRevision);
   const hydrateCart = usePosStore((state) => state.hydrateCart);
   const recordSale = usePosStore((state) => state.recordSale);
   const upsertSale = usePosStore((state) => state.upsertSale);
@@ -253,6 +255,11 @@ export function GlitterPosApp({
       tenantId: tenantContext.tenant?.id ?? null,
     });
   }
+  // The "Carrito vaciado" toast whose Deshacer can still bring the lines back.
+  const clearedCartToastRef = useRef<{
+    toastId: string | number;
+    cartRevision: number;
+  } | null>(null);
   const draftCartReadyRef = useRef(false);
   const cartRef = useRef(cart);
   const cartUpdatedAtRef = useRef<string | null>(null);
@@ -381,6 +388,16 @@ export function GlitterPosApp({
     cartRef.current = cart;
     cartUpdatedAtRef.current = usePosStore.getState().cartUpdatedAt;
   }, [cart]);
+
+  // Once the cart changes after it was emptied (a product added, the undo
+  // itself, a sale or a teardown), Deshacer no longer applies.
+  useEffect(() => {
+    const clearedCartToast = clearedCartToastRef.current;
+    if (clearedCartToast && clearedCartToast.cartRevision !== cartRevision) {
+      sonnerToast.dismiss(clearedCartToast.toastId);
+      clearedCartToastRef.current = null;
+    }
+  }, [cartRevision]);
 
   // Subscribe to the local PowerSync SQLite store and push updates into
   // Zustand. Server-prop hydration above gives the first paint. Until the
@@ -1324,6 +1341,27 @@ export function GlitterPosApp({
     }
   }
 
+  function handleClearCart() {
+    const clearedLines = usePosStore.getState().cart;
+    if (!clearedLines.length) {
+      return;
+    }
+    clearCart();
+    if (powerSyncDb) {
+      void clearDraftCartLocal(powerSyncDb);
+    }
+    const clearedRevision = usePosStore.getState().cartRevision;
+    const toastId = sonnerToast.info("Carrito vaciado", {
+      duration: 6000,
+      action: {
+        label: "Deshacer",
+        onClick: () => restoreCart(clearedLines, clearedRevision),
+      },
+    });
+    clearedCartToastRef.current = { toastId, cartRevision: clearedRevision };
+    setView("sell");
+  }
+
   function openSaleDetail(saleId: string, returnView: "sales" | "reports") {
     setSelectedSaleId(saleId);
     setSaleDetailReturnView(returnView);
@@ -1420,14 +1458,7 @@ export function GlitterPosApp({
         addToCart={addToCart}
         removeFromCart={removeFromCart}
         setLineDiscount={setLineDiscount}
-        clearCart={() => {
-          clearCart();
-          if (powerSyncDb) {
-            void clearDraftCartLocal(powerSyncDb);
-          }
-          showToast("Carrito vaciado", "info");
-          setView("sell");
-        }}
+        clearCart={handleClearCart}
         back={() => setView("sell")}
         charge={() => setView("payment")}
       />

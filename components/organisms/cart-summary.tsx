@@ -29,6 +29,7 @@ export function CartSummary({
         <Button
           variant="ghost"
           size="sm"
+          disabled={!itemCount}
           onClick={clearCart}
           className="text-destructive hover:text-destructive"
         >

@@ -73,3 +73,29 @@ test("a discount is stored as whole cents within the line", () => {
   store.setLineDiscount("pin", 12.4);
   assert.equal(line()?.lineDiscountCents, 12);
 });
+
+test("undoing an emptied cart brings its lines back", () => {
+  const store = usePosStore.getState();
+  store.setLineDiscount("pin", 500, "feria");
+  const lines = usePosStore.getState().cart;
+
+  store.clearCart();
+  const clearedRevision = usePosStore.getState().cartRevision;
+  store.restoreCart(lines, clearedRevision);
+
+  assert.deepEqual(usePosStore.getState().cart, lines);
+  assert.notEqual(usePosStore.getState().cartUpdatedAt, null);
+  assert.equal(usePosStore.getState().cartRevision, clearedRevision + 1);
+});
+
+test("an undo never overwrites a cart changed after emptying it", () => {
+  const store = usePosStore.getState();
+  const lines = usePosStore.getState().cart;
+
+  store.clearCart();
+  const clearedRevision = usePosStore.getState().cartRevision;
+  store.addToCart("pin");
+  store.restoreCart(lines, clearedRevision);
+
+  assert.equal(line()?.quantity, 1);
+});

@@ -29,6 +29,7 @@ type PosState = {
     lineDiscountReason?: string
   ) => void;
   clearCart: () => void;
+  restoreCart: (cart: CartLine[], expectedCartRevision: number) => void;
   clearLocalData: () => void;
   recordSale: (sale: Sale) => void;
   upsertSale: (sale: Sale) => void;
@@ -68,6 +69,17 @@ function clampLineDiscount(line: CartLine, products: Product[]): CartLine {
     : { ...line, lineDiscountCents: discountCents };
 }
 
+/** The lines whose product is still for sale, with their discounts refit. */
+function sellableCartLines(cart: CartLine[], products: Product[]) {
+  return cart
+    .filter((line) =>
+      products.some(
+        (product) => product.id === line.productId && !product.archivedAt
+      )
+    )
+    .map((line) => clampLineDiscount(line, products));
+}
+
 export const usePosStore = create<PosState>()((set) => ({
   // Filled from the server render, then from the local store (PowerSync).
   products: [],
@@ -79,14 +91,7 @@ export const usePosStore = create<PosState>()((set) => ({
     set((state) => ({
       products,
       cart: isFreshDraftCart(state.cartUpdatedAt)
-        ? state.cart
-            .filter((line) =>
-              products.some(
-                (product) =>
-                  product.id === line.productId && !product.archivedAt
-              )
-            )
-            .map((line) => clampLineDiscount(line, products))
+        ? sellableCartLines(state.cart, products)
         : [],
       cartUpdatedAt: isFreshDraftCart(state.cartUpdatedAt)
         ? state.cartUpdatedAt
@@ -107,13 +112,7 @@ export const usePosStore = create<PosState>()((set) => ({
       }
 
       return {
-        cart: cart
-          .filter((line) =>
-            state.products.some(
-              (product) => product.id === line.productId && !product.archivedAt
-            )
-          )
-          .map((line) => clampLineDiscount(line, state.products)),
+        cart: sellableCartLines(cart, state.products),
         cartUpdatedAt,
       };
     }),
@@ -211,6 +210,19 @@ export const usePosStore = create<PosState>()((set) => ({
       cartUpdatedAt: null,
       cartRevision: state.cartRevision + 1,
     })),
+  // Undo for clearCart: puts the emptied lines back, unless the cart changed
+  // since (a line added after emptying it is kept, not overwritten).
+  restoreCart: (cart, expectedCartRevision) =>
+    set((state) => {
+      if (state.cartRevision !== expectedCartRevision) {
+        return {};
+      }
+      return {
+        cart: sellableCartLines(cart, state.products),
+        cartUpdatedAt: nowIso(),
+        cartRevision: state.cartRevision + 1,
+      };
+    }),
   clearLocalData: () =>
     set((state) => ({
       products: [],
