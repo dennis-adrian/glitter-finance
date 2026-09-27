@@ -189,7 +189,7 @@ async function seedData(userId: string) {
   });
   await db
     .update(products)
-    .set({ archivedAt: new Date() })
+    .set({ archivedAt: new Date(), updatedAt: new Date() })
     .where(eq(products.id, keychain.id));
 
   // Completed sale, cash, no discount.

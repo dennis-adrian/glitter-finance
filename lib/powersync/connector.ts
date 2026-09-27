@@ -55,6 +55,10 @@ const FINANCIAL_RPC = {
  * tenant member) or it does not exist. PostgREST reports that as success, so
  * without this the edit would be dropped silently and reverted at the next
  * checkpoint. Carries 42501 so it is classified like other RLS denials.
+ *
+ * A stale product edit does not end up here: the last-write-wins trigger
+ * keeps the newer stored row, so the UPDATE still returns it, the upload
+ * completes, and the device receives the newer row at the next checkpoint.
  */
 export class UnappliedUpdateError extends Error {
   readonly code = "42501";

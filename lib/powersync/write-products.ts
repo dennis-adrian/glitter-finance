@@ -3,6 +3,11 @@
 // but write to the per-device PowerSync SQLite store; PowerSync's CRUD
 // queue uploads the changes to Supabase via SupabaseConnector.uploadData.
 //
+// Every UPDATE sets updated_at to the device time of the edit. Postgres keeps
+// the newer of two edits by that value
+// (supabase/manual/20260926130100_products_last_write_wins.sql), so an UPDATE
+// without it could never win over an edit another device made meanwhile.
+//
 // Image upload goes directly from the browser to Supabase Storage using the
 // user's JWT (gated by the policy in supabase/migrations/...product_image_upload_policy.sql).
 // The metadata write to products.image_path stays in the local SQLite store,
