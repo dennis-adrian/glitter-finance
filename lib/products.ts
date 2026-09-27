@@ -1,6 +1,10 @@
 import { UserFacingError } from "@/lib/action-result";
 import { MAX_QUANTITY, MAX_QUANTITY_LABEL } from "@/lib/inventory";
 import { formatBs, isValidCents, MAX_PRICE_CENTS } from "@/lib/money";
+import {
+  defaultPlaceholderImageTone,
+  encodePlaceholderImagePath,
+} from "@/lib/product-image-config";
 import { canonicalizeCategory } from "@/lib/sample-data";
 import type { Product, ProductInput } from "@/lib/types";
 import { characterCount } from "@/lib/validation";
@@ -11,9 +15,9 @@ export const emptyProduct: Product = {
   priceCents: 0,
   costCents: null,
   category: "Stickers",
-  imagePath: "placeholder:violet",
+  imagePath: encodePlaceholderImagePath(defaultPlaceholderImageTone),
   imageUrl: null,
-  imageTone: "violet",
+  imageTone: defaultPlaceholderImageTone,
   tracksInventory: false,
   lowStockThreshold: null,
   archivedAt: null,

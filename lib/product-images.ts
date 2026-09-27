@@ -2,11 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicEnv } from "@/lib/env";
 import {
   isPlaceholderImagePath,
-  placeholderImagePrefix,
   productImagesBucket,
 } from "@/lib/product-image-config";
-
-export { isPlaceholderImagePath, placeholderImagePrefix, productImagesBucket };
 
 export function getProductImagePublicUrl(path: string | null | undefined) {
   if (isPlaceholderImagePath(path)) {

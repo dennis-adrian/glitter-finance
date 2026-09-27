@@ -6,8 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireExpectedTenantContext } from "@/lib/auth/user-context";
 import {
   buildProductImageObjectPath,
-  productImageMaxBytes,
-  productImageMimeTypes,
+  productImageFileError,
   productImagesBucket,
   unreferencedProductImagePaths,
 } from "@/lib/product-image-config";
@@ -86,16 +85,9 @@ async function uploadProductImageForTenant(
     throw new UserFacingError("Selecciona una imagen del producto.");
   }
 
-  if (image.size <= 0) {
-    throw new UserFacingError("La imagen seleccionada está vacía.");
-  }
-
-  if (image.size > productImageMaxBytes) {
-    throw new UserFacingError("La imagen no puede superar 5MB.");
-  }
-
-  if (!productImageMimeTypes.some((type) => type === image.type)) {
-    throw new UserFacingError("La imagen debe estar en formato JPG o PNG.");
+  const imageError = productImageFileError(image);
+  if (imageError) {
+    throw new UserFacingError(imageError);
   }
 
   // Check the product before uploading, so a wrong id leaves no file behind.

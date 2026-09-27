@@ -18,13 +18,12 @@
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { encodePlaceholderImagePath } from "@/lib/product-mapper";
 import {
   buildProductImageObjectPath,
+  encodePlaceholderImagePath,
   isPlaceholderImagePath,
-  placeholderImagePrefix,
-  productImageMaxBytes,
-  productImageMimeTypes,
+  placeholderImagePathPattern,
+  productImageFileError,
   productImagesBucket,
 } from "@/lib/product-image-config";
 import { removeProductImageObjects } from "@/lib/product-images";
@@ -110,7 +109,7 @@ export async function updateProductLocal(
       product.priceCents,
       product.costCents,
       product.category,
-      `${placeholderImagePrefix}%`,
+      placeholderImagePathPattern,
       placeholderPath,
       product.tracksInventory ? 1 : 0,
       product.lowStockThreshold ?? null,
@@ -165,14 +164,9 @@ export async function uploadProductImageLocal(
 ): Promise<void> {
   const { file, tenantId, productId } = input;
 
-  if (file.size <= 0) {
-    throw new Error("La imagen seleccionada está vacía.");
-  }
-  if (file.size > productImageMaxBytes) {
-    throw new Error("La imagen no puede superar 5MB.");
-  }
-  if (!productImageMimeTypes.some((type) => type === file.type)) {
-    throw new Error("La imagen debe estar en formato JPG o PNG.");
+  const fileError = productImageFileError(file);
+  if (fileError) {
+    throw new Error(fileError);
   }
 
   const objectPath = buildProductImageObjectPath(

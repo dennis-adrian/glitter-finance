@@ -32,8 +32,12 @@ import {
   type InventoryMovementReason,
 } from "@/lib/inventory";
 import {
-  productImageMaxBytes,
-  productImageMimeTypes,
+  defaultPlaceholderImageTone,
+  placeholderImageTones,
+  productImageAccept,
+  productImageFileError,
+  productImageFormatsLabel,
+  productImageMaxSizeLabel,
 } from "@/lib/product-image-config";
 import { emptyProduct, PRODUCT_NAME_MAX_LENGTH } from "@/lib/products";
 import { canonicalizeCategory, categories } from "@/lib/sample-data";
@@ -94,7 +98,9 @@ export function ProductEditor({
   const [category, setCategory] = useState(
     canonicalizeCategory(product?.category ?? "Stickers")
   );
-  const [imageTone, setImageTone] = useState(product?.imageTone ?? "violet");
+  const [imageTone, setImageTone] = useState(
+    product?.imageTone ?? defaultPlaceholderImageTone
+  );
   const [tracksInventory, setTracksInventory] = useState(
     product?.tracksInventory ?? false
   );
@@ -165,16 +171,10 @@ export function ProductEditor({
       return;
     }
 
-    if (!productImageMimeTypes.some((type) => type === file.type)) {
+    const fileError = productImageFileError(file);
+    if (fileError) {
       setImageFile(null);
-      setImageError("La imagen debe estar en formato JPG o PNG.");
-      event.target.value = "";
-      return;
-    }
-
-    if (file.size > productImageMaxBytes) {
-      setImageFile(null);
-      setImageError("La imagen no puede superar 5MB.");
+      setImageError(fileError);
       event.target.value = "";
       return;
     }
@@ -274,7 +274,7 @@ export function ProductEditor({
           ref={imageInputRef}
           className="sr-only"
           type="file"
-          accept="image/jpeg,image/png"
+          accept={productImageAccept}
           onChange={handleImageChange}
         />
         <button
@@ -286,7 +286,7 @@ export function ProductEditor({
           <strong>
             {previewProduct.imageUrl ? "Cambiar imagen" : "Subir imagen"}
           </strong>
-          <span>Formatos JPG y PNG (máx. 5 MB)</span>
+          <span>{`Formatos ${productImageFormatsLabel} (máx. ${productImageMaxSizeLabel})`}</span>
         </button>
         <button
           type="button"
@@ -301,7 +301,7 @@ export function ProductEditor({
         <p className="mt-1.5 text-sm text-destructive">{imageError}</p>
       ) : null}
       <div className="tone-picker" aria-label="Color del marcador de posición">
-        {["aurora", "coral", "linen", "violet", "warm"].map((tone) => (
+        {placeholderImageTones.map((tone) => (
           <button
             key={tone}
             className={clsx("tone-dot", tone, imageTone === tone && "active")}

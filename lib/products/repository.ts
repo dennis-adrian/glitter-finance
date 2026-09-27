@@ -2,13 +2,11 @@ import { and, asc, eq, type SQL, sql } from "drizzle-orm";
 import { UserFacingError } from "@/lib/action-result";
 import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
+import { mapDbProductToProduct } from "@/lib/product-mapper";
 import {
   encodePlaceholderImagePath,
-  mapDbProductToProduct,
-} from "@/lib/product-mapper";
-import {
   isPlaceholderImagePath,
-  placeholderImagePrefix,
+  placeholderImagePathPattern,
 } from "@/lib/product-image-config";
 import type { Product, ProductInput } from "@/lib/types";
 
@@ -96,7 +94,7 @@ export async function updateProductForTenant(
   if (isPlaceholderImagePath(input.imagePath)) {
     updates.imagePath = sql`CASE
       WHEN ${products.imagePath} IS NULL
-        OR ${products.imagePath} LIKE ${`${placeholderImagePrefix}%`}
+        OR ${products.imagePath} LIKE ${placeholderImagePathPattern}
         THEN ${encodePlaceholderImagePath(input.imageTone)}
       ELSE ${products.imagePath}
     END`;

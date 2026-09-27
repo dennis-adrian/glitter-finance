@@ -3,9 +3,17 @@ import test from "node:test";
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import {
   buildProductImageObjectPath,
+  encodePlaceholderImagePath,
   isProductImageObjectPath,
+  placeholderImageTone,
+  productImageAccept,
+  productImageFileError,
+  productImageFormatsLabel,
+  productImageMaxBytes,
+  productImageMaxSizeLabel,
   unreferencedProductImagePaths,
 } from "@/lib/product-image-config";
+import { mapDbProductToProduct } from "@/lib/product-mapper";
 import { updateProductLocal } from "@/lib/powersync/write-products";
 
 const tenantId = "70000000-0000-4000-8000-000000000001";
@@ -13,6 +21,71 @@ const productId = "80000000-0000-4000-8000-000000000001";
 const owner = { tenantId, productId };
 const imageA = `${tenantId}/products/${productId}/aaaaaaaa-0000-4000-8000-000000000001.jpg`;
 const imageB = `${tenantId}/products/${productId}/bbbbbbbb-0000-4000-8000-000000000002.png`;
+
+test("image messages follow the configured limits", () => {
+  assert.equal(productImageMaxSizeLabel, "5 MB");
+  assert.equal(productImageFormatsLabel, "JPG y PNG");
+  assert.equal(productImageAccept, "image/jpeg,image/png");
+  assert.equal(
+    productImageFileError({ size: 1, type: "image/webp" }),
+    "La imagen debe estar en formato JPG o PNG."
+  );
+  assert.equal(
+    productImageFileError({ size: 0, type: "image/png" }),
+    "La imagen seleccionada está vacía."
+  );
+  assert.equal(
+    productImageFileError({
+      size: productImageMaxBytes + 1,
+      type: "image/jpeg",
+    }),
+    "La imagen no puede superar 5 MB."
+  );
+  assert.equal(
+    productImageFileError({ size: productImageMaxBytes, type: "image/jpeg" }),
+    null
+  );
+  assert.equal(productImageFileError({ size: 1, type: "image/png" }), null);
+});
+
+test("placeholder paths name a known tone or fall back to the default", () => {
+  assert.equal(encodePlaceholderImagePath("coral"), "placeholder:coral");
+  assert.equal(encodePlaceholderImagePath("neon"), "placeholder:violet");
+  assert.equal(encodePlaceholderImagePath(), "placeholder:violet");
+  assert.equal(placeholderImageTone("placeholder:warm"), "warm");
+  assert.equal(placeholderImageTone("placeholder:neon"), null);
+  assert.equal(placeholderImageTone(imageA), null);
+  assert.equal(placeholderImageTone(null), null);
+});
+
+test("the mapper keeps a placeholder's tone and derives one otherwise", () => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://example.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??= "publishable-key";
+  const row = {
+    id: productId,
+    name: "Print",
+    priceCents: 4000,
+    costCents: null,
+    category: "Prints",
+    archivedAt: null,
+    createdAt: "2026-09-01T00:00:00.000Z",
+    updatedAt: "2026-09-01T00:00:00.000Z",
+  };
+  const placeholder = mapDbProductToProduct({
+    ...row,
+    imagePath: "placeholder:linen",
+  });
+  const uploaded = mapDbProductToProduct({ ...row, imagePath: imageA });
+  const unknownTone = mapDbProductToProduct({
+    ...row,
+    imagePath: "placeholder:neon",
+  });
+
+  assert.equal(placeholder.imageTone, "linen");
+  assert.equal(placeholder.imageUrl, null);
+  assert.equal(uploaded.imageTone, unknownTone.imageTone);
+  assert.notEqual(uploaded.imageUrl, null);
+});
 
 test("builds a fresh object path in the product folder", () => {
   const jpeg = buildProductImageObjectPath(tenantId, productId, "image/jpeg");
