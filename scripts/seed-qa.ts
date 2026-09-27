@@ -13,8 +13,8 @@
 // Usage:
 //   QA_EMAIL=qa@glitterfinance.app QA_PASSWORD=... \
 //   NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
-//   npm run db:seed:qa            # seed if empty, otherwise leave data as-is
-//   npm run db:seed:qa -- --reset # wipe the QA tenant's catalog + sales, then reseed
+//   pnpm db:seed:qa               # seed if empty, otherwise leave data as-is
+//   pnpm db:seed:qa -- --reset    # wipe the QA tenant's catalog + sales, then reseed
 //
 // The auth user, tenant, and membership are always preserved (stable account);
 // only the dummy catalog and sales are affected by --reset.

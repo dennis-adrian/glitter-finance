@@ -282,7 +282,7 @@ for this release.
 ### 6.1 Drizzle schema (`lib/db/schema.ts`)
 
 Add the enum, the table, and the product column. Generate the migration with
-`npm run db:generate` (Drizzle owns migrations — never hand-edit the files).
+`pnpm db:generate` (Drizzle owns migrations — never hand-edit the files).
 
 - `inventory_movements`: single-column `id` PK (PowerSync requires it); columns
   per §4; composite FK `(product_id, tenant_id) → products(id, tenant_id)
@@ -332,7 +332,7 @@ Add an idempotent script
 mirroring the tenant_users one: skip if the `powersync` publication is missing,
 skip if `inventory_movements` is already published, else `ALTER PUBLICATION
 powersync ADD TABLE inventory_movements`. Run it in the Supabase SQL editor
-after `npm run db:push`, against **every** environment (staging and prod).
+after `pnpm db:push`, against **every** environment (staging and prod).
 
 Also update the README PowerSync setup section, which currently hardcodes the
 five-table list in two places (the `CREATE PUBLICATION powersync FOR TABLE ...`
@@ -378,7 +378,7 @@ replicate to PowerSync but never reach the client; sync-rules-without-client-sch
 → the client can't read the table. Deploy all four together, in order, per
 environment:
 
-1. `npm run db:push` (Drizzle-generated schema migrations only).
+1. `pnpm db:push` (Drizzle-generated schema migrations only).
 2. Run the manual SQL from §6.2 (`supabase/manual/20260626170000_inventory_movements_rls.sql`) in the Supabase SQL editor.
 3. Run the manual publication script (§6.3); confirm with the query above.
 4. Deploy sync rules in PowerSync Cloud (§6.4).
@@ -474,7 +474,7 @@ default constant).
 
 1. **Schema** — add the enum, `inventory_movements`, and `products`
    columns to `lib/db/schema.ts` and `lib/db/client-schema.ts`; run
-   `npm run db:generate`.
+   `pnpm db:generate`.
 2. **RLS migration** — hand-written RLS/FK/CHECK migration (§6.2).
 3. **Replication + sync** — manual publication script + README updates (§6.3),
    then the sync-rules query (§6.4) deployed to PowerSync Cloud. Follow the
@@ -505,7 +505,7 @@ with the parent PRD's dual-platform gate.
 **Offline multi-user (the decisive test)**
 
 Run with **two different users** on one tenant (a primary and an invited member,
-provisioned via `npm run db:invite:tenant-user` per the Stage D setup), one on
+provisioned via `pnpm db:invite:tenant-user` per the Stage D setup), one on
 each device — not one user on two devices.
 
 1. User A (device A) and User B (device B) signed into the same tenant, product

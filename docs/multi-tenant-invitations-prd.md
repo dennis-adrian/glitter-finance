@@ -344,14 +344,14 @@ personal tenant for them:
 - Add the `tenant_invitations` table per §4.2: columns, `unique(token)`, index on
   `tenant_id`, FK `tenant_id → tenants(id) ON DELETE cascade`, and its
   `tenantsRelations` / `tenantInvitationsRelations` entries.
-- Generate with `npm run db:generate` — **do not hand-edit** the generated files.
+- Generate with `pnpm db:generate` — **do not hand-edit** the generated files.
 - **No `lib/db/client-schema.ts` change** — `tenant_invitations` does not sync,
   and `tenant_users` already exists client-side.
 
 ### 6.2 Hand-written SQL (`supabase/manual/`, `auth.users` FKs + RLS)
 
 A timestamped file under `supabase/manual/`, run in the SQL editor after
-`npm run db:push` (per the project rules for `auth.users` FKs and RLS):
+`pnpm db:push` (per the project rules for `auth.users` FKs and RLS):
 
 - `tenants.created_by_user_id` → `auth.users(id) ON DELETE SET NULL`.
 - `tenant_invitations.created_by_user_id` → `auth.users(id) ON DELETE SET NULL`
@@ -398,7 +398,7 @@ tenant by writing a `tenant_users` row through PostgREST.
 
 Lighter than the inventory feature because there is no new synced table:
 
-1. `npm run db:push` — Drizzle migration (the `tenants` column +
+1. `pnpm db:push` — Drizzle migration (the `tenants` column +
    `tenant_invitations` table).
 2. Run the manual SQL from §6.2 in the Supabase SQL editor (FKs + RLS), against
    **every** environment.
@@ -540,7 +540,7 @@ writer) so the actions and the existing bootstrap share one implementation.
 ## 11. Build Sequence
 
 1. **Schema** — `tenants.created_by_user_id` + `tenant_invitations` in
-   `lib/db/schema.ts`; `npm run db:generate`. Manual SQL (§6.2). Deploy per §6.5.
+   `lib/db/schema.ts`; `pnpm db:generate`. Manual SQL (§6.2). Deploy per §6.5.
 2. **Active-tenant foundation** — multi-membership `loadMembership` + resolution,
    `UserTenantContext.tenants`, extracted shared helpers, `created_by_user_id` in
    bootstrap. (Independently shippable; the app still works with one tenant.)

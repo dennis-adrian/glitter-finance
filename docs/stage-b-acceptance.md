@@ -9,7 +9,7 @@ and on real installed PWAs for both iPhone Safari and Android Chrome.
 - Confirm Supabase migrations are applied.
 - Confirm PowerSync role, publication, and sync rules are active.
 - Confirm `NEXT_PUBLIC_POWERSYNC_URL` points at the staging PowerSync instance.
-- Seed the QA account with `npm run db:seed:qa`.
+- Seed the QA account with `pnpm db:seed:qa`.
 - Install the PWA on one iPhone using Safari and one Android phone using Chrome.
 
 ## Automated Checks

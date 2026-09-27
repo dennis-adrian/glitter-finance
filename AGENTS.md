@@ -5,7 +5,7 @@
 - **`lib/db/schema.ts` is the source of truth** for everything Drizzle can
   model: tables, columns, enums, indexes, foreign keys (within `public`),
   `CHECK` constraints, and partial unique indexes. Declare it there and run
-  `npm run db:generate` — do not add the same DDL in hand-written SQL.
+  `pnpm db:generate` — do not add the same DDL in hand-written SQL.
 - Never manually create, rename, edit, or delete **Drizzle-generated** files in
   `supabase/migrations/` or `supabase/migrations/meta/` (including
   `_journal.json` and snapshots). Hand-editing them causes schema/snapshot/journal

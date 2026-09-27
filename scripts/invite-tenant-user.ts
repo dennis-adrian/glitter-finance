@@ -17,7 +17,7 @@
 // Usage:
 //   TENANT_ID=... INVITE_EMAIL=helper@example.com INVITE_PASSWORD=... \
 //   NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
-//   npm run db:invite:tenant-user
+//   pnpm db:invite:tenant-user
 import "./load-env";
 
 import { and, eq } from "drizzle-orm";
