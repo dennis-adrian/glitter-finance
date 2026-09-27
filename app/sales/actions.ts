@@ -20,7 +20,7 @@ export async function createSale(input: CreateSaleActionInput) {
   const context = await ensureUserTenantContext();
 
   if (!context?.tenant) {
-    throw new Error("Se requiere una cuenta para registrar una venta.");
+    throw new Error("Se requiere un puesto para registrar una venta.");
   }
 
   return createSaleForTenant({
@@ -38,7 +38,7 @@ export async function voidSale(saleId: string) {
   const context = await ensureUserTenantContext();
 
   if (!context?.tenant) {
-    throw new Error("Se requiere una cuenta para anular una venta.");
+    throw new Error("Se requiere un puesto para anular una venta.");
   }
 
   return voidSaleForTenant({
@@ -52,7 +52,7 @@ export async function refundSale(saleId: string, reason?: string) {
   const context = await ensureUserTenantContext();
 
   if (!context?.tenant) {
-    throw new Error("Se requiere una cuenta para registrar un reembolso.");
+    throw new Error("Se requiere un puesto para registrar un reembolso.");
   }
 
   return refundSaleForTenant({

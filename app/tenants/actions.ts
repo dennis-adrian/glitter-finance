@@ -14,22 +14,22 @@ const TENANT_ID_RE =
 
 function parseTenantId(tenantId: unknown): string {
   if (typeof tenantId !== "string") {
-    throw new Error("Identificador de cuenta inválido.");
+    throw new Error("Identificador de puesto inválido.");
   }
   const normalized = tenantId.trim();
   if (!TENANT_ID_RE.test(normalized)) {
-    throw new Error("Identificador de cuenta inválido.");
+    throw new Error("Identificador de puesto inválido.");
   }
   return normalized;
 }
 
 function parseTenantName(name: unknown): string {
   if (typeof name !== "string") {
-    throw new Error("El nombre de la cuenta es obligatorio.");
+    throw new Error("El nombre del puesto es obligatorio.");
   }
   const trimmedName = name.trim();
   if (!trimmedName) {
-    throw new Error("El nombre de la cuenta es obligatorio.");
+    throw new Error("El nombre del puesto es obligatorio.");
   }
   return trimmedName;
 }
@@ -76,7 +76,7 @@ export async function createTenant(name: string) {
       .returning({ id: tenants.id, name: tenants.name });
 
     if (!createdTenant) {
-      throw new Error("No se pudo crear la cuenta.");
+      throw new Error("No se pudo crear el puesto.");
     }
 
     await tx.insert(tenantUsers).values({

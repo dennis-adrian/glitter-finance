@@ -887,7 +887,7 @@ export function GlitterPosApp({
   }) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
+      showToast("Tu puesto aún no está configurado.", "danger");
       return;
     }
     const work = beginTenantWork();
@@ -1033,7 +1033,7 @@ export function GlitterPosApp({
   }) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
+      showToast("Tu puesto aún no está configurado.", "danger");
       return;
     }
     const db = powerSyncDb;
@@ -1080,7 +1080,7 @@ export function GlitterPosApp({
     }
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
+      showToast("Tu puesto aún no está configurado.", "danger");
       return;
     }
 
@@ -1189,7 +1189,7 @@ export function GlitterPosApp({
   async function handleVoidSale(saleId: string) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
+      showToast("Tu puesto aún no está configurado.", "danger");
       return false;
     }
     const work = beginTenantWork();
@@ -1227,7 +1227,7 @@ export function GlitterPosApp({
   async function handleRefundSale(saleId: string, reason?: string) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
+      showToast("Tu puesto aún no está configurado.", "danger");
       return false;
     }
     const work = beginTenantWork();
@@ -1354,7 +1354,7 @@ export function GlitterPosApp({
         restoreProduct={async (productId) => {
           const tenant = tenantContext.tenant;
           if (!tenant) {
-            showToast("Tu cuenta aún no está configurada.", "danger");
+            showToast("Tu puesto aún no está configurado.", "danger");
             return;
           }
           const work = beginTenantWork();
@@ -1450,7 +1450,7 @@ export function GlitterPosApp({
         archive={async (productId) => {
           const tenant = tenantContext.tenant;
           if (!tenant) {
-            showToast("Tu cuenta aún no está configurada.", "danger");
+            showToast("Tu puesto aún no está configurado.", "danger");
             return;
           }
           const work = beginTenantWork();
