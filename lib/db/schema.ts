@@ -13,7 +13,9 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+
+// No Drizzle relations() are declared: queries use the core query builder
+// (db.select / db.insert), never the relational db.query API.
 
 export const paymentMethodEnum = pgEnum("payment_method", [
   "cash",
@@ -39,15 +41,6 @@ export const tenants = pgTable("tenants", {
     .notNull()
     .defaultNow(),
 });
-
-export const tenantsRelations = relations(tenants, ({ many }) => ({
-  users: many(tenantUsers),
-  invitations: many(tenantInvitations),
-  products: many(products),
-  sales: many(sales),
-  refunds: many(refunds),
-  inventoryMovements: many(inventoryMovements),
-}));
 
 export const tenantInvitations = pgTable(
   "tenant_invitations",
@@ -76,16 +69,6 @@ export const tenantInvitations = pgTable(
   ]
 );
 
-export const tenantInvitationsRelations = relations(
-  tenantInvitations,
-  ({ one }) => ({
-    tenant: one(tenants, {
-      fields: [tenantInvitations.tenantId],
-      references: [tenants.id],
-    }),
-  })
-);
-
 export const tenantUsers = pgTable(
   "tenant_users",
   {
@@ -109,13 +92,6 @@ export const tenantUsers = pgTable(
     index("tenant_users_tenant_id_idx").on(table.tenantId),
   ]
 );
-
-export const tenantUsersRelations = relations(tenantUsers, ({ one }) => ({
-  tenant: one(tenants, {
-    fields: [tenantUsers.tenantId],
-    references: [tenants.id],
-  }),
-}));
 
 export const products = pgTable(
   "products",
@@ -159,14 +135,6 @@ export const products = pgTable(
     ),
   ]
 );
-
-export const productsRelations = relations(products, ({ one, many }) => ({
-  tenant: one(tenants, {
-    fields: [products.tenantId],
-    references: [tenants.id],
-  }),
-  inventoryMovements: many(inventoryMovements),
-}));
 
 export const inventoryMovements = pgTable(
   "inventory_movements",
@@ -216,20 +184,6 @@ export const inventoryMovements = pgTable(
   ]
 );
 
-export const inventoryMovementsRelations = relations(
-  inventoryMovements,
-  ({ one }) => ({
-    tenant: one(tenants, {
-      fields: [inventoryMovements.tenantId],
-      references: [tenants.id],
-    }),
-    product: one(products, {
-      fields: [inventoryMovements.productId],
-      references: [products.id],
-    }),
-  })
-);
-
 export const sales = pgTable(
   "sales",
   {
@@ -269,15 +223,6 @@ export const sales = pgTable(
     ),
   ]
 );
-
-export const salesRelations = relations(sales, ({ one, many }) => ({
-  tenant: one(tenants, {
-    fields: [sales.tenantId],
-    references: [tenants.id],
-  }),
-  lines: many(saleLines),
-  refunds: many(refunds),
-}));
 
 export const saleLines = pgTable(
   "sale_lines",
@@ -341,21 +286,6 @@ export const saleLines = pgTable(
   ]
 );
 
-export const saleLinesRelations = relations(saleLines, ({ one }) => ({
-  sale: one(sales, {
-    fields: [saleLines.saleId],
-    references: [sales.id],
-  }),
-  tenant: one(tenants, {
-    fields: [saleLines.tenantId],
-    references: [tenants.id],
-  }),
-  product: one(products, {
-    fields: [saleLines.productId],
-    references: [products.id],
-  }),
-}));
-
 export const refunds = pgTable(
   "refunds",
   {
@@ -385,14 +315,3 @@ export const refunds = pgTable(
     }).onDelete("restrict"),
   ]
 );
-
-export const refundsRelations = relations(refunds, ({ one }) => ({
-  tenant: one(tenants, {
-    fields: [refunds.tenantId],
-    references: [tenants.id],
-  }),
-  originalSale: one(sales, {
-    fields: [refunds.originalSaleId],
-    references: [sales.id],
-  }),
-}));
