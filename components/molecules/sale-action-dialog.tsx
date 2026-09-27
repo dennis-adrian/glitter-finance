@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { RotateCcw, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { Sale } from "@/lib/types";
+import { useDialogFocusTrap } from "@/lib/use-dialog-focus-trap";
 import { MAX_NOTE_LENGTH } from "@/lib/validation";
 
 type SaleAction = "void" | "refund";
@@ -15,18 +16,6 @@ type SaleActionDialogProps = {
   onClose: () => void;
   onConfirm: (reason?: string) => Promise<boolean>;
 };
-
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-function getFocusableElements(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-  ).filter((element) => {
-    if (element.closest("[inert]")) return false;
-    return element.getClientRects().length > 0;
-  });
-}
 
 export function SaleActionDialog({
   sale,
@@ -39,65 +28,13 @@ export function SaleActionDialog({
   const [isPending, setIsPending] = useState(false);
   const pendingRef = useRef(false);
   const dialogRef = useRef<HTMLElement | null>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
 
   const isOpen = sale !== null && action !== null;
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-
-    previousFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-
-    const focusables = getFocusableElements(dialog);
-    (focusables[0] ?? dialog).focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (pendingRef.current) return;
-        event.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-
-      if (event.key !== "Tab") return;
-
-      const nodes = getFocusableElements(dialog);
-      if (nodes.length === 0) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-
-      const first = nodes[0];
-      const last = nodes[nodes.length - 1];
-      const active = document.activeElement;
-
-      if (event.shiftKey) {
-        if (active === first || !dialog.contains(active)) {
-          event.preventDefault();
-          last.focus();
-        }
-      } else if (active === last || !dialog.contains(active)) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      const previous = previousFocusRef.current;
-      if (previous?.isConnected) previous.focus();
-    };
-  }, [isOpen]);
+  useDialogFocusTrap(dialogRef, {
+    isOpen,
+    onClose,
+    canClose: () => !pendingRef.current,
+  });
 
   if (!sale || !action) return null;
 
