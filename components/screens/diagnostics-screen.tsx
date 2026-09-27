@@ -13,7 +13,8 @@ import {
   ClipboardCopy,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -24,32 +25,16 @@ import {
 import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import {
   getUnresolvedSyncFailures,
-  reconcileSyncFailures,
   type SyncFailure,
 } from "@/lib/powersync/sync-failures";
+import { useSyncStatus } from "@/lib/powersync/use-sync-status";
 
-type Snapshot = {
-  connected: boolean;
-  hasSynced: boolean;
-  lastSyncedAt: string | null;
-  uploading: boolean;
-  downloading: boolean;
-  uploadError: string | null;
-  downloadError: string | null;
-  pendingCount: number;
+type QueueDetails = {
   pendingBytes: number | null;
   failures: SyncFailure[];
 };
 
-const emptySnapshot: Snapshot = {
-  connected: false,
-  hasSynced: false,
-  lastSyncedAt: null,
-  uploading: false,
-  downloading: false,
-  uploadError: null,
-  downloadError: null,
-  pendingCount: 0,
+const emptyQueueDetails: QueueDetails = {
   pendingBytes: null,
   failures: [],
 };
@@ -100,87 +85,59 @@ export function DiagnosticsScreen({
 }: DiagnosticsScreenProps) {
   const db = useOptionalPowerSyncDb();
   const controls = usePowerSyncControls();
-  const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot);
-  const lastFailuresRef = useRef<SyncFailure[]>([]);
+  const sync = useSyncStatus();
+  const [queueDetails, setQueueDetails] = useState<{
+    db: AbstractPowerSyncDatabase;
+    details: QueueDetails;
+  } | null>(null);
   const [device, setDevice] = useState<DeviceInfo>(readDeviceInfoSync);
   const [reconnecting, setReconnecting] = useState(false);
   const [copyConfirmed, setCopyConfirmed] = useState(false);
+  const { pendingCount, failureCount } = sync;
+  const details =
+    queueDetails && queueDetails.db === db
+      ? queueDetails.details
+      : emptyQueueDetails;
 
-  // Sync state — re-fetch on status changes plus a 2s poll for the queue
-  // count, which isn't part of the status event stream.
+  // The status itself is shared (useSyncStatus). The queue size and the
+  // failure records are read again only when the counts change: summing the
+  // queue reads every pending operation.
   useEffect(() => {
-    lastFailuresRef.current = [];
-    if (!db) {
-      setSnapshot(emptySnapshot);
-      return;
-    }
+    if (!db) return;
     let cancelled = false;
 
-    async function refresh() {
-      if (cancelled || !db) return;
-      const status = db.currentStatus;
-      try {
-        await reconcileSyncFailures(db);
-      } catch (error) {
-        console.error("[Diagnostics] sync failure reconciliation failed", {
-          error,
-        });
-      }
-      if (cancelled) return;
-      let pendingCount = 0;
-      let pendingBytes: number | null = null;
-      let failures = lastFailuresRef.current;
+    async function loadQueueDetails(activeDb: AbstractPowerSyncDatabase) {
       const [statsResult, failuresResult] = await Promise.allSettled([
-        db.getUploadQueueStats(true),
-        getUnresolvedSyncFailures(db),
+        activeDb.getUploadQueueStats(true),
+        getUnresolvedSyncFailures(activeDb),
       ]);
       if (cancelled) return;
-      if (statsResult.status === "fulfilled") {
-        pendingCount = statsResult.value.count;
-        pendingBytes = statsResult.value.size;
-      }
-      if (failuresResult.status === "fulfilled") {
-        failures = failuresResult.value;
-        lastFailuresRef.current = failures;
-      }
-      setSnapshot({
-        connected: status?.connected ?? false,
-        hasSynced: status?.hasSynced ?? false,
-        lastSyncedAt: status?.lastSyncedAt?.toISOString() ?? null,
-        uploading: status?.dataFlowStatus.uploading ?? false,
-        downloading: status?.dataFlowStatus.downloading ?? false,
-        uploadError: status?.dataFlowStatus.uploadError
-          ? String(
-              status.dataFlowStatus.uploadError.message ??
-                status.dataFlowStatus.uploadError
-            )
-          : null,
-        downloadError: status?.dataFlowStatus.downloadError
-          ? String(
-              status.dataFlowStatus.downloadError.message ??
-                status.dataFlowStatus.downloadError
-            )
-          : null,
-        pendingCount,
-        pendingBytes,
-        failures,
+      setQueueDetails((current) => {
+        const previous =
+          current?.db === activeDb ? current.details : emptyQueueDetails;
+        return {
+          db: activeDb,
+          details: {
+            pendingBytes:
+              statsResult.status === "fulfilled"
+                ? (statsResult.value.size ?? null)
+                : previous.pendingBytes,
+            // Keep the last list when the read fails, so the failures stay
+            // on screen.
+            failures:
+              failuresResult.status === "fulfilled"
+                ? failuresResult.value
+                : previous.failures,
+          },
+        };
       });
     }
 
-    const unregister = db.registerListener({
-      statusChanged: () => {
-        void refresh();
-      },
-    });
-    void refresh();
-    const interval = window.setInterval(refresh, 2000);
-
+    void loadQueueDetails(db);
     return () => {
       cancelled = true;
-      unregister();
-      window.clearInterval(interval);
     };
-  }, [db]);
+  }, [db, pendingCount, failureCount]);
 
   // Device info — refresh on online/offline events and an async storage
   // estimate (StorageManager API isn't always available; falls back to "—").
@@ -235,7 +192,18 @@ export function DiagnosticsScreen({
   async function handleCopy() {
     const payload = {
       generatedAt: new Date().toISOString(),
-      sync: snapshot,
+      sync: {
+        connected: sync.connected,
+        hasSynced: sync.hasSynced,
+        lastSyncedAt: sync.lastSyncedAt?.toISOString() ?? null,
+        uploading: sync.uploading,
+        downloading: sync.downloading,
+        uploadError: sync.uploadError,
+        downloadError: sync.downloadError,
+        pendingCount: sync.pendingCount,
+        pendingBytes: details.pendingBytes,
+        failures: details.failures,
+      },
       identity: {
         tenantId: tenantContext.tenant?.id ?? null,
         tenantName: tenantContext.tenant?.name ?? null,
@@ -270,68 +238,64 @@ export function DiagnosticsScreen({
         }
       />
 
-      {snapshot.failures.length ? (
+      {details.failures.length ? (
         <div
           className="mt-3 flex gap-2 rounded-xl border border-destructive/35 bg-destructive/10 p-3 text-sm text-destructive"
           role="alert"
         >
           <AlertTriangle className="mt-0.5 size-4.25 shrink-0" />
           <span>
-            {snapshot.failures.length === 1
+            {details.failures.length === 1
               ? "1 transacción no llegó a la nube."
-              : `${snapshot.failures.length} transacciones no llegaron a la nube.`}{" "}
+              : `${details.failures.length} transacciones no llegaron a la nube.`}{" "}
             Copia este diagnóstico y no cierres sesión ni cambies de cuenta
             hasta{" "}
-            {snapshot.failures.length === 1 ? "recuperarla" : "recuperarlas"}.
+            {details.failures.length === 1 ? "recuperarla" : "recuperarlas"}.
           </span>
         </div>
       ) : null}
 
       <DiagPanel title="Sincronización">
-        <DiagRow label="Conectado" value={yesNo(snapshot.connected)} />
-        <DiagRow label="Sincronizado" value={yesNo(snapshot.hasSynced)} />
+        <DiagRow label="Conectado" value={yesNo(sync.connected)} />
+        <DiagRow label="Sincronizado" value={yesNo(sync.hasSynced)} />
         <DiagRow
           label="Última sincronización"
-          value={snapshot.lastSyncedAt ?? "—"}
+          value={sync.lastSyncedAt?.toISOString() ?? "—"}
           mono
         />
-        <DiagRow label="Subiendo" value={yesNo(snapshot.uploading)} />
-        <DiagRow label="Bajando" value={yesNo(snapshot.downloading)} />
-        {snapshot.uploadError ? (
-          <DiagRow label="Error de subida" value={snapshot.uploadError} mono />
+        <DiagRow label="Subiendo" value={yesNo(sync.uploading)} />
+        <DiagRow label="Bajando" value={yesNo(sync.downloading)} />
+        {sync.uploadError ? (
+          <DiagRow label="Error de subida" value={sync.uploadError} mono />
         ) : null}
-        {snapshot.downloadError ? (
-          <DiagRow
-            label="Error de bajada"
-            value={snapshot.downloadError}
-            mono
-          />
+        {sync.downloadError ? (
+          <DiagRow label="Error de bajada" value={sync.downloadError} mono />
         ) : null}
       </DiagPanel>
 
       <DiagPanel title="Cola de subida">
         <DiagRow
           label="Operaciones pendientes"
-          value={String(snapshot.pendingCount)}
+          value={String(sync.pendingCount)}
         />
         <DiagRow
           label="Tamaño aproximado"
-          value={formatBytes(snapshot.pendingBytes)}
+          value={formatBytes(details.pendingBytes)}
         />
         <DiagRow
           label="Transacciones fallidas"
-          value={String(snapshot.failures.length)}
+          value={String(details.failures.length)}
         />
-        {snapshot.failures[0] ? (
+        {details.failures[0] ? (
           <>
             <DiagRow
               label="Último código"
-              value={snapshot.failures[0].errorCode ?? "—"}
+              value={details.failures[0].errorCode ?? "—"}
               mono
             />
             <DiagRow
               label="Último error"
-              value={snapshot.failures[0].errorMessage}
+              value={details.failures[0].errorMessage}
               mono
             />
           </>

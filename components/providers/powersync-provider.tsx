@@ -4,7 +4,8 @@
 // the PowerSync Cloud instance using the current Supabase session, and
 // exposes it through OptionalPowerSyncContext: always present, null until the
 // db is ready, so app code can subscribe without throwing during the brief
-// async-init window.
+// async-init window. It also provides the one sync status store that every
+// useSyncStatus caller shares.
 //
 // The tree has one shape per phase: the local data panel while the data is
 // being prepared, cleared or recovered, and `children` otherwise. Nothing wraps
@@ -19,6 +20,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -37,6 +39,12 @@ import {
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { reconcileSyncFailures } from "@/lib/powersync/sync-failures";
+import {
+  createSyncStatusStore,
+  idleSyncStatusStore,
+  syncErrorText,
+} from "@/lib/powersync/sync-status";
+import { SyncStatusStoreProvider } from "@/lib/powersync/use-sync-status";
 import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import { flushPendingSyncFailureTelemetry } from "@/lib/observability/report-sync-failure";
 import {
@@ -290,18 +298,8 @@ export function PowerSyncProvider({
               hasSynced: status.hasSynced,
               uploading: status.dataFlowStatus.uploading,
               downloading: status.dataFlowStatus.downloading,
-              uploadError: status.dataFlowStatus.uploadError
-                ? String(
-                    status.dataFlowStatus.uploadError.message ??
-                      status.dataFlowStatus.uploadError
-                  )
-                : null,
-              downloadError: status.dataFlowStatus.downloadError
-                ? String(
-                    status.dataFlowStatus.downloadError.message ??
-                      status.dataFlowStatus.downloadError
-                  )
-                : null,
+              uploadError: syncErrorText(status.dataFlowStatus.uploadError),
+              downloadError: syncErrorText(status.dataFlowStatus.downloadError),
               lastSyncedAt: status.lastSyncedAt?.toISOString(),
             });
           }
@@ -351,6 +349,13 @@ export function PowerSyncProvider({
   // An identity change makes the old instance unavailable during the render
   // that precedes effect cleanup, rather than after close() has started.
   const exposedDb = localDataReady ? db : null;
+
+  // One sync status reader per database, shared by every screen that shows
+  // it. It only polls while something is subscribed.
+  const syncStatusStore = useMemo(
+    () => (exposedDb ? createSyncStatusStore(exposedDb) : idleSyncStatusStore),
+    [exposedDb]
+  );
 
   // Controls run from event handlers, after this has pointed them at the
   // committed instance.
@@ -500,7 +505,9 @@ export function PowerSyncProvider({
   return (
     <PowerSyncControlsContext.Provider value={controls}>
       <OptionalPowerSyncContext.Provider value={exposedDb}>
-        {localDataReady ? children : renderLocalDataPanel()}
+        <SyncStatusStoreProvider value={syncStatusStore}>
+          {localDataReady ? children : renderLocalDataPanel()}
+        </SyncStatusStoreProvider>
       </OptionalPowerSyncContext.Provider>
     </PowerSyncControlsContext.Provider>
   );

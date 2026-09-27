@@ -13,9 +13,9 @@
 import { useEffect, useState } from "react";
 import { relativeTime } from "@/lib/dates";
 import { isPowerSyncConfigured } from "@/lib/env";
-import { useSyncStatus } from "@/lib/powersync/use-sync-status";
+import { useSyncStatus, type SyncState } from "@/lib/powersync/use-sync-status";
 
-const stateLabels: Record<ReturnType<typeof useSyncStatus>["state"], string> = {
+const stateLabels: Record<SyncState, string> = {
   initializing: "Conectando…",
   offline: "Sin conexión",
   syncing: "Sincronizando…",

@@ -1,4 +1,4 @@
-import type { SyncState } from "@/lib/powersync/use-sync-status";
+import type { SyncState } from "@/lib/powersync/sync-status";
 
 /**
  * Why an action that clears the local data (sign-out, switching, creating or

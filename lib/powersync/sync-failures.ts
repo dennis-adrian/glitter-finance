@@ -1,5 +1,8 @@
 import type { AbstractPowerSyncDatabase, CrudEntry } from "@powersync/web";
+import type { LocalRow, syncFailures } from "@/lib/db/client-schema";
 import { reportSyncFailureReconciliationError } from "@/lib/observability/report-sync-failure";
+
+type SyncFailureRow = LocalRow<typeof syncFailures>;
 
 export type SyncFailure = {
   id: string;
@@ -108,15 +111,7 @@ export async function resolveSyncFailure(
 export async function getUnresolvedSyncFailures(
   db: AbstractPowerSyncDatabase
 ): Promise<SyncFailure[]> {
-  const rows = await db.getAll<{
-    id: string;
-    transaction_id: number | null;
-    tenant_id: string | null;
-    operations_json: string;
-    error_code: string | null;
-    error_message: string;
-    created_at: string;
-  }>(
+  const rows = await db.getAll<Omit<SyncFailureRow, "resolved_at">>(
     `SELECT id, transaction_id, tenant_id, operations_json, error_code,
             error_message, created_at
      FROM sync_failures
@@ -148,43 +143,52 @@ export async function getUnresolvedSyncFailureCount(
 
 /**
  * Clear dead-letter markers only after proving that their PowerSync CRUD
- * transaction is no longer queued. `getCrudTransactions` is read-only; never
- * call complete() here, since reconciliation must not advance the queue.
+ * transaction is no longer queued. It only reads the queue; never call
+ * complete() here, since reconciliation must not advance the queue.
  *
  * Markers without a transaction ID are intentionally retained: there is no
  * unambiguous queue identity with which to prove their completion.
+ *
+ * One query over ps_crud (PowerSync's upload queue table) finds which of
+ * the markers' transactions are still queued. Walking the queue with
+ * getCrudTransactions() instead costs a query per transaction, and the queue
+ * keeps growing behind a failed transaction.
  */
 export async function reconcileSyncFailures(
   db: AbstractPowerSyncDatabase
 ): Promise<number> {
   try {
-    const failures = await getUnresolvedSyncFailures(db);
-    if (failures.length === 0) return 0;
+    const markers = await db.getAll<
+      Pick<SyncFailureRow, "id" | "transaction_id">
+    >(
+      `SELECT id, transaction_id FROM sync_failures
+       WHERE resolved_at IS NULL AND transaction_id IS NOT NULL`
+    );
+    if (markers.length === 0) return 0;
 
-    const pendingTransactionIds = new Set<number>();
-    for await (const transaction of db.getCrudTransactions()) {
-      if (transaction.transactionId != null) {
-        pendingTransactionIds.add(transaction.transactionId);
-      }
-    }
+    const queued = await db.getAll<{ tx_id: number }>(
+      `SELECT DISTINCT tx_id FROM ps_crud
+       WHERE tx_id IN (SELECT value FROM json_each(?))`,
+      [JSON.stringify(markers.map((marker) => marker.transaction_id))]
+    );
+    const queuedTransactionIds = new Set(
+      queued.map((row) => Number(row.tx_id))
+    );
+    const staleIds = markers
+      .filter(
+        (marker) => !queuedTransactionIds.has(Number(marker.transaction_id))
+      )
+      .map((marker) => marker.id);
+    if (staleIds.length === 0) return 0;
 
-    let resolvedCount = 0;
-    for (const failure of failures) {
-      if (
-        failure.transactionId == null ||
-        pendingTransactionIds.has(failure.transactionId)
-      ) {
-        continue;
-      }
-
-      await resolveSyncFailure(db, {
-        transactionId: failure.transactionId,
-        operations: [],
-      });
-      resolvedCount += 1;
-    }
-
-    return resolvedCount;
+    await db.execute(
+      `UPDATE sync_failures
+       SET resolved_at = ?
+       WHERE resolved_at IS NULL
+         AND id IN (SELECT value FROM json_each(?))`,
+      [new Date().toISOString(), JSON.stringify(staleIds)]
+    );
+    return staleIds.length;
   } catch (error) {
     // Do not expose SQL errors or operation payloads to telemetry.
     reportSyncFailureReconciliationError();
