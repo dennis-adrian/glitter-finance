@@ -227,8 +227,23 @@ export async function signUpWithPassword(
   redirect(next);
 }
 
+/**
+ * Ends the server session. It does not redirect: the client runs it only
+ * after the local teardown and then loads /login itself, so a failure here
+ * (offline, auth outage) stays a normal error it can show and retry, instead
+ * of looking like the NEXT_REDIRECT rejection a redirect would produce.
+ */
 export async function signOut() {
   const supabase = await createClient();
-  await supabase.auth.signOut();
-  redirect("/login");
+  const { error } = await supabase.auth.signOut();
+  if (error) {
+    console.error("[auth] Failed to sign out", {
+      code: error.code ?? null,
+      name: error.name,
+      status: error.status ?? null,
+    });
+    // supabase-js keeps the session when the revocation fails for any
+    // reason other than an already-invalid session.
+    throw new Error("No se pudo cerrar la sesión.");
+  }
 }

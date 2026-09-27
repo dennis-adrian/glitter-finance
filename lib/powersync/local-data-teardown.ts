@@ -3,6 +3,7 @@
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { clearInitialSyncCompleted } from "@/lib/powersync/initial-sync";
 import { clearLegacyDraftCartStorage } from "@/lib/powersync/draft-cart";
+import { pendingUploadsBlockerMessage } from "@/lib/powersync/local-data-gate";
 import { resetReportedSyncFailures } from "@/lib/observability/report-sync-failure";
 import {
   getUnresolvedSyncFailureCount,
@@ -66,12 +67,6 @@ export function isUnsyncedLocalDataRefusal(
   );
 }
 
-export function describePendingUploads(count: number) {
-  return count === 1
-    ? "Hay 1 operación sin subir a la nube."
-    : `Hay ${count} operaciones sin subir a la nube.`;
-}
-
 /** Work on this device that the server has not received yet. */
 export type UnsyncedLocalWork = {
   pendingUploadCount: number;
@@ -113,11 +108,7 @@ async function assertNoUnsyncedLocalWork(db: AbstractPowerSyncDatabase) {
     // would never reach the server.
     throw new LocalDataTeardownError(
       "pending-uploads",
-      `${describePendingUploads(unsynced.pendingUploadCount)} ${
-        unsynced.pendingUploadCount === 1
-          ? "Conéctate y espera a que se sincronice antes de continuar."
-          : "Conéctate y espera a que se sincronicen antes de continuar."
-      }`
+      pendingUploadsBlockerMessage(unsynced.pendingUploadCount, "continuar")
     );
   }
 }

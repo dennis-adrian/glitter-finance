@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AbstractPowerSyncDatabase, CrudEntry } from "@powersync/web";
-import { signOutAfterLocalTeardown } from "@/lib/auth/client-logout";
+import { changeIdentityAfterLocalTeardown } from "@/lib/auth/identity-change";
 import {
   reportPermanentSyncFailure,
   resetReportedSyncFailures,
@@ -17,6 +17,22 @@ import {
 import { TenantWorkController } from "@/lib/powersync/tenant-work";
 import { usePosStore } from "@/lib/store";
 import type { Product, Sale } from "@/lib/types";
+
+function signOutAfterLocalTeardown(
+  teardown: () => Promise<void>,
+  serverSignOut: () => Promise<void>
+) {
+  return changeIdentityAfterLocalTeardown({
+    teardown,
+    commit: serverSignOut,
+    destination: "/login",
+    failureMessage: "No se pudo cerrar la sesión.",
+    reportFailure: (message) => {
+      throw new Error(`Unexpected server failure: ${message}`);
+    },
+    navigate: () => {},
+  });
+}
 
 class MemoryStorage {
   private values = new Map<string, string>();
