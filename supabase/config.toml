@@ -68,7 +68,14 @@ schema_paths = []
 enabled = true
 # Specifies an ordered list of seed files to load during db reset.
 # Supports glob patterns relative to supabase directory: "./seeds/*.sql"
-sql_paths = ["./seed.sql"]
+# The hand-written SQL in manual/ runs first, in lexicographic order, so a
+# local reset gets the same RLS, triggers, functions and Storage rules as a
+# hosted project. Every manual file is idempotent, and the publication scripts
+# skip when there is no powersync publication. seed.sql is local demo data:
+# never run it against a hosted project (pass --no-seed to `db reset --linked`
+# and never --include-seed to `db push`); hosted projects get the manual files
+# from the SQL editor, as the README describes.
+sql_paths = ["./manual/*.sql", "./seed.sql"]
 
 [db.network_restrictions]
 # Enable management of network restrictions.

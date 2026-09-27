@@ -39,8 +39,9 @@ pnpm dev
 
 Then open `http://localhost:3000`.
 
-`pnpm db:reset` loads `supabase/seed.sql`, which creates a reusable
-development account:
+`pnpm db:reset` applies the migrations, then every file in `supabase/manual/`
+in order (see [Hand-written SQL](#hand-written-sql-supabasemanual)), then
+`supabase/seed.sql`, which creates a reusable development account:
 
 - Email: `demo@glitter-pos.local`
 - Password: `glitter-demo`
@@ -97,6 +98,11 @@ pnpm db:push       # applies pending migrations to glitter-finance-staging
 supabase link --project-ref <prod-project-ref>
 pnpm db:push       # applies the same migrations to glitter-finance
 ```
+
+`pnpm db:push` applies only `supabase/migrations/`. After it, run the
+`supabase/manual/` files that project has not had yet, in order, in its SQL
+editor (see [Hand-written SQL](#hand-written-sql-supabasemanual)). Deploy the
+app only after both.
 
 After relinking, update `.env.local` so `NEXT_PUBLIC_SUPABASE_URL`, the publishable and secret keys, and `DATABASE_URL` all match the now-linked project; otherwise the running app and the CLI will talk to different backends.
 
@@ -220,13 +226,20 @@ endpoint host, whether the JWT has `app_metadata.tenant_id`, and the JWT
 metadata (`alg`, `kid`, issuer, audience). The `issuer` must match the Supabase
 project used for the JWKS URI, and the `kid` must appear in that JWKS response.
 
-**After `supabase db reset --linked`:** the reset drops everything in the `public` schema, which includes the `powersync` publication and the grants you gave `powersync_role`. The role itself survives (it's cluster-level, not database-level), and its password is unchanged. To restore the replication bits, re-run just the grants + publication portion (skip `CREATE ROLE`):
+**After `supabase db reset --linked`:** the reset drops everything in the `public` schema, which includes the `powersync` publication, the grants you gave `powersync_role`, and everything the `supabase/manual/` files installed there: the `inventory_movements` RLS, the financial RPCs and triggers, the product last-write-wins trigger and the Storage policy helper. The role itself survives (it's cluster-level, not database-level), and its password is unchanged. To restore the environment:
 
-```sql
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
-CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds, tenant_users, inventory_movements;
-```
+1. Re-run the grants + publication portion of the bootstrap (skip `CREATE ROLE`):
+
+   ```sql
+   GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
+   CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds, tenant_users, inventory_movements;
+   ```
+
+2. Run every file in `supabase/manual/`, in order, in the SQL editor (see
+   [Hand-written SQL](#hand-written-sql-supabasemanual)). The two publication
+   scripts are no-ops once the publication above exists.
+3. Run the verification queries from that section.
 
 Also pass `--no-seed` when resetting any cloud project — the `supabase/seed.sql` script is local-only (creates a demo auth user with a known password, and assumes `pgcrypto` is enabled). It has no business running against staging or prod.
 
@@ -272,6 +285,9 @@ After inviting, have the user sign in on their device. Settings → Equipo shoul
 Before running Stage B acceptance on staging:
 
 - Supabase migrations are applied to `glitter-finance-staging`.
+- Every file in `supabase/manual/` has been run in order, and the verification
+  queries under [Hand-written SQL](#hand-written-sql-supabasemanual) return the
+  expected results.
 - `powersync_role` exists with a per-environment password stored outside git.
 - The `powersync` publication includes `products`, `sales`, `sale_lines`, `refunds`, `tenant_users`, and `inventory_movements`.
 - PowerSync Client Auth uses the staging Supabase JWKS URI and accepts JWT audience `authenticated`.
@@ -339,7 +355,7 @@ Drizzle does **not** apply migrations in this project, and does **not** own the 
 
 ### Supabase CLI owns migration application and the dev environment
 
-- **Migration runner.** `supabase db push` applies the SQL files in `supabase/migrations/` against the linked cloud project, tracked in `supabase_migrations.schema_migrations`. `supabase db reset` rebuilds the local database from migrations + seed.
+- **Migration runner.** `supabase db push` applies the SQL files in `supabase/migrations/` against the linked cloud project, tracked in `supabase_migrations.schema_migrations`. `supabase db reset` rebuilds the local database from migrations, then the hand-written SQL and the seed (`[db.seed] sql_paths` in `supabase/config.toml`).
 - **Local development stack.** `supabase start` boots Postgres, Auth, Storage, and the rest of the stack locally via Docker. The project is initialized via `supabase/config.toml`.
 - **Things Drizzle cannot model.** RLS policies, `auth.users` foreign keys,
   storage policies, `ALTER PUBLICATION`, triggers, and grants are timestamped
@@ -355,7 +371,7 @@ pnpm db:generate     # drizzle-kit generate — writes a new SQL file into supab
 
 # Apply migrations:
 pnpm db:push         # supabase db push — apply to the linked cloud project
-pnpm db:reset        # supabase db reset — wipe and replay locally
+pnpm db:reset        # supabase db reset — wipe and replay migrations, manual SQL and seed locally
 
 # Local dev stack:
 pnpm db:start        # supabase start
@@ -367,8 +383,80 @@ Do not run `drizzle-kit migrate`. The Drizzle `__drizzle_migrations` journal is 
 ### Hand-written SQL (`supabase/manual/`)
 
 For anything Drizzle's schema cannot express (RLS, `auth.users` FKs, storage
-policies, `ALTER PUBLICATION`), add a timestamp-prefixed file under
-`supabase/manual/` and run it in the SQL editor after `pnpm db:push`:
+policies, triggers, functions, grants, `ALTER PUBLICATION`), add a new file
+under `supabase/manual/` named `YYYYMMDDHHMMSS_description.sql`, with a
+timestamp after every existing file. Write it so it can be re-run
+(`CREATE OR REPLACE`, `DROP ... IF EXISTS`, guarded `DO` blocks), and never
+edit a file that has shipped to an environment: fix forward with a new file.
+
+`pnpm db:push` does not apply these files, and nothing records which ones an
+environment has had. Run them in the target project's SQL editor, in the order
+below:
+
+- **Fresh environment** (a new project, or after `supabase db reset --linked`):
+  after `pnpm db:push`, run every file in order.
+- **Existing environment:** after `pnpm db:push`, run every file newer than the
+  last one it has had. Re-running an older file is harmless.
+- **Local stack:** `pnpm db:reset` runs all of them after the migrations and
+  before `seed.sql`.
+
+1. [`20260610012304_product_image_upload_policy_membership.sql`](supabase/manual/20260610012304_product_image_upload_policy_membership.sql):
+   Storage upload policy checked by `tenant_users` membership instead of the
+   JWT claim. Every environment; file 7 replaces the policy.
+2. [`20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql):
+   adds `tenant_users` to the `powersync` publication. Needed where the
+   publication predates Stage D; skips when it is already there or there is
+   no publication.
+3. [`20260626170000_inventory_movements_rls.sql`](supabase/manual/20260626170000_inventory_movements_rls.sql):
+   `auth.users` FK and append-only RLS on `inventory_movements`. **Every
+   environment, security-critical:** until it runs, the table has RLS disabled
+   and anyone holding the publishable key can read and write every tenant's
+   movements through PostgREST.
+4. [`20260626170100_powersync_add_inventory_movements_to_publication.sql`](supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql):
+   adds `inventory_movements` to the publication. Needed where the publication
+   predates inventory tracking; skips otherwise.
+5. [`20260808235900_powersync_atomic_financial_mutations.sql`](supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql):
+   atomic RPCs for sale, void and refund uploads, revokes direct financial
+   writes, and the void trigger. Every environment, before deploying the
+   atomic uploader (see [Atomic financial uploads](#atomic-financial-uploads)).
+6. [`20260926120000_powersync_upload_convergence.sql`](supabase/manual/20260926120000_powersync_upload_convergence.sql):
+   replaces the functions from file 5 with device-timestamp bounds, void/refund
+   conflict convergence and whole-number payload checks, and adds the refund
+   trigger. Every environment, after file 5.
+7. [`20260926130000_product_images_storage_rules.sql`](supabase/manual/20260926130000_product_images_storage_rules.sql):
+   `product-images` bucket limits (JPEG and PNG, 5 MiB) and the Storage upload
+   and delete policies by tenant folder. Every environment. Hosted buckets get
+   their limits only from this file; do not use `supabase seed buckets --linked`,
+   which would also upload the local seed images.
+8. [`20260926130100_products_last_write_wins.sql`](supabase/manual/20260926130100_products_last_write_wins.sql):
+   product edits keep the newer `updated_at`, so a late offline upload no longer
+   overwrites a newer edit. Every environment, after file 6.
+
+To check an environment, run in its SQL editor:
+
+```sql
+-- Public tables without RLS (expect no rows):
+SELECT c.relname AS table_without_rls
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity;
+
+-- A marker for each file that installs RLS, functions or triggers in public
+-- (expect every column true):
+SELECT
+  (SELECT relrowsecurity FROM pg_class
+    WHERE oid = 'public.inventory_movements'::regclass) AS "20260626170000",
+  to_regprocedure('public.powersync_create_sale(jsonb,jsonb)') IS NOT NULL
+    AS "20260808235900",
+  to_regprocedure('public.check_upload_timestamp(timestamptz,text)') IS NOT NULL
+    AS "20260926120000",
+  to_regprocedure('public.product_image_tenant_id(text)') IS NOT NULL
+    AS "20260926130000",
+  EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'products_keep_latest_edit')
+    AS "20260926130100";
+```
+
+Confirm the publication with the queries under [PowerSync setup](#powersync-setup).
 
 ### Runtime data access
 
