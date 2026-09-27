@@ -103,6 +103,24 @@ Expected:
   shell. After disabling airplane mode, "Reintentar" opens the login screen.
 - First-ever offline login is not required and remains out of scope.
 
+## Offline Relaunch After An Update
+
+1. Launch the installed PWA online and wait for synced state. Leave it open.
+2. Deploy a new build to staging.
+3. Let the service worker update without reloading the page: with remote
+   debugging (Chrome for Android, Safari Web Inspector for iPhone), run
+   `(await navigator.serviceWorker.getRegistration()).update()` in the page's
+   console and wait a few seconds.
+4. Close the PWA, enable airplane mode and relaunch it.
+
+Expected:
+
+- Sell Mode opens offline with its normal styling and works (add to cart,
+  record a cash sale), now running the new build.
+- If the update could not refresh the saved app shell (network lost during
+  the update), the previous build keeps working offline and updates on a
+  later launch.
+
 ## Diagnostics
 
 During the scripts above, verify the tester diagnostics screen shows:

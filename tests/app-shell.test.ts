@@ -1,0 +1,207 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  applyAppShellRefresh,
+  prepareAppShellRefresh,
+  shellRefreshOutcome,
+} from "@/lib/pwa/app-shell";
+import { NEXT_PAGE_CACHE_NAME, PAGE_CACHE_NAME } from "@/lib/pwa/cache-names";
+
+type FakeResponse = { status: number; type: ResponseType; body: string };
+
+class FakeCache {
+  readonly entries = new Map<string, FakeResponse>();
+
+  async keys() {
+    return [...this.entries.keys()].map((url) => new Request(url));
+  }
+
+  async match(request: Request) {
+    return this.entries.get(request.url) as unknown as Response | undefined;
+  }
+
+  async put(request: Request, response: Response) {
+    this.entries.set(request.url, response as unknown as FakeResponse);
+  }
+
+  async delete(request: Request) {
+    return this.entries.delete(request.url);
+  }
+}
+
+class FakeCacheStorage {
+  readonly caches = new Map<string, FakeCache>();
+
+  async has(name: string) {
+    return this.caches.has(name);
+  }
+
+  async open(name: string) {
+    let cache = this.caches.get(name);
+    if (!cache) {
+      cache = new FakeCache();
+      this.caches.set(name, cache);
+    }
+    return cache as unknown as Cache;
+  }
+
+  async delete(name: string) {
+    return this.caches.delete(name);
+  }
+
+  pages(name = PAGE_CACHE_NAME) {
+    const cache = this.caches.get(name);
+    return cache
+      ? Object.fromEntries(
+          [...cache.entries].map(([url, response]) => [url, response.body])
+        )
+      : null;
+  }
+}
+
+const home = "https://pos.example/";
+const homeWithQuery = "https://pos.example/?from=pwa";
+
+function page(body: string): FakeResponse {
+  return { status: 200, type: "basic", body };
+}
+
+function storageWithPages(pages: Record<string, string>) {
+  const storage = new FakeCacheStorage();
+  const cache = new FakeCache();
+  for (const [url, body] of Object.entries(pages)) {
+    cache.entries.set(url, page(body));
+  }
+  storage.caches.set(PAGE_CACHE_NAME, cache);
+  return storage;
+}
+
+function fetchFrom(responses: Record<string, FakeResponse | Error>) {
+  const requests: { url: string; init?: RequestInit }[] = [];
+  const fetch = (async (url: string, init?: RequestInit) => {
+    requests.push({ url, init });
+    const response = responses[url];
+    if (!response || response instanceof Error) {
+      throw response ?? new TypeError("Failed to fetch");
+    }
+    return response as unknown as Response;
+  }) as typeof globalThis.fetch;
+  return { fetch, requests };
+}
+
+function install(storage: FakeCacheStorage, fetch: typeof globalThis.fetch) {
+  return prepareAppShellRefresh({
+    caches: storage as unknown as CacheStorage,
+    fetch,
+  });
+}
+
+function activate(storage: FakeCacheStorage) {
+  return applyAppShellRefresh({ caches: storage as unknown as CacheStorage });
+}
+
+test("classifies a new build's response for a cached page", () => {
+  assert.equal(shellRefreshOutcome({ status: 200, type: "basic" }), "store");
+  assert.equal(
+    shellRefreshOutcome({ status: 0, type: "opaqueredirect" }),
+    "drop"
+  );
+  assert.equal(shellRefreshOutcome({ status: 404, type: "basic" }), "drop");
+  assert.equal(shellRefreshOutcome({ status: 503, type: "basic" }), "retry");
+});
+
+test("a new build's pages replace the cached ones when it activates", async () => {
+  const storage = storageWithPages({ [home]: "old build" });
+  const { fetch, requests } = fetchFrom({ [home]: page("new build") });
+
+  await install(storage, fetch);
+
+  // The current worker keeps serving the old build until activation.
+  assert.deepEqual(storage.pages(), { [home]: "old build" });
+  assert.deepEqual(storage.pages(NEXT_PAGE_CACHE_NAME), {
+    [home]: "new build",
+  });
+  assert.deepEqual(requests[0].init, {
+    cache: "reload",
+    credentials: "same-origin",
+    redirect: "manual",
+  });
+
+  await activate(storage);
+
+  assert.deepEqual(storage.pages(), { [home]: "new build" });
+  assert.equal(storage.pages(NEXT_PAGE_CACHE_NAME), null);
+});
+
+test("a page that now redirects is dropped instead of kept stale", async () => {
+  const storage = storageWithPages({
+    [home]: "old build",
+    [homeWithQuery]: "old build",
+  });
+  const { fetch } = fetchFrom({
+    [home]: { status: 0, type: "opaqueredirect", body: "" },
+    [homeWithQuery]: page("new build"),
+  });
+
+  await install(storage, fetch);
+  await activate(storage);
+
+  assert.deepEqual(storage.pages(), { [homeWithQuery]: "new build" });
+});
+
+test("a failed refresh fails the install and changes nothing", async () => {
+  for (const failure of [
+    new TypeError("Failed to fetch"),
+    { status: 502, type: "basic" as const, body: "" },
+  ]) {
+    const storage = storageWithPages({
+      [home]: "old build",
+      [homeWithQuery]: "old build",
+    });
+    const { fetch } = fetchFrom({
+      [home]: page("new build"),
+      [homeWithQuery]: failure,
+    });
+
+    await assert.rejects(install(storage, fetch));
+
+    assert.deepEqual(storage.pages(), {
+      [home]: "old build",
+      [homeWithQuery]: "old build",
+    });
+    assert.equal(storage.pages(NEXT_PAGE_CACHE_NAME), null);
+  }
+});
+
+test("nothing is cached for a device without a saved app shell", async () => {
+  const storage = new FakeCacheStorage();
+  const { fetch, requests } = fetchFrom({});
+
+  await install(storage, fetch);
+  await activate(storage);
+
+  assert.equal(requests.length, 0);
+  assert.equal(storage.pages(), null);
+  assert.equal(storage.pages(NEXT_PAGE_CACHE_NAME), null);
+});
+
+test("a logout during the update never brings the old session's page back", async () => {
+  // Logout while the pages are being fetched.
+  const duringFetch = storageWithPages({ [home]: "old build" });
+  await install(duringFetch, (async () => {
+    await duringFetch.delete(PAGE_CACHE_NAME);
+    return page("signed-in page") as unknown as Response;
+  }) as typeof fetch);
+  await activate(duringFetch);
+  assert.equal(duringFetch.pages(), null);
+  assert.equal(duringFetch.pages(NEXT_PAGE_CACHE_NAME), null);
+
+  // Logout between install and activation deleted the page cache: the
+  // refreshed pages are discarded, not restored.
+  const beforeActivation = storageWithPages({ [home]: "old build" });
+  await install(beforeActivation, fetchFrom({ [home]: page("new") }).fetch);
+  await beforeActivation.delete(PAGE_CACHE_NAME);
+  await activate(beforeActivation);
+  assert.equal(beforeActivation.pages(), null);
+  assert.equal(beforeActivation.pages(NEXT_PAGE_CACHE_NAME), null);
+});

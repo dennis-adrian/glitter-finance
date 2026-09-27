@@ -1,6 +1,7 @@
-// Cache Storage names shared by the service worker (app/sw.ts) and the local
-// data teardown (lib/powersync/local-data-teardown.ts). This file has no
-// imports because the service worker bundle includes it.
+// Cache Storage names and URLs shared by the service worker (app/sw.ts,
+// lib/pwa/app-shell.ts), the route that builds it and the local data
+// teardown (lib/powersync/local-data-teardown.ts). This file has no imports
+// because the service worker bundle includes it.
 
 /** Serwist's cacheId: the precache is "glitter-pos-precache-v2-<scope>". */
 export const SW_CACHE_ID = "glitter-pos";
@@ -13,6 +14,12 @@ export const OFFLINE_PAGE_URL = "/~offline";
 
 /** Navigations: the app shell, rendered with the signed-in user's data. */
 export const PAGE_CACHE_NAME = "glitter-pos-pages";
+
+/**
+ * The app shell fetched from a new build while its service worker installs;
+ * it replaces PAGE_CACHE_NAME's pages on activation (lib/pwa/app-shell.ts).
+ */
+export const NEXT_PAGE_CACHE_NAME = "glitter-pos-pages-next";
 
 /** Same-origin build assets the precache does not cover. */
 export const STATIC_CACHE_NAME = "glitter-pos-static";

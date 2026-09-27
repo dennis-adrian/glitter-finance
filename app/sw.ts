@@ -17,6 +17,10 @@ import type {
   SerwistPlugin,
 } from "serwist";
 import {
+  applyAppShellRefresh,
+  prepareAppShellRefresh,
+} from "../lib/pwa/app-shell";
+import {
   OFFLINE_PAGE_URL,
   PAGE_CACHE_NAME,
   POWERSYNC_WASM_CACHE_NAME,
@@ -182,7 +186,25 @@ const serwist = new Serwist({
       },
     ],
   },
+  // A new build takes over as soon as it has installed. Open pages keep the
+  // code they loaded (the app has no lazily loaded routes and navigates with
+  // full page loads), and the next launch, online or offline, starts the
+  // new build: the app shell refresh below keeps the cached pages in step
+  // with the new precache.
   skipWaiting: true,
+});
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    prepareAppShellRefresh({
+      caches: self.caches,
+      fetch: self.fetch.bind(self),
+    })
+  );
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(applyAppShellRefresh({ caches: self.caches }));
 });
 
 serwist.addEventListeners();

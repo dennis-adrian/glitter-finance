@@ -188,6 +188,7 @@ test("teardown deletes every cache except the build-asset caches", async () => {
   const cacheNames = new Set([
     // App caches that hold a user's data.
     "glitter-pos-pages",
+    "glitter-pos-pages-next",
     "glitter-pos-product-images",
     // Serwist defaultCache names, e.g. the old cacheOnNavigation copy of "/".
     "others",
