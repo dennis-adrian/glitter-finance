@@ -385,6 +385,10 @@ Add one query to the `by_tenant` stream, mirroring the existing tables (same
 Deploy by pasting into the PowerSync Cloud Sync Streams editor → Validate →
 Deploy.
 
+> Later every query in the stream, this one included, also gained a
+> `tenant_users` membership subquery on `auth.user_id()` (multi-tenant PRD
+> §6.4). `powersync/sync-rules.yaml` is the current form.
+
 ### 6.5 Deploy ordering (all-or-nothing, per environment)
 
 Stage D showed a partial deploy fails _subtly_, not loudly. For inventory the

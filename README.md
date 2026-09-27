@@ -212,7 +212,9 @@ do not point staging app env vars at a prod PowerSync instance, or vice versa.
 5. **Sync Streams.** Paste [`powersync/sync-rules.yaml`](powersync/sync-rules.yaml)
    into the PowerSync Cloud **Sync Streams** editor, then **Validate** and
    **Deploy**. Without a deployed sync config, clients fail with
-   `PSYNC_S2302 No sync config available`.
+   `PSYNC_S2302 No sync config available`. Redeploy it in every environment
+   whenever the file changes: the streams scope each device to its active
+   tenant claim and to a `tenant_users` membership for the signed-in user.
 6. **App environment.** Grab the instance URL from the PowerSync dashboard
    (typically `https://<id>.powersync.journeyapps.com`) and set it as
    `NEXT_PUBLIC_POWERSYNC_URL` in the matching app environment (`.env.local`
@@ -220,11 +222,14 @@ do not point staging app env vars at a prod PowerSync instance, or vice versa.
    changing any `NEXT_PUBLIC_*` variable because it is baked into the browser
    bundle.
 
-PowerSync auth and app auth must point at the same Supabase project. At runtime
-the app logs safe diagnostics from `lib/powersync/connector.ts`: the PowerSync
-endpoint host, whether the JWT has `app_metadata.tenant_id`, and the JWT
-metadata (`alg`, `kid`, issuer, audience). The `issuer` must match the Supabase
-project used for the JWKS URI, and the `kid` must appear in that JWKS response.
+PowerSync auth and app auth must point at the same Supabase project: the JWT's
+`issuer` must match the Supabase project used for the JWKS URI, and its `kid`
+must appear in that JWKS response. The connector (`lib/powersync/connector.ts`)
+only hands PowerSync a token whose `app_metadata.tenant_id` is the tenant the
+device's local data belongs to. Otherwise it refreshes the session once, and
+if the claim still differs it logs a warning and PowerSync retries later;
+Diagnostics then shows "La sesión todavía no corresponde al puesto de este
+dispositivo", which a reload fixes.
 
 **After `supabase db reset --linked`:** the reset drops everything in the `public` schema, which includes the `powersync` publication, the grants you gave `powersync_role`, and everything the `supabase/manual/` files installed there: the `inventory_movements` RLS, the financial RPCs and triggers, the product last-write-wins trigger and the Storage policy helper. The role itself survives (it's cluster-level, not database-level), and its password is unchanged. To restore the environment:
 

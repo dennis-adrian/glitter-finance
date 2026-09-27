@@ -192,12 +192,15 @@ In **Settings**, a member sees an "Invitar al equipo" card for the active tenant
   (`getActiveInvitationForTenant` → `initialInvitation`) and rendered when the
   encrypted delivery ciphertext can be decrypted. The raw bearer token is shown
   only at creation time; later sessions re-display the same link only when
-  `token_delivery_ciphertext` is present. If an active row exists but the raw
-  token cannot be recovered (legacy row or missing ciphertext), the card prompts
-  the member to **revoke and regenerate** rather than silently rotating the link.
-- `createInvitation` reuses the single active invitation when one exists; it does
-  **not** implicitly revoke and replace an active link when the bearer token is
-  unavailable.
+  `token_delivery_ciphertext` decrypts. An active row whose raw token cannot be
+  recovered (missing ciphertext, or a decrypt failure) is treated as no link:
+  Settings shows the generate state.
+- `createInvitation` reuses the single active invitation when one exists. When
+  that link's bearer token is unavailable, it **revokes and replaces** it in the
+  same transaction, without asking. Nothing is lost: an undecryptable row means
+  `INVITATION_SECRET_KEY` changed, which also changes the lookup hash (§6.6), so
+  the old link could no longer be redeemed anyway; rows from before the
+  ciphertext column have long expired.
 - The link is plain text — shareable by pasting into email, WhatsApp, etc. There
   is no email step.
 - **Reuse semantics:** while valid, the link admits _any number_ of users.
@@ -218,7 +221,9 @@ A new route `app/join/[token]/page.tsx`:
 2. **Not authenticated** → redirect to `/login?next=/join/${token}`. After the
    user signs in or signs up, the auth flow returns them here (§5.5).
 3. **Authenticated** → show "Unirte a _{tenant name}_" with an **Unirme**
-   button. Pressing it runs the `acceptInvitation` server action:
+   button. The page only reads the user's memberships
+   (`resolveUserTenantContext`); it never creates a tenant or writes the claim
+   (§5.6). Pressing it runs the `acceptInvitation` server action:
    - Re-validate the invitation server-side (defense against a stale page).
    - **Idempotent membership upsert:** if the user is already a member, no-op;
      otherwise insert a `tenant_users` row with a `display_name` derived from
@@ -313,11 +318,20 @@ memberships**. A brand-new user redeeming an invite briefly has zero memberships
 between sign-up and the `acceptInvitation` action. To avoid minting a stray
 personal tenant for them:
 
-- The invite path **skips the bootstrap** (sign-in/sign-up with `next=/join/...`
-  redirect to the join page _before_ `ensureUserTenantContext` runs its
-  create branch), and `acceptInvitation` creates the membership.
+- Only `app/page.tsx` and the sign-in/sign-up actions (outside the invite
+  path) run the bootstrap, `ensureUserTenantContext`. Everything else resolves
+  the tenant read-only with `resolveUserTenantContext`, which never inserts a
+  tenant or writes the claim: the join page, and every tenant-scoped server
+  action.
+- The invite path **skips the bootstrap**: sign-in/sign-up with
+  `next=/join/...` redirect to the join page (as do the OAuth and
+  email-confirmation callbacks), the join page renders read-only, and
+  `acceptInvitation` creates the membership.
 - By the time `app/page.tsx` calls `ensureUserTenantContext`, the membership
   exists, so the create branch is not taken.
+- On the join page, PowerSync gets the active tenant only when the session's
+  claim already names it (`claimedTenantId`). A user with no membership yet
+  gets no tenant, so the device syncs nothing until they join.
 - An invite-only user who abandons the join page and navigates to `/` directly
   still has zero memberships and _would_ get a personal tenant bootstrapped —
   acceptable and self-consistent (they simply get their own first booth, and can
@@ -390,12 +404,24 @@ client INSERT policy: memberships are only ever created server-side (bootstrap,
 accept, create). This preserves the property that a device cannot self-join a
 tenant by writing a `tenant_users` row through PostgREST.
 
-### 6.4 PowerSync — no change
+### 6.4 PowerSync
 
-- **Sync rules (`powersync/sync-rules.yaml`): unchanged.** `tenant_invitations`
-  is not synced; `tenant_users` is already in the `by_tenant` stream and already
-  scoped by the active-tenant claim. A switch re-evaluates the stream against the
-  new claim automatically on reconnect.
+- **Sync rules (`powersync/sync-rules.yaml`).** `tenant_invitations` is not
+  synced; `tenant_users` is already in the `by_tenant` stream. Every query is
+  scoped by the active-tenant claim **and** by a `tenant_users` membership for
+  the JWT's user (a `tenant_id IN (SELECT tenant_id FROM tenant_users …)`
+  subquery on `auth.user_id()`), the same check RLS makes. The claim is rewritten
+  only when the user next opens `/`, so without the membership check a user
+  removed from a tenant would keep syncing it. A switch re-evaluates the stream
+  against the new claim automatically on reconnect. Redeploy the file in every
+  PowerSync instance whenever it changes.
+- **The connector only syncs the device's own tenant.** `SupabaseConnector`
+  receives the tenant the local database belongs to. When the JWT claims
+  another tenant (or none), `fetchCredentials` refreshes the session once and,
+  if the claim still differs, throws instead of handing PowerSync the token, so
+  another tenant's rows never land in this database. PowerSync retries with
+  backoff; Diagnostics shows the error, and reloading the app moves the device
+  to the active tenant.
 - **Publication: unchanged.** Do **not** add `tenant_invitations` to the
   `powersync` publication. (Call-out because the inventory PRD §6.3 trained us to
   add new tables to the publication — this one is the deliberate exception.)
@@ -409,8 +435,9 @@ Lighter than the inventory feature because there is no new synced table:
 1. `pnpm db:push` — the Drizzle migration (the `tenants` column +
    `tenant_invitations` table) and the hand-written SQL from §6.2 (FKs + RLS),
    against **every** environment.
-2. Ship the app build (server actions, `/join` route, Settings UI). No PowerSync
-   Cloud sync-rule deploy, no publication change.
+2. Ship the app build (server actions, `/join` route, Settings UI). No
+   publication change. Deploy the sync rules (§6.4) whenever
+   `powersync/sync-rules.yaml` changes.
 
 ### 6.6 Invitation token at rest (hashed lookup + encrypted delivery)
 
@@ -422,13 +449,14 @@ The bearer secret is protected at rest in two parts:
 - **`token_delivery_ciphertext` (optional):** AES-256-GCM ciphertext of the raw
   token, encrypted with the same server secret. Enables re-display of the active
   link in Settings without storing the bearer token in plaintext. Nullable for
-  legacy rows — those links must be explicitly revoked and regenerated.
+  legacy rows, which are replaced like any other unrecoverable link.
 
 **Re-display semantics:** the raw link is returned once at creation and can be
-shown again in later sessions only when decryption succeeds. There is no
-guarantee of re-display for rows missing delivery ciphertext; members must revoke
-and generate a new link in that case. Silent rotation of an active invitation
-when the bearer token is unavailable is **not** permitted.
+shown again in later sessions only when decryption succeeds. An active link that
+cannot be shown again is replaced automatically by the next `createInvitation`
+(revoked, then a new row inserted, under the per-tenant lock). Both keys derive
+from `INVITATION_SECRET_KEY`, so rotating it breaks the old link's lookup hash
+too; the replacement never revokes a link that could still be redeemed.
 
 **What contains the blast radius:**
 
@@ -457,14 +485,21 @@ when the bearer token is unavailable is **not** permitted.
 
 ### 7.2 Server actions (new, in `app/` — `"use server"`)
 
-- `createInvitation()` → inserts a row for the active tenant, returns the link.
-- `revokeInvitation(invitationId)` → sets `revoked_at`.
+- `createInvitation(expectedTenantId)` → inserts a row for the active tenant,
+  returns the link.
+- `revokeInvitation(expectedTenantId, invitationId)` → sets `revoked_at`.
 - `acceptInvitation(token)` → validate, upsert membership, set active claim,
   redirect.
 - `switchTenant(tenantId)` → membership check + write claim (client finishes the
   clear/refresh/refresh dance).
 - `createTenant(name?)` → insert tenant + membership (one tx, sets
   `created_by_user_id`), then behaves like a switch to it.
+
+Every tenant-scoped action (invitations, and the server-mode product and sale
+actions) takes `expectedTenantId`, the tenant the calling screen renders, and
+refuses with "Tu puesto activo cambió en otro dispositivo…" when it is no longer
+the active one (`requireExpectedTenantContext`), instead of writing into
+whichever tenant the account-wide claim points at now.
 
 All membership/invitation DB work goes through `lib/db` (trusted). All
 `app_metadata` writes go through `createAdminClient()` (`lib/supabase/admin.ts`,
@@ -525,10 +560,15 @@ writer) so the actions and the existing bootstrap share one implementation.
   by the claim), a sync failure keeps the data and offers to switch back to the
   previous tenant, and another user's work is kept until that account signs in
   again.
-- **Stale active claim** (user switched on device A; device B still holds the old
-  claim) → `ensureUserTenantContext` re-resolves: if the claimed tenant is still
-  a membership it stays; the user re-picks on B if they want the other one. No
-  crash, because resolution falls back to a valid membership.
+- **Active tenant switched on another device** (user switched on device A;
+  device B still renders the old tenant) → the claim is one per account, not
+  per device, so B's server reads already see A's choice. B's tenant-scoped
+  server actions pass the tenant B renders and are refused with "Tu puesto
+  activo cambió en otro dispositivo. Recarga la app para continuar." rather
+  than writing into A's tenant. B's PowerSync connector refuses a token that
+  claims the other tenant, so B stops syncing (Diagnostics says to reload)
+  instead of mixing tenants in its database. Reloading B re-resolves the
+  active tenant (§5.3); its unsynced work is uploaded first (see above).
 - **Creator's auth user deleted** → `created_by_user_id` / invitation
   `created_by_user_id` go `NULL` (SET NULL); tenant and memberships are
   unaffected; tenant invitations are removed only when the **tenant** is deleted
@@ -538,9 +578,13 @@ writer) so the actions and the existing bootstrap share one implementation.
 - **Two booths, same product catalog** → tenants are fully isolated; catalogs do
   not share. Re-entering products per booth is expected (cross-tenant catalog
   copy is a future idea, not here).
-- **`tenant_id` claim missing right after switch** → the connector already
-  refreshes the session when the claim is absent
-  (`lib/powersync/connector.ts`); the switch also refreshes explicitly.
+- **`tenant_id` claim missing right after switch** → the switch, create and
+  join flows refresh the session before reloading, and the connector refreshes
+  once more when the token does not claim the device's tenant
+  (`lib/powersync/connector.ts`).
+- **Signing out on one device** ends only that device's session
+  (`signOut({ scope: "local" })`). The user's other devices stay signed in and
+  keep uploading their queued work.
 
 ## 10. Performance
 
@@ -657,7 +701,7 @@ with the parent PRD's dual-platform gate.
   (`email`, `max_uses`, a redemptions log) without disturbing the reusable-link
   default.
 - **Token at rest** uses hashed lookup plus encrypted delivery ciphertext (§6.6).
-  Legacy plaintext-only rows, if any, require explicit revoke + regenerate.
+  An active row whose token cannot be recovered is replaced automatically.
 
 ---
 
