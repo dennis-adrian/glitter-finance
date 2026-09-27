@@ -19,7 +19,7 @@
     "db:seed:qa": "tsx scripts/seed-qa.ts",
     "db:invite:tenant-user": "tsx scripts/invite-tenant-user.ts",
     "email:dev": "email dev --dir emails --port 3002",
-    "email:export": "tsx scripts/render-account-confirmation-email.tsx",
+    "email:export": "tsx scripts/render-auth-emails.tsx",
     "db:start": "node scripts/run-supabase.mjs start",
     "db:stop": "node scripts/run-supabase.mjs stop",
     "start": "next start",

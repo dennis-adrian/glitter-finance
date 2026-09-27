@@ -119,32 +119,42 @@ each hosted project's Authentication settings:
 
 ### Auth email templates
 
-The version-controlled React Email source for signup confirmation lives at
-[`emails/account-confirmation.tsx`](emails/account-confirmation.tsx). Preview it
-locally, or export the email-safe HTML used by Supabase:
+The version-controlled React Email sources for the Supabase auth emails live in
+[`emails/`](emails): signup confirmation
+([`account-confirmation.tsx`](emails/account-confirmation.tsx)) and password
+recovery ([`password-recovery.tsx`](emails/password-recovery.tsx)). Preview
+them locally, or export the email-safe HTML used by Supabase:
 
 ```bash
 pnpm email:dev
 pnpm email:export
 ```
 
-The export is written to
-`.react-email/out/account-confirmation.html` with Supabase's `{{ .SiteURL }}`,
-`{{ .TokenHash }}` and `{{ .RedirectTo }}` variables intact. In the hosted
-project, open **Authentication → Email Templates → Confirm signup**, set the
-subject to `Confirmá tu correo | Billetera Ferial`, and paste the exported HTML.
+The export writes one file per email to `.react-email/out/`, with Supabase's
+`{{ .SiteURL }}`, `{{ .TokenHash }}` and `{{ .RedirectTo }}` variables intact.
+In each hosted project, open **Authentication → Email Templates** and, for
+each template below, set the subject and paste the exported HTML:
+
+| Supabase template | Subject                                         | File                        |
+| ----------------- | ----------------------------------------------- | --------------------------- |
+| Confirm signup    | `Confirmá tu correo \| Billetera Ferial`        | `account-confirmation.html` |
+| Reset Password    | `Creá una contraseña nueva \| Billetera Ferial` | `password-recovery.html`    |
+
 Resend remains the configured SMTP provider; no Auth Hook is required.
 
-The button links to
-`{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next={{ .RedirectTo }}`,
+The buttons link to
+`{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=<email|recovery>&next={{ .RedirectTo }}`,
 not to `{{ .ConfirmationURL }}`. `app/auth/confirm` verifies the token hash
 with `verifyOtp`, which works in any browser. The default link goes through a
-PKCE code exchange that needs a cookie only the browser that signed up has, so
-it failed when the email was opened in the installed iOS app, an email app's
-browser or another device. `next` carries the redirect URL the app sent
-(`/auth/callback?next=…`), and the confirm route continues to that URL's
-`next` path, such as an invitation link. `/auth/callback` still serves Google
-sign-in and emails that use the default link.
+PKCE code exchange that needs a cookie only the browser that asked for the
+email has, so it failed when the email was opened in the installed iOS app, an
+email app's browser or another device. `next` carries the redirect URL the app
+sent (`/auth/callback?next=…`), and the confirm route continues to that URL's
+`next` path, such as an invitation link. A recovery link always continues to
+`/auth/update-password`, where the user sets the new password. The app keeps
+sending the callback URL as the redirect URL, so the redirect allow list needs
+no new entry. `/auth/callback` still serves Google sign-in and emails that use
+the default link.
 
 ### PowerSync setup
 
