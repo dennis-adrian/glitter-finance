@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveSentryTarget } from "@/lib/observability/sentry-options";
+import {
+  resolveSentryTarget,
+  sentryInitOptions,
+} from "@/lib/observability/sentry-options";
 
 test("Vercel production and preview report under their own environment", () => {
   for (const vercelEnv of ["production", "preview"]) {
@@ -33,4 +36,18 @@ test("an explicit DSN enables reporting, tagged local off Vercel", () => {
     resolveSentryTarget({ vercelEnv: "development", configuredDsn: dsn }),
     { dsn, enabled: true, environment: "development" }
   );
+});
+
+test("collects no user data category, whatever the SDK defaults", () => {
+  assert.deepEqual(sentryInitOptions(undefined).dataCollection, {
+    userInfo: false,
+    cookies: false,
+    httpHeaders: { request: false, response: false },
+    httpBodies: [],
+    urlQueryParams: false,
+    databaseQueryData: false,
+    graphQL: { document: false, variables: false },
+    genAI: { inputs: false, outputs: false },
+    stackFrameVariables: false,
+  });
 });

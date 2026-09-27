@@ -49,9 +49,21 @@ export function sentryInitOptions(vercelEnv: string | undefined) {
     }),
     sendDefaultPii: false,
     tracesSampleRate: 0.1,
+    // Once dataCollection is set, sendDefaultPii is ignored and every
+    // category left out falls back to Sentry's collect-everything defaults.
+    // Even sendDefaultPii: false alone keeps query strings and most headers.
+    // So every category that can carry user data is switched off here; the
+    // beforeSend* scrubbers are the second line of defense.
     dataCollection: {
       userInfo: false,
+      cookies: false,
+      httpHeaders: { request: false, response: false },
       httpBodies: [],
+      urlQueryParams: false,
+      databaseQueryData: false,
+      graphQL: { document: false, variables: false },
+      genAI: { inputs: false, outputs: false },
+      stackFrameVariables: false,
     },
     beforeSend: sanitizeSentryEvent,
     beforeSendTransaction: sanitizeSentryTransaction,

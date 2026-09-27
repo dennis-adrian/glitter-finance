@@ -31,8 +31,12 @@ init options live in `lib/observability/sentry-options.ts`.
   so there is no edge configuration.
 - Tracing: 10% sample rate.
 - Logs and Session Replay: disabled.
-- User identity, request headers/cookies/bodies, query strings, and invitation
-  tokens: removed before delivery.
+- User identity, cookies, HTTP headers, request/response bodies, URL query
+  strings and database query values: not collected (every `dataCollection`
+  category is off). The `beforeSend*` scrubbers in
+  `lib/observability/sentry-privacy.ts` remove them again before delivery,
+  together with invitation tokens (`/join/<token>`, also percent-encoded) in
+  URLs, messages, span data and the Next.js request path.
 - Permanent PowerSync upload failures: report only transaction metadata, table
   names, operation types, and PostgreSQL error code. Financial row payloads and
   tenant/user identifiers remain local.
