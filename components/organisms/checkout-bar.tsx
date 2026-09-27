@@ -10,8 +10,9 @@ type CheckoutBarProps = {
 };
 
 /**
- * Collapsed order for phones and tablets: item count + "Ver pedido" opens
- * the order sheet, and Cobrar goes straight to checkout.
+ * Collapsed order for phones and tablets: the bag (with item count) opens
+ * the order sheet, and Cobrar goes straight to checkout. Phones show only
+ * the bag icon so Cobrar gets the width; tablets add the "Ver pedido" label.
  */
 export function CheckoutBar({
   count,
@@ -24,7 +25,7 @@ export function CheckoutBar({
       <button
         type="button"
         onClick={openOrder}
-        className="flex h-13 min-w-0 flex-1 items-center gap-3 rounded-full bg-muted pr-4 pl-1.5 text-left outline-none transition-colors hover:bg-muted/70 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className="flex size-13 shrink-0 items-center justify-center gap-3 rounded-full bg-muted text-left outline-none transition-colors hover:bg-muted/70 focus-visible:ring-[3px] focus-visible:ring-ring/50 md:w-auto md:min-w-0 md:flex-1 md:justify-start md:pr-4 md:pl-1.5"
         aria-label={`Ver pedido, ${count} ${count === 1 ? "producto" : "productos"}`}
       >
         <span className="relative grid size-10 shrink-0 place-items-center rounded-full bg-card text-primary">
@@ -33,14 +34,16 @@ export function CheckoutBar({
             {count}
           </span>
         </span>
-        <strong className="min-w-0 flex-1 truncate text-sm">Ver pedido</strong>
-        <ChevronUp className="size-4 shrink-0 text-muted-foreground" />
+        <strong className="hidden min-w-0 flex-1 truncate text-sm md:block">
+          Ver pedido
+        </strong>
+        <ChevronUp className="hidden size-4 shrink-0 text-muted-foreground md:block" />
       </button>
       <Button
         type="button"
         size="lg"
         onClick={charge}
-        className="shrink-0 gap-2.5 px-5 shadow-lg shadow-primary/25"
+        className="min-w-0 flex-1 justify-between gap-2.5 px-5 shadow-lg shadow-primary/25 md:flex-none md:justify-center"
       >
         Cobrar
         <strong className="font-extrabold tabular-nums">
