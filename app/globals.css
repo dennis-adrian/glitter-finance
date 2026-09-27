@@ -225,6 +225,18 @@ button {
   font-size: 22px;
 }
 
+.product-art.thumb {
+  width: 40px;
+  height: 40px;
+  aspect-ratio: auto;
+  flex: 0 0 auto;
+  border-radius: 10px;
+}
+
+.product-art.thumb span {
+  font-size: 16px;
+}
+
 /* Tone palette — drives both the placeholder tiles and the editor tone-dots. */
 .product-art.aurora,
 .tone-dot.aurora {

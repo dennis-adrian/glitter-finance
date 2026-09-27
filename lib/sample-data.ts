@@ -1,13 +1,5 @@
 import type { Product } from "@/lib/types";
 
-export const categories = [
-  "Todos",
-  "Stickers",
-  "Prints",
-  "Pines",
-  "Accesorios",
-];
-
 const legacyCategoryMap: Record<string, string> = {
   Pegatina: "Stickers",
   Pegatinas: "Stickers",

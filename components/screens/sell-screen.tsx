@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { TABLET_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
-import { categories } from "@/lib/sample-data";
+import { deriveCategories, isSameCategory } from "@/lib/products";
 import type { Product } from "@/lib/types";
 
 type SellScreenProps = {
@@ -49,10 +49,18 @@ export function SellScreen(props: SellScreenProps) {
   const quantities = new Map(
     order.lines.map((line) => [line.productId, line.quantity])
   );
+  const categories = deriveCategories(props.products);
+  // A category can disappear (its last product archived); fall back to all.
+  const activeCategory =
+    props.category !== "Todos" &&
+    categories.some((category) => isSameCategory(category, props.category))
+      ? props.category
+      : "Todos";
   const normalizedQuery = props.query.trim().toLowerCase();
   const filtered = props.products.filter((product) => {
     const matchesCategory =
-      props.category === "Todos" || product.category === props.category;
+      activeCategory === "Todos" ||
+      isSameCategory(product.category, activeCategory);
     const matchesQuery = product.name.toLowerCase().includes(normalizedQuery);
     return matchesCategory && matchesQuery;
   });
@@ -78,11 +86,15 @@ export function SellScreen(props: SellScreenProps) {
               </div>
             }
           >
-            <CategoryRail
-              active={props.category}
-              categories={categories}
-              setActive={props.setCategory}
-            />
+            {categories.length > 1 ? (
+              <CategoryRail
+                active={activeCategory}
+                categories={["Todos", ...categories]}
+                setActive={props.setCategory}
+              />
+            ) : (
+              <div className="pb-3" />
+            )}
           </ScreenHeader>
         }
         footer={

@@ -101,6 +101,7 @@ import {
   addInventoryMovement,
   productHasInitialMovementLocal,
 } from "@/lib/powersync/write-inventory";
+import { deriveCategories } from "@/lib/products";
 import type { CompletedSaleSummary } from "@/lib/receipt";
 
 // Shape of a row coming back from the local SQLite store. Column names are
@@ -281,6 +282,20 @@ export function GlitterPosApp({
     [editorProductId, products]
   );
   const editorProductMissing = Boolean(editorProductId && !editingProduct);
+  // Vendor-defined categories (from every product, archived included, so
+  // restoring a product never loses its category option).
+  const productCategories = useMemo(
+    () => deriveCategories(products),
+    [products]
+  );
+  // New products start in the catalog's current filter, else the category
+  // of the most recently added product.
+  const newProductCategory =
+    catalogCategory !== "Todos"
+      ? catalogCategory
+      : ([...activeProducts].sort((a, b) =>
+          b.createdAt.localeCompare(a.createdAt)
+        )[0]?.category ?? "");
 
   // Fall back to server-hydrated members while tenant_users is still
   // replicating — avoids "Vendedor" regressions in reports on upgrade.
@@ -858,10 +873,6 @@ export function GlitterPosApp({
     navigate({ view: next });
   }
 
-  function openImport() {
-    showToast("La importación desde Excel aún no está disponible.", "info");
-  }
-
   async function handleSaveProduct(input: {
     name: string;
     priceCents: number;
@@ -1331,12 +1342,9 @@ export function GlitterPosApp({
         inventoryStockReady={inventoryStockReady}
         category={catalogCategory}
         query={catalogQuery}
-        userDisplayName={tenantContext.user.displayName}
-        userEmail={tenantContext.user.email}
         setCategory={setCatalogCategory}
         setQuery={setCatalogQuery}
         openEditor={openEditor}
-        onImport={openImport}
         restoreProduct={async (productId) => {
           const tenant = tenantContext.tenant;
           if (!tenant) {
@@ -1426,6 +1434,8 @@ export function GlitterPosApp({
       <ProductEditor
         key={editorProductId ?? "new"}
         product={editingProduct}
+        categories={productCategories}
+        defaultCategory={newProductCategory}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         hasInitialMovement={editorHasInitialMovement}
