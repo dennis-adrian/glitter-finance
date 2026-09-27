@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   INVITE_ORIGIN_UNAVAILABLE_MESSAGE,
   buildInviteLink,
+  expiryCheckDelayMs,
   isAbsoluteHttpUrl,
   isInvitationValid,
 } from "@/lib/invitations/validation";
@@ -86,16 +87,25 @@ export function InviteTeamCard({
       return;
     }
 
-    const ms = new Date(invitation.expiresAt).getTime() - Date.now();
-    if (ms <= 0) {
+    const { expiresAt } = invitation;
+    const firstDelay = expiryCheckDelayMs(expiresAt, Date.now());
+    if (firstDelay === null) {
       return;
     }
 
-    const timer = window.setTimeout(() => {
+    // A long TTL is waited out in several timers (see expiryCheckDelayMs).
+    let timer: number;
+    function checkExpiry() {
+      const delay = expiryCheckDelayMs(expiresAt, Date.now());
+      if (delay !== null) {
+        timer = window.setTimeout(checkExpiry, delay);
+        return;
+      }
       setInvitation(null);
       setInviteLink("");
       onInvitationChange?.(null);
-    }, ms);
+    }
+    timer = window.setTimeout(checkExpiry, firstDelay);
 
     return () => window.clearTimeout(timer);
   }, [invitation, onInvitationChange]);

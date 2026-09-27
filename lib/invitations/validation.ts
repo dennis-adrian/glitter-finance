@@ -30,3 +30,20 @@ export function isInvitationValid(invitation: TenantInvitation): boolean {
   }
   return new Date(invitation.expiresAt).getTime() > Date.now();
 }
+
+// setTimeout's largest delay, 2^31 - 1 ms (about 24.8 days). Browsers run a
+// longer delay at once.
+export const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * How long to wait before checking the expiry again, or null once the link
+ * has expired. Never above MAX_TIMEOUT_MS, so a TTL longer than about 24.8
+ * days waits in steps instead of hiding a fresh link immediately.
+ */
+export function expiryCheckDelayMs(
+  expiresAt: string,
+  now: number
+): number | null {
+  const remaining = new Date(expiresAt).getTime() - now;
+  return remaining > 0 ? Math.min(remaining, MAX_TIMEOUT_MS) : null;
+}
