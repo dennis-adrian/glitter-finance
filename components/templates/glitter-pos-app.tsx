@@ -823,10 +823,6 @@ export function GlitterPosApp({
     }
   }
 
-  function openImport() {
-    showToast("La importación desde Excel aún no está disponible.", "info");
-  }
-
   function handleSaveProduct(input: ProductEditorSaveInput) {
     return runProductWrite(
       { kind: "save", productId: editingProduct?.id ?? null },
@@ -1417,7 +1413,6 @@ export function GlitterPosApp({
         setCategory={setCatalogCategory}
         setQuery={setCatalogQuery}
         openEditor={openEditor}
-        onImport={openImport}
         productWritePending={productWrite != null}
         restoringProductId={
           productWrite?.kind === "restore" ? productWrite.productId : null

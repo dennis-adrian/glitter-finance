@@ -1,4 +1,4 @@
-import { Download, PackagePlus, Plus, Search } from "lucide-react";
+import { PackagePlus, Plus, Search } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,6 @@ type ProductsScreenProps = {
   /** A product save, archive or restore is still running. */
   productWritePending: boolean;
   restoringProductId: string | null;
-  onImport: () => void;
 };
 
 export function ProductsScreen(props: ProductsScreenProps) {
@@ -113,15 +112,6 @@ export function ProductsScreen(props: ProductsScreenProps) {
         className="absolute right-[18px] bottom-[84px] size-16 rounded-full shadow-lg shadow-primary/30"
       >
         <Plus className="size-8" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        className="absolute bottom-[88px] left-1/2 -translate-x-1/2 text-primary hover:text-primary"
-        onClick={props.onImport}
-      >
-        <Download className="size-4" />
-        Importar desde Excel
       </Button>
     </section>
   );

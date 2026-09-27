@@ -5,11 +5,9 @@ import {
   Banknote,
   ChevronLeft,
   ChevronRight,
-  ClipboardList,
   Edit3,
   Info,
   QrCode,
-  UserRound,
 } from "lucide-react";
 import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
@@ -193,25 +191,6 @@ export function PaymentScreen({
           </Button>
         </div>
       </section>
-
-      <Button
-        type="button"
-        variant="ghost"
-        className="w-full text-primary hover:text-primary"
-        disabled
-      >
-        <ClipboardList />
-        Ver detalle de orden
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        className="w-full text-muted-foreground"
-        disabled
-      >
-        <UserRound />
-        Asignar cliente
-      </Button>
     </section>
   );
 }
