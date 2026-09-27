@@ -123,12 +123,10 @@ export function OrderPanel({
           size="lg"
           disabled={!count}
           onClick={charge}
-          className="w-full justify-between shadow-lg shadow-primary/20 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
+          className="w-full shadow-lg shadow-primary/20 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
         >
-          <span>Cobrar</span>
-          <strong className="font-extrabold tabular-nums">
-            {formatBs(subtotal, true)}
-          </strong>
+          {/* The total sits right above, so the button doesn't repeat it. */}
+          Cobrar
         </Button>
       </div>
     </div>

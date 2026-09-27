@@ -301,7 +301,8 @@ date presets, catalog status, and stock corrections.
 ### Order (pedido)
 
 - One `OrderPanel` organism renders the current order everywhere: a header
-  (count and **Vaciar**), line items, the total, and **Cobrar · total**.
+  (count and **Vaciar**), line items, the total, and a centered **Cobrar**
+  button (the total sits right above it, so the button doesn’t repeat it).
 - Desktop (lg+): persistent side panel beside the product grid.
 - Phones and tablets: a checkout bar (**Ver pedido** with a count badge, and
   **Cobrar · total**) appears once the order has items. **Ver pedido** opens
