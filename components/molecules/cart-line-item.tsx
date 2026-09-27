@@ -102,7 +102,7 @@ export function CartLineItem({
               size="icon-sm"
               className="rounded-full"
               onClick={() => decrementCart(productId)}
-              aria-label="Restar"
+              aria-label={`Restar ${product.name}`}
             >
               <Minus />
             </Button>
@@ -115,7 +115,7 @@ export function CartLineItem({
               size="icon-sm"
               className="rounded-full"
               onClick={() => addToCart(productId)}
-              aria-label="Sumar"
+              aria-label={`Sumar ${product.name}`}
             >
               <Plus />
             </Button>

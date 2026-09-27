@@ -155,7 +155,7 @@ export function MoreScreen({
       ) : null}
 
       <header className="mb-4 flex h-12 items-center gap-2.5">
-        <BrandMark size="small" />
+        <BrandMark size="small" decorative />
         <h1 className="font-heading text-[22px] font-extrabold">
           Billetera Ferial
         </h1>

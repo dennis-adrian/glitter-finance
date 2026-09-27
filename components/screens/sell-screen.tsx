@@ -34,7 +34,7 @@ export function SellScreen(props: SellScreenProps) {
 
   return (
     <section className="screen">
-      <Header title="Billetera Ferial" left={<BrandMark />} />
+      <Header title="Billetera Ferial" left={<BrandMark decorative />} />
 
       <CategoryRail
         active={props.category}

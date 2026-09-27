@@ -84,6 +84,16 @@ export const placeholderImageTones = [
 
 export type PlaceholderImageTone = (typeof placeholderImageTones)[number];
 
+/** Each tone's color name, read out by the editor's tone picker. */
+export const placeholderImageToneLabels: Record<PlaceholderImageTone, string> =
+  {
+    aurora: "Fucsia",
+    coral: "Coral",
+    linen: "Café",
+    violet: "Violeta",
+    warm: "Ámbar",
+  };
+
 export const defaultPlaceholderImageTone: PlaceholderImageTone = "violet";
 
 export function isPlaceholderImageTone(

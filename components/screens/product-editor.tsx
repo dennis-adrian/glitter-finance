@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   ArchiveRestore,
@@ -33,6 +33,7 @@ import {
 } from "@/lib/inventory";
 import {
   defaultPlaceholderImageTone,
+  placeholderImageToneLabels,
   placeholderImageTones,
   productImageAccept,
   productImageFileError,
@@ -142,6 +143,19 @@ export function ProductEditor({
   const [inventoryMovementSubmitting, setInventoryMovementSubmitting] =
     useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const fieldId = useId();
+  const ids = {
+    image: `${fieldId}-image`,
+    tone: `${fieldId}-tone`,
+    restock: `${fieldId}-restock`,
+    restockError: `${fieldId}-restock-error`,
+    adjustment: `${fieldId}-adjustment`,
+    adjustmentError: `${fieldId}-adjustment-error`,
+    loss: `${fieldId}-loss`,
+    lossError: `${fieldId}-loss-error`,
+    gift: `${fieldId}-gift`,
+    giftError: `${fieldId}-gift-error`,
+  };
   // Counts picks, so a slow reduction of an earlier photo cannot replace a
   // later one.
   const imagePickRef = useRef(0);
@@ -296,7 +310,9 @@ export function ProductEditor({
 
       {/* Bespoke image uploader + tone picker keep their existing styles since
           they're coupled to ProductArt's gradient placeholders. */}
-      <label className="field-label">Imagen del producto</label>
+      <label className="field-label" htmlFor={ids.image}>
+        Imagen del producto
+      </label>
       <div
         className={clsx(
           "image-uploader",
@@ -304,9 +320,13 @@ export function ProductEditor({
         )}
       >
         <ProductArt product={previewProduct} />
+        {/* Opened by the two buttons below, so it stays out of the tab
+            order: a hidden focus stop would show no focus ring. */}
         <input
           ref={imageInputRef}
+          id={ids.image}
           className="sr-only"
+          tabIndex={-1}
           type="file"
           accept={productImageAccept}
           onChange={handleImageChange}
@@ -338,15 +358,29 @@ export function ProductEditor({
           Preparando la imagen…
         </p>
       ) : null}
-      <div className="tone-picker" aria-label="Color del marcador de posición">
+      <div
+        className="tone-picker"
+        role="radiogroup"
+        aria-label="Color del marcador de posición"
+      >
         {placeholderImageTones.map((tone) => (
-          <button
-            key={tone}
-            className={clsx("tone-dot", tone, imageTone === tone && "active")}
-            onClick={() => setImageTone(tone)}
-          >
-            {imageTone === tone ? <Check size={14} /> : null}
-          </button>
+          <label key={tone} className="tone-option">
+            <input
+              type="radio"
+              name={ids.tone}
+              value={tone}
+              checked={imageTone === tone}
+              onChange={() => setImageTone(tone)}
+              className="sr-only"
+            />
+            <span
+              className={clsx("tone-dot", tone, imageTone === tone && "active")}
+              aria-hidden="true"
+            >
+              {imageTone === tone ? <Check size={14} /> : null}
+            </span>
+            <span className="sr-only">{placeholderImageToneLabels[tone]}</span>
+          </label>
         ))}
       </div>
 
@@ -480,16 +514,21 @@ export function ProductEditor({
             ) : null}
 
             <div>
-              <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+              <Label
+                htmlFor={ids.restock}
+                className="mb-1.5 block text-sm font-semibold text-muted-foreground"
+              >
                 Reabastecer
               </Label>
               <div className="flex gap-2">
                 <Input
+                  id={ids.restock}
                   value={restockAmount}
                   onChange={(event) => setRestockAmount(event.target.value)}
                   inputMode="numeric"
                   placeholder="+5"
                   aria-invalid={restockError ? true : undefined}
+                  aria-describedby={restockError ? ids.restockError : undefined}
                   className="h-14 flex-1 rounded-xl"
                 />
                 <Button
@@ -504,7 +543,10 @@ export function ProductEditor({
                 </Button>
               </div>
               {restockError ? (
-                <p className="mt-1.5 text-sm text-destructive">
+                <p
+                  id={ids.restockError}
+                  className="mt-1.5 text-sm text-destructive"
+                >
                   {restockError}
                 </p>
               ) : null}
@@ -524,26 +566,37 @@ export function ProductEditor({
             {showMoreActions ? (
               <>
                 <div>
-                  <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+                  <Label
+                    htmlFor={ids.adjustment}
+                    className="mb-1.5 block text-sm font-semibold text-muted-foreground"
+                  >
                     Ajuste
                   </Label>
                   <div className="flex flex-col gap-2">
                     <Input
+                      id={ids.adjustment}
                       value={adjustmentAmount}
                       onChange={(event) =>
                         setAdjustmentAmount(event.target.value)
                       }
                       placeholder="±2"
                       aria-invalid={adjustmentError ? true : undefined}
+                      aria-describedby={
+                        adjustmentError ? ids.adjustmentError : undefined
+                      }
                       className="h-14 rounded-xl"
                     />
                     {adjustmentError ? (
-                      <p className="text-sm text-destructive">
+                      <p
+                        id={ids.adjustmentError}
+                        className="text-sm text-destructive"
+                      >
                         {adjustmentError}
                       </p>
                     ) : null}
                     <Input
                       value={adjustmentNote}
+                      aria-label="Nota del ajuste (opcional)"
                       onChange={(event) =>
                         setAdjustmentNote(event.target.value)
                       }
@@ -569,23 +622,34 @@ export function ProductEditor({
                 </div>
 
                 <div>
-                  <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+                  <Label
+                    htmlFor={ids.loss}
+                    className="mb-1.5 block text-sm font-semibold text-muted-foreground"
+                  >
                     Pérdida
                   </Label>
                   <div className="flex flex-col gap-2">
                     <Input
+                      id={ids.loss}
                       value={lossAmount}
                       onChange={(event) => setLossAmount(event.target.value)}
                       inputMode="numeric"
                       placeholder="2"
                       aria-invalid={lossError ? true : undefined}
+                      aria-describedby={lossError ? ids.lossError : undefined}
                       className="h-14 rounded-xl"
                     />
                     {lossError ? (
-                      <p className="text-sm text-destructive">{lossError}</p>
+                      <p
+                        id={ids.lossError}
+                        className="text-sm text-destructive"
+                      >
+                        {lossError}
+                      </p>
                     ) : null}
                     <Input
                       value={lossNote}
+                      aria-label="Nota de la pérdida (opcional)"
                       onChange={(event) => setLossNote(event.target.value)}
                       placeholder="Nota opcional"
                       maxLength={MAX_NOTE_LENGTH}
@@ -610,23 +674,34 @@ export function ProductEditor({
                 </div>
 
                 <div>
-                  <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+                  <Label
+                    htmlFor={ids.gift}
+                    className="mb-1.5 block text-sm font-semibold text-muted-foreground"
+                  >
                     Regalo
                   </Label>
                   <div className="flex flex-col gap-2">
                     <Input
+                      id={ids.gift}
                       value={giftAmount}
                       onChange={(event) => setGiftAmount(event.target.value)}
                       inputMode="numeric"
                       placeholder="1"
                       aria-invalid={giftError ? true : undefined}
+                      aria-describedby={giftError ? ids.giftError : undefined}
                       className="h-14 rounded-xl"
                     />
                     {giftError ? (
-                      <p className="text-sm text-destructive">{giftError}</p>
+                      <p
+                        id={ids.giftError}
+                        className="text-sm text-destructive"
+                      >
+                        {giftError}
+                      </p>
                     ) : null}
                     <Input
                       value={giftNote}
+                      aria-label="Nota del regalo (opcional)"
                       onChange={(event) => setGiftNote(event.target.value)}
                       placeholder="Nota opcional"
                       maxLength={MAX_NOTE_LENGTH}

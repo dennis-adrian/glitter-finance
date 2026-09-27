@@ -39,10 +39,11 @@ export function ProductsScreen(props: ProductsScreenProps) {
     <section className="screen">
       <Header
         title="Billetera Ferial"
-        left={<BrandMark />}
+        left={<BrandMark decorative />}
         right={
           <span
             className="grid size-10 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary"
+            role="img"
             aria-label={identity ? `Perfil de ${identity}` : "Perfil"}
           >
             {initials}
