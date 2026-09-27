@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { CrudEntry } from "@powersync/web";
 import {
+  permanentSyncFailureFingerprint,
   reportPermanentSyncFailure,
   resetReportedSyncFailures,
 } from "@/lib/observability/report-sync-failure";
@@ -69,4 +70,28 @@ test("reset clears reported sync failures", () => {
   assert.equal(reportPermanentSyncFailure(input), false);
   resetReportedSyncFailures();
   assert.equal(reportPermanentSyncFailure(input), true);
+});
+
+test("fingerprints permanent failures by code and upload target", () => {
+  const operations = [
+    { table: "sales", clientId: 1 },
+    { table: "sale_lines", clientId: 2 },
+  ] as unknown as CrudEntry[];
+
+  assert.deepEqual(
+    permanentSyncFailureFingerprint({
+      error: { code: "23514" },
+      operations,
+      target: "powersync_create_sale",
+    }),
+    ["powersync-permanent-upload", "23514", "powersync_create_sale"]
+  );
+  assert.deepEqual(
+    permanentSyncFailureFingerprint({ error: { code: "23514" }, operations }),
+    ["powersync-permanent-upload", "23514", "sale_lines+sales"]
+  );
+  assert.deepEqual(
+    permanentSyncFailureFingerprint({ error: new Error("x"), operations: [] }),
+    ["powersync-permanent-upload", "unknown", "unknown"]
+  );
 });

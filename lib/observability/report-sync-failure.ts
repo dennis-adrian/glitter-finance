@@ -11,6 +11,35 @@ function errorCode(error: unknown): string {
   return typeof code === "string" ? code : "unknown";
 }
 
+/** Upload target when the caller has no plan: the sorted table names. */
+function tablesFrom(operations: CrudEntry[]): string {
+  const tables = [
+    ...new Set(
+      operations
+        .map((operation) => operation.table)
+        .filter((table): table is string => typeof table === "string")
+    ),
+  ].sort();
+  return tables.length ? tables.join("+") : "unknown";
+}
+
+/**
+ * Groups permanent failures by SQLSTATE and by what the upload targeted (the
+ * RPC name, or the table names), so a failing sale RPC and a failing product
+ * update with the same code stay separate Sentry issues.
+ */
+export function permanentSyncFailureFingerprint(input: {
+  error: unknown;
+  operations: CrudEntry[];
+  target?: string;
+}): [string, string, string] {
+  return [
+    "powersync-permanent-upload",
+    errorCode(input.error),
+    input.target ?? tablesFrom(input.operations),
+  ];
+}
+
 function tenantIdFrom(operations: CrudEntry[]): string {
   for (const operation of operations) {
     const tenantId = operation.opData?.tenant_id;
@@ -48,8 +77,11 @@ export function reportPermanentSyncFailure(input: {
   error: unknown;
   transactionId?: number;
   operations: CrudEntry[];
+  /** RPC name or table name(s) the upload was sent to. */
+  target?: string;
 }): boolean {
-  const code = errorCode(input.error);
+  const fingerprint = permanentSyncFailureFingerprint(input);
+  const [, code, target] = fingerprint;
   const tenantId = tenantIdFrom(input.operations);
   const failureKey =
     input.transactionId != null
@@ -65,9 +97,11 @@ export function reportPermanentSyncFailure(input: {
     scope.setTag("component", "powersync_upload");
     scope.setTag("sync_failure", "permanent");
     scope.setTag("postgres_code", code);
-    scope.setFingerprint(["powersync-permanent-upload", code]);
+    scope.setTag("upload_target", target);
+    scope.setFingerprint(fingerprint);
     scope.setContext("sync", {
       transaction_id: input.transactionId ?? null,
+      upload_target: target,
       operation_count: input.operations.length,
       tables: [
         ...new Set(input.operations.map((operation) => operation.table)),
@@ -77,7 +111,7 @@ export function reportPermanentSyncFailure(input: {
       ],
     });
     const reportError = new Error(
-      `Permanent PowerSync upload failure (${code})`
+      `Permanent PowerSync upload failure (${code} on ${target})`
     );
     reportError.name = "PowerSyncPermanentUploadError";
     Sentry.captureException(reportError);

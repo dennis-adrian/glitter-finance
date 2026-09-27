@@ -7,7 +7,10 @@ import type {
 } from "@powersync/web";
 import { UpdateType } from "@powersync/web";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { SupabaseConnector } from "@/lib/powersync/connector";
+import {
+  SupabaseConnector,
+  UnappliedUpdateError,
+} from "@/lib/powersync/connector";
 
 function operation(input: {
   clientId: number;
@@ -120,10 +123,12 @@ test("uploads non-financial transaction operations sequentially", async () => {
   const supabase = {
     from: (table: string) => ({
       update: () => ({
-        eq: async () => {
-          events.push(`uploaded:${table}`);
-          return { error: null };
-        },
+        eq: (_column: string, id: string) => ({
+          select: async () => {
+            events.push(`uploaded:${table}`);
+            return { data: [{ id }], error: null };
+          },
+        }),
       }),
       insert: async () => {
         events.push(`uploaded:${table}`);
@@ -475,6 +480,12 @@ function recordingDb(input: {
   } as unknown as AbstractPowerSyncDatabase;
 }
 
+function sessionAuth(session: object | null) {
+  return {
+    getSession: async () => ({ data: { session }, error: null }),
+  };
+}
+
 test("reverts the local void when the server kept the sale for a refund", async () => {
   const events: string[] = [];
   const localWrites: { sql: string; params?: unknown[] }[] = [];
@@ -516,4 +527,154 @@ test("drops the local refund when the server had already voided the sale", async
   assert.match(localWrites[0].sql, /DELETE FROM ps_data__refunds/);
   assert.deepEqual(localWrites[0].params, ["local-refund"]);
   assert.deepEqual(events, ["local-write", "complete", "resolve-marker"]);
+});
+
+test("retries a future-timestamp rejection without recording a failure", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const clockError = {
+    code: "55000",
+    message:
+      "The created_at timestamp is more than 5 minutes ahead of the server clock.",
+  };
+  const supabase = {
+    rpc: async () => ({ data: null, error: clockError }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: saleTransaction(),
+    transactionId: 32,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase).uploadData(db),
+    (error) => error === clockError
+  );
+
+  assert.deepEqual(events, []);
+});
+
+test("treats a permission denial without a session as transient", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const denial = {
+    code: "42501",
+    message: "permission denied for function powersync_create_sale",
+  };
+  const supabase = {
+    auth: sessionAuth(null),
+    rpc: async () => ({ data: null, error: denial }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: saleTransaction(),
+    transactionId: 33,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase).uploadData(db),
+    (error) => error === denial
+  );
+
+  assert.deepEqual(events, []);
+});
+
+test("records a permission denial for a signed-in user", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const denial = {
+    code: "42501",
+    message: "The authenticated user cannot create this sale.",
+  };
+  const supabase = {
+    auth: sessionAuth({ access_token: "token" }),
+    rpc: async () => ({ data: null, error: denial }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: saleTransaction(),
+    transactionId: 34,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase).uploadData(db),
+    (error) => error === denial
+  );
+
+  assert.deepEqual(events, ["record-failure", "record-failure"]);
+  assert.match(localWrites[1].sql, /INSERT INTO sync_failures/);
+  assert.equal(localWrites[1].params?.[4], "42501");
+});
+
+test("records a missing RPC as a failure that says what to fix", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const missingRpc = {
+    code: "PGRST202",
+    message:
+      "Could not find the function public.powersync_void_sale(sale_id, voided_at_value, voided_by_user_id) in the schema cache",
+  };
+  const supabase = {
+    rpc: async () => ({ data: null, error: missingRpc }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: voidTransaction(),
+    transactionId: 35,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase).uploadData(db),
+    (error) => error === missingRpc
+  );
+
+  assert.deepEqual(events, ["record-failure", "record-failure"]);
+  const [, , , , errorCodeParam, errorMessageParam] =
+    localWrites[1].params ?? [];
+  assert.equal(errorCodeParam, "PGRST202");
+  assert.match(String(errorMessageParam), /powersync_void_sale/);
+  assert.match(String(errorMessageParam), /SQL pendiente/);
+});
+
+test("records a product update that matched no row", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const supabase = {
+    auth: sessionAuth({ access_token: "token" }),
+    from: () => ({
+      update: () => ({
+        eq: () => ({
+          select: async () => ({ data: [], error: null }),
+        }),
+      }),
+    }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: [
+      operation({
+        clientId: 8,
+        table: "products",
+        id: "product-1",
+        op: UpdateType.PATCH,
+        data: { name: "Updated" },
+      }),
+    ],
+    transactionId: 36,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase).uploadData(db),
+    (error) =>
+      error instanceof UnappliedUpdateError &&
+      error.code === "42501" &&
+      /products/.test(error.message)
+  );
+
+  assert.deepEqual(events, ["record-failure", "record-failure"]);
 });

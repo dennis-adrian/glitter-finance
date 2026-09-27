@@ -34,26 +34,109 @@ import {
 import {
   createUploadPlan,
   InvalidUploadTransactionError,
+  type UploadPlan,
 } from "@/lib/powersync/upload-plan";
+
+// The server does not have the RPC or column this build uploads to:
+// PostgREST's schema cache lacks the function (PGRST202) or column (PGRST204),
+// or Postgres lacks it (42883 undefined_function, 42703 undefined_column).
+// Only applying the pending SQL fixes that, so it is surfaced like any other
+// permanent failure instead of being retried silently forever.
+const SERVER_SCHEMA_MISMATCH_CODES = [/^PGRST20[24]$/, /^42883$/, /^42703$/];
+
+const FINANCIAL_RPC = {
+  "create-sale": "powersync_create_sale",
+  "void-sale": "powersync_void_sale",
+  "create-refund": "powersync_create_refund",
+} as const;
+
+/**
+ * A PostgREST UPDATE matched no row: RLS hid it (e.g. the user is no longer a
+ * tenant member) or it does not exist. PostgREST reports that as success, so
+ * without this the edit would be dropped silently and reverted at the next
+ * checkpoint. Carries 42501 so it is classified like other RLS denials.
+ */
+export class UnappliedUpdateError extends Error {
+  readonly code = "42501";
+
+  constructor(table: string) {
+    super(
+      `La actualización de ${table} no modificó ninguna fila: no existe o el usuario ya no tiene acceso.`
+    );
+    this.name = "UnappliedUpdateError";
+  }
+}
+
+function uploadTargetFor(plan: UploadPlan): string {
+  switch (plan.kind) {
+    case "create-sale":
+    case "void-sale":
+    case "create-refund":
+      return FINANCIAL_RPC[plan.kind];
+    case "single-operation":
+      return plan.operation.table;
+    case "multi-operation":
+      return [...new Set(plan.operations.map((operation) => operation.table))]
+        .sort()
+        .join("+");
+  }
+}
 
 // Postgres response codes we cannot recover from by retrying. Matching one
 // stores the complete local transaction for explicit recovery. The transaction
 // remains queued and blocks later writes until a retry succeeds.
+//
+// Anything else is retried silently with backoff. That includes 55000, which
+// the server raises for a device timestamp more than 5 minutes in the future:
+// the upload succeeds once the server clock catches up.
 const FATAL_RESPONSE_CODES = [
   // Class 22 — Data Exception (type mismatch, range, etc.)
   /^22\d{3}$/,
   // Class 23 — Integrity Constraint Violation (NOT NULL, FOREIGN KEY, UNIQUE)
   /^23\d{3}$/,
-  // INSUFFICIENT PRIVILEGE — typically an RLS denial.
+  // INSUFFICIENT PRIVILEGE — typically an RLS denial. A signed-out client
+  // gets it too; uploadData treats that case as transient.
   /^42501$/,
+  ...SERVER_SCHEMA_MISMATCH_CODES,
 ];
+
+function errorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
 
 function isFatalError(error: unknown): boolean {
   if (error instanceof InvalidUploadTransactionError) return true;
-  if (!error || typeof error !== "object") return false;
-  const code = (error as { code?: unknown }).code;
-  if (typeof code !== "string") return false;
-  return FATAL_RESPONSE_CODES.some((re) => re.test(code));
+  const code = errorCode(error);
+  return code != null && FATAL_RESPONSE_CODES.some((re) => re.test(code));
+}
+
+function isServerSchemaMismatch(error: unknown): boolean {
+  const code = errorCode(error);
+  return (
+    code != null && SERVER_SCHEMA_MISMATCH_CODES.some((re) => re.test(code))
+  );
+}
+
+/**
+ * The error stored in the local failure marker. A schema mismatch gets a
+ * message that says what to do; PostgREST's own text only names the missing
+ * function or column.
+ */
+function failureMarkerError(error: unknown, target: string): unknown {
+  if (!isServerSchemaMismatch(error)) return error;
+  const detail =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message?: unknown }).message)
+      : "";
+  return {
+    code: errorCode(error),
+    message:
+      `El servidor no reconoce ${target}. Falta aplicar el SQL pendiente en ` +
+      `Supabase; después de aplicarlo, forzar la sincronización.` +
+      (detail ? ` (${detail})` : ""),
+  };
 }
 
 function isPrimaryKeyUniqueViolation(
@@ -161,18 +244,20 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     if (!transaction) return;
 
     let lastOp: CrudEntry | null = null;
+    let target: string | undefined;
     try {
       lastOp = transaction.crud.at(-1) ?? null;
       const plan = createUploadPlan(transaction.crud);
+      target = uploadTargetFor(plan);
 
       if (plan.kind === "create-sale") {
-        const result = await this.supabase.rpc("powersync_create_sale", {
+        const result = await this.supabase.rpc(FINANCIAL_RPC[plan.kind], {
           sale_row: plan.sale,
           sale_line_rows: plan.lines,
         });
         if (result.error) throw result.error;
       } else if (plan.kind === "void-sale") {
-        const result = await this.supabase.rpc("powersync_void_sale", {
+        const result = await this.supabase.rpc(FINANCIAL_RPC[plan.kind], {
           sale_id: plan.saleId,
           voided_by_user_id: plan.voidedByUserId,
           voided_at_value: plan.voidedAt,
@@ -194,7 +279,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
           });
         }
       } else if (plan.kind === "create-refund") {
-        const result = await this.supabase.rpc("powersync_create_refund", {
+        const result = await this.supabase.rpc(FINANCIAL_RPC[plan.kind], {
           refund_row: plan.refund,
         });
         if (result.error) throw result.error;
@@ -255,7 +340,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         });
       }
     } catch (error) {
-      if (isFatalError(error)) {
+      if (isFatalError(error) && !(await this.isSignedOutDenial(error))) {
         console.error(
           "[PowerSync] permanent upload error — preserving for recovery",
           { op: lastOp, error }
@@ -266,7 +351,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
           await recordSyncFailure(database, {
             transactionId: transaction.transactionId,
             operations: transaction.crud,
-            error,
+            error: failureMarkerError(error, target ?? "la operación"),
           });
         } catch (recordingError) {
           console.error("[PowerSync] failed to record permanent upload error", {
@@ -279,6 +364,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
             error,
             transactionId: transaction.transactionId,
             operations: transaction.crud,
+            target,
           });
         } catch (reportingError) {
           console.error("[PowerSync] failed to report permanent upload error", {
@@ -290,6 +376,27 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
       // Network/5xx failures are not dead-lettered, but all failures remain in
       // the CRUD queue and use PowerSync's retry/backoff behavior.
       throw error;
+    }
+  }
+
+  /**
+   * A 42501 from a client without a usable session is not an RLS decision:
+   * supabase-js sent the request with the anon key (refresh token revoked,
+   * signed out in another tab). getSession() refreshes an expired token when
+   * it can; if no session comes back, the upload is retried after the user
+   * signs in again instead of being recorded as a permanent failure.
+   */
+  private async isSignedOutDenial(error: unknown): Promise<boolean> {
+    if (errorCode(error) !== "42501") return false;
+    try {
+      const { data, error: sessionError } =
+        await this.supabase.auth.getSession();
+      return Boolean(sessionError) || !data.session;
+    } catch (sessionError) {
+      console.warn("[PowerSync] session check after 42501 failed", {
+        error: sessionError,
+      });
+      return true;
     }
   }
 
@@ -310,9 +417,15 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         }
         break;
       }
-      case UpdateType.PATCH:
-        result = await table.update(op.opData ?? {}).eq("id", op.id);
-        break;
+      case UpdateType.PATCH: {
+        const patch = await table
+          .update(op.opData ?? {})
+          .eq("id", op.id)
+          .select("id");
+        if (patch.error) throw patch.error;
+        if (!patch.data?.length) throw new UnappliedUpdateError(op.table);
+        return;
+      }
       case UpdateType.DELETE:
         result = await table.delete().eq("id", op.id);
         break;
