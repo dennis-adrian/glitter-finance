@@ -8,6 +8,7 @@ import {
   tenantUsers,
 } from "@/lib/db/schema";
 import { clampDiscount } from "@/lib/money";
+import { isWithinVoidWindow, VOID_WINDOW_EXPIRED_MESSAGE } from "@/lib/sales";
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
 
 export type CreateSaleLineInput = {
@@ -285,11 +286,11 @@ export async function createSaleForTenant(
     input.saleDiscountCents,
     subtotalAfterLineDiscounts
   );
-  // `client_created_at` holds the time the record was created on the device, for
-  // the offline-first model (see PRD §9). This online-only Stage A path has no
-  // device timestamp to forward, so the server stamps it as a stand-in. When
-  // PowerSync lands, the real client timestamp will be supplied here instead.
-  const clientCreatedAt = new Date();
+  // created_at is the business time: the clock of whoever recorded the sale.
+  // PowerSync writes stamp the device clock into both created_at and
+  // client_created_at; this server-action path has no device clock, so both
+  // get the same app-server instant (PRD §9, "Timestamps").
+  const createdAt = new Date();
 
   return await db.transaction(async (tx) => {
     const [sale] = await tx
@@ -300,7 +301,8 @@ export async function createSaleForTenant(
         paymentMethod: input.paymentMethod,
         saleDiscountCents,
         saleDiscountReason: input.saleDiscountReason?.trim() || null,
-        clientCreatedAt,
+        createdAt,
+        clientCreatedAt: createdAt,
       })
       .returning();
 
@@ -310,7 +312,9 @@ export async function createSaleForTenant(
 
     const insertedLines = await tx
       .insert(saleLines)
-      .values(lineValues.map((line) => ({ ...line, saleId: sale.id })))
+      .values(
+        lineValues.map((line) => ({ ...line, saleId: sale.id, createdAt }))
+      )
       .returning();
 
     const mappedLines = insertedLines.map(mapSaleLine);
@@ -366,63 +370,90 @@ export async function getSalesForTenant(tenantId: string): Promise<Sale[]> {
   );
 }
 
-export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
-  const [sale] = await db
-    .select()
+type SalesTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+// A void and a refund of the same sale must never both commit, whichever path
+// (server action or PowerSync RPC) writes them. Both lock the sale row first,
+// so they run one after the other and the second sees the first; Postgres
+// triggers enforce the same rules for any other writer.
+async function lockSaleForCorrection(
+  tx: SalesTransaction,
+  tenantId: string,
+  saleId: string
+) {
+  const [sale] = await tx
+    .select({ createdAt: sales.createdAt, voidedAt: sales.voidedAt })
     .from(sales)
-    .where(and(eq(sales.tenantId, input.tenantId), eq(sales.id, input.saleId)))
+    .where(and(eq(sales.tenantId, tenantId), eq(sales.id, saleId)))
+    .for("update")
     .limit(1);
 
   if (!sale) {
     throw new Error("No se encontró la venta.");
   }
 
-  if (sale.voidedAt) {
-    throw new Error("Esta venta ya fue anulada.");
-  }
-
-  const minutesSinceSale =
-    (Date.now() - new Date(sale.createdAt).getTime()) / 60000;
-
-  if (minutesSinceSale > 10) {
-    throw new Error(
-      "Las ventas solo se pueden anular dentro de los primeros 10 minutos."
-    );
-  }
-
-  const [existingRefund] = await db
+  const [existingRefund] = await tx
     .select({ id: refunds.id })
     .from(refunds)
     .where(
-      and(
-        eq(refunds.tenantId, input.tenantId),
-        eq(refunds.originalSaleId, input.saleId)
-      )
+      and(eq(refunds.tenantId, tenantId), eq(refunds.originalSaleId, saleId))
     )
     .limit(1);
 
-  if (existingRefund) {
-    throw new Error("No se puede anular una venta reembolsada.");
-  }
+  return { ...sale, isRefunded: Boolean(existingRefund) };
+}
 
-  const [voidedSale] = await db
-    .update(sales)
-    .set({
-      voidedAt: new Date(),
-      voidedByUserId: input.userId,
-    })
-    .where(
-      and(
-        eq(sales.tenantId, input.tenantId),
-        eq(sales.id, input.saleId),
-        isNull(sales.voidedAt)
+function isUniqueViolation(error: unknown, constraintName: string): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    code?: unknown;
+    constraint_name?: unknown;
+    cause?: unknown;
+  };
+  if (candidate.code === "23505") {
+    return candidate.constraint_name === constraintName;
+  }
+  // Drizzle wraps the postgres.js error in `cause`.
+  return isUniqueViolation(candidate.cause, constraintName);
+}
+
+export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
+  const voidedAt = new Date();
+
+  await db.transaction(async (tx) => {
+    const sale = await lockSaleForCorrection(tx, input.tenantId, input.saleId);
+
+    if (sale.voidedAt) {
+      throw new Error("Esta venta ya fue anulada.");
+    }
+
+    if (!isWithinVoidWindow(sale.createdAt, voidedAt.getTime())) {
+      throw new Error(VOID_WINDOW_EXPIRED_MESSAGE);
+    }
+
+    if (sale.isRefunded) {
+      throw new Error("No se puede anular una venta reembolsada.");
+    }
+
+    const [voidedSale] = await tx
+      .update(sales)
+      .set({
+        voidedAt,
+        voidedByUserId: input.userId,
+      })
+      .where(
+        and(
+          eq(sales.tenantId, input.tenantId),
+          eq(sales.id, input.saleId),
+          isNull(sales.voidedAt)
+        )
       )
-    )
-    .returning();
+      .returning({ id: sales.id });
 
-  if (!voidedSale) {
-    throw new Error("No se pudo anular la venta.");
-  }
+    if (!voidedSale) {
+      throw new Error("No se pudo anular la venta.");
+    }
+  });
 
   return getSaleForTenant(input.tenantId, input.saleId);
 }
@@ -432,41 +463,50 @@ export async function refundSaleForTenant(
 ): Promise<Sale> {
   const original = await getSaleForTenant(input.tenantId, input.saleId);
 
-  if (original.status === "voided") {
-    throw new Error("No se puede reembolsar una venta anulada.");
-  }
-
   if (original.refundOfSaleId) {
     throw new Error("No se puede reembolsar un registro de reembolso.");
   }
 
-  const [existingRefund] = await db
-    .select({ id: refunds.id })
-    .from(refunds)
-    .where(
-      and(
-        eq(refunds.tenantId, input.tenantId),
-        eq(refunds.originalSaleId, input.saleId)
-      )
-    )
-    .limit(1);
+  // Same business-time rule as createSaleForTenant.
+  const createdAt = new Date();
+  let refund: typeof refunds.$inferSelect | undefined;
 
-  if (existingRefund) {
-    throw new Error("Esta venta ya fue reembolsada.");
+  try {
+    refund = await db.transaction(async (tx) => {
+      const sale = await lockSaleForCorrection(
+        tx,
+        input.tenantId,
+        input.saleId
+      );
+
+      if (sale.voidedAt) {
+        throw new Error("No se puede reembolsar una venta anulada.");
+      }
+
+      if (sale.isRefunded) {
+        throw new Error("Esta venta ya fue reembolsada.");
+      }
+
+      const [inserted] = await tx
+        .insert(refunds)
+        .values({
+          tenantId: input.tenantId,
+          originalSaleId: input.saleId,
+          userId: input.userId,
+          reason: input.reason?.trim() || null,
+          createdAt,
+          clientCreatedAt: createdAt,
+        })
+        .returning();
+
+      return inserted;
+    });
+  } catch (error) {
+    if (isUniqueViolation(error, "refunds_original_sale_id_unique")) {
+      throw new Error("Esta venta ya fue reembolsada.");
+    }
+    throw error;
   }
-
-  const [refund] = await db
-    .insert(refunds)
-    .values({
-      tenantId: input.tenantId,
-      originalSaleId: input.saleId,
-      userId: input.userId,
-      reason: input.reason?.trim() || null,
-      // Server-stamped stand-in for the device creation time; see the note in
-      // createSaleForTenant. PowerSync will supply the real client timestamp.
-      clientCreatedAt: new Date(),
-    })
-    .returning();
 
   if (!refund) {
     throw new Error("No se pudo registrar el reembolso.");
