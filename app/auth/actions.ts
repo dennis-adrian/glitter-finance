@@ -228,14 +228,18 @@ export async function signUpWithPassword(
 }
 
 /**
- * Ends the server session. It does not redirect: the client runs it only
+ * Ends this device's session. It does not redirect: the client runs it only
  * after the local teardown and then loads /login itself, so a failure here
  * (offline, auth outage) stays a normal error it can show and retry, instead
  * of looking like the NEXT_REDIRECT rejection a redirect would produce.
+ *
+ * Scope "local" revokes only this session. The default ("global") would also
+ * sign out the user's other devices, which could then not upload their
+ * queued sales until someone signs in there again.
  */
 export async function signOut() {
   const supabase = await createClient();
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut({ scope: "local" });
   if (error) {
     console.error("[auth] Failed to sign out", {
       code: error.code ?? null,
