@@ -46,7 +46,7 @@ export function ScreenHeader({
 
   return (
     <header className={cn(screenGutterClass, className)}>
-      <div className="flex h-14 items-center gap-2.5">
+      <div className="flex min-h-14 items-center gap-2.5 py-2.5">
         {onBack ? (
           <Button
             type="button"
