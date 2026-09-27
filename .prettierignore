@@ -13,3 +13,6 @@ public
 .env.keys
 .env.local
 .env.*.local
+
+# Local agent settings and other sessions' git worktrees
+.claude/
