@@ -16,6 +16,7 @@ import type {
   SerwistGlobalConfig,
 } from "serwist";
 import {
+  OFFLINE_PAGE_URL,
   PAGE_CACHE_NAME,
   POWERSYNC_WASM_CACHE_NAME,
   STATIC_CACHE_NAME,
@@ -29,11 +30,6 @@ declare global {
 }
 
 declare const self: ServiceWorkerGlobalScope;
-
-// Precached by app/serwist/[path]/route.ts. Shown for a page navigation that
-// neither the network nor the page cache can answer: the first launch
-// offline, /login offline, or after logout cleared the cached app shell.
-const OFFLINE_PAGE_URL = "/~offline";
 
 const isSupabaseOrPowerSync = ({ url }: { url: URL }) =>
   /(?:supabase\.co|powersync\.(?:com|journeyapps\.com))$/i.test(url.hostname);
@@ -133,6 +129,8 @@ const serwist = new Serwist({
     cleanupOutdatedCaches: true,
   },
   runtimeCaching,
+  // OFFLINE_PAGE_URL answers the first launch offline, /login offline, or a
+  // launch after logout cleared the cached app shell.
   // Not precacheOptions.navigateFallback: its route answers every navigation
   // before runtimeCaching runs, so the page cache above would never be read
   // and an offline launch would always land here instead of Sell Mode. A

@@ -1,4 +1,9 @@
 import { createSerwistRoute } from "@serwist/turbopack";
+import { OFFLINE_PAGE_URL } from "@/lib/pwa/cache-names";
+import {
+  offlinePageRevision,
+  readOfflinePageSources,
+} from "@/lib/pwa/offline-page-revision";
 import {
   planPowerSyncPrecache,
   readPowerSyncAssets,
@@ -28,11 +33,26 @@ export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
       ".next/server/**/*",
       ".next/trace",
     ],
-    additionalPrecacheEntries: [
-      { url: "/~offline", revision: process.env.BUILD_ID || "1" },
-      // /manifest.webmanifest is intentionally NOT precached: it varies by
-      // Sec-CH-Prefers-Color-Scheme, so a single precache URL would freeze one
-      // color-scheme variant as the offline response for both themes.
+    // The offline page is rendered by Next, not a file, so it is added here
+    // with a revision derived from this build (offlinePageRevision).
+    // /manifest.webmanifest is intentionally NOT precached: it varies by
+    // Sec-CH-Prefers-Color-Scheme, so a single precache URL would freeze one
+    // color-scheme variant as the offline response for both themes.
+    manifestTransforms: [
+      async (entries) => ({
+        manifest: [
+          ...entries,
+          {
+            url: OFFLINE_PAGE_URL,
+            revision: offlinePageRevision({
+              entries,
+              sources: readOfflinePageSources(),
+              commit: process.env.VERCEL_GIT_COMMIT_SHA,
+            }),
+            size: 0,
+          },
+        ],
+      }),
     ],
     useNativeEsbuild: true,
     rebuildOnChange: true,

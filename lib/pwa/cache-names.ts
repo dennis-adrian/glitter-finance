@@ -5,6 +5,12 @@
 /** Serwist's cacheId: the precache is "glitter-pos-precache-v2-<scope>". */
 export const SW_CACHE_ID = "glitter-pos";
 
+/**
+ * The precached page (app/~offline/page.tsx) shown for a page navigation
+ * that neither the network nor the page cache can answer.
+ */
+export const OFFLINE_PAGE_URL = "/~offline";
+
 /** Navigations: the app shell, rendered with the signed-in user's data. */
 export const PAGE_CACHE_NAME = "glitter-pos-pages";
 
