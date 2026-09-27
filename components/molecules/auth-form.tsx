@@ -13,6 +13,10 @@ import { GoogleSubmitButton } from "@/components/molecules/google-sign-in-button
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  MIN_PASSWORD_LENGTH,
+  PASSWORDS_DO_NOT_MATCH_MESSAGE,
+} from "@/lib/auth/password";
 import { cn } from "@/lib/utils";
 
 type AuthMode = "signin" | "signup";
@@ -121,13 +125,13 @@ function passwordStrength(password: string) {
   ).length;
 
   if (password.length >= 12 && variety >= 3) return 4;
-  if (password.length >= 8 && variety >= 2) return 3;
-  if (password.length >= 8) return 2;
+  if (password.length >= MIN_PASSWORD_LENGTH && variety >= 2) return 3;
+  if (password.length >= MIN_PASSWORD_LENGTH) return 2;
   return 1;
 }
 
 function strengthLabel(strength: number) {
-  if (strength === 0) return "Usá al menos 8 caracteres";
+  if (strength === 0) return `Usá al menos ${MIN_PASSWORD_LENGTH} caracteres`;
   if (strength === 1) return "Contraseña débil";
   if (strength === 2) return "Contraseña media";
   return "Contraseña fuerte";
@@ -162,7 +166,7 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
     }
 
     event.preventDefault();
-    setPasswordError("Las contraseñas no coinciden.");
+    setPasswordError(PASSWORDS_DO_NOT_MATCH_MESSAGE);
     confirmPasswordRef.current?.focus();
   }
 
@@ -244,7 +248,7 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
               name="password"
               autoComplete={isSignup ? "new-password" : "current-password"}
               placeholder={isSignup ? "Creá una contraseña" : "Tu contraseña"}
-              minLength={isSignup ? 8 : undefined}
+              minLength={isSignup ? MIN_PASSWORD_LENGTH : undefined}
               value={password}
               onChange={(event) =>
                 handlePasswordChange(event.currentTarget.value)
@@ -283,7 +287,7 @@ export function AuthForm({ mode, next, alternateHref }: AuthFormProps) {
                 type="password"
                 autoComplete="new-password"
                 placeholder="Repetí tu contraseña"
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 value={confirmPassword}
                 required
                 ref={confirmPasswordRef}

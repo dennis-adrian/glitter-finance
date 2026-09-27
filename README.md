@@ -106,6 +106,17 @@ app only after both.
 
 After relinking, update `.env.local` so `NEXT_PUBLIC_SUPABASE_URL`, the publishable and secret keys, and `DATABASE_URL` all match the now-linked project; otherwise the running app and the CLI will talk to different backends.
 
+### Auth settings
+
+`supabase/config.toml` configures only the local stack. Set these by hand in
+each hosted project's Authentication settings:
+
+- **Minimum password length: 8.** The app's forms enforce the same minimum
+  (`MIN_PASSWORD_LENGTH` in `lib/auth/password.ts`). The Auth setting also
+  covers sign-ups and password changes that call Supabase directly with the
+  publishable key. Turn on leaked-password protection too if the plan offers
+  it.
+
 ### Auth email templates
 
 The version-controlled React Email source for signup confirmation lives at

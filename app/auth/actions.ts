@@ -13,6 +13,7 @@ import {
   SIGN_UP_TEMPORARY_ERROR_MESSAGE,
 } from "@/lib/auth/signup-error";
 import { LOGIN_ERROR_MESSAGES } from "@/lib/auth/login-messages";
+import { newPasswordError } from "@/lib/auth/password";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import { isAbsoluteHttpUrl } from "@/lib/invitations/validation";
 import { getRequestOrigin } from "@/lib/request-origin";
@@ -146,11 +147,9 @@ export async function signUpWithPassword(
   if (displayName.length < 2) {
     return { error: "Escribe tu nombre completo para crear la cuenta." };
   }
-  if (password.length < 8) {
-    return { error: "La contraseña debe tener al menos 8 caracteres." };
-  }
-  if (password !== confirmPassword) {
-    return { error: "Las contraseñas no coinciden." };
+  const passwordError = newPasswordError(password, confirmPassword);
+  if (passwordError) {
+    return { error: passwordError };
   }
   if (!callbackUrl) {
     return { error: SIGN_UP_ORIGIN_UNAVAILABLE_MESSAGE };

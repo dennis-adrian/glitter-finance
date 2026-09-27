@@ -191,7 +191,10 @@ enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
-minimum_password_length = 6
+# Same minimum as the app (MIN_PASSWORD_LENGTH in lib/auth/password.ts), so a
+# sign-up that skips the app's form cannot set a shorter password. Hosted
+# projects need the same value in their Auth settings (see README).
+minimum_password_length = 8
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
 # are: `letters_digits`, `lower_upper_letters_digits`, `lower_upper_letters_digits_symbols`
 password_requirements = ""
