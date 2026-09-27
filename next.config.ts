@@ -58,9 +58,5 @@ export default withSentryConfig(withSerwist(nextConfig), {
     disable: !sentrySourceMapsEnabled,
     deleteSourcemapsAfterUpload: true,
   },
-  webpack: {
-    treeshake: {
-      removeDebugLogging: true,
-    },
-  },
+  // No `webpack` options: `next build` uses Turbopack, which ignores them.
 });

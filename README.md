@@ -393,8 +393,8 @@ changes are live on staging.
 
 ### Production observability
 
-Sentry captures browser, server, edge, and permanent PowerSync upload errors
-with privacy-safe defaults. Configure the runtime DSN, source-map token, email
+Sentry captures browser, server, and permanent PowerSync upload errors with
+privacy-safe defaults, from Vercel production and preview deployments only. Configure the runtime DSN, source-map token, email
 alerts, and uptime monitor using
 [`docs/production-observability.md`](docs/production-observability.md).
 
