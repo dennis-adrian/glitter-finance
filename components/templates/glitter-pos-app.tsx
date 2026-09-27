@@ -64,6 +64,7 @@ import {
 } from "@/lib/views";
 import { useAppRoute } from "@/lib/hooks/use-app-route";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
+import { useVirtualKeyboard } from "@/lib/hooks/use-virtual-keyboard";
 import type { UserTenantContext } from "@/lib/auth/user-context";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
 import { isPowerSyncConfigured } from "@/lib/env";
@@ -201,6 +202,7 @@ export function GlitterPosApp({
   const { route, navigate, back } = useAppRoute();
   const view = route.view;
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  useVirtualKeyboard();
   const [activeInvitationState, setActiveInvitationState] =
     useState(activeInvitation);
   const [category, setCategory] = useState("Todos");
@@ -1499,7 +1501,8 @@ export function GlitterPosApp({
   const activePrimary = primaryViewFor(view);
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-background">
+    // --app-height is set by useVirtualKeyboard while the keyboard is open.
+    <div className="flex h-[var(--app-height,100dvh)] overflow-hidden bg-background">
       <SideNav
         active={activePrimary}
         onNavigate={goToPrimary}

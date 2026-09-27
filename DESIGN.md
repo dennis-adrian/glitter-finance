@@ -224,6 +224,21 @@ screen, so Back never leaves the app from a deep link.
 Fixed bottom UI (bottom nav) pads with `env(safe-area-inset-bottom)`. Because
 footers are in flow, nothing else needs safe-area math.
 
+### On-screen keyboard
+
+The browser's own "scroll the field into view" can't reach inside the shell's
+scroll regions, so the app handles it (`useVirtualKeyboard`):
+
+- The viewport uses `interactive-widget=resizes-content` (Android shrinks the
+  layout); iOS is covered with the VisualViewport API.
+- While the keyboard is open, the shell sizes itself to the visible area
+  (`--app-height`), the bottom nav hides, and the focused field scrolls to the
+  middle of its scroll region, so the header and footer actions (e.g.
+  **Registrar venta**) stay visible above the keyboard.
+- Bottom-anchored overlays (the order sheet, dialogs with text fields) lift by
+  `--keyboard-inset` and cap their height to `--app-height`. Use both for any
+  new bottom sheet that contains a text field.
+
 ## Component patterns
 
 ### Buttons

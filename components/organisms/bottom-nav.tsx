@@ -11,7 +11,8 @@ type BottomNavProps = {
 export function BottomNav({ active, onNavigate }: BottomNavProps) {
   return (
     <nav
-      className="grid shrink-0 grid-cols-5 border-t border-border bg-card px-1 pt-1.5 pb-[max(6px,env(safe-area-inset-bottom))] md:hidden"
+      // Hidden while typing so the keyboard leaves room for the content.
+      className="grid shrink-0 grid-cols-5 border-t border-border bg-card px-1 pt-1.5 pb-[max(6px,env(safe-area-inset-bottom))] in-data-[keyboard=open]:hidden md:hidden"
       aria-label="Navegación principal"
     >
       {navItems.map(({ view, label, icon: Icon }) => {

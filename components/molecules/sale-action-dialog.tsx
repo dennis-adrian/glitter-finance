@@ -65,7 +65,7 @@ export function SaleActionDialog({
     >
       <AlertDialog.Portal>
         <AlertDialog.Backdrop className="fixed inset-0 z-50 bg-foreground/35 transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0" />
-        <AlertDialog.Popup className="fixed inset-x-3 bottom-3 z-50 mx-auto max-w-md rounded-3xl bg-card p-5 shadow-[var(--shadow)] ring-1 ring-foreground/10 transition-[opacity,transform] duration-200 outline-none data-ending-style:translate-y-2 data-ending-style:opacity-0 data-starting-style:translate-y-2 data-starting-style:opacity-0 sm:top-1/2 sm:bottom-auto sm:-translate-y-1/2 sm:data-ending-style:-translate-y-[48%] sm:data-starting-style:-translate-y-[48%]">
+        <AlertDialog.Popup className="fixed inset-x-3 bottom-[calc(0.75rem+var(--keyboard-inset,0px))] z-50 mx-auto max-h-[calc(var(--app-height,100dvh)-1.5rem)] max-w-md overflow-y-auto rounded-3xl bg-card p-5 shadow-[var(--shadow)] ring-1 ring-foreground/10 transition-[opacity,transform] duration-200 outline-none data-ending-style:translate-y-2 data-ending-style:opacity-0 data-starting-style:translate-y-2 data-starting-style:opacity-0 sm:top-1/2 sm:bottom-auto sm:-translate-y-1/2 sm:data-ending-style:-translate-y-[48%] sm:data-starting-style:-translate-y-[48%]">
           <span className="text-xs font-bold tracking-[0.08em] text-muted-foreground uppercase">
             {isVoid ? "Corrección inmediata" : "Reversión de venta"}
           </span>

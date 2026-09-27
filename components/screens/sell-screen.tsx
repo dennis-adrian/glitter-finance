@@ -168,7 +168,9 @@ export function SellScreen(props: SellScreenProps) {
         swipeDirection={isTablet ? "right" : "down"}
         showSwipeHandle={!isTablet}
       >
-        <DrawerContent className="data-[swipe-axis=x]:w-[min(26rem,90vw)]">
+        {/* Bottom sheet lifts above the iOS keyboard (--keyboard-inset) and
+            never grows past the visible area while typing a discount. */}
+        <DrawerContent className="data-[swipe-axis=x]:w-[min(26rem,90vw)] data-[swipe-axis=y]:[--drawer-content-max-height:calc(var(--app-height,100dvh)-6rem)] data-[swipe-direction=down]:bottom-(--keyboard-inset,0px)">
           <DrawerTitle className="sr-only">Pedido</DrawerTitle>
           <DrawerDescription className="sr-only">
             Productos del pedido actual y total a cobrar.
