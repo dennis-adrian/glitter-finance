@@ -16,6 +16,26 @@ export type InvitationWithTenant = TenantInvitation & {
   tenantName: string;
 };
 
+const invitationColumns = {
+  id: tenantInvitations.id,
+  tenantId: tenantInvitations.tenantId,
+  token: tenantInvitations.token,
+  tokenDeliveryCiphertext: tenantInvitations.tokenDeliveryCiphertext,
+  createdByUserId: tenantInvitations.createdByUserId,
+  expiresAt: tenantInvitations.expiresAt,
+  revokedAt: tenantInvitations.revokedAt,
+  createdAt: tenantInvitations.createdAt,
+};
+
+/** The tenant's invitations that still admit new members. */
+function activeInvitationWhere(tenantId: string, now: Date) {
+  return and(
+    eq(tenantInvitations.tenantId, tenantId),
+    isNull(tenantInvitations.revokedAt),
+    gt(tenantInvitations.expiresAt, now)
+  );
+}
+
 function deliveryTokenFromRow(row: {
   tokenDeliveryCiphertext: string | null;
 }): string | undefined {
@@ -92,17 +112,7 @@ export async function getInvitationByToken(
 ): Promise<InvitationWithTenant | null> {
   const tokenHash = hashInvitationToken(token);
   const [row] = await db
-    .select({
-      id: tenantInvitations.id,
-      tenantId: tenantInvitations.tenantId,
-      token: tenantInvitations.token,
-      tokenDeliveryCiphertext: tenantInvitations.tokenDeliveryCiphertext,
-      createdByUserId: tenantInvitations.createdByUserId,
-      expiresAt: tenantInvitations.expiresAt,
-      revokedAt: tenantInvitations.revokedAt,
-      createdAt: tenantInvitations.createdAt,
-      tenantName: tenants.name,
-    })
+    .select({ ...invitationColumns, tenantName: tenants.name })
     .from(tenantInvitations)
     .innerJoin(tenants, eq(tenantInvitations.tenantId, tenants.id))
     .where(eq(tenantInvitations.token, tokenHash))
@@ -121,26 +131,10 @@ export async function getInvitationByToken(
 export async function getActiveInvitationForTenant(
   tenantId: string
 ): Promise<TenantInvitation | null> {
-  const now = new Date();
   const [row] = await db
-    .select({
-      id: tenantInvitations.id,
-      tenantId: tenantInvitations.tenantId,
-      token: tenantInvitations.token,
-      tokenDeliveryCiphertext: tenantInvitations.tokenDeliveryCiphertext,
-      createdByUserId: tenantInvitations.createdByUserId,
-      expiresAt: tenantInvitations.expiresAt,
-      revokedAt: tenantInvitations.revokedAt,
-      createdAt: tenantInvitations.createdAt,
-    })
+    .select(invitationColumns)
     .from(tenantInvitations)
-    .where(
-      and(
-        eq(tenantInvitations.tenantId, tenantId),
-        isNull(tenantInvitations.revokedAt),
-        gt(tenantInvitations.expiresAt, now)
-      )
-    )
+    .where(activeInvitationWhere(tenantId, new Date()))
     .orderBy(desc(tenantInvitations.createdAt))
     .limit(1);
 
@@ -153,17 +147,6 @@ export async function getActiveInvitationForTenant(
   }
   return mapInvitation(row, deliveryToken);
 }
-
-const invitationColumns = {
-  id: tenantInvitations.id,
-  tenantId: tenantInvitations.tenantId,
-  token: tenantInvitations.token,
-  tokenDeliveryCiphertext: tenantInvitations.tokenDeliveryCiphertext,
-  createdByUserId: tenantInvitations.createdByUserId,
-  expiresAt: tenantInvitations.expiresAt,
-  revokedAt: tenantInvitations.revokedAt,
-  createdAt: tenantInvitations.createdAt,
-};
 
 // Returns the tenant's current active invitation, creating one (with the
 // supplied candidate token/expiry) only if none exists. A per-tenant advisory
@@ -184,13 +167,7 @@ export async function getOrCreateActiveInvitation(input: {
     const [existing] = await tx
       .select(invitationColumns)
       .from(tenantInvitations)
-      .where(
-        and(
-          eq(tenantInvitations.tenantId, input.tenantId),
-          isNull(tenantInvitations.revokedAt),
-          gt(tenantInvitations.expiresAt, new Date())
-        )
-      )
+      .where(activeInvitationWhere(input.tenantId, new Date()))
       .orderBy(desc(tenantInvitations.createdAt))
       .limit(1);
 

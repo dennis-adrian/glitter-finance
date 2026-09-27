@@ -20,7 +20,7 @@
 //   pnpm db:invite:tenant-user
 import "./load-env";
 
-import { and, eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { User } from "@supabase/supabase-js";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
@@ -112,36 +112,28 @@ async function ensureTenantExists(tenantId: string) {
   return tenant;
 }
 
-async function ensureMembership(input: {
+// Unlike the app's ensureMembership (lib/auth/memberships.ts), a re-run also
+// refreshes the display name of an existing membership. One statement, so a
+// concurrent join cannot slip between a lookup and the insert.
+async function upsertMembership(input: {
   tenantId: string;
   userId: string;
   displayName: string;
 }) {
-  const [existingMembership] = await db
-    .select({ id: tenantUsers.id })
-    .from(tenantUsers)
-    .where(
-      and(
-        eq(tenantUsers.tenantId, input.tenantId),
-        eq(tenantUsers.userId, input.userId)
-      )
-    )
-    .limit(1);
-
-  if (existingMembership) {
-    await db
-      .update(tenantUsers)
-      .set({ displayName: input.displayName })
-      .where(eq(tenantUsers.id, existingMembership.id));
-    return { created: false };
-  }
-
-  await db.insert(tenantUsers).values({
-    tenantId: input.tenantId,
-    userId: input.userId,
-    displayName: input.displayName,
-  });
-  return { created: true };
+  const [membership] = await db
+    .insert(tenantUsers)
+    .values({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      displayName: input.displayName,
+    })
+    .onConflictDoUpdate({
+      target: [tenantUsers.tenantId, tenantUsers.userId],
+      set: { displayName: input.displayName },
+    })
+    // xmax is 0 only on a freshly inserted row version.
+    .returning({ created: sql<boolean>`xmax = 0` });
+  return { created: membership?.created ?? false };
 }
 
 async function setTenantClaim(userId: string, tenantId: string) {
@@ -192,7 +184,7 @@ async function main() {
     authUser = await createAuthUserForInvite(email, password, displayName);
   }
 
-  const membership = await ensureMembership({
+  const membership = await upsertMembership({
     tenantId,
     userId: authUser.id,
     displayName,
