@@ -8,8 +8,8 @@
 // box with a download button. Per PRD §8 + §14.
 //
 // Each transaction the server permanently rejected is listed with its error
-// and a confirmed "Descartar operación" action (lib/powersync/
-// discard-sync-failure.ts), the way out when retrying cannot succeed.
+// and a confirmed "Descartar operación" action, the way out when retrying
+// cannot succeed (see lib/powersync/discard-sync-failure.ts).
 
 import {
   AlertTriangle,

@@ -14,6 +14,8 @@
 //   atomic. Other supported transactions contain exactly one row operation.
 //   Permanent errors are copied into a local-only dead-letter table while the
 //   transaction remains queued; all errors are re-thrown for PowerSync backoff.
+//   A transaction the server will never accept is discarded from Diagnostics
+//   (lib/powersync/discard-sync-failure.ts).
 //   When a void or refund loses a cross-device conflict, the RPC applies
 //   nothing and returns NULL; the local row is then reverted so the device
 //   matches the server.
@@ -93,7 +95,8 @@ function uploadTargetFor(plan: UploadPlan): string {
 
 // Postgres response codes we cannot recover from by retrying. Matching one
 // stores the complete local transaction for explicit recovery. The transaction
-// remains queued and blocks later writes until a retry succeeds.
+// remains queued and blocks later writes until a retry succeeds or the user
+// discards it.
 //
 // Anything else is retried silently with backoff. That includes 55000, which
 // the server raises for a device timestamp more than 5 minutes in the future:
