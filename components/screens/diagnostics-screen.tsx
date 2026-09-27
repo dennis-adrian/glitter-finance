@@ -265,7 +265,7 @@ export function DiagnosticsScreen({
             {snapshot.failures.length === 1
               ? "1 transacción no llegó a la nube."
               : `${snapshot.failures.length} transacciones no llegaron a la nube.`}{" "}
-            Copia este diagnóstico y no cierres sesión ni cambies de cuenta
+            Copiá este diagnóstico y no cierres sesión ni cambies de cuenta
             hasta{" "}
             {snapshot.failures.length === 1 ? "recuperarla" : "recuperarlas"}.
           </span>

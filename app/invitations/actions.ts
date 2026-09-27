@@ -79,7 +79,7 @@ export async function acceptInvitation(token: string) {
   // can surface the error instead of racing a server redirect against its own
   // post-accept navigation.
   if (!user) {
-    throw new Error("Tu sesión expiró. Vuelve a iniciar sesión.");
+    throw new Error("Tu sesión expiró. Volvé a iniciar sesión.");
   }
 
   const displayName = getDisplayName({

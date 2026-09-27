@@ -921,7 +921,7 @@ export function GlitterPosApp({
           !editingProduct.tracksInventory);
       if (inventoryPersistenceRequired) {
         showToast(
-          "Conecta para guardar productos con inventario activado.",
+          "Conectate para guardar productos con inventario activado.",
           "danger"
         );
         return;
@@ -1037,7 +1037,7 @@ export function GlitterPosApp({
     }
     const db = powerSyncDb;
     if (!db) {
-      showToast("Conecta para ajustar el inventario.", "info");
+      showToast("Conectate para ajustar el inventario.", "info");
       return;
     }
     const work = beginTenantWork();

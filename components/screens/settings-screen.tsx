@@ -86,8 +86,8 @@ export function SettingsScreen({
   );
   const syncFailureExplanation =
     syncFailureCount === 1
-      ? "Hay una operación que no llegó a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión."
-      : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión.`;
+      ? "Hay una operación que no llegó a la nube. Abrí Diagnósticos y guardá el reporte antes de cerrar sesión."
+      : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abrí Diagnósticos y guardá el reporte antes de cerrar sesión.`;
 
   async function refreshTenantSessionAndReload() {
     try {
@@ -96,14 +96,14 @@ export function SettingsScreen({
       if (error) {
         console.error("[tenant-change] refreshSession failed", error);
         setTenantActionError(
-          "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
+          "La sesión no se actualizó. Cerrá sesión y volvé a entrar, o recargá la página."
         );
         return false;
       }
     } catch (error) {
       console.error("[tenant-change] refreshSession failed", error);
       setTenantActionError(
-        "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
+        "La sesión no se actualizó. Cerrá sesión y volvé a entrar, o recargá la página."
       );
       return false;
     }
@@ -267,12 +267,12 @@ export function SettingsScreen({
 
         {syncFailureCount > 0 ? (
           <p className="mb-3 text-xs leading-relaxed text-destructive">
-            La sincronización requiere recuperación. Abre Diagnósticos antes de
+            La sincronización requiere recuperación. Abrí Diagnósticos antes de
             cambiar de cuenta o cerrar sesión.
           </p>
         ) : !canSwitchTenant ? (
           <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-            Espera a que termine la sincronización antes de cambiar de cuenta.
+            Esperá a que termine la sincronización antes de cambiar de cuenta.
           </p>
         ) : null}
         {tenantActionError ? (
@@ -412,7 +412,7 @@ export function SettingsScreen({
         <h2 className="mb-3 text-lg font-semibold">Equipo</h2>
         {teamSyncPending ? (
           <p className="mb-3 text-sm leading-snug text-muted-foreground">
-            Sincronizando el equipo… Si esto persiste, revisa la conexión en
+            Sincronizando el equipo… Si esto persiste, revisá la conexión en
             Diagnósticos.
           </p>
         ) : null}
@@ -450,7 +450,7 @@ export function SettingsScreen({
         </div>
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
           Varios vendedores pueden registrar ventas en la misma cuenta desde sus
-          propios teléfonos. Comparte el enlace de invitación para agregar
+          propios teléfonos. Compartí el enlace de invitación para agregar
           miembros al equipo.
         </p>
       </section>

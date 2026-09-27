@@ -49,7 +49,7 @@ export async function uploadProductImage(
   const image = formData.get("image");
 
   if (!(image instanceof File)) {
-    throw new Error("Selecciona una imagen del producto.");
+    throw new Error("Seleccioná una imagen del producto.");
   }
 
   if (image.size <= 0) {

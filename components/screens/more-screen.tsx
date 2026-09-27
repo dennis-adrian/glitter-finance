@@ -110,7 +110,7 @@ export function MoreScreen({ tenantContext, openSettings }: MoreScreenProps) {
     } catch (error) {
       console.error("[tenant-change] refreshSession failed", error);
       setActionError(
-        "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
+        "La sesión no se actualizó. Cerrá sesión y volvé a entrar, o recargá la página."
       );
       return false;
     }
@@ -201,13 +201,13 @@ export function MoreScreen({ tenantContext, openSettings }: MoreScreenProps) {
     setActionError(null);
     if (syncFailureCount > 0) {
       setActionError(
-        "Hay operaciones que no llegaron a la nube. Abre Diagnósticos desde Ajustes antes de cerrar sesión."
+        "Hay operaciones que no llegaron a la nube. Abrí Diagnósticos desde Ajustes antes de cerrar sesión."
       );
       return;
     }
     if (!canSwitchTenant) {
       setActionError(
-        "Espera a que termine la sincronización antes de cerrar sesión."
+        "Esperá a que termine la sincronización antes de cerrar sesión."
       );
       return;
     }
