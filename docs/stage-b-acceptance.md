@@ -88,11 +88,15 @@ Expected:
 2. Close the PWA.
 3. Enable airplane mode.
 4. Relaunch the installed PWA.
+5. Close it again, disable airplane mode, sign out, enable airplane mode and
+   relaunch the installed PWA.
 
 Expected:
 
-- The app shell loads offline.
-- Sell Mode renders from cached shell and local PowerSync data.
+- Step 4 opens Sell Mode from the saved app shell and local PowerSync data,
+  not the "Sin conexión" screen.
+- Step 5 shows the "Sin conexión" screen: signing out removed the saved app
+  shell. After disabling airplane mode, "Reintentar" opens the login screen.
 - First-ever offline login is not required and remains out of scope.
 
 ## Diagnostics
