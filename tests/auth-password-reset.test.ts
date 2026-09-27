@@ -13,6 +13,7 @@ import {
   isPasswordResetSessionError,
   PASSWORD_UPDATE_FALLBACK_MESSAGE,
   resolvePasswordUpdateNext,
+  skipPasswordForm,
   UPDATE_PASSWORD_PATH,
 } from "@/lib/auth/password-reset";
 
@@ -93,6 +94,22 @@ test("the recovery email leads to the form, then to the original next", () => {
   assert.equal(formUrl.pathname, UPDATE_PASSWORD_PATH);
   assert.equal(
     resolvePasswordUpdateNext(formUrl.searchParams.get("next"), ORIGIN),
+    "/join/invite-123"
+  );
+});
+
+test("a redirect to /login skips the password form but keeps its next", () => {
+  assert.equal(
+    skipPasswordForm("/auth/update-password?next=%2Fjoin%2Finvite-123", ORIGIN),
+    "/join/invite-123"
+  );
+  assert.equal(skipPasswordForm(UPDATE_PASSWORD_PATH, ORIGIN), "/");
+  assert.equal(
+    skipPasswordForm("/auth/update-password?next=%2F%2Fevil.example", ORIGIN),
+    "/"
+  );
+  assert.equal(
+    skipPasswordForm("/join/invite-123", ORIGIN),
     "/join/invite-123"
   );
 });

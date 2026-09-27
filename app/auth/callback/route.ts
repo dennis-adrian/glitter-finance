@@ -2,6 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isAuthPKCECodeVerifierMissingError } from "@supabase/supabase-js";
 import type { LoginErrorCode } from "@/lib/auth/login-messages";
 import { buildLoginRedirectPath } from "@/lib/auth/oauth";
+import {
+  isUpdatePasswordPath,
+  skipPasswordForm,
+} from "@/lib/auth/password-reset";
 import { sanitizeRedirectPath } from "@/lib/auth/redirect";
 import { createClient } from "@/lib/supabase/server";
 
@@ -10,7 +14,16 @@ function authErrorUrl(
   next: string,
   error: LoginErrorCode = "auth_callback_failed"
 ) {
-  return new URL(buildLoginRedirectPath({ error }, next), requestUrl.origin);
+  // A recovery email that still uses {{ .ConfirmationURL }} comes through
+  // here on its way to the password form. If it fails, the reset screen
+  // asks for a new email.
+  const params = isUpdatePasswordPath(next)
+    ? ({ error: "password_reset_link_invalid", mode: "reset" } as const)
+    : { error };
+  return new URL(
+    buildLoginRedirectPath(params, skipPasswordForm(next, requestUrl.origin)),
+    requestUrl.origin
+  );
 }
 
 export async function GET(request: NextRequest) {

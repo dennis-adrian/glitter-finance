@@ -5,6 +5,7 @@ import {
   resolveEmailLinkNext,
 } from "@/lib/auth/email-link";
 import { buildLoginRedirectPath } from "@/lib/auth/oauth";
+import { skipPasswordForm } from "@/lib/auth/password-reset";
 import { createClient } from "@/lib/supabase/server";
 
 // Email links (see lib/auth/email-link.ts). /auth/callback stays for OAuth,
@@ -18,14 +19,15 @@ export async function GET(request: NextRequest) {
     requestUrl.searchParams.get("next"),
     requestUrl.origin
   );
-  // A failed recovery link opens the reset form again, to ask for a new
-  // email.
+  // A failed recovery link opens the reset screen again, to ask for a new
+  // email. A recovery link's next is the password form; /login gets the
+  // page after it.
   const errorUrl = new URL(
     buildLoginRedirectPath(
       type === "recovery"
         ? { error: "password_reset_link_invalid", mode: "reset" }
         : { error: "email_link_invalid" },
-      next
+      skipPasswordForm(next, requestUrl.origin)
     ),
     requestUrl.origin
   );

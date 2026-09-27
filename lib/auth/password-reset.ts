@@ -34,6 +34,19 @@ export function resolvePasswordUpdateNext(
   return isUpdatePasswordPath(next) ? "/" : next;
 }
 
+/**
+ * `path`, or where the password form would continue to when `path` is the
+ * form. For redirects to /login: signing in must not land on the form.
+ */
+export function skipPasswordForm(path: string, origin: string): string {
+  return isUpdatePasswordPath(path)
+    ? resolvePasswordUpdateNext(
+        new URL(path, "http://localhost").searchParams.get("next"),
+        origin
+      )
+    : path;
+}
+
 type PasswordUpdateAuthError = {
   code?: string | null;
   name?: string | null;
