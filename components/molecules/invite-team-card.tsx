@@ -112,8 +112,6 @@ export function InviteTeamCard({
     isInvitationValid(invitation) &&
     Boolean(invitation.token) &&
     !isAbsoluteHttpUrl(inviteLink);
-  const needsRotation =
-    invitation !== null && isInvitationValid(invitation) && !invitation.token;
 
   async function handleGenerate() {
     setError(null);
@@ -302,50 +300,6 @@ export function InviteTeamCard({
         <div className="grid gap-3">
           <p className="text-sm text-destructive">
             {INVITE_ORIGIN_UNAVAILABLE_MESSAGE}
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full rounded-2xl"
-            onClick={() => setConfirmingRevoke(true)}
-            disabled={isBusy}
-          >
-            Revocar enlace activo
-          </Button>
-          {confirmingRevoke ? (
-            <div className="grid gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
-              <p className="text-sm text-muted-foreground">
-                ¿Revocar este enlace? Quienes ya lo tengan dejarán de poder
-                unirse.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-2xl"
-                  onClick={() => setConfirmingRevoke(false)}
-                  disabled={isRevoking}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  className="rounded-2xl"
-                  onClick={() => void handleRevoke()}
-                  disabled={isRevoking}
-                >
-                  {isRevoking ? "Revocando…" : "Sí, revocar"}
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : needsRotation ? (
-        <div className="grid gap-3">
-          <p className="text-sm text-muted-foreground">
-            Ya hay un enlace activo, pero no se puede mostrar de nuevo. Revócalo
-            para generar uno nuevo.
           </p>
           <Button
             type="button"

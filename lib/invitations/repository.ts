@@ -141,6 +141,8 @@ export async function getActiveInvitationForTenant(
   if (!row) {
     return null;
   }
+  // A link that cannot be shown again reads as no link: generating one
+  // replaces it (getOrCreateActiveInvitation).
   const deliveryToken = deliveryTokenFromRow(row);
   if (!deliveryToken) {
     return null;
@@ -178,8 +180,10 @@ export async function getOrCreateActiveInvitation(input: {
       }
 
       // Active row but undeliverable token (missing ciphertext or decrypt
-      // failure). Revoke before inserting a replacement so two valid links
-      // cannot coexist for the same tenant.
+      // failure). That means the server key changed, which also breaks the
+      // link's lookup hash (rows from before the ciphertext column have long
+      // expired), so replacing it without asking loses nothing. Revoke it
+      // first so two valid links cannot coexist for the same tenant.
       await tx
         .update(tenantInvitations)
         .set({ revokedAt: new Date() })

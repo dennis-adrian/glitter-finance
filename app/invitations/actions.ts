@@ -38,18 +38,14 @@ export async function createInvitation(expectedTenantId: string) {
   }
 
   const rawToken = generateInviteToken();
+  // Always carries a token: an active link that cannot be shown again is
+  // replaced (see getOrCreateActiveInvitation).
   const invitation = await getOrCreateActiveInvitation({
     tenantId: context.tenant.id,
     createdByUserId: context.user.id,
     token: rawToken,
     expiresAt: new Date(Date.now() + DEFAULT_INVITE_TTL_MS),
   });
-
-  if (!invitation.token) {
-    throw new Error(
-      "Ya hay un enlace activo, pero no se puede recuperar. Revócalo y genera uno nuevo."
-    );
-  }
 
   const link = buildInviteLink(origin, invitation.token);
   if (!link) {
