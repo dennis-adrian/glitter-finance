@@ -9,47 +9,18 @@
 // Caller supplies display names from synced tenant_users rows (see
 // lib/powersync/tenant-users-from-local.ts).
 
+import type {
+  LocalRow,
+  refunds,
+  saleLines,
+  sales,
+} from "@/lib/db/client-schema";
 import { canonicalizeCategory } from "@/lib/sample-data";
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
 
-export type LocalSaleRow = {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  payment_method: string;
-  sale_discount_cents: number;
-  sale_discount_reason: string | null;
-  voided_at: string | null;
-  voided_by_user_id: string | null;
-  created_at: string;
-  client_created_at: string;
-};
-
-export type LocalSaleLineRow = {
-  id: string;
-  sale_id: string;
-  tenant_id: string;
-  product_id: string;
-  product_name: string;
-  category: string;
-  quantity: number;
-  unit_price_cents: number;
-  unit_cost_cents: number | null;
-  line_discount_cents: number;
-  line_discount_reason: string | null;
-  line_total_cents: number;
-  created_at: string;
-};
-
-export type LocalRefundRow = {
-  id: string;
-  tenant_id: string;
-  original_sale_id: string;
-  user_id: string;
-  reason: string | null;
-  created_at: string;
-  client_created_at: string;
-};
+export type LocalSaleRow = LocalRow<typeof sales>;
+export type LocalSaleLineRow = LocalRow<typeof saleLines>;
+export type LocalRefundRow = LocalRow<typeof refunds>;
 
 function mapLine(row: LocalSaleLineRow): SaleLine {
   return {

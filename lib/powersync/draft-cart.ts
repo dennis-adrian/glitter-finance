@@ -1,6 +1,7 @@
 "use client";
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import type { draftCart, LocalRow } from "@/lib/db/client-schema";
 import type { CartLine } from "@/lib/types";
 
 const draftCartId = "current";
@@ -8,11 +9,7 @@ const legacyStorageKey = "glitter-pos-local-v1";
 const legacyMigrationKey = "glitter-pos-draft-cart-migrated-v1";
 const draftCartMaxAgeMs = 24 * 60 * 60 * 1000;
 
-type DraftCartRow = {
-  id: string;
-  lines_json: string;
-  updated_at: string;
-};
+type DraftCartRow = LocalRow<typeof draftCart>;
 
 function nowIso() {
   return new Date().toISOString();

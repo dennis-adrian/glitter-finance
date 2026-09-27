@@ -92,35 +92,14 @@ import {
   productHasInitialMovementLocal,
 } from "@/lib/powersync/write-inventory";
 import { formatBs } from "@/lib/money";
+import type {
+  inventoryMovements,
+  LocalRow,
+  products,
+} from "@/lib/db/client-schema";
 
-// Shape of a row coming back from the local SQLite store. Column names are
-// snake_case (matching Postgres) because PowerSync replicates with the
-// source column names verbatim.
-type ProductRow = {
-  id: string;
-  name: string;
-  price_cents: number;
-  cost_cents: number | null;
-  category: string;
-  image_path: string | null;
-  tracks_inventory: number | null;
-  low_stock_threshold: number | null;
-  archived_at: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type InventoryMovementRow = {
-  id: string;
-  tenant_id: string;
-  product_id: string;
-  user_id: string;
-  delta: number;
-  reason: InventoryMovementReason;
-  note: string | null;
-  created_at: string;
-  client_created_at: string;
-};
+type ProductRow = LocalRow<typeof products>;
+type InventoryMovementRow = LocalRow<typeof inventoryMovements>;
 
 function rowToProduct(row: ProductRow): Product {
   return mapDbProductToProduct({
@@ -145,7 +124,8 @@ function rowToInventoryMovement(row: InventoryMovementRow): InventoryMovement {
     productId: row.product_id,
     userId: row.user_id,
     delta: row.delta,
-    reason: row.reason,
+    // A Postgres enum (inventory_movement_reason), stored as text locally.
+    reason: row.reason as InventoryMovementReason,
     note: row.note,
     createdAt: row.created_at,
     clientCreatedAt: row.client_created_at,

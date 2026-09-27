@@ -351,7 +351,7 @@ All libraries are pinned to their latest stable versions at project start and ke
 **Backend**
 
 - Supabase (hosted) providing Postgres + Auth + Storage
-- Drizzle ORM for schema definition and typed queries (server-side Postgres and, via `@powersync/drizzle-driver`, client-side SQLite)
+- Drizzle ORM for schema definition and typed queries (server-side Postgres; the client-side SQLite schema is derived from Drizzle tables via `@powersync/drizzle-driver`)
 - Drizzle Kit to diff the TypeScript schema and emit SQL migration files
 - Supabase CLI as the migration runner and the local development stack (see section 12.4)
 
@@ -388,7 +388,7 @@ Supabase Auth handles email/password sign-up and sign-in. No OAuth providers ini
 
 Drizzle and Supabase both touch the database. They sit at different layers and the split is deliberate.
 
-**Drizzle owns the schema and typed queries.** The TypeScript schema in `lib/db/schema.ts` is the single source of truth for tables, columns, indexes, relations, and enums. The same definitions type queries on both ends of the system: server-side reads and writes against Supabase Postgres go through Drizzle, and once PowerSync is wired in, the per-device SQLite store will be queried through `@powersync/drizzle-driver` using the same schema. There is no separate codegen step; refactoring the schema in TypeScript flows through to every consumer at compile time.
+**Drizzle owns the schema and typed queries.** The TypeScript schema in `lib/db/schema.ts` is the single source of truth for tables, columns, indexes, relations, and enums. The same definitions type queries on both ends of the system: server-side reads and writes against Supabase Postgres go through Drizzle, and the per-device SQLite store is created from the SQLite mirror in `lib/db/client-schema.ts` (via `@powersync/drizzle-driver`), whose tables also give the row types of the raw SQL the app runs on the device. There is no separate codegen step; refactoring the schema in TypeScript flows through to every consumer at compile time.
 
 **Drizzle Kit generates SQL migrations.** Running `drizzle-kit generate` diffs the TypeScript schema against the snapshots in `supabase/migrations/meta/` and emits a new timestamp-prefixed SQL file into `supabase/migrations/`. Drizzle Kit does not apply migrations in this project; it is purely a diff-and-emit tool. The `meta/` snapshots are kept in version control because they are how Drizzle Kit computes future incremental migrations.
 

@@ -19,7 +19,24 @@
 // Not yet synced:
 // - tenants — single row per tenant; not worth a sync bucket.
 
+import type { Column, Table } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+type LocalValue<C extends Column> = C["_"]["notNull"] extends true
+  ? C["_"]["data"]
+  : C["_"]["data"] | null;
+
+/**
+ * A row of `T` as raw SQL reads it from the local database: keyed by the
+ * SQLite column name (snake_case, as PowerSync replicates it) rather than by
+ * the Drizzle property name. Local reads are plain SQL, so this is the one
+ * place their row shapes come from.
+ */
+export type LocalRow<T extends Table> = {
+  [K in keyof T["_"]["columns"] as T["_"]["columns"][K]["_"]["name"]]: LocalValue<
+    T["_"]["columns"][K]
+  >;
+};
 
 export const products = sqliteTable("products", {
   id: text("id").primaryKey(),
