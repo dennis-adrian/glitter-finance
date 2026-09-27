@@ -517,6 +517,14 @@ writer) so the actions and the existing bootstrap share one implementation.
   The switch must only run when sync is settled; otherwise pending writes for the
   old tenant are lost. Gate the switcher on a settled sync status (reuse the
   diagnostics/sync-status signal) or warn — see Open Items.
+- **Active tenant changed elsewhere while this device has unsynced writes** (a
+  switch, create or join on another device, or another user signing in here) →
+  the device's identity no longer matches its local data. The provider never
+  clears unsynced work on that mismatch (`planIdentityMismatch`): the same user's
+  pending uploads are uploaded first (uploads are authorized by membership, not
+  by the claim), a sync failure keeps the data and offers to switch back to the
+  previous tenant, and another user's work is kept until that account signs in
+  again.
 - **Stale active claim** (user switched on device A; device B still holds the old
   claim) → `ensureUserTenantContext` re-resolves: if the claimed tenant is still
   a membership it stays; the user re-picks on B if they want the other one. No
@@ -619,11 +627,14 @@ with the parent PRD's dual-platform gate.
    if festival use wants longer (e.g. 30 days) or a per-link choice. _(Decided:
    reusable-until-revoked **with** a fixed auto-expiry; exact duration is the only
    knob left.)_
-2. **Switch-while-dirty guard.** _(Resolved — implemented.)_ The switcher
-   enforces a **hard** sync-settled gate: `SettingsScreen`'s `canSwitchTenant`
-   (`useSyncStatus`: `state === "synced" && pendingCount === 0`) disables both
-   switching and account creation until sync is fully settled with zero pending
-   uploads, consistent with §5.4. Not a warn-and-proceed; the action is blocked.
+2. **Switch-while-dirty guard.** _(Resolved — implemented.)_ Every action that
+   clears the local data (switching, creating, joining, signing out) uses one
+   **hard** sync-settled gate, `useLocalDataChangeGate` (synced, zero pending
+   uploads, zero sync failures), in More, Settings and the `/join` form,
+   consistent with §5.4. Not a warn-and-proceed; the action is blocked. The
+   teardown itself (`teardownLocalUserData` with `refuseWhenUnsynced`) re-reads
+   the upload queue and refuses before any destructive step, so a stale gate
+   can only produce a refusal, never a lost sale.
 3. **Member removal / leave-tenant.** Out of scope here; likely the very next
    feature. Requires a `tenant_users` DELETE path (server-side) and re-resolving
    the active tenant if a user leaves the active one. _(Deferred.)_
