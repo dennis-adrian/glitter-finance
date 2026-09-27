@@ -5,6 +5,11 @@ import {
   canVoidSale,
   saleStatusLabel,
 } from "@/components/screens/sale-detail-screen.helpers";
+import {
+  isWithinVoidWindow,
+  VOID_CLOCK_SKEW_TOLERANCE_MS,
+  VOID_WINDOW_MS,
+} from "@/lib/sales";
 import type { Sale } from "@/lib/types";
 
 function sale(overrides: Partial<Sale> = {}): Sale {
@@ -61,4 +66,33 @@ test("voided sales cannot be refunded", () => {
 
   assert.equal(canVoidSale(voided, [voided]), false);
   assert.equal(canRefundSale(voided, [voided]), false);
+});
+
+test("the void window allows the clock skew of a second device", () => {
+  const createdAt = Date.parse("2026-08-09T12:00:00.000Z");
+
+  assert.equal(isWithinVoidWindow("2026-08-09T12:00:00.000Z", createdAt), true);
+  assert.equal(
+    isWithinVoidWindow(new Date(createdAt), createdAt + VOID_WINDOW_MS),
+    true
+  );
+  assert.equal(
+    isWithinVoidWindow(new Date(createdAt), createdAt + VOID_WINDOW_MS + 1),
+    false
+  );
+  assert.equal(
+    isWithinVoidWindow(
+      new Date(createdAt),
+      createdAt - VOID_CLOCK_SKEW_TOLERANCE_MS
+    ),
+    true
+  );
+  assert.equal(
+    isWithinVoidWindow(
+      new Date(createdAt),
+      createdAt - VOID_CLOCK_SKEW_TOLERANCE_MS - 1
+    ),
+    false
+  );
+  assert.equal(isWithinVoidWindow("not a date", createdAt), false);
 });

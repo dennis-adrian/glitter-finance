@@ -10,6 +10,7 @@
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { clampDiscount } from "@/lib/money";
+import { isWithinVoidWindow, VOID_WINDOW_EXPIRED_MESSAGE } from "@/lib/sales";
 import type { PaymentMethod, Product } from "@/lib/types";
 
 function nowIso() {
@@ -158,8 +159,6 @@ export async function createSaleLocal(
   return { saleId };
 }
 
-const VOID_WINDOW_MINUTES = 10;
-
 export type VoidSaleLocalInput = {
   saleId: string;
   userId: string;
@@ -194,12 +193,11 @@ export async function voidSaleLocal(
       throw new Error("Esta venta ya fue anulada.");
     }
 
-    const minutesSince =
-      (Date.now() - new Date(sale.created_at).getTime()) / 60000;
-    if (minutesSince > VOID_WINDOW_MINUTES) {
-      throw new Error(
-        `Las ventas solo se pueden anular dentro de los primeros ${VOID_WINDOW_MINUTES} minutos.`
-      );
+    // Check and stamp with the same instant: the server re-checks the window
+    // against this voided_at, so they must agree.
+    const now = Date.now();
+    if (!isWithinVoidWindow(sale.created_at, now)) {
+      throw new Error(VOID_WINDOW_EXPIRED_MESSAGE);
     }
 
     const existingRefund = await tx.getAll<{ id: string }>(
@@ -214,7 +212,7 @@ export async function voidSaleLocal(
     await tx.execute(
       `UPDATE sales SET voided_at = ?, voided_by_user_id = ?
        WHERE id = ? AND voided_at IS NULL`,
-      [nowIso(), input.userId, input.saleId]
+      [new Date(now).toISOString(), input.userId, input.saleId]
     );
   });
 }

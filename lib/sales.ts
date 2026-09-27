@@ -6,6 +6,31 @@ export const paymentLabels: Record<PaymentMethod, string> = {
   qr_transfer: "QR",
 };
 
+// The void window. Postgres enforces the same numbers in powersync_void_sale
+// and the sales_void_transition trigger
+// (supabase/manual/20260926120000_powersync_upload_convergence.sql); change
+// both together.
+export const VOID_WINDOW_MINUTES = 10;
+export const VOID_WINDOW_MS = VOID_WINDOW_MINUTES * 60 * 1000;
+/**
+ * How far a sale's createdAt may be ahead of the voiding clock. createdAt comes
+ * from the clock of the device that recorded the sale, which can run slightly
+ * ahead of the device that voids it.
+ */
+export const VOID_CLOCK_SKEW_TOLERANCE_MS = 5_000;
+export const VOID_WINDOW_EXPIRED_MESSAGE = `Las ventas solo se pueden anular dentro de los primeros ${VOID_WINDOW_MINUTES} minutos.`;
+
+/** Whether a sale recorded at `createdAt` can still be voided at `now`. */
+export function isWithinVoidWindow(createdAt: string | Date, now: number) {
+  const createdAtMs = new Date(createdAt).getTime();
+
+  return (
+    !Number.isNaN(createdAtMs) &&
+    createdAtMs - now <= VOID_CLOCK_SKEW_TOLERANCE_MS &&
+    now - createdAtMs <= VOID_WINDOW_MS
+  );
+}
+
 export function saleGrossCents(sale: Sale) {
   return sale.lines.reduce(
     (total, line) => total + line.unitPriceCents * line.quantity,
