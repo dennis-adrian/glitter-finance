@@ -116,7 +116,7 @@ export function PowerSyncProvider({
           await teardownLocalUserData({
             db: null,
             powerSyncRequired: false,
-            refuseWhenSyncFailuresExist: false,
+            refuseWhenUnsynced: false,
           });
         }
         if (cancelled) return;
@@ -166,7 +166,7 @@ export function PowerSyncProvider({
         await teardownLocalUserData({
           db: instance,
           powerSyncRequired: true,
-          refuseWhenSyncFailuresExist: false,
+          refuseWhenUnsynced: false,
         });
       }
 
@@ -272,10 +272,7 @@ export function PowerSyncProvider({
     await db.connect(connectorRef.current);
     await reconcileSyncFailures(db);
   };
-  async function teardown(
-    refuseWhenSyncFailuresExist: boolean,
-    reinitialize: boolean
-  ) {
+  async function teardown(refuseWhenUnsynced: boolean, reinitialize: boolean) {
     if (teardownPromiseRef.current) {
       return teardownPromiseRef.current;
     }
@@ -294,7 +291,7 @@ export function PowerSyncProvider({
         await teardownLocalUserData({
           db: activeDb,
           powerSyncRequired: isPowerSyncConfigured(),
-          refuseWhenSyncFailuresExist,
+          refuseWhenUnsynced,
         });
       } catch (error) {
         if (

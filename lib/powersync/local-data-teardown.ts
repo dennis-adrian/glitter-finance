@@ -43,6 +43,7 @@ export class LocalDataTeardownError extends Error {
   constructor(
     readonly stage:
       | "sync-failures"
+      | "pending-uploads"
       | "powersync"
       | "cache"
       | "storage"
@@ -52,6 +53,72 @@ export class LocalDataTeardownError extends Error {
   ) {
     super(message, options);
     this.name = "LocalDataTeardownError";
+  }
+}
+
+/** True when a teardown refused because the device holds unsynced work. */
+export function isUnsyncedLocalDataRefusal(
+  error: unknown
+): error is LocalDataTeardownError {
+  return (
+    error instanceof LocalDataTeardownError &&
+    (error.stage === "sync-failures" || error.stage === "pending-uploads")
+  );
+}
+
+export function describePendingUploads(count: number) {
+  return count === 1
+    ? "Hay 1 operación sin subir a la nube."
+    : `Hay ${count} operaciones sin subir a la nube.`;
+}
+
+/** Work on this device that the server has not received yet. */
+export type UnsyncedLocalWork = {
+  pendingUploadCount: number;
+  unresolvedFailureCount: number;
+};
+
+/**
+ * Reads what a teardown would destroy. Stale failure markers are reconciled
+ * first, so a transaction that already left the queue never blocks.
+ */
+export async function readUnsyncedLocalWork(
+  db: AbstractPowerSyncDatabase
+): Promise<UnsyncedLocalWork> {
+  await reconcileSyncFailures(db);
+  const unresolvedFailureCount = await getUnresolvedSyncFailureCount(db);
+  const { count: pendingUploadCount } = await db.getUploadQueueStats();
+  return { pendingUploadCount, unresolvedFailureCount };
+}
+
+async function assertNoUnsyncedLocalWork(db: AbstractPowerSyncDatabase) {
+  let unsynced: UnsyncedLocalWork;
+  try {
+    unsynced = await readUnsyncedLocalWork(db);
+  } catch (error) {
+    throw new LocalDataTeardownError(
+      "sync-failures",
+      "No se pudo comprobar si hay operaciones pendientes de recuperación.",
+      { cause: error }
+    );
+  }
+  if (unsynced.unresolvedFailureCount > 0) {
+    throw new LocalDataTeardownError(
+      "sync-failures",
+      "Hay operaciones que requieren recuperación antes de limpiar los datos locales."
+    );
+  }
+  if (unsynced.pendingUploadCount > 0) {
+    // disconnectAndClear() empties ps_crud, so these sales, voids and refunds
+    // would never reach the server.
+    throw new LocalDataTeardownError(
+      "pending-uploads",
+      `${describePendingUploads(unsynced.pendingUploadCount)} ${
+        unsynced.pendingUploadCount === 1
+          ? "Conéctate y espera a que se sincronice antes de continuar."
+          : "Conéctate y espera a que se sincronicen antes de continuar."
+      }`
+    );
   }
 }
 
@@ -200,11 +267,15 @@ function clearInMemoryLocalData() {
  * before the local database so a failed cache deletion leaves the authenticated
  * app intact and recoverable. A caller must not end the server session unless
  * this function resolves.
+ *
+ * With `refuseWhenUnsynced`, it throws a `sync-failures` or `pending-uploads`
+ * LocalDataTeardownError before any destructive step while the upload queue
+ * is not empty or unresolved sync failures exist.
  */
 export async function teardownLocalUserData(input: {
   db: AbstractPowerSyncDatabase | null;
   powerSyncRequired: boolean;
-  refuseWhenSyncFailuresExist: boolean;
+  refuseWhenUnsynced: boolean;
   cacheStorage?: CacheStorageLike;
 }): Promise<void> {
   const { db } = input;
@@ -216,24 +287,8 @@ export async function teardownLocalUserData(input: {
     );
   }
 
-  if (input.refuseWhenSyncFailuresExist && db) {
-    let failureCount: number;
-    try {
-      await reconcileSyncFailures(db);
-      failureCount = await getUnresolvedSyncFailureCount(db);
-    } catch (error) {
-      throw new LocalDataTeardownError(
-        "sync-failures",
-        "No se pudo comprobar si hay operaciones pendientes de recuperación.",
-        { cause: error }
-      );
-    }
-    if (failureCount > 0) {
-      throw new LocalDataTeardownError(
-        "sync-failures",
-        "Hay operaciones que requieren recuperación antes de limpiar los datos locales."
-      );
-    }
+  if (input.refuseWhenUnsynced && db) {
+    await assertNoUnsyncedLocalWork(db);
   }
 
   // Abort UI work before a cache or database operation yields. Local write

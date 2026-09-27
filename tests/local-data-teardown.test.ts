@@ -7,8 +7,10 @@ import {
   resetReportedSyncFailures,
 } from "@/lib/observability/report-sync-failure";
 import {
+  isUnsyncedLocalDataRefusal,
   onLocalDataEvent,
   readLocalDataIdentity,
+  readUnsyncedLocalWork,
   saveLocalDataIdentity,
   teardownLocalUserData,
 } from "@/lib/powersync/local-data-teardown";
@@ -71,6 +73,7 @@ function emptySyncFailureState() {
   return {
     getAll: async () => [],
     getCrudTransactions: async function* () {},
+    getUploadQueueStats: async () => ({ count: 0 }),
   };
 }
 
@@ -88,6 +91,10 @@ test("teardown purges local user data before calling server sign-out", async () 
       ...emptySyncFailureState(),
       getOptional: async () => {
         events.push("check-sync-failures");
+        return { count: 0 };
+      },
+      getUploadQueueStats: async () => {
+        events.push("check-upload-queue");
         return { count: 0 };
       },
       disconnectAndClear: async () => {
@@ -123,7 +130,7 @@ test("teardown purges local user data before calling server sign-out", async () 
         teardownLocalUserData({
           db,
           powerSyncRequired: true,
-          refuseWhenSyncFailuresExist: true,
+          refuseWhenUnsynced: true,
           cacheStorage,
         }),
       async () => {
@@ -133,6 +140,7 @@ test("teardown purges local user data before calling server sign-out", async () 
 
     assert.deepEqual(events, [
       "check-sync-failures",
+      "check-upload-queue",
       "teardown-started",
       "clear-cache:glitter-pos-pages",
       "clear-cache:glitter-pos-api-v1",
@@ -156,6 +164,129 @@ test("teardown purges local user data before calling server sign-out", async () 
   });
 });
 
+function refusalProbe(input: { pendingUploads: number; failures: number }) {
+  const events: string[] = [];
+  const db = {
+    ...emptySyncFailureState(),
+    getOptional: async () => ({ count: input.failures }),
+    getUploadQueueStats: async () => ({ count: input.pendingUploads }),
+    disconnectAndClear: async () => {
+      events.push("clear-powersync");
+    },
+  } as unknown as AbstractPowerSyncDatabase;
+  const cacheStorage = {
+    keys: async () => ["glitter-pos-pages"],
+    delete: async (name: string) => {
+      events.push(`clear-cache:${name}`);
+      return true;
+    },
+  };
+  for (const event of ["teardown-starting", "teardown-failed", "cleared"]) {
+    window.addEventListener(`glitter-pos-local-data-${event}`, () => {
+      events.push(event);
+    });
+  }
+  return { db, cacheStorage, events };
+}
+
+test("teardown refuses before any destructive step while uploads are pending", async () => {
+  await withBrowser(async (storage) => {
+    const { db, cacheStorage, events } = refusalProbe({
+      pendingUploads: 2,
+      failures: 0,
+    });
+    let serverSignOutCalled = false;
+    saveLocalDataIdentity({ userId: "user-a", tenantId: "tenant-a" });
+    usePosStore.setState({ sales: [{} as Sale] });
+
+    await assert.rejects(
+      signOutAfterLocalTeardown(
+        () =>
+          teardownLocalUserData({
+            db,
+            powerSyncRequired: true,
+            refuseWhenUnsynced: true,
+            cacheStorage,
+          }),
+        async () => {
+          serverSignOutCalled = true;
+        }
+      ),
+      (error: unknown) => {
+        assert.ok(isUnsyncedLocalDataRefusal(error));
+        assert.equal(error.stage, "pending-uploads");
+        assert.match(error.message, /Hay 2 operaciones sin subir a la nube/);
+        return true;
+      }
+    );
+
+    assert.deepEqual(events, []);
+    assert.equal(serverSignOutCalled, false);
+    assert.notEqual(
+      storage.getItem("glitter-pos-local-data-identity-v1"),
+      null
+    );
+    assert.equal(usePosStore.getState().sales.length, 1);
+  });
+});
+
+test("teardown refuses while unresolved sync failures exist", async () => {
+  await withBrowser(async () => {
+    const { db, cacheStorage, events } = refusalProbe({
+      pendingUploads: 1,
+      failures: 1,
+    });
+
+    await assert.rejects(
+      teardownLocalUserData({
+        db,
+        powerSyncRequired: true,
+        refuseWhenUnsynced: true,
+        cacheStorage,
+      }),
+      (error: unknown) => {
+        assert.ok(isUnsyncedLocalDataRefusal(error));
+        assert.equal(error.stage, "sync-failures");
+        return true;
+      }
+    );
+    assert.deepEqual(events, []);
+  });
+});
+
+test("teardown fails closed when the upload queue cannot be read", async () => {
+  await withBrowser(async () => {
+    const { db, cacheStorage, events } = refusalProbe({
+      pendingUploads: 0,
+      failures: 0,
+    });
+    db.getUploadQueueStats = async () => {
+      throw new Error("queue unavailable");
+    };
+
+    await assert.rejects(
+      teardownLocalUserData({
+        db,
+        powerSyncRequired: true,
+        refuseWhenUnsynced: true,
+        cacheStorage,
+      }),
+      (error: unknown) => isUnsyncedLocalDataRefusal(error)
+    );
+    assert.deepEqual(events, []);
+  });
+});
+
+test("readUnsyncedLocalWork counts queued uploads and failure markers", async () => {
+  await withBrowser(async () => {
+    const { db } = refusalProbe({ pendingUploads: 3, failures: 1 });
+    assert.deepEqual(await readUnsyncedLocalWork(db), {
+      pendingUploadCount: 3,
+      unresolvedFailureCount: 1,
+    });
+  });
+});
+
 test("teardown resets sync failure reporting after queue cleanup", async () => {
   await withBrowser(async () => {
     const input = {
@@ -175,7 +306,7 @@ test("teardown resets sync failure reporting after queue cleanup", async () => {
     await teardownLocalUserData({
       db: null,
       powerSyncRequired: false,
-      refuseWhenSyncFailuresExist: false,
+      refuseWhenUnsynced: false,
       cacheStorage: { keys: async () => [], delete: async () => true },
     });
 
@@ -204,7 +335,7 @@ test("a teardown failure prevents server sign-out", async () => {
           teardownLocalUserData({
             db,
             powerSyncRequired: true,
-            refuseWhenSyncFailuresExist: true,
+            refuseWhenUnsynced: true,
             cacheStorage: {
               keys: async () => [],
               delete: async () => true,
@@ -261,7 +392,7 @@ test("a post-destructive failure clears memory and prevents server sign-out", as
             teardownLocalUserData({
               db,
               powerSyncRequired: true,
-              refuseWhenSyncFailuresExist: true,
+              refuseWhenUnsynced: true,
               cacheStorage: {
                 keys: async () => [],
                 delete: async () => true,
@@ -301,7 +432,7 @@ test("teardown succeeds when Cache Storage is unsupported", async () => {
     await teardownLocalUserData({
       db: null,
       powerSyncRequired: false,
-      refuseWhenSyncFailuresExist: false,
+      refuseWhenUnsynced: false,
     });
   });
 });
@@ -324,7 +455,7 @@ test("tenant work resumes only after replacement tenant data is ready", async ()
       await teardownLocalUserData({
         db: null,
         powerSyncRequired: false,
-        refuseWhenSyncFailuresExist: false,
+        refuseWhenUnsynced: false,
         cacheStorage: {
           keys: async () => [],
           delete: async () => true,
@@ -376,7 +507,7 @@ test("tenant work resumes for the existing identity after teardown fails", async
         teardownLocalUserData({
           db: null,
           powerSyncRequired: false,
-          refuseWhenSyncFailuresExist: false,
+          refuseWhenUnsynced: false,
           cacheStorage: {
             keys: async () => ["glitter-pos-pages"],
             delete: async () => false,
@@ -417,7 +548,7 @@ test("a cache deletion failure prevents database clearing and server sign-out", 
           teardownLocalUserData({
             db,
             powerSyncRequired: true,
-            refuseWhenSyncFailuresExist: true,
+            refuseWhenUnsynced: true,
             cacheStorage: {
               // The entry remains after deletion, so teardown must fail even
               // though CacheStorage.delete() alone is not authoritative.
