@@ -1,14 +1,11 @@
+import type { inventoryMovementReasonEnum } from "@/lib/db/schema";
 import type { Product, Sale } from "@/lib/types";
 
 /** Default low-stock threshold when a product has no per-product override. */
 export const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 
 export type InventoryMovementReason =
-  | "initial"
-  | "restock"
-  | "adjustment"
-  | "loss"
-  | "gift";
+  (typeof inventoryMovementReasonEnum.enumValues)[number];
 
 export type InventoryMovement = {
   id: string;

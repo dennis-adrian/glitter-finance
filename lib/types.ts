@@ -1,4 +1,8 @@
-export type PaymentMethod = "cash" | "qr_transfer";
+// Type-only import: erased at build time, so client bundles do not pull in
+// the Postgres schema.
+import type { paymentMethodEnum } from "@/lib/db/schema";
+
+export type PaymentMethod = (typeof paymentMethodEnum.enumValues)[number];
 export type SaleStatus = "completed" | "voided" | "refunded";
 export type CostStatus = "known" | "unknown";
 

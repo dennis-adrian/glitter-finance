@@ -11,7 +11,8 @@
 //   timestamps are stored as text; enums (e.g. payment_method) as text.
 // - Nullability declared here is for client-side type ergonomics; PowerSync
 //   itself does not enforce NOT NULL constraints (the server is the source of
-//   truth).
+//   truth). tests/schema-parity.test.ts keeps columns and nullability in step
+//   with lib/db/schema.ts.
 // - Indexes are local SQLite indexes that PowerSync creates on the synced
 //   rows; declare one only for a lookup the app actually runs on the device.
 //
