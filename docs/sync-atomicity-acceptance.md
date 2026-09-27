@@ -42,6 +42,26 @@ Expected:
 - The retry commits exactly once.
 - Pending and failed counts return to zero automatically.
 
+## Discarding a failed operation
+
+1. Inject the permanent error again, record a sale, then record a second sale
+   while the first one is failing.
+2. In Diagnostics, confirm the failed sale is listed with its error, press
+   **Descartar operación** and confirm.
+
+Expected:
+
+- The first sale disappears from the device's sales and reports; nothing of it
+  exists in Postgres.
+- The second sale uploads once the injected error no longer applies to it (or
+  shows up as the next failed operation if it does).
+- Diagnostics lists the first sale under **Operaciones descartadas**, and
+  **Copiar diagnóstico** includes its full payload.
+- Sentry receives a `PowerSync upload discarded on the device` warning with the
+  error code and tables only.
+- Repeat with a void: after discarding it, the sale shows as not voided on the
+  device, matching Postgres.
+
 ## Server invariants
 
 The void window is 10 minutes of device time between the sale's `created_at`

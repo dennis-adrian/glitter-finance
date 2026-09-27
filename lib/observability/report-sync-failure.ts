@@ -121,6 +121,44 @@ export function reportPermanentSyncFailure(input: {
 }
 
 /**
+ * A permanently failed transaction that the user discarded from Diagnostics.
+ * Like the failure report, only metadata: the payload stays on the device.
+ */
+export function reportDiscardedSyncFailure(input: {
+  errorCode: string | null;
+  operations: { table: string; op: string }[];
+  /** False when the transaction had already left the upload queue. */
+  removedFromQueue: boolean;
+}): void {
+  const code = input.errorCode ?? "unknown";
+  const tables = [
+    ...new Set(input.operations.map((operation) => operation.table)),
+  ].sort();
+  const target = tables.length ? tables.join("+") : "unknown";
+
+  Sentry.withScope((scope) => {
+    scope.setLevel("warning");
+    scope.setTag("component", "powersync_upload");
+    scope.setTag("sync_failure", "discarded");
+    scope.setTag("postgres_code", code);
+    scope.setTag("upload_target", target);
+    scope.setFingerprint(["powersync-discarded-upload", code, target]);
+    scope.setContext("sync", {
+      upload_target: target,
+      operation_count: input.operations.length,
+      operation_types: [
+        ...new Set(input.operations.map((operation) => operation.op)),
+      ],
+      removed_from_queue: input.removedFromQueue,
+    });
+    Sentry.captureMessage(
+      `PowerSync upload discarded on the device (${code} on ${target})`,
+      "warning"
+    );
+  });
+}
+
+/**
  * Give the browser transport a short chance to send permanent-sync telemetry
  * before identity cleanup removes caches and disconnects PowerSync. Cleanup
  * must never be blocked by telemetry delivery.

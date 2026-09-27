@@ -12,7 +12,71 @@ export type SyncFailure = {
   errorCode: string | null;
   errorMessage: string;
   createdAt: string;
+  /** Set when the transaction was discarded from Diagnostics. */
+  discardedAt: string | null;
 };
+
+/** One operation of a failure's stored payload (CrudEntry.toJSON()). */
+export type SyncFailureOperation = {
+  clientId: number;
+  op: string;
+  table: string;
+  id: string;
+  data: Record<string, unknown> | null;
+};
+
+/** Reads a stored payload. Malformed entries are skipped. */
+export function parseSyncFailureOperations(
+  operationsJson: string
+): SyncFailureOperation[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(operationsJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((entry): SyncFailureOperation[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const candidate = entry as Record<string, unknown>;
+    if (
+      typeof candidate.op_id !== "number" ||
+      typeof candidate.op !== "string" ||
+      typeof candidate.type !== "string" ||
+      typeof candidate.id !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        clientId: candidate.op_id,
+        op: candidate.op,
+        table: candidate.type,
+        id: candidate.id,
+        data:
+          candidate.data && typeof candidate.data === "object"
+            ? (candidate.data as Record<string, unknown>)
+            : null,
+      },
+    ];
+  });
+}
+
+/** What the failed transaction was, in the words the app uses for it. */
+export function describeSyncFailure(operationsJson: string): string {
+  const operations = parseSyncFailureOperations(operationsJson);
+  const has = (table: string, op: string) =>
+    operations.some(
+      (operation) => operation.table === table && operation.op === op
+    );
+  if (has("sales", "PUT")) return "Venta";
+  if (has("sales", "PATCH")) return "Anulación de venta";
+  if (has("refunds", "PUT")) return "Reembolso";
+  if (has("products", "PUT")) return "Producto nuevo";
+  if (has("products", "PATCH")) return "Cambio de producto";
+  if (has("inventory_movements", "PUT")) return "Movimiento de inventario";
+  return "Operación";
+}
 
 export function syncFailureId(input: {
   transactionId?: number;
@@ -71,18 +135,23 @@ export async function recordSyncFailure(
   const details = errorDetails(input.error);
   const failureId = syncFailureId(input);
   await db.writeTransaction(async (tx) => {
-    const existing = await tx.getOptional<{ created_at: string }>(
-      `SELECT created_at FROM sync_failures
-       WHERE id = ? AND resolved_at IS NULL`,
+    const existing = await tx.getOptional<
+      Pick<SyncFailureRow, "created_at" | "resolved_at" | "discarded_at">
+    >(
+      `SELECT created_at, resolved_at, discarded_at FROM sync_failures
+       WHERE id = ?`,
       [failureId]
     );
+    // An upload already in flight when the transaction was discarded can
+    // still fail afterwards. The discard stands.
+    if (existing?.discarded_at) return;
 
     await tx.execute(`DELETE FROM sync_failures WHERE id = ?`, [failureId]);
     await tx.execute(
       `INSERT INTO sync_failures
         (id, transaction_id, tenant_id, operations_json, error_code,
-         error_message, created_at, resolved_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+         error_message, created_at, resolved_at, discarded_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
       [
         failureId,
         input.transactionId ?? null,
@@ -90,7 +159,8 @@ export async function recordSyncFailure(
         JSON.stringify(input.operations.map((operation) => operation.toJSON())),
         details.code,
         details.message,
-        existing?.created_at ?? new Date().toISOString(),
+        (existing && !existing.resolved_at ? existing.created_at : null) ??
+          new Date().toISOString(),
       ]
     );
   });
@@ -108,18 +178,13 @@ export async function resolveSyncFailure(
   );
 }
 
-export async function getUnresolvedSyncFailures(
-  db: AbstractPowerSyncDatabase
-): Promise<SyncFailure[]> {
-  const rows = await db.getAll<Omit<SyncFailureRow, "resolved_at">>(
-    `SELECT id, transaction_id, tenant_id, operations_json, error_code,
-            error_message, created_at
-     FROM sync_failures
-     WHERE resolved_at IS NULL
-     ORDER BY created_at DESC`
-  );
+type SyncFailureListRow = Omit<SyncFailureRow, "resolved_at">;
 
-  return rows.map((row) => ({
+const syncFailureColumns = `id, transaction_id, tenant_id, operations_json,
+  error_code, error_message, created_at, discarded_at`;
+
+function toSyncFailure(row: SyncFailureListRow): SyncFailure {
+  return {
     id: row.id,
     transactionId: row.transaction_id,
     tenantId: row.tenant_id,
@@ -127,7 +192,33 @@ export async function getUnresolvedSyncFailures(
     errorCode: row.error_code,
     errorMessage: row.error_message,
     createdAt: row.created_at,
-  }));
+    discardedAt: row.discarded_at,
+  };
+}
+
+export async function getUnresolvedSyncFailures(
+  db: AbstractPowerSyncDatabase
+): Promise<SyncFailure[]> {
+  const rows = await db.getAll<SyncFailureListRow>(
+    `SELECT ${syncFailureColumns}
+     FROM sync_failures
+     WHERE resolved_at IS NULL
+     ORDER BY created_at DESC`
+  );
+  return rows.map(toSyncFailure);
+}
+
+/** Discarded failures, kept with their payload until the data is cleared. */
+export async function getDiscardedSyncFailures(
+  db: AbstractPowerSyncDatabase
+): Promise<SyncFailure[]> {
+  const rows = await db.getAll<SyncFailureListRow>(
+    `SELECT ${syncFailureColumns}
+     FROM sync_failures
+     WHERE discarded_at IS NOT NULL
+     ORDER BY discarded_at DESC`
+  );
+  return rows.map(toSyncFailure);
 }
 
 export async function getUnresolvedSyncFailureCount(

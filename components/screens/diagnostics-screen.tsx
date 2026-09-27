@@ -5,17 +5,24 @@
 // plus a "Forzar sincronización" action that reconnects PowerSync (kicking
 // the queue) and a "Copiar diagnóstico" action that dumps everything as
 // JSON to the clipboard. Per PRD §8 + §14.
+//
+// Each transaction the server permanently rejected is listed with its error
+// and a confirmed "Descartar operación" action (lib/powersync/
+// discard-sync-failure.ts), the way out when retrying cannot succeed.
 
 import {
   AlertTriangle,
   ChevronLeft,
   RefreshCw,
   ClipboardCopy,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { Header } from "@/components/atoms/header";
+import { DiscardSyncFailureDialog } from "@/components/molecules/discard-sync-failure-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -23,20 +30,33 @@ import {
   usePowerSyncControls,
 } from "@/components/providers/powersync-provider";
 import type { UserTenantContext } from "@/lib/auth/tenant-context";
+import { formatDateTimeInBolivia } from "@/lib/dates";
+import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import {
+  discardSyncFailure,
+  SyncFailureDiscardError,
+} from "@/lib/powersync/discard-sync-failure";
+import {
+  describeSyncFailure,
+  getDiscardedSyncFailures,
   getUnresolvedSyncFailures,
   type SyncFailure,
 } from "@/lib/powersync/sync-failures";
-import { useSyncStatus } from "@/lib/powersync/use-sync-status";
+import {
+  useSyncStatus,
+  useSyncStatusStore,
+} from "@/lib/powersync/use-sync-status";
 
 type QueueDetails = {
   pendingBytes: number | null;
   failures: SyncFailure[];
+  discarded: SyncFailure[];
 };
 
 const emptyQueueDetails: QueueDetails = {
   pendingBytes: null,
   failures: [],
+  discarded: [],
 };
 
 function formatBytes(bytes: number | null): string {
@@ -86,6 +106,7 @@ export function DiagnosticsScreen({
   const db = useOptionalPowerSyncDb();
   const controls = usePowerSyncControls();
   const sync = useSyncStatus();
+  const syncStatusStore = useSyncStatusStore();
   const [queueDetails, setQueueDetails] = useState<{
     db: AbstractPowerSyncDatabase;
     details: QueueDetails;
@@ -93,6 +114,9 @@ export function DiagnosticsScreen({
   const [device, setDevice] = useState<DeviceInfo>(readDeviceInfoSync);
   const [reconnecting, setReconnecting] = useState(false);
   const [copyConfirmed, setCopyConfirmed] = useState(false);
+  const [discarding, setDiscarding] = useState<SyncFailure | null>(null);
+  // Bumped after a discard, which does not always change the counts.
+  const [detailsVersion, setDetailsVersion] = useState(0);
   const { pendingCount, failureCount } = sync;
   const details =
     queueDetails && queueDetails.db === db
@@ -107,10 +131,12 @@ export function DiagnosticsScreen({
     let cancelled = false;
 
     async function loadQueueDetails(activeDb: AbstractPowerSyncDatabase) {
-      const [statsResult, failuresResult] = await Promise.allSettled([
-        activeDb.getUploadQueueStats(true),
-        getUnresolvedSyncFailures(activeDb),
-      ]);
+      const [statsResult, failuresResult, discardedResult] =
+        await Promise.allSettled([
+          activeDb.getUploadQueueStats(true),
+          getUnresolvedSyncFailures(activeDb),
+          getDiscardedSyncFailures(activeDb),
+        ]);
       if (cancelled) return;
       setQueueDetails((current) => {
         const previous =
@@ -128,6 +154,10 @@ export function DiagnosticsScreen({
               failuresResult.status === "fulfilled"
                 ? failuresResult.value
                 : previous.failures,
+            discarded:
+              discardedResult.status === "fulfilled"
+                ? discardedResult.value
+                : previous.discarded,
           },
         };
       });
@@ -137,7 +167,7 @@ export function DiagnosticsScreen({
     return () => {
       cancelled = true;
     };
-  }, [db, pendingCount, failureCount]);
+  }, [db, pendingCount, failureCount, detailsVersion]);
 
   // Device info — refresh on online/offline events and an async storage
   // estimate (StorageManager API isn't always available; falls back to "—").
@@ -189,6 +219,24 @@ export function DiagnosticsScreen({
     }
   }
 
+  async function handleDiscard(failure: SyncFailure) {
+    if (!db) {
+      throw new Error("La base local no está disponible en este momento.");
+    }
+    try {
+      await discardSyncFailure(db, failure.id);
+    } catch (error) {
+      if (error instanceof SyncFailureDiscardError) throw error;
+      console.error("[Diagnostics] discard failed", error);
+      reportClientFailure("powersync_sync_failure_discard", error);
+      throw new Error("No se pudo descartar la operación. Inténtalo de nuevo.");
+    } finally {
+      setDetailsVersion((version) => version + 1);
+      void syncStatusStore.refresh();
+    }
+    toast.success("Operación descartada");
+  }
+
   async function handleCopy() {
     const payload = {
       generatedAt: new Date().toISOString(),
@@ -203,6 +251,7 @@ export function DiagnosticsScreen({
         pendingCount: sync.pendingCount,
         pendingBytes: details.pendingBytes,
         failures: details.failures,
+        discardedFailures: details.discarded,
       },
       identity: {
         tenantId: tenantContext.tenant?.id ?? null,
@@ -249,8 +298,9 @@ export function DiagnosticsScreen({
               ? "1 transacción no llegó a la nube."
               : `${details.failures.length} transacciones no llegaron a la nube.`}{" "}
             Copia este diagnóstico y no cierres sesión ni cambies de cuenta
-            hasta{" "}
-            {details.failures.length === 1 ? "recuperarla" : "recuperarlas"}.
+            hasta {details.failures.length === 1 ? "resolverla" : "resolverlas"}
+            : fuerza la sincronización cuando el problema esté corregido, o
+            descarta la operación si la nube la sigue rechazando.
           </span>
         </div>
       ) : null}
@@ -284,23 +334,61 @@ export function DiagnosticsScreen({
         />
         <DiagRow
           label="Transacciones fallidas"
-          value={String(details.failures.length)}
+          value={String(sync.failureCount)}
         />
-        {details.failures[0] ? (
-          <>
-            <DiagRow
-              label="Último código"
-              value={details.failures[0].errorCode ?? "—"}
-              mono
-            />
-            <DiagRow
-              label="Último error"
-              value={details.failures[0].errorMessage}
-              mono
-            />
-          </>
-        ) : null}
       </DiagPanel>
+
+      {details.failures.length ? (
+        <DiagPanel title="Transacciones fallidas">
+          {details.failures.map((failure) => (
+            <article
+              key={failure.id}
+              className="border-b border-border/60 py-2.5 first:pt-0 last:border-b-0 last:pb-0"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <strong className="text-sm font-semibold">
+                  {describeSyncFailure(failure.operationsJson)}
+                </strong>
+                <span className="text-xs text-muted-foreground">
+                  {formatDateTimeInBolivia(failure.createdAt)}
+                </span>
+              </div>
+              <p className="mt-1 font-mono text-xs break-all text-muted-foreground">
+                {failure.errorCode ? `${failure.errorCode} · ` : ""}
+                {failure.errorMessage}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 text-destructive"
+                onClick={() => setDiscarding(failure)}
+                disabled={!db}
+              >
+                <Trash2 className="size-4" />
+                Descartar operación
+              </Button>
+            </article>
+          ))}
+        </DiagPanel>
+      ) : null}
+
+      {details.discarded.length ? (
+        <DiagPanel title="Operaciones descartadas">
+          <p className="mb-1.5 text-xs leading-relaxed text-muted-foreground">
+            Sus datos se guardan en este dispositivo, y en el diagnóstico, hasta
+            que cierres sesión.
+          </p>
+          {details.discarded.map((failure) => (
+            <DiagRow
+              key={failure.id}
+              label={describeSyncFailure(failure.operationsJson)}
+              value={`${formatDateTimeInBolivia(failure.discardedAt ?? failure.createdAt)}${
+                failure.errorCode ? ` · ${failure.errorCode}` : ""
+              }`}
+            />
+          ))}
+        </DiagPanel>
+      ) : null}
 
       <DiagPanel title="Identidad">
         <DiagRow label="Cuenta" value={tenantContext.tenant?.id ?? "—"} mono />
@@ -346,6 +434,16 @@ export function DiagnosticsScreen({
           {copyConfirmed ? "Copiado" : "Copiar diagnóstico"}
         </Button>
       </div>
+
+      <DiscardSyncFailureDialog
+        label={
+          discarding ? describeSyncFailure(discarding.operationsJson) : null
+        }
+        onClose={() => setDiscarding(null)}
+        onConfirm={() =>
+          discarding ? handleDiscard(discarding) : Promise.resolve()
+        }
+      />
     </section>
   );
 }

@@ -13,7 +13,8 @@ export type ClientFailureComponent =
   | "powersync_sales_rebuild"
   | "powersync_draft_cart_hydrate"
   | "powersync_initial_movement_lookup"
-  | "powersync_sync_failure_record";
+  | "powersync_sync_failure_record"
+  | "powersync_sync_failure_discard";
 
 const reportedFailures = new Set<string>();
 

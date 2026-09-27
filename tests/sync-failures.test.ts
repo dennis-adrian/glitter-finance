@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AbstractPowerSyncDatabase } from "@powersync/web";
-import { reconcileSyncFailures } from "@/lib/powersync/sync-failures";
+import type {
+  AbstractPowerSyncDatabase,
+  CrudEntry,
+  Transaction,
+} from "@powersync/web";
+import {
+  describeSyncFailure,
+  parseSyncFailureOperations,
+  reconcileSyncFailures,
+  recordSyncFailure,
+} from "@/lib/powersync/sync-failures";
 
 function marker(transactionId: number) {
   return { id: `transaction:${transactionId}`, transaction_id: transactionId };
@@ -68,4 +77,64 @@ test("reconciliation fails closed when the queue cannot be read", async () => {
 
   await assert.rejects(() => reconcileSyncFailures(db), /Queue unavailable/);
   assert.equal(updateAttempts, 0);
+});
+
+test("a discarded failure is not recorded again by a late upload", async () => {
+  const writes: string[] = [];
+  const db = {
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        getOptional: async () => ({
+          created_at: "2026-09-27T12:00:00.000Z",
+          resolved_at: "2026-09-27T12:05:00.000Z",
+          discarded_at: "2026-09-27T12:05:00.000Z",
+        }),
+        execute: async (sql: string) => {
+          writes.push(sql);
+        },
+      } as unknown as Transaction),
+  } as unknown as AbstractPowerSyncDatabase;
+
+  await recordSyncFailure(db, {
+    transactionId: 9,
+    operations: [] as CrudEntry[],
+    error: { code: "23514", message: "check violation" },
+  });
+
+  assert.deepEqual(writes, []);
+});
+
+test("stored payloads are read back and described", () => {
+  const operationsJson = JSON.stringify([
+    {
+      op_id: 3,
+      op: "PATCH",
+      type: "sales",
+      id: "sale-1",
+      tx_id: 9,
+      data: { voided_at: "2026-09-27T12:00:00.000Z" },
+    },
+    { op_id: "bad" },
+  ]);
+
+  assert.deepEqual(parseSyncFailureOperations(operationsJson), [
+    {
+      clientId: 3,
+      op: "PATCH",
+      table: "sales",
+      id: "sale-1",
+      data: { voided_at: "2026-09-27T12:00:00.000Z" },
+    },
+  ]);
+  assert.equal(describeSyncFailure(operationsJson), "Anulación de venta");
+  assert.equal(
+    describeSyncFailure(
+      JSON.stringify([
+        { op_id: 1, op: "PUT", type: "sales", id: "s", data: {} },
+        { op_id: 2, op: "PUT", type: "sale_lines", id: "l", data: {} },
+      ])
+    ),
+    "Venta"
+  );
+  assert.equal(describeSyncFailure("not json"), "Operación");
 });

@@ -232,10 +232,16 @@ updates; nothing is lost.
 
 Permanent upload errors remain in the PowerSync CRUD queue and are also stored
 in the device-local `sync_failures` table. The sync pill turns red, tenant
-switching/sign-out are blocked, and Diagnostics includes the complete operation
-payload. After the underlying problem is fixed, **Forzar sincronización** retries
-the same transaction; a successful atomic commit resolves the failure marker
-automatically. Do not clear browser/PWA storage while a failure is unresolved.
+switching/sign-out are blocked, and Diagnostics lists every failed transaction
+with its error; **Copiar diagnóstico** exports the complete operation payload.
+After the underlying problem is fixed, **Forzar sincronización** retries the
+same transaction; a successful atomic commit resolves the failure marker
+automatically. When the server will never accept it, **Descartar operación**
+(confirmed) removes the transaction from the queue, puts the rows it changed
+back to the last server version on the device, keeps the record and payload
+as discarded (listed and exported until sign-out), and sends a Sentry event
+with metadata only. Do not clear browser/PWA storage while a failure is
+unresolved.
 
 Two rejections are retried without a failure marker, because they fix
 themselves: a permission error while the device has no Supabase session (it

@@ -34,6 +34,12 @@ const boliviaDateLabelFormatter = new Intl.DateTimeFormat("es-BO", {
   year: "numeric",
 });
 
+const boliviaDateTimeFormatter = new Intl.DateTimeFormat("es-BO", {
+  timeZone: BOLIVIA_TIME_ZONE,
+  dateStyle: "short",
+  timeStyle: "medium",
+});
+
 function toCalendarDate(value: Date): CalendarDate {
   const parts = boliviaDateFormatter.formatToParts(value);
   const getPart = (type: Intl.DateTimeFormatPartTypes) =>
@@ -106,6 +112,14 @@ export function formatDateInputInBolivia(now = new Date()) {
 
 export function formatDateLabelInBolivia(iso: string) {
   return boliviaDateLabelFormatter.format(new Date(iso));
+}
+
+/** A timestamp in Bolivian local time, for status and diagnostic screens. */
+export function formatDateTimeInBolivia(value: string | Date) {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : boliviaDateTimeFormatter.format(date);
 }
 
 export function resolveSalesRange(

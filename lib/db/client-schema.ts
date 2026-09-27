@@ -128,10 +128,13 @@ export const draftCart = sqliteTable("draft_cart", {
   updatedAt: text("updated_at").notNull(),
 });
 
-// Durable local dead-letter records. A rejected upload is removed from the
-// PowerSync CRUD queue only after its complete payload and error are captured
-// here, so financial sync failures are visible and recoverable instead of
-// disappearing into console output.
+// Durable local dead-letter records. When the server permanently rejects an
+// upload, its complete payload and error are captured here while the
+// transaction stays at the head of the PowerSync CRUD queue, so financial sync
+// failures are visible and recoverable instead of disappearing into console
+// output. A marker is resolved once its transaction leaves the queue, either
+// uploaded after a retry or discarded from Diagnostics (discarded_at); the
+// record, payload included, stays until the local data is cleared.
 export const syncFailures = sqliteTable("sync_failures", {
   id: text("id").primaryKey(),
   transactionId: integer("transaction_id"),
@@ -141,6 +144,7 @@ export const syncFailures = sqliteTable("sync_failures", {
   errorMessage: text("error_message").notNull(),
   createdAt: text("created_at").notNull(),
   resolvedAt: text("resolved_at"),
+  discardedAt: text("discarded_at"),
 });
 
 export const clientSchema = {

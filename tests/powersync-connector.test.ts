@@ -380,7 +380,8 @@ test("records a permanent RPC failure and leaves the transaction queued", async 
 
   assert.equal(completeCount, 0);
   assert.equal(writeTransactionCount, 1);
-  assert.match(localReads[0], /resolved_at IS NULL/);
+  // Reads the existing marker, so a discarded one is never recorded again.
+  assert.match(localReads[0], /discarded_at FROM sync_failures/);
   assert.equal(localWrites.length, 2);
   assert.match(localWrites[0], /DELETE FROM sync_failures/);
   assert.match(localWrites[1], /INSERT INTO sync_failures/);
