@@ -239,6 +239,13 @@ The app is offline-first using **PowerSync** as the sync engine between Supabase
 - **Sales and refunds are append-only.** Each carries a client-generated UUID, so a replayed or duplicated sync operation never creates a duplicate, and two users on the same account (or one user on two devices) recording at the same time never collide. Nothing is ever deleted; a void marks a sale excluded-from-totals, and a refund is a new record referencing the original.
 - **Product edits use last-write-wins** with a timestamp.
 
+**Timestamps and conflicts**
+
+- **`created_at` is business time:** when the vendor recorded the sale, refund, void or movement, by the clock that recorded it. That is the device clock for PowerSync writes and the app server's clock for server-action writes. Reports, the ledger order and the void window all use it. `client_created_at` holds the same instant on every new row; it is kept for older rows and is not used for reporting.
+- **Device time is trusted within bounds.** Offline devices upload hours or days later, so the server accepts old timestamps. It rejects any timestamp more than 5 minutes ahead of its own clock with a retryable error (Postgres `55000`): the upload waits, without a failure marker, until the server clock catches up. A device with a badly wrong clock therefore stops uploading until its clock is fixed, instead of writing future-dated sales into the reports.
+- **The void window is 10 minutes** between the sale's `created_at` and the void's `voided_at`, both device time, checked on the device before it writes and again by Postgres. A void uploaded days later is still accepted if it was made inside the window. Because the device that voids may not be the one that recorded the sale, a sale up to 5 seconds "in the future" of the voiding clock can still be voided.
+- **Void vs. refund across devices:** a sale is never both voided and refunded. Whichever action reaches the server first wins. The other one is not applied, does not fail, and is reverted on the device that made it. Two refunds of the same sale converge on the first one.
+
 **Sync status visibility**
 
 The app surfaces sync state so the vendor always knows whether their sales have reached the cloud. A small persistent indicator shows pending mutation count and last successful sync timestamp. A tester-only diagnostics screen shows the full sync state for bug reports.

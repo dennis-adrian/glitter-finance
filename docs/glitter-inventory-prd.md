@@ -168,8 +168,8 @@ event for a tracked product.
 | `delta`             | integer (signed)                 | Units added (+) or removed (−). Only `initial` may be 0.             |
 | `reason`            | enum `inventory_movement_reason` | `initial` \| `restock` \| `adjustment` \| `loss` \| `gift`.          |
 | `note`              | text, nullable                   | Optional free text (e.g. "caja dañada en transporte").               |
-| `created_at`        | timestamptz / text               | Server/display time.                                                 |
-| `client_created_at` | timestamptz / text               | Device clock at creation, for parity with sales/refunds.             |
+| `created_at`        | timestamptz / text               | Business time: the recording device's clock (parent PRD §9).         |
+| `client_created_at` | timestamptz / text               | Same instant as `created_at`, for parity with sales/refunds.         |
 
 Sign discipline (enforced by a CHECK, see §6.2):
 
@@ -478,9 +478,10 @@ default constant).
 - **`tracks_inventory` is itself LWW** (it's a product column). Acceptable: it's
   a rare setup-time toggle, not a per-sale mutation. The _counts_ are never LWW
   because they live in the append-only ledger.
-- **Clock skew:** movements carry `client_created_at`; ordering of supply events
-  does not affect the SUM (addition is commutative), so skew cannot corrupt the
-  derived total.
+- **Clock skew:** movements carry device time in `created_at`; ordering of
+  supply events does not affect the SUM (addition is commutative), so skew
+  cannot corrupt the derived total. Postgres holds back (retryably) a movement
+  stamped more than 5 minutes ahead of its clock, as for sales (parent PRD §9).
 
 ## 10. Performance
 

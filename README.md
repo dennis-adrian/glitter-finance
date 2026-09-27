@@ -144,15 +144,25 @@ Notes:
 
 Before deploying an app build containing the atomic PowerSync uploader, run
 [`supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql`](supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql)
-in the target Supabase SQL editor. Apply it to staging first, run
+and then
+[`supabase/manual/20260926120000_powersync_upload_convergence.sql`](supabase/manual/20260926120000_powersync_upload_convergence.sql)
+in the target Supabase SQL editor. Apply them to staging first, run
 [`docs/sync-atomicity-acceptance.md`](docs/sync-atomicity-acceptance.md), then
 repeat against production before deploying the app there.
 
 The SQL installs authenticated RPCs for sale + lines, void, and refund; revokes
-direct authenticated writes to those financial tables; and adds a trigger that
-enforces the void window in Postgres. Deploying the app first is safe from data
-loss—the missing-RPC error remains queued—but checkout uploads will remain
-blocked until the SQL is installed.
+direct authenticated writes to those financial tables; and adds triggers that
+enforce the void window and "never both voided and refunded" in Postgres. It
+also bounds device timestamps and makes cross-device void/refund conflicts
+converge (see the PRD, §9 "Timestamps and conflicts"). Deploying the app first
+is safe from data loss: a missing RPC is recorded as a sync failure and the
+transaction stays queued, but checkout uploads remain blocked until the SQL is
+installed.
+
+`20260926120000_powersync_upload_convergence.sql` is best applied after the app
+build that reverts local rows when a void or refund loses a conflict. An older
+installed PWA whose refund loses to a void keeps retrying that upload until it
+updates; nothing is lost.
 
 Permanent upload errors remain in the PowerSync CRUD queue and are also stored
 in the device-local `sync_failures` table. The sync pill turns red, tenant
@@ -160,6 +170,12 @@ switching/sign-out are blocked, and Diagnostics includes the complete operation
 payload. After the underlying problem is fixed, **Forzar sincronización** retries
 the same transaction; a successful atomic commit resolves the failure marker
 automatically. Do not clear browser/PWA storage while a failure is unresolved.
+
+Two rejections are retried without a failure marker, because they fix
+themselves: a permission error while the device has no Supabase session (it
+uploads again after sign-in), and a device timestamp more than 5 minutes ahead
+of the server clock (Postgres code `55000`; it uploads once the server clock
+catches up, so check the device clock if it persists).
 
 Then configure the matching PowerSync Cloud instance. Each Supabase environment
 must have its own PowerSync instance or a carefully separated configuration;
