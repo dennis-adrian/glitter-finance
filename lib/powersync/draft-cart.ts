@@ -119,15 +119,25 @@ export function clearLegacyDraftCartStorage() {
   window.localStorage.removeItem(legacyMigrationKey);
 }
 
-function readLegacyDraftCart() {
-  if (
-    typeof window === "undefined" ||
-    window.localStorage.getItem(legacyMigrationKey)
-  ) {
+// Transitional shim for PWAs that kept a draft cart in localStorage before
+// PowerSync (June 2026). Drafts expire after 24 hours, so there is nothing
+// left to move; the shim only clears the old keys now.
+// Sunset: remove readLegacyDraftCart, migrateLegacyDraftCartLocal,
+// clearLegacyDraftCartStorage and both keys after 2026-12-31.
+function legacyDraftCartStorage(): Storage | null {
+  if (typeof window === "undefined") {
     return null;
   }
 
-  const raw = window.localStorage.getItem(legacyStorageKey);
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readLegacyDraftCart(storage: Storage) {
+  const raw = storage.getItem(legacyStorageKey);
   if (!raw) {
     return null;
   }
@@ -152,16 +162,38 @@ function readLegacyDraftCart() {
   }
 }
 
+/**
+ * Moves a legacy localStorage draft cart into SQLite once per browser. Blocked
+ * or failing storage is skipped, so it never stops the saved PowerSync draft
+ * from loading.
+ */
 export async function migrateLegacyDraftCartLocal(
   db: AbstractPowerSyncDatabase
 ) {
-  const legacy = readLegacyDraftCart();
+  const storage = legacyDraftCartStorage();
+  if (!storage) {
+    return;
+  }
+
+  let legacy: ReturnType<typeof readLegacyDraftCart>;
+  try {
+    if (storage.getItem(legacyMigrationKey)) {
+      return;
+    }
+    legacy = readLegacyDraftCart(storage);
+  } catch (error) {
+    console.warn("[PowerSync] legacy draft cart could not be read", error);
+    return;
+  }
+
   if (legacy) {
     await saveDraftCartLocal(db, legacy.cart, legacy.updatedAt);
   }
 
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem(legacyMigrationKey, nowIso());
-    window.localStorage.removeItem(legacyStorageKey);
+  try {
+    storage.setItem(legacyMigrationKey, nowIso());
+    storage.removeItem(legacyStorageKey);
+  } catch (error) {
+    console.warn("[PowerSync] legacy draft cart could not be cleared", error);
   }
 }
