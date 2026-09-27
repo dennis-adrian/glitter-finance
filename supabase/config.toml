@@ -238,6 +238,9 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
+# Off locally, so a sign-up signs in at once; hosted projects have it on. To
+# try the confirmation email, set it to true, restart the stack and open the
+# email in Mailpit (see README: Testing auth emails locally).
 enable_confirmations = false
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
@@ -257,6 +260,17 @@ otp_expiry = 3600
 # pass = "env(SENDGRID_API_KEY)"
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
+
+# The app's auth emails, exported from emails/ by `pnpm email:export`. Hosted
+# projects get the same subjects and HTML (see README: Auth email templates).
+# Template paths are relative to the repository root.
+[auth.email.template.confirmation]
+subject = "Confirmá tu correo | Billetera Ferial"
+content_path = "./supabase/templates/account-confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Creá una contraseña nueva | Billetera Ferial"
+content_path = "./supabase/templates/password-recovery.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

@@ -130,10 +130,13 @@ pnpm email:dev
 pnpm email:export
 ```
 
-The export writes one file per email to `.react-email/out/`, with Supabase's
-`{{ .SiteURL }}`, `{{ .TokenHash }}` and `{{ .RedirectTo }}` variables intact.
-In each hosted project, open **Authentication → Email Templates** and, for
-each template below, set the subject and paste the exported HTML:
+The export writes one file per email to
+[`supabase/templates/`](supabase/templates), with Supabase's `{{ .SiteURL }}`,
+`{{ .TokenHash }}` and `{{ .RedirectTo }}` variables intact. Commit them: the
+local stack loads them (`[auth.email.template.*]` in `supabase/config.toml`),
+and `pnpm test` fails when they no longer match `emails/`. In each hosted
+project, open **Authentication → Email Templates** and, for each template
+below, set the subject and paste the HTML from `supabase/templates/`:
 
 | Supabase template | Subject                                         | File                        |
 | ----------------- | ----------------------------------------------- | --------------------------- |
@@ -155,6 +158,24 @@ sent (`/auth/callback?next=…`), and the confirm route continues to that URL's
 sending the callback URL as the redirect URL, so the redirect allow list needs
 no new entry. `/auth/callback` still serves Google sign-in and emails that use
 the default link.
+
+### Testing auth emails locally
+
+The local stack sends every auth email to Mailpit instead of a real inbox:
+open <http://127.0.0.1:54324>. Links in the emails use the local `site_url`,
+`http://127.0.0.1:3000`.
+
+- **Password reset** works as it does in hosted projects: request a link from
+  **¿Olvidaste tu contraseña?** and open it from Mailpit.
+- **Signup confirmation** is off locally (`enable_confirmations = false` under
+  `[auth.email]` in `supabase/config.toml`), so a new account signs in at once
+  and the "Revisa tu correo" path never runs. To try it, set
+  `enable_confirmations = true`, restart the stack (`pnpm db:stop`, then
+  `pnpm db:start`) and sign up again. Set it back to `false` before
+  committing.
+
+The local stack reads `supabase/config.toml` only when it starts, so restart
+it after changing an email template too.
 
 ### PowerSync setup
 

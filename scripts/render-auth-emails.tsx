@@ -2,7 +2,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { renderSupabaseAuthEmails } from "@/emails/_components/supabase-templates";
 
-const outputDir = resolve(process.cwd(), ".react-email/out");
+// Committed, so the local stack can load them (supabase/config.toml) and
+// hosted projects get the same HTML (README: Auth email templates).
+// tests/auth-email-templates.test.ts fails when they fall behind emails/.
+const outputDir = resolve(process.cwd(), "supabase/templates");
 
 async function main() {
   await mkdir(outputDir, { recursive: true });
