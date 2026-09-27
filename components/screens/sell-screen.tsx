@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { PackagePlus, Search } from "lucide-react";
 import { CategoryRail } from "@/components/molecules/category-rail";
 import { EmptyState } from "@/components/molecules/empty-state";
@@ -18,6 +19,7 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { TABLET_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
+import { useSearchShortcut } from "@/lib/hooks/use-search-shortcut";
 import { deriveCategories, isSameCategory } from "@/lib/products";
 import type { Product } from "@/lib/types";
 
@@ -45,6 +47,8 @@ type SellScreenProps = {
  */
 export function SellScreen(props: SellScreenProps) {
   const isTablet = useMediaQuery(TABLET_QUERY);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useSearchShortcut(searchRef);
   const { order } = props;
   const quantities = new Map(
     order.lines.map((line) => [line.productId, line.quantity])
@@ -81,8 +85,15 @@ export function SellScreen(props: SellScreenProps) {
                   onChange={(event) => props.setQuery(event.target.value)}
                   placeholder="Buscar producto"
                   aria-label="Buscar producto"
-                  className="rounded-full pl-11"
+                  aria-keyshortcuts="/"
+                  ref={searchRef}
+                  className="rounded-full pl-11 lg:pr-12"
                 />
+                {props.query ? null : (
+                  <kbd className="pointer-events-none absolute top-1/2 right-4 hidden -translate-y-1/2 rounded-md border border-border px-1.5 text-xs text-muted-foreground lg:block">
+                    /
+                  </kbd>
+                )}
               </div>
             }
           >

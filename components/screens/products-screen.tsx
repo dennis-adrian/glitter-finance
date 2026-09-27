@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Archive,
   PackagePlus,
@@ -23,6 +23,7 @@ import {
   stockNeedsGlyph,
   type ProductStock,
 } from "@/lib/inventory";
+import { useSearchShortcut } from "@/lib/hooks/use-search-shortcut";
 import { formatBs } from "@/lib/money";
 import { deriveCategories, isSameCategory } from "@/lib/products";
 import type { Product } from "@/lib/types";
@@ -49,6 +50,8 @@ type ProductsScreenProps = {
  */
 export function ProductsScreen(props: ProductsScreenProps) {
   const [status, setStatus] = useState<CatalogStatus>("active");
+  const searchRef = useRef<HTMLInputElement>(null);
+  useSearchShortcut(searchRef);
   const activeProducts = props.products.filter(
     (product) => !product.archivedAt
   );
@@ -113,8 +116,15 @@ export function ProductsScreen(props: ProductsScreenProps) {
                 onChange={(event) => props.setQuery(event.target.value)}
                 placeholder="Buscar productos"
                 aria-label="Buscar productos"
-                className="rounded-full pl-11"
+                aria-keyshortcuts="/"
+                ref={searchRef}
+                className="rounded-full pl-11 lg:pr-12"
               />
+              {props.query ? null : (
+                <kbd className="pointer-events-none absolute top-1/2 right-4 hidden -translate-y-1/2 rounded-md border border-border px-1.5 text-xs text-muted-foreground lg:block">
+                  /
+                </kbd>
+              )}
             </div>
             <SegmentedControl<CatalogStatus>
               aria-label="Estado de los productos"
