@@ -4,7 +4,8 @@
 // useful bug report — sync state, upload queue, identity, device info —
 // plus a "Forzar sincronización" action that reconnects PowerSync (kicking
 // the queue) and a "Copiar diagnóstico" action that dumps everything as
-// JSON to the clipboard. Per PRD §8 + §14.
+// JSON to the clipboard, or, when the clipboard fails, into a selectable text
+// box with a download button. Per PRD §8 + §14.
 //
 // Each transaction the server permanently rejected is listed with its error
 // and a confirmed "Descartar operación" action (lib/powersync/
@@ -15,22 +16,24 @@ import {
   ChevronLeft,
   RefreshCw,
   ClipboardCopy,
+  Download,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { Header } from "@/components/atoms/header";
 import { DiscardSyncFailureDialog } from "@/components/molecules/discard-sync-failure-dialog";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   useOptionalPowerSyncDb,
   usePowerSyncControls,
 } from "@/components/providers/powersync-provider";
 import type { UserTenantContext } from "@/lib/auth/tenant-context";
-import { formatDateTimeInBolivia } from "@/lib/dates";
+import { formatDateInputInBolivia, formatDateTimeInBolivia } from "@/lib/dates";
 import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import {
   discardSyncFailure,
@@ -94,6 +97,24 @@ function readDeviceInfoSync(): DeviceInfo {
   };
 }
 
+/** Saves the diagnostic as a file, for when the clipboard is unavailable. */
+function downloadDiagnostic(json: string) {
+  const url = URL.createObjectURL(
+    new Blob([json], { type: "application/json" })
+  );
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `diagnostico-${formatDateInputInBolivia()}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+  } finally {
+    // Some browsers read the blob after click() returns.
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  }
+}
+
 type DiagnosticsScreenProps = {
   tenantContext: UserTenantContext;
   back: () => void;
@@ -114,6 +135,9 @@ export function DiagnosticsScreen({
   const [device, setDevice] = useState<DeviceInfo>(readDeviceInfoSync);
   const [reconnecting, setReconnecting] = useState(false);
   const [copyConfirmed, setCopyConfirmed] = useState(false);
+  // The diagnostic as text, shown when copying it failed.
+  const [copyFallback, setCopyFallback] = useState<string | null>(null);
+  const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const [discarding, setDiscarding] = useState<SyncFailure | null>(null);
   // Bumped after a discard, which does not always change the counts.
   const [detailsVersion, setDetailsVersion] = useState(0);
@@ -207,6 +231,14 @@ export function DiagnosticsScreen({
     };
   }, []);
 
+  // Select the fallback text so it can be copied by hand right away.
+  useEffect(() => {
+    const textarea = copyFallbackRef.current;
+    if (!copyFallback || !textarea) return;
+    textarea.focus();
+    textarea.select();
+  }, [copyFallback]);
+
   async function handleReconnect() {
     if (!controls || reconnecting) return;
     setReconnecting(true);
@@ -214,6 +246,9 @@ export function DiagnosticsScreen({
       await controls.reconnect();
     } catch (error) {
       console.error("[Diagnostics] reconnect failed", error);
+      toast.error(
+        "No se pudo reconectar. Revisa la conexión e inténtalo de nuevo."
+      );
     } finally {
       setReconnecting(false);
     }
@@ -262,12 +297,34 @@ export function DiagnosticsScreen({
       },
       device,
     };
+    const json = JSON.stringify(payload, null, 2);
     try {
-      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      // Undefined outside secure contexts; it can also reject (permission,
+      // focus), and this copy is the recovery data for failed uploads.
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable");
+      }
+      await navigator.clipboard.writeText(json);
+      setCopyFallback(null);
       setCopyConfirmed(true);
       window.setTimeout(() => setCopyConfirmed(false), 1800);
     } catch (error) {
       console.error("[Diagnostics] copy failed", error);
+      setCopyFallback(json);
+      toast.error(
+        "No se pudo copiar el diagnóstico. Cópialo desde abajo o descárgalo."
+      );
+    }
+  }
+
+  function handleDownload(json: string) {
+    try {
+      downloadDiagnostic(json);
+    } catch (error) {
+      console.error("[Diagnostics] download failed", error);
+      toast.error(
+        "No se pudo descargar el diagnóstico. Selecciona el texto y cópialo."
+      );
     }
   }
 
@@ -310,8 +367,9 @@ export function DiagnosticsScreen({
         <DiagRow label="Sincronizado" value={yesNo(sync.hasSynced)} />
         <DiagRow
           label="Última sincronización"
-          value={sync.lastSyncedAt?.toISOString() ?? "—"}
-          mono
+          value={
+            sync.lastSyncedAt ? formatDateTimeInBolivia(sync.lastSyncedAt) : "—"
+          }
         />
         <DiagRow label="Subiendo" value={yesNo(sync.uploading)} />
         <DiagRow label="Bajando" value={yesNo(sync.downloading)} />
@@ -434,6 +492,32 @@ export function DiagnosticsScreen({
           {copyConfirmed ? "Copiado" : "Copiar diagnóstico"}
         </Button>
       </div>
+
+      {copyFallback ? (
+        <DiagPanel title="Diagnóstico">
+          <p className="mb-2.5 text-xs leading-relaxed text-muted-foreground">
+            No se pudo copiar automáticamente. Selecciona todo el texto y
+            cópialo, o descárgalo como archivo.
+          </p>
+          <Textarea
+            ref={copyFallbackRef}
+            readOnly
+            value={copyFallback}
+            onFocus={(event) => event.currentTarget.select()}
+            aria-label="Diagnóstico en formato JSON"
+            className="max-h-64 min-h-40 field-sizing-fixed font-mono text-xs md:text-xs"
+          />
+          <Button
+            variant="outline"
+            size="lg"
+            className="mt-2.5 w-full"
+            onClick={() => handleDownload(copyFallback)}
+          >
+            <Download className="size-4.5" />
+            Descargar diagnóstico
+          </Button>
+        </DiagPanel>
+      ) : null}
 
       <DiscardSyncFailureDialog
         label={

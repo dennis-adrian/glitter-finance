@@ -86,8 +86,8 @@ export function SettingsScreen({
     actionError?.action === "sign-out" ? actionError.message : null;
   const syncFailureExplanation =
     syncFailureCount === 1
-      ? "Hay una operación que no llegó a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión."
-      : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión.`;
+      ? "Hay una operación que no llegó a la nube. Abre Diagnósticos, copia el diagnóstico y resuélvela antes de cerrar sesión."
+      : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abre Diagnósticos, copia el diagnóstico y resuélvelas antes de cerrar sesión.`;
   const signOutBlockedExplanation =
     gate.blocker === "sync-failures"
       ? syncFailureExplanation
