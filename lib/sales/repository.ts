@@ -14,6 +14,7 @@ import {
   priceSale,
   type SaleLineRequest,
 } from "@/lib/sales/pricing";
+import { canonicalizeCategory } from "@/lib/sample-data";
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
 
 export type CreateSaleLineInput = SaleLineRequest;
@@ -51,7 +52,9 @@ function mapSaleLine(line: typeof saleLines.$inferSelect): SaleLine {
     id: line.id,
     productId: line.productId,
     productName: line.productName,
-    category: line.category,
+    // Lines recorded before a category was renamed report under its current
+    // name, like the PowerSync path (lib/powersync/sales-from-local.ts).
+    category: canonicalizeCategory(line.category),
     quantity: line.quantity,
     unitPriceCents: line.unitPriceCents,
     unitCostCents: line.unitCostCents,

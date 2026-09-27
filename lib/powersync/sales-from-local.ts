@@ -9,6 +9,7 @@
 // Caller supplies display names from synced tenant_users rows (see
 // lib/powersync/tenant-users-from-local.ts).
 
+import { canonicalizeCategory } from "@/lib/sample-data";
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
 
 export type LocalSaleRow = {
@@ -55,7 +56,9 @@ function mapLine(row: LocalSaleLineRow): SaleLine {
     id: row.id,
     productId: row.product_id,
     productName: row.product_name,
-    category: row.category,
+    // Lines recorded before a category was renamed ("Pegatinas") report
+    // under its current name ("Stickers"), so reports do not split them.
+    category: canonicalizeCategory(row.category),
     quantity: row.quantity,
     unitPriceCents: row.unit_price_cents,
     unitCostCents: row.unit_cost_cents,

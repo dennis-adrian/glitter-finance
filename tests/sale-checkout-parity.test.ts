@@ -7,7 +7,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
-import { products, saleLines, sales, tenantUsers } from "@/lib/db/schema";
+import {
+  products,
+  refunds,
+  saleLines,
+  sales,
+  tenantUsers,
+} from "@/lib/db/schema";
+import { buildSalesFromLocal } from "@/lib/powersync/sales-from-local";
+import { computeCategoryTotals } from "@/lib/sales";
 import { createSaleLocal } from "@/lib/powersync/write-sales";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
 import type { Product } from "@/lib/types";
@@ -53,6 +61,7 @@ function fakeDb() {
     [products, productRows],
     [sales, []],
     [saleLines, []],
+    [refunds, []],
     [tenantUsers, []],
   ]);
 
@@ -195,4 +204,61 @@ test("the server action and the PowerSync writer record the same sale", async ()
     ]
   );
   assert.equal(recorded.saleDiscountCents, 3800);
+});
+
+test("legacy sale-line categories report under their current name", async () => {
+  const { getSalesForTenant } = await loadRepository();
+  const [sale] = fake.tables.get(sales)!;
+  const legacyLine = {
+    ...fake.tables.get(saleLines)![0],
+    id: crypto.randomUUID(),
+    category: "Pegatinas",
+  };
+  fake.tables.get(saleLines)!.push(legacyLine);
+
+  const serverSales = await getSalesForTenant(TENANT_ID);
+  const localSales = buildSalesFromLocal(
+    [
+      {
+        id: String(sale.id),
+        tenant_id: TENANT_ID,
+        user_id: USER_ID,
+        payment_method: "cash",
+        sale_discount_cents: 0,
+        sale_discount_reason: null,
+        voided_at: null,
+        voided_by_user_id: null,
+        created_at: "2026-09-02T10:00:00.000Z",
+        client_created_at: "2026-09-02T10:00:00.000Z",
+      },
+    ],
+    fake.tables.get(saleLines)!.map((line) => ({
+      id: String(line.id),
+      sale_id: String(line.saleId),
+      tenant_id: TENANT_ID,
+      product_id: String(line.productId),
+      product_name: String(line.productName),
+      category: String(line.category),
+      quantity: Number(line.quantity),
+      unit_price_cents: Number(line.unitPriceCents),
+      unit_cost_cents: line.unitCostCents as number | null,
+      line_discount_cents: Number(line.lineDiscountCents),
+      line_discount_reason: line.lineDiscountReason as string | null,
+      line_total_cents: Number(line.lineTotalCents),
+      created_at: "2026-09-02T10:00:00.000Z",
+    })),
+    [],
+    () => "Vendedora"
+  );
+
+  for (const loaded of [serverSales, localSales]) {
+    assert.deepEqual(
+      loaded[0].lines.map((line) => line.category),
+      ["Stickers", "Prints", "Stickers"]
+    );
+    assert.deepEqual(
+      computeCategoryTotals(loaded).map((item) => item.category),
+      ["Stickers"]
+    );
+  }
 });
