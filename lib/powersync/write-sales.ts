@@ -9,7 +9,14 @@
 // the network, no separate "optimistic update" code path.
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
-import { isWithinVoidWindow, VOID_WINDOW_EXPIRED_MESSAGE } from "@/lib/sales";
+import {
+  isWithinVoidWindow,
+  REFUNDED_SALE_VOID_MESSAGE,
+  SALE_ALREADY_REFUNDED_MESSAGE,
+  SALE_ALREADY_VOIDED_MESSAGE,
+  VOID_WINDOW_EXPIRED_MESSAGE,
+  VOIDED_SALE_REFUND_MESSAGE,
+} from "@/lib/sales";
 import { priceSale } from "@/lib/sales/pricing";
 import type { PaymentMethod, Product } from "@/lib/types";
 import { normalizeNote } from "@/lib/validation";
@@ -144,7 +151,7 @@ export async function voidSaleLocal(
       throw new Error("No se encontró la venta.");
     }
     if (sale.voided_at) {
-      throw new Error("Esta venta ya fue anulada.");
+      throw new Error(SALE_ALREADY_VOIDED_MESSAGE);
     }
 
     // Check and stamp with the same instant: the server re-checks the window
@@ -159,7 +166,7 @@ export async function voidSaleLocal(
       [input.saleId]
     );
     if (existingRefund.length) {
-      throw new Error("No se puede anular una venta reembolsada.");
+      throw new Error(REFUNDED_SALE_VOID_MESSAGE);
     }
 
     input.assertCurrent?.();
@@ -204,7 +211,7 @@ export async function refundSaleLocal(
       throw new Error("No se encontró la venta.");
     }
     if (sale.voided_at) {
-      throw new Error("No se puede reembolsar una venta anulada.");
+      throw new Error(VOIDED_SALE_REFUND_MESSAGE);
     }
 
     const existingRefund = await tx.getAll<{ id: string }>(
@@ -212,7 +219,7 @@ export async function refundSaleLocal(
       [input.saleId]
     );
     if (existingRefund.length) {
-      throw new Error("Esta venta ya fue reembolsada.");
+      throw new Error(SALE_ALREADY_REFUNDED_MESSAGE);
     }
 
     const now = nowIso();

@@ -29,8 +29,10 @@ import type { Sale } from "@/lib/types";
 import {
   canRefundSale,
   canVoidSale,
+  saleActionBlockedMessage,
   saleReferenceLabel,
   saleStatusLabel,
+  type SaleAction,
 } from "@/components/screens/sale-detail-screen.helpers";
 
 type SaleDetailScreenProps = {
@@ -65,7 +67,7 @@ export function SaleDetailScreen({
   voidSale,
   refundSale,
 }: SaleDetailScreenProps) {
-  const [action, setAction] = useState<"void" | "refund" | null>(null);
+  const [action, setAction] = useState<SaleAction | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -272,16 +274,23 @@ export function SaleDetailScreen({
         action={action}
         onClose={() => setAction(null)}
         onConfirm={async (reason) => {
-          if (action === "void") {
-            const checkedAt = Date.now();
-            if (!canVoidSale(sale, sales, checkedAt)) {
-              setNow(checkedAt);
-              setAction(null);
-              return false;
-            }
-            return voidSale(sale.id);
+          if (!action) return false;
+          // A refusal is thrown, so the dialog shows why instead of a
+          // generic failure.
+          const checkedAt = Date.now();
+          const blocked = saleActionBlockedMessage(
+            action,
+            sale,
+            sales,
+            checkedAt
+          );
+          if (blocked) {
+            setNow(checkedAt);
+            throw new Error(blocked);
           }
-          return refundSale(sale.id, reason);
+          return action === "void"
+            ? voidSale(sale.id)
+            : refundSale(sale.id, reason);
         }}
       />
     </section>

@@ -3,12 +3,18 @@ import test from "node:test";
 import {
   canRefundSale,
   canVoidSale,
+  saleActionBlockedMessage,
   saleStatusLabel,
 } from "@/components/screens/sale-detail-screen.helpers";
 import {
   isWithinVoidWindow,
+  REFUNDED_SALE_VOID_MESSAGE,
+  SALE_ALREADY_REFUNDED_MESSAGE,
+  SALE_ALREADY_VOIDED_MESSAGE,
   VOID_CLOCK_SKEW_TOLERANCE_MS,
+  VOID_WINDOW_EXPIRED_MESSAGE,
   VOID_WINDOW_MS,
+  VOIDED_SALE_REFUND_MESSAGE,
 } from "@/lib/sales";
 import type { Sale } from "@/lib/types";
 
@@ -95,4 +101,60 @@ test("the void window allows the clock skew of a second device", () => {
     false
   );
   assert.equal(isWithinVoidWindow("not a date", createdAt), false);
+});
+
+test("a refused void or refund says why", () => {
+  const original = sale();
+  const createdAt = Date.parse(original.createdAt);
+  const refund = sale({
+    id: "refund-1",
+    status: "refunded",
+    refundOfSaleId: original.id,
+  });
+  const voided = sale({ status: "voided" });
+
+  assert.equal(
+    saleActionBlockedMessage("void", original, [original], createdAt),
+    null
+  );
+  assert.equal(
+    saleActionBlockedMessage(
+      "void",
+      original,
+      [original],
+      createdAt + VOID_WINDOW_MS + 1
+    ),
+    VOID_WINDOW_EXPIRED_MESSAGE
+  );
+  // Refunds have no window.
+  assert.equal(
+    saleActionBlockedMessage(
+      "refund",
+      original,
+      [original],
+      createdAt + VOID_WINDOW_MS + 1
+    ),
+    null
+  );
+  assert.equal(
+    saleActionBlockedMessage("void", original, [original, refund], createdAt),
+    REFUNDED_SALE_VOID_MESSAGE
+  );
+  assert.equal(
+    saleActionBlockedMessage("refund", original, [original, refund]),
+    SALE_ALREADY_REFUNDED_MESSAGE
+  );
+  assert.match(
+    saleActionBlockedMessage("refund", refund, [original, refund]) ?? "",
+    /reembolso/
+  );
+  // The dialog's copy of the sale can be older than the list it checks.
+  assert.equal(
+    saleActionBlockedMessage("void", original, [voided], createdAt),
+    SALE_ALREADY_VOIDED_MESSAGE
+  );
+  assert.equal(
+    saleActionBlockedMessage("refund", original, [voided]),
+    VOIDED_SALE_REFUND_MESSAGE
+  );
 });

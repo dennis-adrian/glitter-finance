@@ -1252,11 +1252,12 @@ export function GlitterPosApp({
     }
   }
 
+  // Void and refund are confirmed in SaleActionDialog: a refusal is thrown,
+  // so the dialog shows its reason, and false means the work was cancelled.
   async function handleVoidSale(saleId: string) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
-      return false;
+      throw new Error("Tu cuenta aún no está configurada.");
     }
     const work = beginTenantWork();
     const db = powerSyncDb;
@@ -1285,19 +1286,14 @@ export function GlitterPosApp({
       if (!work.isCurrent()) {
         return false;
       }
-      showToast(
-        error instanceof Error ? error.message : "No se pudo anular la venta",
-        "danger"
-      );
-      return false;
+      throw error;
     }
   }
 
   async function handleRefundSale(saleId: string, reason?: string) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
-      return false;
+      throw new Error("Tu cuenta aún no está configurada.");
     }
     const work = beginTenantWork();
     const db = powerSyncDb;
@@ -1327,13 +1323,7 @@ export function GlitterPosApp({
       if (!work.isCurrent()) {
         return false;
       }
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "No se pudo registrar el reembolso",
-        "danger"
-      );
-      return false;
+      throw error;
     }
   }
 

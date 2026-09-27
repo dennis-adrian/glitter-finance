@@ -8,7 +8,14 @@ import {
   sales,
   tenantUsers,
 } from "@/lib/db/schema";
-import { isWithinVoidWindow, VOID_WINDOW_EXPIRED_MESSAGE } from "@/lib/sales";
+import {
+  isWithinVoidWindow,
+  REFUNDED_SALE_VOID_MESSAGE,
+  SALE_ALREADY_REFUNDED_MESSAGE,
+  SALE_ALREADY_VOIDED_MESSAGE,
+  VOID_WINDOW_EXPIRED_MESSAGE,
+  VOIDED_SALE_REFUND_MESSAGE,
+} from "@/lib/sales";
 import {
   mergeSaleLines,
   priceSale,
@@ -388,7 +395,7 @@ export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
     const sale = await lockSaleForCorrection(tx, input.tenantId, input.saleId);
 
     if (sale.voidedAt) {
-      throw new UserFacingError("Esta venta ya fue anulada.");
+      throw new UserFacingError(SALE_ALREADY_VOIDED_MESSAGE);
     }
 
     if (!isWithinVoidWindow(sale.createdAt, voidedAt.getTime())) {
@@ -396,7 +403,7 @@ export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
     }
 
     if (sale.isRefunded) {
-      throw new UserFacingError("No se puede anular una venta reembolsada.");
+      throw new UserFacingError(REFUNDED_SALE_VOID_MESSAGE);
     }
 
     const [voidedSale] = await tx
@@ -447,11 +454,11 @@ export async function refundSaleForTenant(
       );
 
       if (sale.voidedAt) {
-        throw new UserFacingError("No se puede reembolsar una venta anulada.");
+        throw new UserFacingError(VOIDED_SALE_REFUND_MESSAGE);
       }
 
       if (sale.isRefunded) {
-        throw new UserFacingError("Esta venta ya fue reembolsada.");
+        throw new UserFacingError(SALE_ALREADY_REFUNDED_MESSAGE);
       }
 
       const [inserted] = await tx
@@ -470,7 +477,7 @@ export async function refundSaleForTenant(
     });
   } catch (error) {
     if (isUniqueViolation(error, "refunds_original_sale_id_unique")) {
-      throw new UserFacingError("Esta venta ya fue reembolsada.");
+      throw new UserFacingError(SALE_ALREADY_REFUNDED_MESSAGE);
     }
     throw error;
   }

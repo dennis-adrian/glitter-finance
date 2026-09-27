@@ -31,10 +31,10 @@ import type { ReportRange, Sale } from "@/lib/types";
 import {
   canRefundSale,
   canVoidSale,
+  saleActionBlockedMessage,
   saleStatusLabel,
+  type SaleAction,
 } from "@/components/screens/sale-detail-screen.helpers";
-
-type SaleAction = "void" | "refund";
 
 type SalesScreenProps = {
   sales: Sale[];
@@ -177,18 +177,32 @@ export function SalesScreen({
     setRange(nextRange);
   }
 
+  // A refusal is thrown, so the dialog shows why instead of a generic
+  // failure; the rows re-check the void window too.
   async function confirmAction(reason?: string) {
     if (!action) return false;
-    if (action.type === "void") {
-      if (!canVoidSale(action.sale, sales, Date.now())) return false;
-      return voidSale(action.sale.id);
+    const checkedAt = Date.now();
+    const blocked = saleActionBlockedMessage(
+      action.type,
+      action.sale,
+      sales,
+      checkedAt
+    );
+    if (blocked) {
+      setNow(checkedAt);
+      throw new Error(blocked);
     }
-    if (!canRefundSale(action.sale, sales)) return false;
-    return refundSale(action.sale.id, reason);
+    return action.type === "void"
+      ? voidSale(action.sale.id)
+      : refundSale(action.sale.id, reason);
   }
 
   function requestVoid(selectedSale: Sale) {
-    if (!canVoidSale(selectedSale, sales, Date.now())) return;
+    const checkedAt = Date.now();
+    if (!canVoidSale(selectedSale, sales, checkedAt)) {
+      setNow(checkedAt);
+      return;
+    }
     setAction({ sale: selectedSale, type: "void" });
   }
 

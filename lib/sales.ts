@@ -24,6 +24,15 @@ export const VOID_WINDOW_MS = VOID_WINDOW_MINUTES * 60 * 1000;
 export const VOID_CLOCK_SKEW_TOLERANCE_MS = 5_000;
 export const VOID_WINDOW_EXPIRED_MESSAGE = `Las ventas solo se pueden anular dentro de los primeros ${VOID_WINDOW_MINUTES} minutos.`;
 
+// Why a void or refund was refused. The screens, the PowerSync writers and
+// the server repository give the same reasons.
+export const SALE_ALREADY_VOIDED_MESSAGE = "Esta venta ya fue anulada.";
+export const SALE_ALREADY_REFUNDED_MESSAGE = "Esta venta ya fue reembolsada.";
+export const REFUNDED_SALE_VOID_MESSAGE =
+  "No se puede anular una venta reembolsada.";
+export const VOIDED_SALE_REFUND_MESSAGE =
+  "No se puede reembolsar una venta anulada.";
+
 /** Whether a sale recorded at `createdAt` can still be voided at `now`. */
 export function isWithinVoidWindow(createdAt: string | Date, now: number) {
   const createdAtMs = new Date(createdAt).getTime();
