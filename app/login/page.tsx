@@ -2,7 +2,7 @@ import Link from "next/link";
 import { BarChart2, CheckCircle2, ChevronLeft, WifiOff } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { AuthForm } from "@/components/molecules/auth-form";
-import { sanitizeRedirectPath } from "@/lib/auth/redirect";
+import { resolveAuthRedirectPath } from "@/lib/auth/oauth";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { cn } from "@/lib/utils";
 
@@ -173,13 +173,7 @@ function AuthScreen({
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
   const origin = await getRequestOrigin();
-  const nextRaw = firstValue(params.next);
-  const isRelativeNext =
-    !!nextRaw && nextRaw.startsWith("/") && !nextRaw.startsWith("//");
-  const next =
-    origin || isRelativeNext
-      ? sanitizeRedirectPath(nextRaw ?? null, origin || "http://localhost")
-      : "/";
+  const next = resolveAuthRedirectPath(firstValue(params.next) ?? null, origin);
   const error = firstValue(params.error);
   const message = firstValue(params.message);
   const requestedMode = firstValue(params.mode);
