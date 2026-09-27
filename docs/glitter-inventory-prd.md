@@ -415,8 +415,16 @@ pattern (`lib/powersync/write-sales.ts`): a single `addInventoryMovement(db,
 INSERT path. No upload-connector changes are needed — append-only INSERT is
 already handled.
 
-The Product Editor's initial-stock save and the restock/adjust actions call this
-helper.
+The restock/adjust actions call this helper. The Product Editor's
+initial-stock save writes its `initial` row in the same transaction as the
+product (`createProductLocal` / `updateProductLocal` take an `initialStock`), so
+a product is never stored without the count it was saved with. Both paths
+check the row with `normalizeInventoryMovement` (`lib/inventory.ts`).
+
+Local-only mode (no PowerSync) records the same movements through the
+`addInventoryMovement` server action (`app/inventory/actions.ts`, backed by
+`addInventoryMovementForTenant` in `lib/inventory/repository.ts`), with the
+same checks, and adds the returned row to the in-memory ledger.
 
 ### 7.2 Derivation
 
