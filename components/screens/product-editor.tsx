@@ -37,8 +37,8 @@ import {
   productImageAccept,
   productImageFileError,
   productImageFormatsLabel,
-  productImageMaxSizeLabel,
 } from "@/lib/product-image-config";
+import { downscaleProductImage } from "@/lib/product-image-downscale";
 import { emptyProduct, PRODUCT_NAME_MAX_LENGTH } from "@/lib/products";
 import { canonicalizeCategory, categories } from "@/lib/sample-data";
 import type { Product } from "@/lib/types";
@@ -116,12 +116,16 @@ export function ProductEditor({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [imagePreparing, setImagePreparing] = useState(false);
   const [inventoryActionError, setInventoryActionError] = useState<
     string | null
   >(null);
   const [inventoryMovementSubmitting, setInventoryMovementSubmitting] =
     useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  // Counts picks, so a slow reduction of an earlier photo cannot replace a
+  // later one.
+  const imagePickRef = useRef(0);
   const productForm = validateProductForm({ name, price, cost });
   const canSave = productForm.values != null;
   const trackingPersisted = product?.tracksInventory ?? false;
@@ -162,24 +166,35 @@ export function ProductEditor({
     return () => URL.revokeObjectURL(objectUrl);
   }, [imageFile]);
 
-  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
+  async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.target;
+    const file = input.files?.[0] ?? null;
+    const pick = ++imagePickRef.current;
     setImageError(null);
 
     if (!file) {
+      setImagePreparing(false);
       setImageFile(null);
       return;
     }
 
-    const fileError = productImageFileError(file);
+    // Both upload paths send the reduced photo; the size limit applies to it.
+    setImagePreparing(true);
+    const prepared = await downscaleProductImage(file);
+    if (pick !== imagePickRef.current) {
+      return;
+    }
+    setImagePreparing(false);
+
+    const fileError = productImageFileError(prepared);
     if (fileError) {
       setImageFile(null);
       setImageError(fileError);
-      event.target.value = "";
+      input.value = "";
       return;
     }
 
-    setImageFile(file);
+    setImageFile(prepared);
   }
 
   async function submitMovement(
@@ -286,7 +301,7 @@ export function ProductEditor({
           <strong>
             {previewProduct.imageUrl ? "Cambiar imagen" : "Subir imagen"}
           </strong>
-          <span>{`Formatos ${productImageFormatsLabel} (máx. ${productImageMaxSizeLabel})`}</span>
+          <span>Formatos {productImageFormatsLabel}</span>
         </button>
         <button
           type="button"
@@ -299,6 +314,10 @@ export function ProductEditor({
       </div>
       {imageError ? (
         <p className="mt-1.5 text-sm text-destructive">{imageError}</p>
+      ) : imagePreparing ? (
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Preparando la imagen…
+        </p>
       ) : null}
       <div className="tone-picker" aria-label="Color del marcador de posición">
         {placeholderImageTones.map((tone) => (
@@ -640,7 +659,7 @@ export function ProductEditor({
       ) : null}
       <Button
         size="lg"
-        disabled={!canSave}
+        disabled={!canSave || imagePreparing}
         className="sticky bottom-0 mt-4 w-full font-extrabold tracking-wide shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
         onClick={() => {
           const values = productForm.values;
