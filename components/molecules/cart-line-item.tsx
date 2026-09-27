@@ -3,6 +3,7 @@ import { Edit3, Minus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clampDiscount, formatBs, parseDiscountInput } from "@/lib/money";
+import { priceLine } from "@/lib/sales/pricing";
 import type { Product } from "@/lib/types";
 import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import { ProductArt } from "@/components/atoms/product-art";
@@ -51,9 +52,15 @@ export function CartLineItem({
     }
   }, [lineDiscountCents, lineDiscountReason, discountOpen]);
 
-  const lineSubtotal = product.priceCents * quantity;
-  const discount = clampDiscount(lineDiscountCents, lineSubtotal);
-  const lineTotal = Math.max(0, lineSubtotal - discount);
+  const {
+    grossCents: lineSubtotal,
+    discountCents: discount,
+    totalCents: lineTotal,
+  } = priceLine({
+    priceCents: product.priceCents,
+    quantity,
+    lineDiscountCents,
+  });
 
   function applyDiscount() {
     const value = parseDiscountInput(discountInput, lineSubtotal);

@@ -8,16 +8,15 @@ import {
   sales,
   tenantUsers,
 } from "@/lib/db/schema";
-import { clampDiscount } from "@/lib/money";
 import { isWithinVoidWindow, VOID_WINDOW_EXPIRED_MESSAGE } from "@/lib/sales";
+import {
+  mergeSaleLines,
+  priceSale,
+  type SaleLineRequest,
+} from "@/lib/sales/pricing";
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
 
-export type CreateSaleLineInput = {
-  productId: string;
-  quantity: number;
-  lineDiscountCents?: number;
-  lineDiscountReason?: string;
-};
+export type CreateSaleLineInput = SaleLineRequest;
 
 export type CreateSaleInput = {
   tenantId: string;
@@ -196,44 +195,12 @@ function mapRefundRows(
   });
 }
 
-function normalizeLines(lines: CreateSaleLineInput[]) {
-  const byProduct = new Map<string, CreateSaleLineInput>();
-
-  for (const line of lines) {
-    if (!line.productId) {
-      throw new UserFacingError("Cada línea de venta necesita un producto.");
-    }
-
-    if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
-      throw new UserFacingError(
-        "Las cantidades deben ser números enteros positivos."
-      );
-    }
-
-    const existing = byProduct.get(line.productId);
-    byProduct.set(line.productId, {
-      productId: line.productId,
-      quantity: (existing?.quantity ?? 0) + line.quantity,
-      lineDiscountCents:
-        (existing?.lineDiscountCents ?? 0) + (line.lineDiscountCents ?? 0),
-      lineDiscountReason:
-        line.lineDiscountReason ?? existing?.lineDiscountReason,
-    });
-  }
-
-  return [...byProduct.values()];
-}
-
 export async function createSaleForTenant(
   input: CreateSaleInput
 ): Promise<Sale> {
-  const normalizedLines = normalizeLines(input.lines);
-
-  if (!normalizedLines.length) {
-    throw new UserFacingError("La venta necesita al menos un producto.");
-  }
-
-  const productIds = normalizedLines.map((line) => line.productId);
+  // Checked before loading products, so a malformed line fails first.
+  const requestedLines = mergeSaleLines(input.lines);
+  const productIds = requestedLines.map((line) => line.productId);
   const productRows = await db
     .select()
     .from(products)
@@ -244,50 +211,14 @@ export async function createSaleForTenant(
       )
     );
 
-  const productById = new Map(
-    productRows.map((product) => [product.id, product])
-  );
-
-  if (productById.size !== productIds.length) {
-    throw new UserFacingError("Uno o más productos ya no están disponibles.");
-  }
-
-  const lineValues = normalizedLines.map((line) => {
-    const product = productById.get(line.productId);
-
-    if (!product || product.archivedAt) {
-      throw new UserFacingError(
-        "Uno o más productos están archivados y no se pueden vender."
-      );
-    }
-
-    const lineSubtotalCents = product.priceCents * line.quantity;
-    const lineDiscountCents = clampDiscount(
-      line.lineDiscountCents ?? 0,
-      lineSubtotalCents
-    );
-
-    return {
-      tenantId: input.tenantId,
-      productId: product.id,
-      productName: product.name,
-      category: product.category,
-      quantity: line.quantity,
-      unitPriceCents: product.priceCents,
-      unitCostCents: product.costCents,
-      lineDiscountCents,
-      lineDiscountReason: line.lineDiscountReason?.trim() || null,
-      lineTotalCents: lineSubtotalCents - lineDiscountCents,
-    };
-  });
-
-  const subtotalAfterLineDiscounts = lineValues.reduce(
-    (total, line) => total + line.lineTotalCents,
-    0
-  );
-  const saleDiscountCents = clampDiscount(
-    input.saleDiscountCents,
-    subtotalAfterLineDiscounts
+  // Same pricing as the PowerSync writer (lib/powersync/write-sales.ts).
+  const priced = priceSale(
+    {
+      lines: requestedLines,
+      saleDiscountCents: input.saleDiscountCents,
+      saleDiscountReason: input.saleDiscountReason,
+    },
+    new Map(productRows.map((product) => [product.id, product]))
   );
   // created_at is the business time: the clock of whoever recorded the sale.
   // PowerSync writes stamp the device clock into both created_at and
@@ -302,8 +233,8 @@ export async function createSaleForTenant(
         tenantId: input.tenantId,
         userId: input.userId,
         paymentMethod: input.paymentMethod,
-        saleDiscountCents,
-        saleDiscountReason: input.saleDiscountReason?.trim() || null,
+        saleDiscountCents: priced.saleDiscountCents,
+        saleDiscountReason: priced.saleDiscountReason,
         createdAt,
         clientCreatedAt: createdAt,
       })
@@ -316,7 +247,12 @@ export async function createSaleForTenant(
     const insertedLines = await tx
       .insert(saleLines)
       .values(
-        lineValues.map((line) => ({ ...line, saleId: sale.id, createdAt }))
+        priced.lines.map((line) => ({
+          ...line,
+          tenantId: input.tenantId,
+          saleId: sale.id,
+          createdAt,
+        }))
       )
       .returning();
 

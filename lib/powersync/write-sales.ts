@@ -1,6 +1,6 @@
-// Local-first sale write helpers. Mirror the business logic from
-// lib/sales/repository.ts (normalize, snapshot price/cost, clamp
-// discounts, compute line totals) but write to the per-device PowerSync
+// Local-first sale write helpers. Price the sale with the same rules as the
+// server action (lib/sales/pricing.ts: merge lines, snapshot price and cost,
+// clamp discounts, compute totals) but write to the per-device PowerSync
 // SQLite store instead of Postgres. PowerSync's CRUD queue picks up the
 // changes and uploads them to Supabase via SupabaseConnector.uploadData.
 //
@@ -9,8 +9,8 @@
 // the network, no separate "optimistic update" code path.
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
-import { clampDiscount } from "@/lib/money";
 import { isWithinVoidWindow, VOID_WINDOW_EXPIRED_MESSAGE } from "@/lib/sales";
+import { priceSale } from "@/lib/sales/pricing";
 import type { PaymentMethod, Product } from "@/lib/types";
 import { normalizeNote } from "@/lib/validation";
 
@@ -39,71 +39,24 @@ export type CreateSaleLocalInput = {
   assertCurrent?: () => void;
 };
 
-/**
- * Combine duplicate-product lines, then snapshot price/cost and compute
- * per-line totals. Mirrors `normalizeLines` in lib/sales/repository.ts.
- */
-function normalizeAndPriceLines(
-  tenantId: string,
-  lines: CreateSaleLocalLine[]
-) {
-  if (lines.length === 0) {
-    throw new Error("La venta necesita al menos un producto.");
-  }
-
-  const byProduct = new Map<string, CreateSaleLocalLine>();
-  for (const line of lines) {
-    if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
-      throw new Error("Las cantidades deben ser números enteros positivos.");
-    }
-    if (line.product.archivedAt) {
-      throw new Error(
-        "Uno o más productos están archivados y no se pueden vender."
-      );
-    }
-    const existing = byProduct.get(line.product.id);
-    if (existing) {
-      existing.quantity += line.quantity;
-      existing.lineDiscountCents =
-        (existing.lineDiscountCents ?? 0) + (line.lineDiscountCents ?? 0);
-    } else {
-      byProduct.set(line.product.id, { ...line });
-    }
-  }
-
-  const now = nowIso();
-  return Array.from(byProduct.values()).map((line) => {
-    const subtotal = line.product.priceCents * line.quantity;
-    const discount = clampDiscount(line.lineDiscountCents ?? 0, subtotal);
-    return {
-      id: uuid(),
-      tenant_id: tenantId,
-      product_id: line.product.id,
-      product_name: line.product.name,
-      category: line.product.category,
-      quantity: line.quantity,
-      unit_price_cents: line.product.priceCents,
-      unit_cost_cents: line.product.costCents,
-      line_discount_cents: discount,
-      line_discount_reason: line.lineDiscountReason?.trim() || null,
-      line_total_cents: subtotal - discount,
-      created_at: now,
-    };
-  });
-}
-
 export async function createSaleLocal(
   db: AbstractPowerSyncDatabase,
   input: CreateSaleLocalInput
-): Promise<{ saleId: string }> {
-  const lineRows = normalizeAndPriceLines(input.tenantId, input.lines);
-  const subtotalAfterLineDiscounts = lineRows.reduce(
-    (sum, row) => sum + row.line_total_cents,
-    0
-  );
-  const saleDiscountCents = clampDiscount(
-    input.saleDiscountCents,
-    subtotalAfterLineDiscounts
+): Promise<{ saleId: string; totalCents: number }> {
+  // Priced before the transaction, so a sale Postgres would reject never
+  // enters the upload queue.
+  const sale = priceSale(
+    {
+      lines: input.lines.map((line) => ({
+        productId: line.product.id,
+        quantity: line.quantity,
+        lineDiscountCents: line.lineDiscountCents,
+        lineDiscountReason: line.lineDiscountReason,
+      })),
+      saleDiscountCents: input.saleDiscountCents,
+      saleDiscountReason: input.saleDiscountReason,
+    },
+    new Map(input.lines.map((line) => [line.product.id, line.product]))
   );
 
   const saleId = uuid();
@@ -123,14 +76,14 @@ export async function createSaleLocal(
         input.tenantId,
         input.userId,
         input.paymentMethod,
-        saleDiscountCents,
-        input.saleDiscountReason?.trim() || null,
+        sale.saleDiscountCents,
+        sale.saleDiscountReason,
         now,
         now,
       ]
     );
 
-    for (const row of lineRows) {
+    for (const line of sale.lines) {
       input.assertCurrent?.();
       await tx.execute(
         `INSERT INTO sale_lines
@@ -139,25 +92,25 @@ export async function createSaleLocal(
            line_discount_reason, line_total_cents, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          row.id,
+          uuid(),
           saleId,
-          row.tenant_id,
-          row.product_id,
-          row.product_name,
-          row.category,
-          row.quantity,
-          row.unit_price_cents,
-          row.unit_cost_cents,
-          row.line_discount_cents,
-          row.line_discount_reason,
-          row.line_total_cents,
-          row.created_at,
+          input.tenantId,
+          line.productId,
+          line.productName,
+          line.category,
+          line.quantity,
+          line.unitPriceCents,
+          line.unitCostCents,
+          line.lineDiscountCents,
+          line.lineDiscountReason,
+          line.lineTotalCents,
+          now,
         ]
       );
     }
   });
 
-  return { saleId };
+  return { saleId, totalCents: sale.totalCents };
 }
 
 export type VoidSaleLocalInput = {

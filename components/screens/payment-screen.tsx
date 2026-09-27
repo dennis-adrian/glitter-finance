@@ -15,6 +15,7 @@ import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clampDiscount, formatBs, parseDiscountInput } from "@/lib/money";
+import { isWithinSaleLimit, saleTotalCents } from "@/lib/sales/pricing";
 import type { PaymentMethod } from "@/lib/types";
 import { MAX_NOTE_LENGTH } from "@/lib/validation";
 
@@ -43,12 +44,14 @@ export function PaymentScreen({
   const [customOpen, setCustomOpen] = useState(false);
   const [customError, setCustomError] = useState<string | null>(null);
   const customErrorId = useId();
-  const total = subtotal - clampDiscount(discount, subtotal);
-  // Never charge an amount that is not a whole number of cents.
+  const total = saleTotalCents(subtotal, discount);
+  // Never offer to charge an amount that cannot be recorded as a sale.
   const totalError =
-    Number.isSafeInteger(total) && total >= 0
-      ? null
-      : "No se pudo calcular el total. Vuelve al carrito y revisa los descuentos.";
+    !Number.isSafeInteger(total) || total < 0
+      ? "No se pudo calcular el total. Vuelve al carrito y revisa los descuentos."
+      : !isWithinSaleLimit(subtotal)
+        ? "El total supera el máximo que se puede registrar en una venta."
+        : null;
 
   function apply(value: number) {
     const next = clampDiscount(value, subtotal);

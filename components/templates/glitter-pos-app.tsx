@@ -29,7 +29,7 @@ import { SettingsScreen } from "@/components/screens/settings-screen";
 import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
 import { unwrapActionResult } from "@/lib/action-result";
 import { paymentLabels, saleTotal } from "@/lib/sales";
-import { clampDiscount } from "@/lib/money";
+import { cartSubtotalCents } from "@/lib/sales/pricing";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
 import {
   buildSalesFromLocal,
@@ -241,19 +241,7 @@ export function GlitterPosApp({
         ),
     [cart, products]
   );
-  const cartSubtotal = cartDetails.reduce(
-    (total, line) =>
-      total +
-      Math.max(
-        0,
-        line.product.priceCents * line.quantity -
-          clampDiscount(
-            line.lineDiscountCents ?? 0,
-            line.product.priceCents * line.quantity
-          )
-      ),
-    0
-  );
+  const cartSubtotal = cartSubtotalCents(cartDetails);
   const cartCount = cartDetails.reduce(
     (total, line) => total + line.quantity,
     0
@@ -1058,7 +1046,7 @@ export function GlitterPosApp({
       // server action during the brief window before PowerSync is ready.
       if (db) {
         work.assertCurrent();
-        await createSaleLocal(db, {
+        const { totalCents } = await createSaleLocal(db, {
           tenantId: tenant.id,
           userId: tenantContext.user.id,
           paymentMethod: method,
@@ -1075,7 +1063,6 @@ export function GlitterPosApp({
         work.assertCurrent();
         clearCart();
         void clearDraftCartLocal(db);
-        const totalCents = Math.max(0, cartSubtotal - discount);
         showToast(
           `Venta registrada · ${formatBs(totalCents, true)} · ${paymentLabels[method]}`
         );
