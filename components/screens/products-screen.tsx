@@ -22,6 +22,9 @@ type ProductsScreenProps = {
   setQuery: (value: string) => void;
   openEditor: (product: Product | null) => void;
   restoreProduct: (productId: string) => void;
+  /** A product save, archive or restore is still running. */
+  productWritePending: boolean;
+  restoringProductId: string | null;
   onImport: () => void;
 };
 
@@ -80,6 +83,8 @@ export function ProductsScreen(props: ProductsScreenProps) {
               }
               openEditor={props.openEditor}
               restoreProduct={props.restoreProduct}
+              restoreDisabled={props.productWritePending}
+              restoring={props.restoringProductId === product.id}
             />
           ))}
         </div>

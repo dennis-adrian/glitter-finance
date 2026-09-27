@@ -17,6 +17,9 @@ type ProductCatalogCardProps = {
   stock: ProductStock | null;
   openEditor: (product: Product) => void;
   restoreProduct: (productId: string) => void;
+  /** Another product save, archive or restore is still running. */
+  restoreDisabled: boolean;
+  restoring: boolean;
 };
 
 export function ProductCatalogCard({
@@ -24,6 +27,8 @@ export function ProductCatalogCard({
   stock,
   openEditor,
   restoreProduct,
+  restoreDisabled,
+  restoring,
 }: ProductCatalogCardProps) {
   return (
     <article
@@ -67,9 +72,10 @@ export function ProductCatalogCard({
           variant="link"
           size="sm"
           className="mx-1 mb-2 justify-start"
+          disabled={restoreDisabled}
           onClick={() => restoreProduct(product.id)}
         >
-          Restaurar
+          {restoring ? "Restaurando…" : "Restaurar"}
         </Button>
       ) : null}
     </article>

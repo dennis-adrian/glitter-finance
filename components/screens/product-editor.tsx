@@ -41,7 +41,7 @@ import {
 import { downscaleProductImage } from "@/lib/product-image-downscale";
 import { emptyProduct, PRODUCT_NAME_MAX_LENGTH } from "@/lib/products";
 import { canonicalizeCategory, categories } from "@/lib/categories";
-import type { Product } from "@/lib/types";
+import type { Product, ProductInput } from "@/lib/types";
 import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import {
   INITIAL_STOCK_ERROR,
@@ -52,30 +52,44 @@ import {
   validateProductForm,
 } from "@/components/screens/product-editor.helpers";
 
+/**
+ * What a save sends: the product fields the editor owns (no low-stock
+ * threshold, which a save must keep), the reduced photo, uploaded on its own
+ * after the product is written, and the initial count.
+ */
+export type ProductEditorSaveInput = {
+  product: Required<
+    Pick<
+      ProductInput,
+      | "name"
+      | "priceCents"
+      | "costCents"
+      | "category"
+      | "imageTone"
+      | "imagePath"
+      | "tracksInventory"
+    >
+  >;
+  imageFile: File | null;
+  initialStock?: number;
+};
+
 type ProductEditorProps = {
   product: Product | null;
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
   hasInitialMovement: boolean;
+  /** A save or archive still running; both buttons wait for it. */
+  pendingWrite: "save" | "archive" | null;
   back: () => void;
-  save: (input: {
-    name: string;
-    priceCents: number;
-    costCents: number | null;
-    category: string;
-    imageTone: string;
-    imagePath?: string | null;
-    imageFile?: File | null;
-    tracksInventory: boolean;
-    initialStock?: number;
-  }) => Promise<void> | void;
+  save: (input: ProductEditorSaveInput) => Promise<void>;
   onInventoryMovement: (input: {
     productId: string;
     delta: number;
     reason: InventoryMovementReason;
     note?: string;
-  }) => Promise<void> | void;
-  archive: (productId: string) => void;
+  }) => Promise<void>;
+  archive: (productId: string) => Promise<void>;
 };
 
 export function ProductEditor({
@@ -83,6 +97,7 @@ export function ProductEditor({
   stockByProduct,
   inventoryStockReady,
   hasInitialMovement,
+  pendingWrite,
   back,
   save,
   onInventoryMovement,
@@ -645,12 +660,13 @@ export function ProductEditor({
         <Button
           type="button"
           variant="ghost"
+          disabled={pendingWrite != null}
           onClick={() => archive(product.id)}
           className="mt-6 mb-20 h-auto w-full flex-col gap-1 py-4 text-destructive hover:text-destructive"
         >
           <span className="flex items-center gap-2 font-bold">
             <ArchiveRestore className="size-[18px]" />
-            Archivar producto
+            {pendingWrite === "archive" ? "Archivando…" : "Archivar producto"}
           </span>
           <span className="text-sm font-normal text-muted-foreground">
             El producto ya no aparecerá en el menú de ventas.
@@ -659,9 +675,9 @@ export function ProductEditor({
       ) : null}
       <Button
         size="lg"
-        disabled={!canSave || imagePreparing}
+        disabled={!canSave || imagePreparing || pendingWrite != null}
         className="sticky bottom-0 mt-4 w-full font-extrabold tracking-wide shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
-        onClick={() => {
+        onClick={async () => {
           const values = productForm.values;
           if (!values) {
             return;
@@ -674,20 +690,22 @@ export function ProductEditor({
             setInventoryActionError(INITIAL_STOCK_ERROR);
             return;
           }
-          save({
-            ...values,
-            category,
-            imageTone,
-            imagePath: product?.imagePath ?? null,
+          await save({
+            product: {
+              ...values,
+              category,
+              imageTone,
+              imagePath: product?.imagePath ?? null,
+              tracksInventory,
+            },
             imageFile,
-            tracksInventory,
             initialStock: showInitialStockField
               ? (parseNonNegativeInteger(initialStock) ?? undefined)
               : undefined,
           });
         }}
       >
-        GUARDAR CAMBIOS
+        {pendingWrite === "save" ? "Guardando…" : "GUARDAR CAMBIOS"}
       </Button>
     </section>
   );

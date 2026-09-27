@@ -19,7 +19,10 @@ import { Toaster } from "@/components/ui/sonner";
 import { BottomNav } from "@/components/organisms/bottom-nav";
 import { CartScreen } from "@/components/screens/cart-screen";
 import { PaymentScreen } from "@/components/screens/payment-screen";
-import { ProductEditor } from "@/components/screens/product-editor";
+import {
+  ProductEditor,
+  type ProductEditorSaveInput,
+} from "@/components/screens/product-editor";
 import { ProductsScreen } from "@/components/screens/products-screen";
 import { ReportsScreen } from "@/components/screens/reports-screen";
 import { SaleDetailScreen } from "@/components/screens/sale-detail-screen";
@@ -150,6 +153,11 @@ function compareMovementsOldestFirst(
   );
 }
 
+type ProductWrite = {
+  kind: "save" | "archive" | "restore";
+  productId: string | null;
+};
+
 type GlitterPosAppProps = {
   tenantContext: UserTenantContext;
   initialProducts: Product[];
@@ -198,6 +206,18 @@ export function GlitterPosApp({
     "sales" | "reports"
   >("sales");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  // The product save, archive or restore in progress. One runs at a time: a
+  // second tap while a slow photo upload or server round-trip is still
+  // running would repeat it, and a repeated create adds a duplicate product.
+  const [productWrite, setProductWrite] = useState<ProductWrite | null>(null);
+  const productWriteRef = useRef<ProductWrite | null>(null);
+  // The product this editor session already created. When a later step of
+  // the save fails (the initial count or the photo), saving again updates
+  // it instead of adding another one.
+  const createdProductRef = useRef<Pick<
+    Product,
+    "id" | "tracksInventory"
+  > | null>(null);
   // The server-action checkout's sale id, kept while the same checkout is
   // retried (see handlePayment).
   const checkoutAttemptRef = useRef<{ key: string; saleId: string } | null>(
@@ -296,6 +316,7 @@ export function GlitterPosApp({
       setQuery("");
       setCatalogQuery("");
       setEditingProduct(null);
+      createdProductRef.current = null;
       setSelectedSaleId(null);
       setSaleDetailReturnView("sales");
       setIsCheckingOut(false);
@@ -763,53 +784,70 @@ export function GlitterPosApp({
   function openEditor(product: Product | null) {
     setPreviousView(view === "editor" ? "products" : view);
     setEditingProduct(product);
+    createdProductRef.current = null;
     setView("editor");
+  }
+
+  async function runProductWrite(
+    write: ProductWrite,
+    run: () => Promise<void>
+  ) {
+    if (productWriteRef.current) {
+      return;
+    }
+    productWriteRef.current = write;
+    setProductWrite(write);
+    try {
+      await run();
+    } finally {
+      productWriteRef.current = null;
+      setProductWrite(null);
+    }
   }
 
   function openImport() {
     showToast("La importación desde Excel aún no está disponible.", "info");
   }
 
-  async function handleSaveProduct(input: {
-    name: string;
-    priceCents: number;
-    costCents: number | null;
-    category: string;
-    imageTone: string;
-    imagePath?: string | null;
-    imageFile?: File | null;
-    tracksInventory: boolean;
-    initialStock?: number;
-  }) {
+  function handleSaveProduct(input: ProductEditorSaveInput) {
+    return runProductWrite(
+      { kind: "save", productId: editingProduct?.id ?? null },
+      () => saveProduct(input)
+    );
+  }
+
+  async function saveProduct({
+    product: productInput,
+    imageFile,
+    initialStock,
+  }: ProductEditorSaveInput) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
       showToast("Tu cuenta aún no está configurada.", "danger");
       return;
     }
-    // The image and the initial count are written separately, so they stay
-    // out of the product fields (and out of the server action's arguments).
-    const { imageFile, initialStock, ...productInput } = input;
+    const existingProduct = editingProduct ?? createdProductRef.current;
     const work = beginTenantWork();
     const db = powerSyncDb;
     try {
       let uploadFailed = false;
       let hasInitial = false;
-      if (editingProduct) {
-        if (productHasInitialMovement(editingProduct.id, inventoryMovements)) {
+      if (existingProduct) {
+        if (productHasInitialMovement(existingProduct.id, inventoryMovements)) {
           hasInitial = true;
         } else if (db?.currentStatus?.hasSynced && inventoryWatchReady) {
           hasInitial = await productHasInitialMovementLocal(
             db,
-            editingProduct.id
+            existingProduct.id
           );
           work.assertCurrent();
-        } else if (!inventoryWatchReady && editingProduct.tracksInventory) {
+        } else if (!inventoryWatchReady && existingProduct.tracksInventory) {
           hasInitial = true;
         }
       }
       const initialStockDelta = resolveInitialStockDelta({
-        tracksInventory: input.tracksInventory,
-        wasTrackingInventory: editingProduct?.tracksInventory ?? false,
+        tracksInventory: productInput.tracksInventory,
+        wasTrackingInventory: existingProduct?.tracksInventory ?? false,
         hasInitialMovement: hasInitial,
         initialStock,
       });
@@ -818,26 +856,32 @@ export function GlitterPosApp({
       if (db) {
         work.assertCurrent();
         // The initial count is written in the product's own transaction.
-        const initialStock = needsInitialMovement
+        const initialStockMovement = needsInitialMovement
           ? { userId: tenantContext.user.id, delta: initialStockDelta }
           : undefined;
-        const productId = editingProduct
+        const productId = existingProduct
           ? (await updateProductLocal(db, {
               tenantId: tenant.id,
-              productId: editingProduct.id,
+              productId: existingProduct.id,
               product: productInput,
-              initialStock,
+              initialStock: initialStockMovement,
               assertCurrent: work.assertCurrent,
             }),
-            editingProduct.id)
+            existingProduct.id)
           : (
               await createProductLocal(db, {
                 tenantId: tenant.id,
                 product: productInput,
-                initialStock,
+                initialStock: initialStockMovement,
                 assertCurrent: work.assertCurrent,
               })
             ).productId;
+        if (!editingProduct) {
+          createdProductRef.current = {
+            id: productId,
+            tracksInventory: productInput.tracksInventory,
+          };
+        }
 
         if (imageFile) {
           try {
@@ -859,13 +903,16 @@ export function GlitterPosApp({
         work.assertCurrent();
         let product = await unwrapActionResult(
           () =>
-            editingProduct
-              ? updateProductAction(tenant.id, editingProduct.id, productInput)
+            existingProduct
+              ? updateProductAction(tenant.id, existingProduct.id, productInput)
               : createProduct(tenant.id, productInput),
           "No se pudo guardar el producto"
         );
         work.assertCurrent();
         upsertProduct(product);
+        if (!editingProduct) {
+          createdProductRef.current = product;
+        }
 
         if (needsInitialMovement) {
           const productId = product.id;
@@ -925,6 +972,99 @@ export function GlitterPosApp({
         error instanceof Error
           ? error.message
           : "No se pudo guardar el producto",
+        "danger"
+      );
+    }
+  }
+
+  function handleArchiveProduct(productId: string) {
+    return runProductWrite({ kind: "archive", productId }, () =>
+      archiveProduct(productId)
+    );
+  }
+
+  async function archiveProduct(productId: string) {
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      showToast("Tu cuenta aún no está configurada.", "danger");
+      return;
+    }
+    const work = beginTenantWork();
+    const db = powerSyncDb;
+    try {
+      if (db) {
+        work.assertCurrent();
+        await archiveProductLocal(db, {
+          tenantId: tenant.id,
+          productId,
+          assertCurrent: work.assertCurrent,
+        });
+      } else {
+        work.assertCurrent();
+        const product = await unwrapActionResult(
+          () => archiveProductAction(tenant.id, productId),
+          "No se pudo archivar el producto"
+        );
+        work.assertCurrent();
+        upsertProduct(product);
+      }
+      work.assertCurrent();
+      showToast("Producto archivado", "info");
+      setView("products");
+    } catch (error) {
+      if (!work.isCurrent()) {
+        return;
+      }
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "No se pudo archivar el producto",
+        "danger"
+      );
+    }
+  }
+
+  function handleRestoreProduct(productId: string) {
+    return runProductWrite({ kind: "restore", productId }, () =>
+      restoreProduct(productId)
+    );
+  }
+
+  async function restoreProduct(productId: string) {
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      showToast("Tu cuenta aún no está configurada.", "danger");
+      return;
+    }
+    const work = beginTenantWork();
+    const db = powerSyncDb;
+    try {
+      if (db) {
+        work.assertCurrent();
+        await restoreProductLocal(db, {
+          tenantId: tenant.id,
+          productId,
+          assertCurrent: work.assertCurrent,
+        });
+      } else {
+        work.assertCurrent();
+        const product = await unwrapActionResult(
+          () => restoreProductAction(tenant.id, productId),
+          "No se pudo restaurar el producto"
+        );
+        work.assertCurrent();
+        upsertProduct(product);
+      }
+      work.assertCurrent();
+      showToast("Producto restaurado", "info");
+    } catch (error) {
+      if (!work.isCurrent()) {
+        return;
+      }
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "No se pudo restaurar el producto",
         "danger"
       );
     }
@@ -1239,45 +1379,11 @@ export function GlitterPosApp({
         setQuery={setCatalogQuery}
         openEditor={openEditor}
         onImport={openImport}
-        restoreProduct={async (productId) => {
-          const tenant = tenantContext.tenant;
-          if (!tenant) {
-            showToast("Tu cuenta aún no está configurada.", "danger");
-            return;
-          }
-          const work = beginTenantWork();
-          const db = powerSyncDb;
-          try {
-            if (db) {
-              work.assertCurrent();
-              await restoreProductLocal(db, {
-                tenantId: tenant.id,
-                productId,
-                assertCurrent: work.assertCurrent,
-              });
-            } else {
-              work.assertCurrent();
-              const product = await unwrapActionResult(
-                () => restoreProductAction(tenant.id, productId),
-                "No se pudo restaurar el producto"
-              );
-              work.assertCurrent();
-              upsertProduct(product);
-            }
-            work.assertCurrent();
-            showToast("Producto restaurado", "info");
-          } catch (error) {
-            if (!work.isCurrent()) {
-              return;
-            }
-            showToast(
-              error instanceof Error
-                ? error.message
-                : "No se pudo restaurar el producto",
-              "danger"
-            );
-          }
-        }}
+        productWritePending={productWrite != null}
+        restoringProductId={
+          productWrite?.kind === "restore" ? productWrite.productId : null
+        }
+        restoreProduct={handleRestoreProduct}
       />
     ),
     more: (
@@ -1344,47 +1450,13 @@ export function GlitterPosApp({
         back={() =>
           setView(previousView === "sell" ? "products" : previousView)
         }
+        pendingWrite={
+          productWrite?.kind === "save" || productWrite?.kind === "archive"
+            ? productWrite.kind
+            : null
+        }
         save={handleSaveProduct}
-        archive={async (productId) => {
-          const tenant = tenantContext.tenant;
-          if (!tenant) {
-            showToast("Tu cuenta aún no está configurada.", "danger");
-            return;
-          }
-          const work = beginTenantWork();
-          const db = powerSyncDb;
-          try {
-            if (db) {
-              work.assertCurrent();
-              await archiveProductLocal(db, {
-                tenantId: tenant.id,
-                productId,
-                assertCurrent: work.assertCurrent,
-              });
-            } else {
-              work.assertCurrent();
-              const product = await unwrapActionResult(
-                () => archiveProductAction(tenant.id, productId),
-                "No se pudo archivar el producto"
-              );
-              work.assertCurrent();
-              upsertProduct(product);
-            }
-            work.assertCurrent();
-            showToast("Producto archivado", "info");
-            setView("products");
-          } catch (error) {
-            if (!work.isCurrent()) {
-              return;
-            }
-            showToast(
-              error instanceof Error
-                ? error.message
-                : "No se pudo archivar el producto",
-              "danger"
-            );
-          }
-        }}
+        archive={handleArchiveProduct}
       />
     ),
     saleDetail: (
