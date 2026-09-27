@@ -32,6 +32,9 @@ type SaleDetailScreenProps = {
   back: () => void;
   voidSale: (saleId: string) => Promise<boolean>;
   refundSale: (saleId: string, reason?: string) => Promise<boolean>;
+  /** `pane`: shown beside the sales list on desktop (close instead of back). */
+  variant?: "screen" | "pane";
+  className?: string;
 };
 
 const dateFormatter = new Intl.DateTimeFormat("es-BO", {
@@ -49,7 +52,15 @@ export function SaleDetailScreen({
   back,
   voidSale,
   refundSale,
+  variant = "screen",
+  className,
 }: SaleDetailScreenProps) {
+  const headerProps = {
+    onBack: back,
+    backIcon: variant === "pane" ? ("close" as const) : ("back" as const),
+    backLabel: variant === "pane" ? "Cerrar detalle" : "Volver",
+    hideSync: variant === "pane",
+  };
   const [action, setAction] = useState<"void" | "refund" | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -62,7 +73,8 @@ export function SaleDetailScreen({
     return (
       <Screen
         width="narrow"
-        header={<ScreenHeader title="Detalle" onBack={back} />}
+        className={className}
+        header={<ScreenHeader title="Detalle" {...headerProps} />}
       >
         <EmptyState
           icon={<ReceiptText size={46} />}
@@ -90,7 +102,9 @@ export function SaleDetailScreen({
   return (
     <Screen
       width="narrow"
-      header={<ScreenHeader title="Detalle de venta" onBack={back} />}
+      className={className}
+      aria-label="Detalle de venta"
+      header={<ScreenHeader title="Detalle de venta" {...headerProps} />}
     >
       <section className="mb-3.5 rounded-2xl bg-card p-4 text-center ring-1 ring-foreground/10">
         <span className="inline-flex min-h-7 items-center rounded-full bg-primary/10 px-3 text-sm font-bold text-primary">

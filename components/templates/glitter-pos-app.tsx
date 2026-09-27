@@ -25,7 +25,6 @@ import { SaleCompleteScreen } from "@/components/screens/sale-complete-screen";
 import { ProductEditor } from "@/components/screens/product-editor";
 import { ProductsScreen } from "@/components/screens/products-screen";
 import { ReportsScreen } from "@/components/screens/reports-screen";
-import { SaleDetailScreen } from "@/components/screens/sale-detail-screen";
 import { SalesScreen } from "@/components/screens/sales-screen";
 import { SellScreen } from "@/components/screens/sell-screen";
 import { MoreScreen } from "@/components/screens/more-screen";
@@ -270,10 +269,6 @@ export function GlitterPosApp({
     (total, line) => total + line.quantity,
     0
   );
-  const selectedSale =
-    view === "saleDetail" && route.id
-      ? (sales.find((sale) => sale.id === route.id) ?? null)
-      : null;
   // The editor route carries the product id; `null` means "new product".
   // Memoized so the initial-movement lookup below only reruns when the
   // edited product itself changes.
@@ -1296,6 +1291,25 @@ export function GlitterPosApp({
     />
   );
 
+  // One element for both routes so the list keeps its filters and scroll
+  // position while a sale's detail opens beside it (or over it on phones).
+  const salesScreen = (
+    <SalesScreen
+      sales={sales}
+      selectedSaleId={view === "saleDetail" ? (route.id ?? null) : null}
+      openSale={(saleId) =>
+        navigate(
+          { view: "saleDetail", id: saleId },
+          // Switching between sales shouldn't stack history entries.
+          { replace: view === "saleDetail" }
+        )
+      }
+      closeSale={() => back({ view: "sales" })}
+      voidSale={handleVoidSale}
+      refundSale={handleRefundSale}
+    />
+  );
+
   const content: Record<View, ReactNode> = {
     sell: sellScreen,
     cart: sellScreen,
@@ -1308,14 +1322,8 @@ export function GlitterPosApp({
         openSales={() => navigate({ view: "sales" })}
       />
     ),
-    sales: (
-      <SalesScreen
-        sales={sales}
-        openSale={openSaleDetail}
-        voidSale={handleVoidSale}
-        refundSale={handleRefundSale}
-      />
-    ),
+    sales: salesScreen,
+    saleDetail: salesScreen,
     products: (
       <ProductsScreen
         products={products}
@@ -1461,15 +1469,6 @@ export function GlitterPosApp({
             );
           }
         }}
-      />
-    ),
-    saleDetail: (
-      <SaleDetailScreen
-        sale={selectedSale}
-        sales={sales}
-        back={() => back({ view: "sales" })}
-        voidSale={handleVoidSale}
-        refundSale={handleRefundSale}
       />
     ),
     diagnostics: (

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Info, ReceiptText } from "lucide-react";
 import { ScreenHeader } from "@/components/molecules/screen-header";
+import { SaleDetailScreen } from "@/components/screens/sale-detail-screen";
 import { Screen } from "@/components/templates/screen";
 import { DateRangePicker } from "@/components/molecules/date-range-picker";
 import { EmptyState } from "@/components/molecules/empty-state";
@@ -26,7 +27,9 @@ import {
   resolveSalesRange,
 } from "@/lib/dates";
 import { formatBs } from "@/lib/money";
+import { DESKTOP_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
 import { computeMetrics } from "@/lib/sales";
+import { cn } from "@/lib/utils";
 import type { ReportRange, Sale } from "@/lib/types";
 import {
   canRefundSale,
@@ -38,7 +41,10 @@ type SaleAction = "void" | "refund";
 
 type SalesScreenProps = {
   sales: Sale[];
+  /** Sale shown in the detail pane (desktop) or full screen (phones). */
+  selectedSaleId: string | null;
   openSale: (saleId: string) => void;
+  closeSale: () => void;
   voidSale: (saleId: string) => Promise<boolean>;
   refundSale: (saleId: string, reason?: string) => Promise<boolean>;
 };
@@ -104,10 +110,13 @@ function IncomeInfoDrawer() {
 
 export function SalesScreen({
   sales,
+  selectedSaleId,
   openSale,
+  closeSale,
   voidSale,
   refundSale,
 }: SalesScreenProps) {
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const today = formatDateInputInBolivia();
   const [range, setRange] = useState<ReportRange>("today");
   const [customStart, setCustomStart] = useState(today);
@@ -193,109 +202,144 @@ export function SalesScreen({
   }
 
   return (
-    <Screen header={<ScreenHeader title="Ventas" />}>
-      <DateRangePicker
-        range={range}
-        customStart={customStart}
-        customEnd={customEnd}
-        error={range === "custom" ? rangeResolution.error : null}
-        setRange={handleRangeChange}
-        setCustomStart={setCustomStart}
-        setCustomEnd={setCustomEnd}
-      />
-
-      <section className="mb-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-        <div className="mb-1 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">Ingresos</h2>
-          <IncomeInfoDrawer />
-        </div>
-        <div className="grid grid-cols-2 divide-x divide-border">
-          <div className="min-w-0 pr-3">
-            <span className="text-sm text-muted-foreground">Bruto</span>
-            <strong className="mt-1 block text-xl font-bold tabular-nums">
-              {formatBs(metrics.grossCents, true)}
-            </strong>
-          </div>
-          <div className="min-w-0 pl-3">
-            <span className="text-sm text-muted-foreground">Neto</span>
-            <strong className="mt-1 block text-xl font-bold text-primary tabular-nums">
-              {formatBs(metrics.netRevenueCents, true)}
-            </strong>
-          </div>
-        </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {metrics.transactionCount} venta
-          {metrics.transactionCount === 1 ? "" : "s"}
-          {metrics.refundCount
-            ? ` · ${metrics.refundCount} reembolso${
-                metrics.refundCount === 1 ? "" : "s"
-              }`
-            : ""}
-        </p>
-      </section>
-
-      {rangeResolution.error ? (
-        <EmptyState
-          icon={<ReceiptText size={46} />}
-          title="Revisa el rango"
-          body={rangeResolution.error}
+    // Desktop: list and detail side by side. Phones/tablets: the detail
+    // replaces the list (the list column hides while a sale is open).
+    <div className="flex h-full min-h-0">
+      <Screen
+        width="medium"
+        className={cn(
+          "min-w-0 flex-1 lg:w-[30rem] lg:flex-none lg:border-r lg:border-border xl:w-[34rem]",
+          selectedSaleId && "hidden lg:flex"
+        )}
+        header={<ScreenHeader title="Ventas" />}
+      >
+        <DateRangePicker
+          range={range}
+          customStart={customStart}
+          customEnd={customEnd}
+          error={range === "custom" ? rangeResolution.error : null}
+          setRange={handleRangeChange}
+          setCustomStart={setCustomStart}
+          setCustomEnd={setCustomEnd}
         />
-      ) : groups.length ? (
-        <div className="grid gap-4">
-          {groups.map((group) => (
-            <section
-              key={group.key}
-              className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10"
-            >
-              <div className="mb-1 flex items-baseline justify-between gap-3 border-b border-border pb-2.5">
-                <h2 className="text-sm font-bold">{group.label}</h2>
-                <span className="text-sm font-semibold tabular-nums text-muted-foreground">
-                  {formatBs(group.netCents, true)}
-                </span>
-              </div>
-              {group.sales.map((sale) => (
-                <SaleRow
-                  key={sale.id}
-                  sale={sale}
-                  canVoid={canVoidSale(sale, sales, now)}
-                  canRefund={canRefundSale(sale, sales)}
-                  statusLabel={saleStatusLabel(sale, sales)}
-                  openSale={openSale}
-                  requestVoid={requestVoid}
-                  requestRefund={(selectedSale) =>
-                    setAction({ sale: selectedSale, type: "refund" })
-                  }
-                />
-              ))}
-            </section>
-          ))}
 
-          {visibleCount < visibleSales.length ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="lg"
-              onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-            >
-              Ver más ventas
-            </Button>
-          ) : null}
-        </div>
+        <section className="mb-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold tracking-tight">Ingresos</h2>
+            <IncomeInfoDrawer />
+          </div>
+          <div className="grid grid-cols-2 divide-x divide-border">
+            <div className="min-w-0 pr-3">
+              <span className="text-sm text-muted-foreground">Bruto</span>
+              <strong className="mt-1 block text-xl font-bold tabular-nums">
+                {formatBs(metrics.grossCents, true)}
+              </strong>
+            </div>
+            <div className="min-w-0 pl-3">
+              <span className="text-sm text-muted-foreground">Neto</span>
+              <strong className="mt-1 block text-xl font-bold text-primary tabular-nums">
+                {formatBs(metrics.netRevenueCents, true)}
+              </strong>
+            </div>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {metrics.transactionCount} venta
+            {metrics.transactionCount === 1 ? "" : "s"}
+            {metrics.refundCount
+              ? ` · ${metrics.refundCount} reembolso${
+                  metrics.refundCount === 1 ? "" : "s"
+                }`
+              : ""}
+          </p>
+        </section>
+
+        {rangeResolution.error ? (
+          <EmptyState
+            icon={<ReceiptText size={46} />}
+            title="Revisa el rango"
+            body={rangeResolution.error}
+          />
+        ) : groups.length ? (
+          <div className="grid gap-4">
+            {groups.map((group) => (
+              <section
+                key={group.key}
+                className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10"
+              >
+                <div className="mb-1 flex items-baseline justify-between gap-3 border-b border-border pb-2.5">
+                  <h2 className="text-sm font-bold">{group.label}</h2>
+                  <span className="text-sm font-semibold tabular-nums text-muted-foreground">
+                    {formatBs(group.netCents, true)}
+                  </span>
+                </div>
+                {group.sales.map((sale) => (
+                  <SaleRow
+                    key={sale.id}
+                    sale={sale}
+                    canVoid={canVoidSale(sale, sales, now)}
+                    canRefund={canRefundSale(sale, sales)}
+                    statusLabel={saleStatusLabel(sale, sales)}
+                    openSale={openSale}
+                    selected={sale.id === selectedSaleId}
+                    requestVoid={requestVoid}
+                    requestRefund={(selectedSale) =>
+                      setAction({ sale: selectedSale, type: "refund" })
+                    }
+                  />
+                ))}
+              </section>
+            ))}
+
+            {visibleCount < visibleSales.length ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+              >
+                Ver más ventas
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <EmptyState
+            icon={<ReceiptText size={46} />}
+            title="No hay ventas en este rango"
+            body="Prueba con otras fechas o registra una venta desde Vender."
+          />
+        )}
+
+        <SaleActionDialog
+          key={action ? `${action.sale.id}-${action.type}` : "none"}
+          sale={action?.sale ?? null}
+          action={action?.type ?? null}
+          onClose={() => setAction(null)}
+          onConfirm={confirmAction}
+        />
+      </Screen>
+
+      {selectedSaleId ? (
+        <SaleDetailScreen
+          key={selectedSaleId}
+          sale={sales.find((sale) => sale.id === selectedSaleId) ?? null}
+          sales={sales}
+          back={closeSale}
+          voidSale={voidSale}
+          refundSale={refundSale}
+          variant={isDesktop ? "pane" : "screen"}
+          className="min-w-0 flex-1"
+        />
       ) : (
-        <EmptyState
-          icon={<ReceiptText size={46} />}
-          title="No hay ventas en este rango"
-          body="Prueba con otras fechas o registra una venta desde Vender."
-        />
+        <div className="hidden min-w-0 flex-1 place-content-center justify-items-center gap-3 p-8 text-center lg:grid">
+          <span className="grid size-16 place-items-center rounded-full bg-muted text-muted-foreground">
+            <ReceiptText className="size-7" aria-hidden />
+          </span>
+          <p className="font-semibold">Seleccioná una venta</p>
+          <p className="max-w-64 text-sm text-muted-foreground">
+            El detalle, los totales y las acciones aparecen acá.
+          </p>
+        </div>
       )}
-
-      <SaleActionDialog
-        key={action ? `${action.sale.id}-${action.type}` : "none"}
-        sale={action?.sale ?? null}
-        action={action?.type ?? null}
-        onClose={() => setAction(null)}
-        onConfirm={confirmAction}
-      />
-    </Screen>
+    </div>
   );
 }
