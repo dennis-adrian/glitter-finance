@@ -134,6 +134,7 @@ test("teardown purges local user data before calling server sign-out", async () 
     };
 
     storage.setItem("glitter-pos-initial-sync-completed-v1", "true");
+    storage.setItem("glitter-pos-initial-sync-completed-v2", "true");
     storage.setItem("glitter-pos-draft-cart-migrated-v1", "2026-08-09");
     storage.setItem("glitter-pos-local-v1", "legacy-cart");
     saveLocalDataIdentity({ userId: "user-a", tenantId: "tenant-a" });
@@ -173,6 +174,10 @@ test("teardown purges local user data before calling server sign-out", async () 
     ]);
     assert.equal(
       storage.getItem("glitter-pos-initial-sync-completed-v1"),
+      null
+    );
+    assert.equal(
+      storage.getItem("glitter-pos-initial-sync-completed-v2"),
       null
     );
     assert.equal(storage.getItem("glitter-pos-draft-cart-migrated-v1"), null);

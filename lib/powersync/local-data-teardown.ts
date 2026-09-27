@@ -1,7 +1,6 @@
 "use client";
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
-import { clearInitialSyncCompleted } from "@/lib/powersync/initial-sync";
 import { clearLegacyDraftCartStorage } from "@/lib/powersync/draft-cart";
 import { pendingUploadsBlockerMessage } from "@/lib/powersync/local-data-gate";
 import { resetReportedSyncFailures } from "@/lib/observability/report-sync-failure";
@@ -13,6 +12,14 @@ import { isStaticAssetCacheName } from "@/lib/pwa/cache-names";
 import { usePosStore } from "@/lib/store";
 
 const localDataIdentityKey = "glitter-pos-local-data-identity-v1";
+
+// Written by builds up to September 2026, which kept an "initial sync
+// completed" flag nothing read. Cleared with the rest of the local data.
+// Sunset: remove after 2026-12-31.
+const legacyStorageKeys = [
+  "glitter-pos-initial-sync-completed-v1",
+  "glitter-pos-initial-sync-completed-v2",
+];
 
 /**
  * Window events that let tenant-scoped UI follow a teardown it did not start:
@@ -221,9 +228,12 @@ export async function clearUserDataCaches(cacheStorage?: CacheStorageLike) {
 
 function clearBrowserLocalData() {
   try {
-    clearInitialSyncCompleted();
     clearLegacyDraftCartStorage();
-    getLocalStorage().removeItem(localDataIdentityKey);
+    const storage = getLocalStorage();
+    for (const key of legacyStorageKeys) {
+      storage.removeItem(key);
+    }
+    storage.removeItem(localDataIdentityKey);
   } catch (error) {
     throw new LocalDataTeardownError(
       "storage",

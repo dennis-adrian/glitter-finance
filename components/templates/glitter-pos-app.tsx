@@ -588,9 +588,6 @@ export function GlitterPosApp({
       );
     }
 
-    // Require hasSynced on this connection — do not use hasCompletedInitialSync()
-    // here. The localStorage flag can be true from a prior app version that did
-    // not replicate tenant_users yet.
     if (powerSyncDb.currentStatus?.hasSynced) {
       startWatching(powerSyncDb);
     } else {

@@ -36,7 +36,6 @@ import {
 } from "@/components/providers/local-data-recovery-panel";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
-import { markInitialSyncCompleted } from "@/lib/powersync/initial-sync";
 import { reconcileSyncFailures } from "@/lib/powersync/sync-failures";
 import { flushPendingSyncFailureTelemetry } from "@/lib/observability/report-sync-failure";
 import {
@@ -284,10 +283,6 @@ export function PowerSyncProvider({
       // reports show a console trail too.
       const unsubscribe = instance.registerListener({
         statusChanged: (status) => {
-          if (status.hasSynced) {
-            markInitialSyncCompleted();
-          }
-
           if (process.env.NODE_ENV !== "production") {
             console.info("[PowerSync] status", {
               connected: status.connected,
