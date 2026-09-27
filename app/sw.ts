@@ -13,6 +13,11 @@ import type {
   RuntimeCaching,
   SerwistGlobalConfig,
 } from "serwist";
+import {
+  PAGE_CACHE_NAME,
+  STATIC_CACHE_NAME,
+  SW_CACHE_ID,
+} from "../lib/pwa/cache-names";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -54,7 +59,7 @@ const runtimeCaching: RuntimeCaching[] = [
       request.mode === "navigate" &&
       !isIdentitySensitivePath(url.pathname),
     handler: new NetworkFirst({
-      cacheName: "glitter-pos-pages",
+      cacheName: PAGE_CACHE_NAME,
       networkTimeoutSeconds: 3,
       plugins: [
         new ExpirationPlugin({
@@ -71,7 +76,7 @@ const runtimeCaching: RuntimeCaching[] = [
         (/\.(?:css|js|svg|png|jpg|jpeg|webp|ico)$/i.test(url.pathname) &&
           !isManifestRequest(url.pathname))),
     handler: new StaleWhileRevalidate({
-      cacheName: "glitter-pos-static",
+      cacheName: STATIC_CACHE_NAME,
       plugins: [
         new ExpirationPlugin({
           maxEntries: 96,
@@ -89,7 +94,7 @@ const runtimeCaching: RuntimeCaching[] = [
 ];
 
 const serwist = new Serwist({
-  cacheId: "glitter-pos",
+  cacheId: SW_CACHE_ID,
   clientsClaim: true,
   navigationPreload: true,
   precacheEntries: self.__SW_MANIFEST,

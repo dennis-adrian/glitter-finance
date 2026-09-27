@@ -9,10 +9,10 @@ import {
   getUnresolvedSyncFailureCount,
   reconcileSyncFailures,
 } from "@/lib/powersync/sync-failures";
+import { isStaticAssetCacheName } from "@/lib/pwa/cache-names";
 import { usePosStore } from "@/lib/store";
 
 const localDataIdentityKey = "glitter-pos-local-data-identity-v1";
-const pageCacheName = "glitter-pos-pages";
 
 /**
  * Window events that let tenant-scoped UI follow a teardown it did not start:
@@ -138,20 +138,11 @@ function getCacheStorage(cacheStorage?: CacheStorageLike): CacheStorageLike {
   return window.caches;
 }
 
-function isStaticAssetCache(name: string) {
-  return (
-    name === "glitter-pos-static" ||
-    name.startsWith("glitter-pos-static-") ||
-    name === "glitter-pos-precache" ||
-    name.startsWith("glitter-pos-precache-")
-  );
-}
-
+// Any cache can hold a user's data (the rendered app shell, product photos,
+// whatever Serwist's defaultCache stored), so only the build-asset caches are
+// kept.
 function isUserDataCache(name: string) {
-  return (
-    name === pageCacheName ||
-    (name.startsWith("glitter-pos-") && !isStaticAssetCache(name))
-  );
+  return !isStaticAssetCacheName(name);
 }
 
 export function readLocalDataIdentity(): LocalDataIdentity | null {

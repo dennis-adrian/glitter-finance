@@ -7,6 +7,7 @@ import {
   resetReportedSyncFailures,
 } from "@/lib/observability/report-sync-failure";
 import {
+  clearUserDataCaches,
   isUnsyncedLocalDataRefusal,
   localDataIdentityMatches,
   onLocalDataEvent,
@@ -181,6 +182,39 @@ test("teardown purges local user data before calling server sign-out", async () 
     assert.deepEqual(usePosStore.getState().cart, []);
     assert.deepEqual(usePosStore.getState().sales, []);
   });
+});
+
+test("teardown deletes every cache except the build-asset caches", async () => {
+  const cacheNames = new Set([
+    // App caches that hold a user's data.
+    "glitter-pos-pages",
+    "glitter-pos-product-images",
+    // Serwist defaultCache names, e.g. the old cacheOnNavigation copy of "/".
+    "others",
+    "pages",
+    "pages-rsc",
+    "pages-rsc-prefetch",
+    "apis",
+    "cross-origin",
+    // Build assets the app needs to start offline.
+    "glitter-pos-precache-v2-https://pos.example/",
+    "glitter-pos-static",
+    "glitter-pos-static-powersync",
+  ]);
+
+  await clearUserDataCaches({
+    keys: async () => [...cacheNames],
+    delete: async (name: string) => cacheNames.delete(name),
+  });
+
+  assert.deepEqual(
+    [...cacheNames],
+    [
+      "glitter-pos-precache-v2-https://pos.example/",
+      "glitter-pos-static",
+      "glitter-pos-static-powersync",
+    ]
+  );
 });
 
 function refusalProbe(input: { pendingUploads: number; failures: number }) {

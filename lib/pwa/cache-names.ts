@@ -1,0 +1,34 @@
+// Cache Storage names shared by the service worker (app/sw.ts) and the local
+// data teardown (lib/powersync/local-data-teardown.ts). This file has no
+// imports because the service worker bundle includes it.
+
+/** Serwist's cacheId: the precache is "glitter-pos-precache-v2-<scope>". */
+export const SW_CACHE_ID = "glitter-pos";
+
+/** Navigations: the app shell, rendered with the signed-in user's data. */
+export const PAGE_CACHE_NAME = "glitter-pos-pages";
+
+/** Same-origin build assets the precache does not cover. */
+export const STATIC_CACHE_NAME = "glitter-pos-static";
+
+/** PowerSync's content-hashed SQLite .wasm files. */
+export const POWERSYNC_WASM_CACHE_NAME = "glitter-pos-static-powersync";
+
+/** Product photos from Supabase Storage: the tenant's catalog. */
+export const PRODUCT_IMAGE_CACHE_NAME = "glitter-pos-product-images";
+
+/**
+ * Caches that only ever hold build assets: the precache and the static asset
+ * caches. Nothing in them belongs to a user or tenant, and the app needs them
+ * to start offline, so the local data teardown keeps them and deletes every
+ * other cache on the origin, including the ones Serwist's defaultCache
+ * creates ("others", "pages", "pages-rsc", ...).
+ */
+export function isStaticAssetCacheName(name: string) {
+  return (
+    name === STATIC_CACHE_NAME ||
+    name.startsWith(`${STATIC_CACHE_NAME}-`) ||
+    name === `${SW_CACHE_ID}-precache` ||
+    name.startsWith(`${SW_CACHE_ID}-precache-`)
+  );
+}
