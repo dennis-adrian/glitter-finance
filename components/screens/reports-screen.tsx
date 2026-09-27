@@ -8,7 +8,6 @@ import { BarRow } from "@/components/atoms/bar-row";
 import { MetricCard } from "@/components/atoms/metric-card";
 import { DateRangePicker } from "@/components/molecules/date-range-picker";
 import { SalesTrendChart } from "@/components/molecules/sales-trend-chart";
-import { Button } from "@/components/ui/button";
 import {
   filterSalesByRange,
   formatDateInputInBolivia,
@@ -42,7 +41,6 @@ type ReportsScreenProps = {
   products: Product[];
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
-  openSales: () => void;
 };
 
 function ReportList({
@@ -80,7 +78,6 @@ export function ReportsScreen({
   products,
   stockByProduct,
   inventoryStockReady,
-  openSales,
 }: ReportsScreenProps) {
   const today = formatDateInputInBolivia();
   const [range, setRange] = useState<ReportRange>("today");
@@ -319,18 +316,6 @@ export function ReportsScreen({
             </div>
           </section>
         ) : null}
-
-        <section className="flex flex-col gap-3 rounded-3xl bg-card p-5 ring-1 ring-foreground/10 sm:flex-row sm:items-center sm:justify-between lg:col-span-2">
-          <div>
-            <h2 className="text-base font-bold">Registro de ventas</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Consultá, anulá o reembolsá ventas desde su propio registro.
-            </p>
-          </div>
-          <Button type="button" variant="outline" onClick={openSales}>
-            Ver ventas
-          </Button>
-        </section>
       </div>
     </Screen>
   );

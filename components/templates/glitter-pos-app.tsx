@@ -1336,7 +1336,6 @@ export function GlitterPosApp({
         products={activeProducts}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
-        openSales={() => navigate({ view: "sales" })}
       />
     ),
     sales: salesScreen,
