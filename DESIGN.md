@@ -306,10 +306,12 @@ date presets, catalog status, and stock corrections.
   (count and **Vaciar**), line items, the total, and a centered **Cobrar**
   button (the total sits right above it, so the button doesn’t repeat it).
 - Desktop (lg+): persistent side panel beside the product grid.
-- Phones and tablets: a checkout bar (**Ver pedido** with a count badge, and
-  **Cobrar · total**) appears once the order has items. **Ver pedido** opens
-  the order as a sheet: bottom on phones, sized to its content; right side on
-  tablets.
+- Phones and tablets: a checkout bar is always visible on Vender, so the
+  selling screen never looks like Catálogo. It has the order button (bag with
+  a count badge and an expand caret; tablets add the **Ver pedido** label) and
+  **Cobrar · total**. Both are disabled while the order is empty. The order
+  button opens the order as a sheet: bottom on phones, sized to its content;
+  right side on tablets.
 - Order lines use two rows (art, name, total; then stepper and actions) so
   they fit 320px. The stepper sits on a neutral fill.
 - Line discounts use the `%` action to show amount (Bs or `%`) and an

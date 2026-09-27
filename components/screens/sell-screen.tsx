@@ -109,14 +109,12 @@ export function SellScreen(props: SellScreenProps) {
           </ScreenHeader>
         }
         footer={
-          order.count ? (
-            <CheckoutBar
-              count={order.count}
-              subtotal={order.subtotal}
-              openOrder={props.openOrderSheet}
-              charge={order.charge}
-            />
-          ) : null
+          <CheckoutBar
+            count={order.count}
+            subtotal={order.subtotal}
+            openOrder={props.openOrderSheet}
+            charge={order.charge}
+          />
         }
         footerClassName="lg:hidden"
       >
