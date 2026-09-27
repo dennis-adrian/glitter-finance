@@ -103,11 +103,12 @@ export function parseSignedInteger(value: string) {
 export const INITIAL_STOCK_ERROR = `El stock inicial debe ser un número entero de 0 a ${MAX_QUANTITY_LABEL}, sin decimales.`;
 
 /**
- * Why a typed stock amount cannot be recorded, or null when it is valid or
- * blank. `signed` is the adjustment field, which also takes negatives.
+ * Why a typed stock amount cannot be recorded, or null when it is valid,
+ * blank, or just a sign typed so far. `signed` is the adjustment field,
+ * which also takes negatives.
  */
 export function stockAmountError(value: string, signed = false) {
-  if (!value.trim()) {
+  if (/^[+-]?$/.test(value.trim())) {
     return null;
   }
   if (signed) {

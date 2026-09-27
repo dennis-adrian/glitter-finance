@@ -134,6 +134,7 @@ test("stock amount fields stay within the quantity bound", () => {
   assert.equal(parseSignedInteger("0"), null);
 
   assert.equal(stockAmountError(""), null);
+  assert.equal(stockAmountError("-", true), null);
   assert.equal(stockAmountError("12"), null);
   assert.match(stockAmountError("99999999999") ?? "", /1\.000\.000/);
   assert.match(stockAmountError("1,5") ?? "", /entero/);
