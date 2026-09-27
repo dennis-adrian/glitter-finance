@@ -16,7 +16,7 @@ export function CheckoutDock({
   openPayment,
 }: CheckoutDockProps) {
   return (
-    <div className="absolute right-4 bottom-[76px] left-4 z-30 grid grid-cols-[58px_1fr] gap-3">
+    <div className="grid grid-cols-[58px_1fr] gap-3">
       <Button
         type="button"
         variant="secondary"

@@ -6,14 +6,13 @@ import {
   ArchiveRestore,
   Camera,
   Check,
-  ChevronLeft,
   Edit3,
   Minus,
   Plus,
 } from "lucide-react";
-import { BrandMark } from "@/components/atoms/brand-mark";
 import { FormField } from "@/components/atoms/form-field";
-import { Header } from "@/components/atoms/header";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { ProductArt } from "@/components/atoms/product-art";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -240,22 +239,15 @@ export function ProductEditor({
   }
 
   return (
-    <section className="screen editor-screen">
-      <Header
-        title={product ? "Editar producto" : "Nuevo producto"}
-        left={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={back}
-            aria-label="Volver"
-          >
-            <ChevronLeft className="size-6" />
-          </Button>
-        }
-        right={<BrandMark size="small" />}
-      />
-
+    <Screen
+      width="narrow"
+      header={
+        <ScreenHeader
+          title={product ? "Editar producto" : "Nuevo producto"}
+          onBack={back}
+        />
+      }
+    >
       {/* Bespoke image uploader + tone picker keep their existing styles since
           they're coupled to ProductArt's gradient placeholders. */}
       <label className="field-label">Imagen del producto</label>
@@ -616,6 +608,6 @@ export function ProductEditor({
       >
         GUARDAR CAMBIOS
       </Button>
-    </section>
+    </Screen>
   );
 }

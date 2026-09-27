@@ -1,6 +1,6 @@
 import { PackagePlus, Search } from "lucide-react";
-import { BrandMark } from "@/components/atoms/brand-mark";
-import { Header } from "@/components/atoms/header";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CategoryRail } from "@/components/molecules/category-rail";
@@ -39,9 +39,17 @@ export function SellScreen(props: SellScreenProps) {
   });
 
   return (
-    <section className="screen">
-      <Header title="Billetera Ferial" left={<BrandMark />} />
-
+    <Screen
+      header={<ScreenHeader title="Vender" />}
+      footer={
+        <CheckoutDock
+          cartCount={props.cartCount}
+          cartSubtotal={props.cartSubtotal}
+          openCart={props.openCart}
+          openPayment={props.openPayment}
+        />
+      }
+    >
       <CategoryRail
         active={props.category}
         categories={categories}
@@ -60,7 +68,7 @@ export function SellScreen(props: SellScreenProps) {
       </div>
 
       {filtered.length ? (
-        <div className="grid grid-cols-2 gap-3.5 pb-10">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3.5">
           {filtered.map((product) => {
             const quantity =
               props.cart.find((line) => line.productId === product.id)
@@ -101,13 +109,6 @@ export function SellScreen(props: SellScreenProps) {
           body="Prueba con otra categoría o término de búsqueda."
         />
       )}
-
-      <CheckoutDock
-        cartCount={props.cartCount}
-        cartSubtotal={props.cartSubtotal}
-        openCart={props.openCart}
-        openPayment={props.openPayment}
-      />
-    </section>
+    </Screen>
   );
 }

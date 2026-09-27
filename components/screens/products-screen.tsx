@@ -1,6 +1,6 @@
 import { Download, PackagePlus, Plus, Search } from "lucide-react";
-import { BrandMark } from "@/components/atoms/brand-mark";
-import { Header } from "@/components/atoms/header";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CategoryRail } from "@/components/molecules/category-rail";
@@ -26,9 +26,6 @@ type ProductsScreenProps = {
 };
 
 export function ProductsScreen(props: ProductsScreenProps) {
-  const identity = props.userDisplayName || props.userEmail || null;
-  const initials = identity ? identity.slice(0, 2).toUpperCase() : "?";
-
   const filtered = props.products.filter((product) => {
     const matchesCategory =
       props.category === "Todos" || product.category === props.category;
@@ -39,19 +36,7 @@ export function ProductsScreen(props: ProductsScreenProps) {
   });
 
   return (
-    <section className="screen">
-      <Header
-        title="Billetera Ferial"
-        left={<BrandMark />}
-        right={
-          <span
-            className="grid size-10 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary"
-            aria-label={identity ? `Perfil de ${identity}` : "Perfil"}
-          >
-            {initials}
-          </span>
-        }
-      />
+    <Screen header={<ScreenHeader title="Catálogo" />}>
       <div className="relative mb-3">
         <Search className="pointer-events-none absolute top-1/2 left-3.5 size-5 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -68,7 +53,7 @@ export function ProductsScreen(props: ProductsScreenProps) {
         setActive={props.setCategory}
       />
       {filtered.length ? (
-        <div className="grid grid-cols-2 gap-3.5 pb-20">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3.5 pb-20">
           {filtered.map((product) => (
             <ProductCatalogCard
               key={product.id}
@@ -104,19 +89,19 @@ export function ProductsScreen(props: ProductsScreenProps) {
         size="icon"
         onClick={() => props.openEditor(null)}
         aria-label="Agregar producto"
-        className="absolute right-[18px] bottom-[84px] size-16 rounded-full shadow-lg shadow-primary/30"
+        className="absolute right-5 bottom-5 size-16 rounded-full shadow-lg shadow-primary/30"
       >
         <Plus className="size-8" />
       </Button>
       <Button
         type="button"
         variant="ghost"
-        className="absolute bottom-[88px] left-1/2 -translate-x-1/2 text-primary hover:text-primary"
+        className="absolute bottom-7 left-1/2 -translate-x-1/2 text-primary hover:text-primary"
         onClick={props.onImport}
       >
         <Download className="size-4" />
         Importar desde Excel
       </Button>
-    </section>
+    </Screen>
   );
 }

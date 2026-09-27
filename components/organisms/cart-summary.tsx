@@ -18,7 +18,7 @@ export function CartSummary({
   charge,
 }: CartSummaryProps) {
   return (
-    <div className="absolute inset-x-0 bottom-0 bg-card px-4 pt-7 pb-5 shadow-[0_-14px_38px_rgba(32,24,48,0.13)]">
+    <div>
       <span className="text-sm text-muted-foreground">
         Subtotal ({itemCount} productos)
       </span>

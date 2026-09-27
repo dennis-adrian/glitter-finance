@@ -1,7 +1,6 @@
-import { ChevronLeft, ShoppingBag } from "lucide-react";
-import { BrandMark } from "@/components/atoms/brand-mark";
-import { Header } from "@/components/atoms/header";
-import { Button } from "@/components/ui/button";
+import { ShoppingBag } from "lucide-react";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { CartLineItem } from "@/components/molecules/cart-line-item";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { CartSummary } from "@/components/organisms/cart-summary";
@@ -30,21 +29,19 @@ export function CartScreen(props: CartScreenProps) {
   );
 
   return (
-    <section className="screen cart-screen">
-      <Header
-        title="Tu Carrito"
-        left={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={props.back}
-            aria-label="Volver"
-          >
-            <ChevronLeft className="size-6" />
-          </Button>
-        }
-        right={<BrandMark size="small" />}
-      />
+    <Screen
+      width="narrow"
+      header={<ScreenHeader title="Tu carrito" onBack={props.back} />}
+      footer={
+        <CartSummary
+          itemCount={itemCount}
+          subtotal={props.subtotal}
+          clearCart={props.clearCart}
+          back={props.back}
+          charge={props.charge}
+        />
+      }
+    >
       <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
         {props.cartDetails.map((line) => (
           <CartLineItem
@@ -68,13 +65,6 @@ export function CartScreen(props: CartScreenProps) {
           body="Toca productos para empezar una venta."
         />
       ) : null}
-      <CartSummary
-        itemCount={itemCount}
-        subtotal={props.subtotal}
-        clearCart={props.clearCart}
-        back={props.back}
-        charge={props.charge}
-      />
-    </section>
+    </Screen>
   );
 }

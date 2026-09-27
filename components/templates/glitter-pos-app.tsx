@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   archiveProduct as archiveProductAction,
   createProduct,
@@ -16,6 +16,7 @@ import {
 import { toast as sonnerToast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { BottomNav } from "@/components/organisms/bottom-nav";
+import { SideNav } from "@/components/organisms/side-nav";
 import { CartScreen } from "@/components/screens/cart-screen";
 import { PaymentScreen } from "@/components/screens/payment-screen";
 import { ProductEditor } from "@/components/screens/product-editor";
@@ -27,6 +28,7 @@ import { SellScreen } from "@/components/screens/sell-screen";
 import { MoreScreen } from "@/components/screens/more-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
+import { MissingRecordScreen } from "@/components/screens/missing-record-screen";
 import { paymentLabels, saleTotal } from "@/lib/sales";
 import { clampDiscount } from "@/lib/money";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
@@ -53,11 +55,17 @@ import type {
   TenantMember,
   ToastMessage,
 } from "@/lib/types";
-import type { View } from "@/lib/views";
+import {
+  isPrimaryView,
+  primaryViewFor,
+  type PrimaryView,
+  type View,
+} from "@/lib/views";
+import { useAppRoute } from "@/lib/hooks/use-app-route";
+import { DESKTOP_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
 import type { UserTenantContext } from "@/lib/auth/user-context";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
 import { isPowerSyncConfigured } from "@/lib/env";
-import { SyncStatusPill } from "@/components/molecules/sync-status-pill";
 import {
   createSaleLocal,
   refundSaleLocal,
@@ -188,19 +196,15 @@ export function GlitterPosApp({
   const hydrateSales = usePosStore((state) => state.hydrateSales);
   const upsertProduct = usePosStore((state) => state.upsertProduct);
 
-  const [view, setView] = useState<View>("sell");
+  const { route, navigate, back } = useAppRoute();
+  const view = route.view;
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const [activeInvitationState, setActiveInvitationState] =
     useState(activeInvitation);
-  const [previousView, setPreviousView] = useState<View>("products");
   const [category, setCategory] = useState("Todos");
   const [catalogCategory, setCatalogCategory] = useState("Todos");
   const [query, setQuery] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
-  const [saleDetailReturnView, setSaleDetailReturnView] = useState<
-    "sales" | "reports"
-  >("sales");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [tenantMembers, setTenantMembers] =
     useState<TenantMember[]>(initialTenantMembers);
@@ -227,6 +231,9 @@ export function GlitterPosApp({
     });
   }
   const draftCartReadyRef = useRef(false);
+  // Stable handle for teardown callbacks registered once on mount.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const cartRef = useRef(cart);
   const cartUpdatedAtRef = useRef<string | null>(null);
 
@@ -260,9 +267,22 @@ export function GlitterPosApp({
     (total, line) => total + line.quantity,
     0
   );
-  const selectedSale = selectedSaleId
-    ? (sales.find((sale) => sale.id === selectedSaleId) ?? null)
-    : null;
+  const selectedSale =
+    view === "saleDetail" && route.id
+      ? (sales.find((sale) => sale.id === route.id) ?? null)
+      : null;
+  // The editor route carries the product id; `null` means "new product".
+  // Memoized so the initial-movement lookup below only reruns when the
+  // edited product itself changes.
+  const editorProductId = view === "editor" ? (route.id ?? null) : null;
+  const editingProduct = useMemo(
+    () =>
+      editorProductId
+        ? (products.find((product) => product.id === editorProductId) ?? null)
+        : null,
+    [editorProductId, products]
+  );
+  const editorProductMissing = Boolean(editorProductId && !editingProduct);
 
   // Fall back to server-hydrated members while tenant_users is still
   // replicating — avoids "Vendedor" regressions in reports on upgrade.
@@ -295,15 +315,11 @@ export function GlitterPosApp({
     const clearTenantState = onLocalDataCleared(() => {
       cancelTenantWork();
       draftCartReadyRef.current = false;
-      setView("sell");
-      setPreviousView("products");
+      navigateRef.current({ view: "sell" }, { replace: true });
       setCategory("Todos");
       setCatalogCategory("Todos");
       setQuery("");
       setCatalogQuery("");
-      setEditingProduct(null);
-      setSelectedSaleId(null);
-      setSaleDetailReturnView("sales");
       setIsCheckingOut(false);
       setActiveInvitationState(null);
       setTenantMembers([]);
@@ -821,9 +837,15 @@ export function GlitterPosApp({
   }
 
   function openEditor(product: Product | null) {
-    setPreviousView(view === "editor" ? "products" : view);
-    setEditingProduct(product);
-    setView("editor");
+    navigate({ view: "editor", id: product?.id });
+  }
+
+  function closeEditor() {
+    back({ view: "products" });
+  }
+
+  function goToPrimary(next: PrimaryView) {
+    navigate({ view: next });
   }
 
   function openImport() {
@@ -967,7 +989,7 @@ export function GlitterPosApp({
           editingProduct ? "info" : "success"
         );
       }
-      setView("products");
+      closeEditor();
     } catch (error) {
       if (!work.isCurrent()) {
         return;
@@ -1091,7 +1113,7 @@ export function GlitterPosApp({
         );
       }
       work.assertCurrent();
-      setView("sell");
+      navigate({ view: "sell" }, { replace: true });
     } catch (error) {
       if (!work.isCurrent()) {
         return;
@@ -1188,13 +1210,11 @@ export function GlitterPosApp({
     }
   }
 
-  function openSaleDetail(saleId: string, returnView: "sales" | "reports") {
-    setSelectedSaleId(saleId);
-    setSaleDetailReturnView(returnView);
-    setView("saleDetail");
+  function openSaleDetail(saleId: string) {
+    navigate({ view: "saleDetail", id: saleId });
   }
 
-  const content = {
+  const content: Record<View, ReactNode> = {
     sell: (
       <SellScreen
         products={activeProducts}
@@ -1209,8 +1229,8 @@ export function GlitterPosApp({
         setQuery={setQuery}
         addToCart={addToCart}
         decrementCart={decrementCart}
-        openCart={() => setView("cart")}
-        openPayment={() => setView("payment")}
+        openCart={() => navigate({ view: "cart" })}
+        openPayment={() => navigate({ view: "checkout" })}
         openProductEditor={() => openEditor(null)}
       />
     ),
@@ -1220,13 +1240,13 @@ export function GlitterPosApp({
         products={activeProducts}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
-        openSales={() => setView("sales")}
+        openSales={() => navigate({ view: "sales" })}
       />
     ),
     sales: (
       <SalesScreen
         sales={sales}
-        openSale={(saleId) => openSaleDetail(saleId, "sales")}
+        openSale={openSaleDetail}
         voidSale={handleVoidSale}
         refundSale={handleRefundSale}
       />
@@ -1285,8 +1305,8 @@ export function GlitterPosApp({
     more: (
       <MoreScreen
         tenantContext={tenantContext}
-        openReports={() => setView("reports")}
-        openSettings={() => setView("settings")}
+        openReports={() => navigate({ view: "reports" })}
+        openSettings={() => navigate({ view: "settings" })}
       />
     ),
     settings: (
@@ -1300,10 +1320,8 @@ export function GlitterPosApp({
         productCount={activeProducts.length}
         saleCount={sales.filter((sale) => sale.status === "completed").length}
         pendingCount={sales.length}
-        openDiagnostics={() => {
-          setPreviousView("settings");
-          setView("diagnostics");
-        }}
+        openDiagnostics={() => navigate({ view: "diagnostics" })}
+        back={() => back({ view: "more" })}
       />
     ),
     cart: (
@@ -1320,31 +1338,36 @@ export function GlitterPosApp({
             void clearDraftCartLocal(powerSyncDb);
           }
           showToast("Carrito vaciado", "info");
-          setView("sell");
+          navigate({ view: "sell" }, { replace: true });
         }}
-        back={() => setView("sell")}
-        charge={() => setView("payment")}
+        back={() => back({ view: "sell" })}
+        charge={() => navigate({ view: "checkout" })}
       />
     ),
-    payment: (
+    checkout: (
       <PaymentScreen
         subtotal={cartSubtotal}
         count={cartCount}
-        back={() => setView("sell")}
+        back={() => back({ view: "sell" })}
         pay={handlePayment}
         isSubmitting={isCheckingOut}
       />
     ),
-    editor: (
+    editor: editorProductMissing ? (
+      <MissingRecordScreen
+        title="Producto no encontrado"
+        body="El producto ya no está disponible en este dispositivo."
+        back={closeEditor}
+      />
+    ) : (
       <ProductEditor
+        key={editorProductId ?? "new"}
         product={editingProduct}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         hasInitialMovement={editorHasInitialMovement}
         onInventoryMovement={handleInventoryMovement}
-        back={() =>
-          setView(previousView === "sell" ? "products" : previousView)
-        }
+        back={closeEditor}
         save={handleSaveProduct}
         archive={async (productId) => {
           const tenant = tenantContext.tenant;
@@ -1370,7 +1393,7 @@ export function GlitterPosApp({
             }
             work.assertCurrent();
             showToast("Producto archivado", "info");
-            setView("products");
+            closeEditor();
           } catch (error) {
             if (!work.isCurrent()) {
               return;
@@ -1389,37 +1412,41 @@ export function GlitterPosApp({
       <SaleDetailScreen
         sale={selectedSale}
         sales={sales}
-        back={() => setView(saleDetailReturnView)}
+        back={() => back({ view: "sales" })}
         voidSale={handleVoidSale}
         refundSale={handleRefundSale}
       />
     ),
+    // Implemented with the checkout rework; nothing links here yet.
+    saleComplete: null,
     diagnostics: (
       <DiagnosticsScreen
         tenantContext={tenantContext}
-        back={() => setView("settings")}
+        back={() => back({ view: "settings" })}
       />
     ),
-  }[view];
+  };
+  const activePrimary = primaryViewFor(view);
 
   return (
-    <main className="app-shell">
-      <div className="phone-frame">
-        {content}
-        <SyncStatusPill />
-        {["sell", "sales", "reports", "products", "more", "settings"].includes(
-          view
-        ) ? (
-          <BottomNav view={view} setView={(nextView) => setView(nextView)} />
+    <div className="flex h-dvh overflow-hidden bg-background">
+      <SideNav
+        active={activePrimary}
+        onNavigate={goToPrimary}
+        tenantName={tenantContext.tenant?.name}
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <main className="relative min-h-0 flex-1">{content[view]}</main>
+        {isPrimaryView(view) ? (
+          <BottomNav active={activePrimary} onNavigate={goToPrimary} />
         ) : null}
-        <Toaster
-          richColors
-          position="bottom-center"
-          offset={{ bottom: "88px" }}
-          mobileOffset={{ bottom: "88px" }}
-          duration={2600}
-        />
       </div>
-    </main>
+      <Toaster
+        richColors
+        // Phones: top, clear of the checkout bar and bottom nav.
+        position={isDesktop ? "bottom-right" : "top-center"}
+        duration={2600}
+      />
+    </div>
   );
 }

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import {
   Banknote,
-  ChevronLeft,
   ChevronRight,
   ClipboardList,
   Edit3,
@@ -11,7 +10,8 @@ import {
   QrCode,
   UserRound,
 } from "lucide-react";
-import { Header } from "@/components/atoms/header";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clampDiscount, formatBs } from "@/lib/money";
@@ -50,21 +50,7 @@ export function PaymentScreen({
   }
 
   return (
-    <section className="screen detail-screen">
-      <Header
-        title="Pago"
-        left={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={back}
-            aria-label="Volver"
-          >
-            <ChevronLeft className="size-6" />
-          </Button>
-        }
-      />
-
+    <Screen width="narrow" header={<ScreenHeader title="Pago" onBack={back} />}>
       <div className="py-8 text-center">
         <span className="text-sm text-muted-foreground">Monto total</span>
         <strong className="mt-1 mb-1.5 block text-3xl font-bold tabular-nums">
@@ -181,6 +167,6 @@ export function PaymentScreen({
         <UserRound />
         Asignar cliente
       </Button>
-    </section>
+    </Screen>
   );
 }

@@ -14,8 +14,8 @@ import {
 import { signOut } from "@/app/auth/actions";
 import { createTenant, switchTenant } from "@/app/tenants/actions";
 import { signOutAfterLocalTeardown } from "@/lib/auth/client-logout";
-import { BrandMark } from "@/components/atoms/brand-mark";
-import { Header } from "@/components/atoms/header";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { InviteTeamCard } from "@/components/molecules/invite-team-card";
 import { SettingsItem } from "@/components/molecules/settings-item";
 import { ThemePicker } from "@/components/molecules/theme-picker";
@@ -41,6 +41,7 @@ type SettingsScreenProps = {
   saleCount: number;
   pendingCount: number;
   openDiagnostics: () => void;
+  back: () => void;
 };
 
 export function SettingsScreen({
@@ -54,6 +55,7 @@ export function SettingsScreen({
   saleCount,
   pendingCount,
   openDiagnostics,
+  back,
 }: SettingsScreenProps) {
   const identity =
     tenantContext.user.displayName ||
@@ -230,7 +232,10 @@ export function SettingsScreen({
       : null;
 
   return (
-    <section className="screen">
+    <Screen
+      width="narrow"
+      header={<ScreenHeader title="Ajustes" onBack={back} />}
+    >
       {switchOverlayLabel ? (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-background/80 backdrop-blur-sm"
@@ -246,8 +251,6 @@ export function SettingsScreen({
           </div>
         </div>
       ) : null}
-
-      <Header title="Ajustes" left={<BrandMark />} />
 
       <section className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
         <div className="mb-4 flex items-center gap-3.5">
@@ -472,6 +475,6 @@ export function SettingsScreen({
               : "Cerrar sesión"}
         </Button>
       </form>
-    </section>
+    </Screen>
   );
 }

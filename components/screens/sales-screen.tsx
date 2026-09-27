@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Info, ReceiptText } from "lucide-react";
-import { BrandMark } from "@/components/atoms/brand-mark";
-import { Header } from "@/components/atoms/header";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { DateRangePicker } from "@/components/molecules/date-range-picker";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { SaleActionDialog } from "@/components/molecules/sale-action-dialog";
@@ -193,20 +193,7 @@ export function SalesScreen({
   }
 
   return (
-    <section className="screen">
-      <Header
-        title="Ventas"
-        left={<BrandMark />}
-        right={
-          <span
-            className="grid size-10 place-items-center text-primary"
-            aria-hidden
-          >
-            <ReceiptText className="size-[23px]" />
-          </span>
-        }
-      />
-
+    <Screen header={<ScreenHeader title="Ventas" />}>
       <DateRangePicker
         range={range}
         customStart={customStart}
@@ -309,6 +296,6 @@ export function SalesScreen({
         onClose={() => setAction(null)}
         onConfirm={confirmAction}
       />
-    </section>
+    </Screen>
   );
 }

@@ -124,63 +124,21 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Real PWA shell: fills the viewport on phones (the primary target), and on
-   larger screens presents as a centered app-width column. Keeps position:
-   relative + overflow: hidden so screen-level absolute docks (CheckoutDock,
-   BottomNav, cart summary, sync pill, toast) anchor to the frame. */
-.app-shell {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-}
-
-.phone-frame {
-  width: 100%;
-  max-width: 480px;
-  height: 100dvh;
-  background: var(--background);
-  overflow: hidden;
-  position: relative;
-}
-
-@media (min-width: 521px) {
-  .app-shell {
-    padding: 24px;
-  }
-
-  .phone-frame {
-    height: min(calc(100dvh - 48px), 880px);
-    border: 1px solid var(--border);
-    border-radius: 24px;
-    box-shadow: var(--soft-shadow);
-  }
-}
-
-/* Per-screen scroll container inside the phone frame. */
-.screen {
-  height: 100%;
+/* Scroll containers inside the app shell. Touch devices hide the scrollbar
+   (the pre-responsive look); mouse users keep a visible, stable one. */
+.scroll-region {
   overflow-y: auto;
-  padding: 16px 16px 104px;
-  scrollbar-width: none;
+  overscroll-behavior: contain;
 }
 
-.screen::-webkit-scrollbar {
-  display: none;
-}
+@media (pointer: coarse) {
+  .scroll-region {
+    scrollbar-width: none;
+  }
 
-/* Screens without the bottom nav / checkout dock need less bottom clearance. */
-.detail-screen,
-.editor-screen {
-  padding-bottom: 26px;
-}
-
-/* Cart keeps an absolute checkout dock (CartSummary), not the bottom nav. */
-.cart-screen {
-  padding-bottom: 230px;
-}
-
-.more-screen {
-  padding: 12px 20px 104px;
+  .scroll-region::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Wallet mark used in headers and the auth screen. */
@@ -394,14 +352,12 @@ button {
   margin: -1px;
 }
 
-/* Persistent sync indicator: pinned top-right of the phone-frame, visible
-   across every screen. Subtle pill that doesn't compete with screen headers
-   or the CheckoutDock at the bottom of Sell Mode. */
+/* Persistent sync indicator: inline in phone headers and at the bottom of
+   the tablet/desktop side navigation. Subtle pill that doesn't compete with
+   screen titles or the checkout bar. */
 .sync-pill {
-  position: absolute;
-  top: 8px;
-  right: 8px;
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 6px;
   margin: 0;
@@ -417,10 +373,27 @@ button {
   color: #fff;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  z-index: 10;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+
+/* Icon rail (md–xl): stack the dot over the label so it fits 88px. */
+.sync-pill-nav {
+  flex-direction: column;
+  max-width: 100%;
+  padding: 6px 8px;
+  border-radius: 14px;
+  text-align: center;
+  white-space: normal;
+}
+
+@media (min-width: 80rem) {
+  .sync-pill-nav {
+    flex-direction: row;
+    border-radius: 999px;
+    text-align: left;
+  }
 }
 
 .sync-pill-meta {

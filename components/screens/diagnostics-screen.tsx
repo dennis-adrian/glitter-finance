@@ -6,15 +6,11 @@
 // the queue) and a "Copiar diagnóstico" action that dumps everything as
 // JSON to the clipboard. Per PRD §8 + §14.
 
-import {
-  AlertTriangle,
-  ChevronLeft,
-  RefreshCw,
-  ClipboardCopy,
-} from "lucide-react";
+import { AlertTriangle, RefreshCw, ClipboardCopy } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Header } from "@/components/atoms/header";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -255,21 +251,10 @@ export function DiagnosticsScreen({
   }
 
   return (
-    <section className="screen">
-      <Header
-        title="Diagnósticos"
-        left={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={back}
-            aria-label="Volver"
-          >
-            <ChevronLeft className="size-6" />
-          </Button>
-        }
-      />
-
+    <Screen
+      width="narrow"
+      header={<ScreenHeader title="Diagnósticos" onBack={back} />}
+    >
       {snapshot.failures.length ? (
         <div
           className="mt-3 flex gap-2 rounded-xl border border-destructive/35 bg-destructive/10 p-3 text-sm text-destructive"
@@ -382,7 +367,7 @@ export function DiagnosticsScreen({
           {copyConfirmed ? "Copiado" : "Copiar diagnóstico"}
         </Button>
       </div>
-    </section>
+    </Screen>
   );
 }
 

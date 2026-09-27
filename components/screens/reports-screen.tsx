@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Info, Wallet } from "lucide-react";
-import { BrandMark } from "@/components/atoms/brand-mark";
-import { Header } from "@/components/atoms/header";
+import { Info, Wallet } from "lucide-react";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { BarRow } from "@/components/atoms/bar-row";
 import { MetricCard } from "@/components/atoms/metric-card";
 import { DateRangePicker } from "@/components/molecules/date-range-picker";
@@ -123,20 +123,7 @@ export function ReportsScreen({
   }
 
   return (
-    <section className="screen">
-      <Header
-        title="Reportes"
-        left={<BrandMark />}
-        right={
-          <span
-            className="grid size-10 place-items-center text-primary"
-            aria-hidden
-          >
-            <BarChart3 className="size-[23px]" />
-          </span>
-        }
-      />
-
+    <Screen header={<ScreenHeader title="Reportes" />}>
       <DateRangePicker
         range={range}
         customStart={customStart}
@@ -288,6 +275,6 @@ export function ReportsScreen({
           </Button>
         </div>
       </section>
-    </section>
+    </Screen>
   );
 }

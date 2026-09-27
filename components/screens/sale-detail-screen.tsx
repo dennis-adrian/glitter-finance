@@ -1,15 +1,8 @@
-import {
-  AlertTriangle,
-  ChevronLeft,
-  Info,
-  QrCode,
-  ReceiptText,
-  Wallet,
-} from "lucide-react";
+import { AlertTriangle, Info, QrCode, ReceiptText, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
-import { BrandMark } from "@/components/atoms/brand-mark";
 import { DetailRow } from "@/components/atoms/detail-row";
-import { Header } from "@/components/atoms/header";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { SaleActionDialog } from "@/components/molecules/sale-action-dialog";
@@ -50,14 +43,6 @@ const dateFormatter = new Intl.DateTimeFormat("es-BO", {
   minute: "2-digit",
 });
 
-function BackButton({ back }: { back: () => void }) {
-  return (
-    <Button variant="ghost" size="icon" onClick={back} aria-label="Volver">
-      <ChevronLeft className="size-6" />
-    </Button>
-  );
-}
-
 export function SaleDetailScreen({
   sale,
   sales,
@@ -75,14 +60,16 @@ export function SaleDetailScreen({
 
   if (!sale) {
     return (
-      <section className="screen">
-        <Header title="Detalle" left={<BackButton back={back} />} />
+      <Screen
+        width="narrow"
+        header={<ScreenHeader title="Detalle" onBack={back} />}
+      >
         <EmptyState
           icon={<ReceiptText size={46} />}
           title="Venta no encontrada"
           body="La venta ya no está disponible en este dispositivo."
         />
-      </section>
+      </Screen>
     );
   }
 
@@ -101,13 +88,10 @@ export function SaleDetailScreen({
   const refundRecord = sales.find((item) => item.refundOfSaleId === sale.id);
 
   return (
-    <section className="screen">
-      <Header
-        title="Detalle de venta"
-        left={<BackButton back={back} />}
-        right={<BrandMark size="small" />}
-      />
-
+    <Screen
+      width="narrow"
+      header={<ScreenHeader title="Detalle de venta" onBack={back} />}
+    >
       <section className="mb-3.5 rounded-2xl bg-card p-4 text-center ring-1 ring-foreground/10">
         <span className="inline-flex min-h-7 items-center rounded-full bg-primary/10 px-3 text-sm font-bold text-primary">
           {saleStatusLabel(sale, sales)}
@@ -284,6 +268,6 @@ export function SaleDetailScreen({
           return refundSale(sale.id, reason);
         }}
       />
-    </section>
+    </Screen>
   );
 }
