@@ -118,9 +118,22 @@ type StockMovement = Pick<
   "id" | "productId" | "delta" | "reason" | "createdAt"
 >;
 
-function isLaterMovement(candidate: StockMovement, current: StockMovement) {
-  if (candidate.createdAt !== current.createdAt) {
-    return candidate.createdAt > current.createdAt;
+/**
+ * A stored timestamp as epoch ms. Rows written on this device (toISOString,
+ * milliseconds) and rows synced from Postgres (microseconds) format the same
+ * instant differently, so they are compared as instants, never as strings.
+ * An unreadable value sorts first.
+ */
+function timestampMs(value: string) {
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+}
+
+type Baseline = { id: string; atMs: number };
+
+function isLaterBaseline(candidate: Baseline, current: Baseline) {
+  if (candidate.atMs !== current.atMs) {
+    return candidate.atMs > current.atMs;
   }
   return candidate.id > current.id;
 }
@@ -139,15 +152,19 @@ export function computeStockByProduct(
   sales: Sale[]
 ): Map<string, number> {
   const stock = new Map<string, number>();
-  const baselineByProduct = new Map<string, StockMovement>();
+  const baselineByProduct = new Map<string, Baseline>();
 
   for (const movement of movements) {
     if (movement.reason !== "initial") {
       continue;
     }
+    const candidate = {
+      id: movement.id,
+      atMs: timestampMs(movement.createdAt),
+    };
     const current = baselineByProduct.get(movement.productId);
-    if (!current || isLaterMovement(movement, current)) {
-      baselineByProduct.set(movement.productId, movement);
+    if (!current || isLaterBaseline(candidate, current)) {
+      baselineByProduct.set(movement.productId, candidate);
     }
   }
 
@@ -157,7 +174,7 @@ export function computeStockByProduct(
       const superseded =
         movement.reason === "initial"
           ? movement.id !== baseline.id
-          : movement.createdAt < baseline.createdAt;
+          : timestampMs(movement.createdAt) < baseline.atMs;
       if (superseded) {
         continue;
       }
@@ -173,9 +190,10 @@ export function computeStockByProduct(
       continue;
     }
     const sign = sale.refundOfSaleId ? -1 : 1;
+    const saleAtMs = timestampMs(sale.createdAt);
     for (const line of sale.lines) {
       const baseline = baselineByProduct.get(line.productId);
-      if (baseline && sale.createdAt < baseline.createdAt) {
+      if (baseline && saleAtMs < baseline.atMs) {
         continue;
       }
       stock.set(

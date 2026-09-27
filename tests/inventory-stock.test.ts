@@ -97,6 +97,37 @@ test("the latest initial is the baseline when a product has several", () => {
   assert.equal(stock.get(PRODUCT), 3);
 });
 
+test("timestamps are compared as instants across local and synced formats", () => {
+  // The count was recorded on this device (toISOString, milliseconds); the
+  // restock and sales came back from Postgres with microseconds or a space
+  // separator. As strings, every one of them sorts before the count.
+  const stock = computeStockByProduct(
+    [
+      movement("m1", "initial", 10, "2026-09-03T10:00:00.123Z"),
+      movement("m2", "restock", 5, "2026-09-03 10:00:00.5+00"),
+    ],
+    [
+      sale("s1", 2, "2026-09-03T10:00:00.123400Z"),
+      sale("s2", 1, "2026-09-03T10:00:00.9+00:00"),
+      sale("s3", 4, "2026-09-03T10:00:00.122999Z"),
+    ]
+  );
+
+  assert.equal(stock.get(PRODUCT), 10 + 5 - 2 - 1);
+});
+
+test("a later count in another format still replaces the baseline", () => {
+  const stock = computeStockByProduct(
+    [
+      movement("m1", "initial", 10, "2026-09-03T10:00:00.900Z"),
+      movement("m2", "initial", 4, "2026-09-03 10:00:01+00"),
+    ],
+    [sale("s1", 1, "2026-09-03T10:00:00.950Z")]
+  );
+
+  assert.equal(stock.get(PRODUCT), 4);
+});
+
 test("initials recorded at the same instant converge on one by id", () => {
   const at = "2026-09-01T10:00:00.000Z";
   const forward = computeStockByProduct(
