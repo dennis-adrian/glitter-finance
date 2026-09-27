@@ -2,12 +2,17 @@
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import type { draftCart, LocalRow } from "@/lib/db/client-schema";
+import {
+  isFreshDraftCart,
+  normalizeDraftCartLines,
+  type DraftCart,
+  type DraftCartStorage,
+} from "@/lib/draft-cart";
 import type { CartLine } from "@/lib/types";
 
 const draftCartId = "current";
 const legacyStorageKey = "glitter-pos-local-v1";
 const legacyMigrationKey = "glitter-pos-draft-cart-migrated-v1";
-const draftCartMaxAgeMs = 24 * 60 * 60 * 1000;
 
 type DraftCartRow = LocalRow<typeof draftCart>;
 
@@ -15,59 +20,17 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function isFreshDraftCart(updatedAt: string | null | undefined) {
-  return Boolean(
-    updatedAt && Date.now() - new Date(updatedAt).getTime() < draftCartMaxAgeMs
-  );
-}
-
-function normalizeCart(value: unknown): CartLine[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((line): CartLine | null => {
-      if (!line || typeof line !== "object") {
-        return null;
-      }
-
-      const candidate = line as Partial<CartLine>;
-      const quantity = candidate.quantity;
-      if (
-        typeof candidate.productId !== "string" ||
-        typeof quantity !== "number" ||
-        !Number.isInteger(quantity) ||
-        quantity <= 0
-      ) {
-        return null;
-      }
-
-      return {
-        productId: candidate.productId,
-        quantity,
-        lineDiscountCents:
-          typeof candidate.lineDiscountCents === "number"
-            ? candidate.lineDiscountCents
-            : undefined,
-        lineDiscountReason:
-          typeof candidate.lineDiscountReason === "string"
-            ? candidate.lineDiscountReason
-            : undefined,
-      };
-    })
-    .filter((line): line is CartLine => Boolean(line));
-}
-
 function parseLines(linesJson: string): CartLine[] {
   try {
-    return normalizeCart(JSON.parse(linesJson));
+    return normalizeDraftCartLines(JSON.parse(linesJson));
   } catch {
     return [];
   }
 }
 
-export async function loadDraftCartLocal(db: AbstractPowerSyncDatabase) {
+export async function loadDraftCartLocal(
+  db: AbstractPowerSyncDatabase
+): Promise<DraftCart> {
   const rows = await db.getAll<DraftCartRow>(
     `SELECT id, lines_json, updated_at FROM draft_cart WHERE id = ? LIMIT 1`,
     [draftCartId]
@@ -98,12 +61,26 @@ export async function saveDraftCartLocal(
   await db.execute(
     `INSERT OR REPLACE INTO draft_cart (id, lines_json, updated_at)
      VALUES (?, ?, ?)`,
-    [draftCartId, JSON.stringify(normalizeCart(cart)), updatedAt]
+    [draftCartId, JSON.stringify(normalizeDraftCartLines(cart)), updatedAt]
   );
 }
 
 export async function clearDraftCartLocal(db: AbstractPowerSyncDatabase) {
   await db.execute(`DELETE FROM draft_cart WHERE id = ?`, [draftCartId]);
+}
+
+/** The draft cart in the local SQLite store (PowerSync mode). */
+export function powerSyncDraftCartStorage(
+  db: AbstractPowerSyncDatabase
+): DraftCartStorage {
+  return {
+    load: async () => {
+      await migrateLegacyDraftCartLocal(db);
+      return loadDraftCartLocal(db);
+    },
+    save: (cart, updatedAt) => saveDraftCartLocal(db, cart, updatedAt),
+    clear: () => clearDraftCartLocal(db),
+  };
 }
 
 /** Remove the pre-PowerSync draft-cart data left in browser storage. */
@@ -152,7 +129,7 @@ function readLegacyDraftCart(storage: Storage) {
       return null;
     }
 
-    const cart = normalizeCart(parsed.state?.cart);
+    const cart = normalizeDraftCartLines(parsed.state?.cart);
     return cart.length ? { cart, updatedAt } : null;
   } catch {
     return null;

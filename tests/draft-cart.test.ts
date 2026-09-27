@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import {
+  BROWSER_DRAFT_CART_KEY,
+  browserDraftCartStorage,
+} from "@/lib/browser-draft-cart";
 import { migrateLegacyDraftCartLocal } from "@/lib/powersync/draft-cart";
 
 const legacyKey = "glitter-pos-local-v1";
@@ -110,4 +114,78 @@ test("skips the migration when storage access throws", async () => {
   );
 
   assert.equal(writes.length, 0);
+});
+
+test("local-only mode keeps a fresh draft cart in browser storage", async () => {
+  const storage = new MemoryStorage();
+  const drafts = browserDraftCartStorage();
+  const updatedAt = new Date().toISOString();
+  const cart = [
+    {
+      productId: "product-1",
+      quantity: 2,
+      lineDiscountCents: 100,
+      lineDiscountReason: undefined,
+    },
+    {
+      productId: "product-2",
+      quantity: 1,
+      lineDiscountCents: undefined,
+      lineDiscountReason: "feria",
+    },
+  ];
+
+  await withWindow({ localStorage: storage }, async () => {
+    await drafts.save(cart, updatedAt);
+    assert.deepEqual(await drafts.load(), { cart, updatedAt });
+
+    // An emptied cart clears the draft.
+    await drafts.save([], updatedAt);
+    assert.equal(storage.values.has(BROWSER_DRAFT_CART_KEY), false);
+  });
+});
+
+test("stale or unreadable browser drafts are dropped", async () => {
+  const storage = new MemoryStorage();
+  const drafts = browserDraftCartStorage();
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000 - 1).toISOString();
+
+  await withWindow({ localStorage: storage }, async () => {
+    storage.setItem(
+      BROWSER_DRAFT_CART_KEY,
+      JSON.stringify({
+        lines: [{ productId: "product-1", quantity: 1 }],
+        updatedAt: dayAgo,
+      })
+    );
+    assert.deepEqual(await drafts.load(), { cart: [], updatedAt: null });
+    assert.equal(storage.values.has(BROWSER_DRAFT_CART_KEY), false);
+
+    storage.setItem(BROWSER_DRAFT_CART_KEY, "{not json");
+    assert.deepEqual(await drafts.load(), { cart: [], updatedAt: null });
+    assert.equal(storage.values.has(BROWSER_DRAFT_CART_KEY), false);
+  });
+});
+
+test("blocked browser storage never breaks the cart", async () => {
+  const blocked = new MemoryStorage();
+  blocked.failReads = true;
+  const drafts = browserDraftCartStorage();
+  const cart = [{ productId: "product-1", quantity: 1 }];
+
+  await withWindow({ localStorage: blocked }, async () => {
+    assert.deepEqual(await drafts.load(), { cart: [], updatedAt: null });
+  });
+  await withWindow(
+    {
+      get localStorage(): Storage {
+        throw new Error("Site data is blocked");
+      },
+    },
+    async () => {
+      await drafts.save(cart, new Date().toISOString());
+      await drafts.clear();
+      assert.deepEqual(await drafts.load(), { cart: [], updatedAt: null });
+    }
+  );
 });

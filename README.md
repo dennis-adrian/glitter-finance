@@ -82,7 +82,8 @@ missing, so a misconfigured deploy fails at once, `/api/health` included.
 loads products, sales and stock movements from Supabase on the server and uses
 server actions for every write (products, sales, voids, refunds and stock
 movements). The sync pill is hidden and no local SQLite store is opened, so
-nothing works offline.
+nothing works offline. The draft cart is kept in the browser's localStorage
+instead (for up to a day, removed at logout).
 
 **Staging / production:** set `NEXT_PUBLIC_POWERSYNC_URL` to the PowerSync Cloud
 instance URL for that environment (see [PowerSync setup](#powersync-setup) below).

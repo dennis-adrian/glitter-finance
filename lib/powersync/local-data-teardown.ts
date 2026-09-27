@@ -1,6 +1,7 @@
 "use client";
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import { BROWSER_DRAFT_CART_KEY } from "@/lib/browser-draft-cart";
 import { clearLegacyDraftCartStorage } from "@/lib/powersync/draft-cart";
 import { pendingUploadsBlockerMessage } from "@/lib/powersync/local-data-gate";
 import { resetReportedClientFailures } from "@/lib/observability/report-client-failure";
@@ -234,6 +235,7 @@ function clearBrowserLocalData() {
     for (const key of legacyStorageKeys) {
       storage.removeItem(key);
     }
+    storage.removeItem(BROWSER_DRAFT_CART_KEY);
     storage.removeItem(localDataIdentityKey);
   } catch (error) {
     throw new LocalDataTeardownError(

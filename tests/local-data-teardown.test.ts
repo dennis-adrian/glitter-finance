@@ -137,6 +137,7 @@ test("teardown purges local user data before calling server sign-out", async () 
     storage.setItem("glitter-pos-initial-sync-completed-v2", "true");
     storage.setItem("glitter-pos-draft-cart-migrated-v1", "2026-08-09");
     storage.setItem("glitter-pos-local-v1", "legacy-cart");
+    storage.setItem("glitter-pos-draft-cart-v1", "local-only-cart");
     saveLocalDataIdentity({ userId: "user-a", tenantId: "tenant-a" });
     usePosStore.setState({
       products: [{} as Product],
@@ -182,6 +183,7 @@ test("teardown purges local user data before calling server sign-out", async () 
     );
     assert.equal(storage.getItem("glitter-pos-draft-cart-migrated-v1"), null);
     assert.equal(storage.getItem("glitter-pos-local-v1"), null);
+    assert.equal(storage.getItem("glitter-pos-draft-cart-v1"), null);
     assert.equal(readLocalDataIdentity(), null);
     assert.deepEqual(usePosStore.getState().products, []);
     assert.deepEqual(usePosStore.getState().cart, []);

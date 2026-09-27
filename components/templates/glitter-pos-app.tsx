@@ -77,12 +77,9 @@ import {
   updateProductLocal,
   uploadProductImageLocal,
 } from "@/lib/powersync/write-products";
-import {
-  clearDraftCartLocal,
-  loadDraftCartLocal,
-  migrateLegacyDraftCartLocal,
-  saveDraftCartLocal,
-} from "@/lib/powersync/draft-cart";
+import { powerSyncDraftCartStorage } from "@/lib/powersync/draft-cart";
+import { browserDraftCartStorage } from "@/lib/browser-draft-cart";
+import type { DraftCartStorage } from "@/lib/draft-cart";
 import { onLocalDataEvent } from "@/lib/powersync/local-data-teardown";
 import {
   mergeLocalRowsOverServer,
@@ -697,9 +694,20 @@ export function GlitterPosApp({
     tenantWorkGeneration,
   ]);
 
+  // The draft cart survives a reload: in the local SQLite store with
+  // PowerSync, in this browser's storage without it (lib/draft-cart.ts).
+  const draftCartStorage = useMemo(
+    () =>
+      powerSyncDb
+        ? powerSyncDraftCartStorage(powerSyncDb)
+        : isPowerSyncConfigured()
+          ? null
+          : browserDraftCartStorage(),
+    [powerSyncDb]
+  );
+
   useEffect(() => {
-    if (!powerSyncDb) return;
-    const db = powerSyncDb;
+    if (!draftCartStorage) return;
 
     const generation = tenantWorkGenerationRef.current;
     let cancelled = false;
@@ -708,33 +716,31 @@ export function GlitterPosApp({
     draftCartReadyRef.current = false;
     const expectedCartRevision = usePosStore.getState().cartRevision;
 
-    async function hydrateDraftCart() {
+    async function hydrateDraftCart(storage: DraftCartStorage) {
       try {
-        await migrateLegacyDraftCartLocal(db);
-        if (!isCurrent()) return;
-        const draft = await loadDraftCartLocal(db);
+        const draft = await storage.load();
         if (!isCurrent()) return;
 
         hydrateCart(draft.cart, draft.updatedAt, expectedCartRevision);
         draftCartReadyRef.current = true;
       } catch (error) {
         if (isCurrent()) {
-          console.error("[PowerSync] draft cart hydrate failed", error);
+          console.error("[draft cart] hydrate failed", error);
           reportClientFailure("powersync_draft_cart_hydrate", error);
           draftCartReadyRef.current = true;
         }
       }
     }
 
-    void hydrateDraftCart();
+    void hydrateDraftCart(draftCartStorage);
 
     return () => {
       cancelled = true;
     };
-  }, [powerSyncDb, hydrateCart, tenantWorkGeneration]);
+  }, [draftCartStorage, hydrateCart, tenantWorkGeneration]);
 
   useEffect(() => {
-    if (!powerSyncDb || !draftCartReadyRef.current) {
+    if (!draftCartStorage || !draftCartReadyRef.current) {
       return;
     }
 
@@ -746,32 +752,24 @@ export function GlitterPosApp({
       ) {
         return;
       }
-      void saveDraftCartLocal(
-        powerSyncDb,
-        cart,
-        usePosStore.getState().cartUpdatedAt
-      );
+      void draftCartStorage.save(cart, usePosStore.getState().cartUpdatedAt);
     }, 450);
 
     return () => window.clearTimeout(timeout);
-  }, [powerSyncDb, cart, tenantWorkGeneration]);
+  }, [draftCartStorage, cart, tenantWorkGeneration]);
 
   useEffect(() => {
     const generation = tenantWorkGenerationRef.current;
     function flushDraftCart() {
       if (
-        !powerSyncDb ||
+        !draftCartStorage ||
         !draftCartReadyRef.current ||
         tenantWorkGenerationRef.current !== generation
       ) {
         return;
       }
 
-      void saveDraftCartLocal(
-        powerSyncDb,
-        cartRef.current,
-        cartUpdatedAtRef.current
-      );
+      void draftCartStorage.save(cartRef.current, cartUpdatedAtRef.current);
     }
 
     function flushWhenHidden() {
@@ -787,7 +785,7 @@ export function GlitterPosApp({
       window.removeEventListener("pagehide", flushDraftCart);
       document.removeEventListener("visibilitychange", flushWhenHidden);
     };
-  }, [powerSyncDb, tenantWorkGeneration]);
+  }, [draftCartStorage, tenantWorkGeneration]);
 
   function showToast(text: string, tone: ToastMessage["tone"] = "success") {
     if (tone === "danger") {
@@ -1185,7 +1183,7 @@ export function GlitterPosApp({
         });
         work.assertCurrent();
         clearCart();
-        void clearDraftCartLocal(db);
+        void draftCartStorage?.clear();
         showToast(
           `Venta registrada · ${formatBs(totalCents, true)} · ${paymentLabels[method]}`
         );
@@ -1229,6 +1227,7 @@ export function GlitterPosApp({
         checkoutAttemptRef.current = null;
         work.assertCurrent();
         recordSale(sale);
+        void draftCartStorage?.clear();
         showToast(
           `Venta registrada · ${saleTotal(sale)} · ${paymentLabels[method]}`
         );
@@ -1333,9 +1332,7 @@ export function GlitterPosApp({
       return;
     }
     clearCart();
-    if (powerSyncDb) {
-      void clearDraftCartLocal(powerSyncDb);
-    }
+    void draftCartStorage?.clear();
     const clearedRevision = usePosStore.getState().cartRevision;
     const toastId = sonnerToast.info("Carrito vaciado", {
       duration: 6000,

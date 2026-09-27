@@ -1,10 +1,9 @@
 "use client";
 
 import { create } from "zustand";
+import { isFreshDraftCart } from "@/lib/draft-cart";
 import { priceLine } from "@/lib/sales/pricing";
 import type { CartLine, Product, Sale } from "@/lib/types";
-
-const draftCartMaxAgeMs = 24 * 60 * 60 * 1000;
 
 type PosState = {
   products: Product[];
@@ -37,12 +36,6 @@ type PosState = {
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function isFreshDraftCart(updatedAt: string | null | undefined) {
-  return Boolean(
-    updatedAt && Date.now() - new Date(updatedAt).getTime() < draftCartMaxAgeMs
-  );
 }
 
 /**
