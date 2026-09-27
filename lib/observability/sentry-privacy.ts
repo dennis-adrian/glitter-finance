@@ -28,6 +28,20 @@ const SPAN_HEADER_PREFIXES = [
   "http.response.header.",
 ] as const;
 
+// Drizzle's DrizzleQueryError message ends with the bound values:
+// "Failed query: <sql>\nparams: <values>", i.e. tenant and user ids, names,
+// amounts. The SQL itself is parameterized and stays.
+const QUERY_PARAMS = /\nparams:[\s\S]*$/;
+
+function redactQueryParams(value: string): string {
+  return value.replace(QUERY_PARAMS, "\nparams: [redacted]");
+}
+
+/** For free text: error messages, console breadcrumbs. */
+function sanitizeMessage(value: string): string {
+  return sanitizeUrl(redactQueryParams(value));
+}
+
 function redactInvitationPaths(value: string): string {
   return value.replace(
     INVITATION_PATH,
@@ -128,8 +142,11 @@ function sanitizeEvent<T extends Event>(event: T): T {
 
   for (const exception of event.exception?.values ?? []) {
     if (exception.value) {
-      exception.value = sanitizeUrl(exception.value);
+      exception.value = sanitizeMessage(exception.value);
     }
+  }
+  if (event.message) {
+    event.message = sanitizeMessage(event.message);
   }
 
   return event;
@@ -166,7 +183,7 @@ export function sanitizeSentrySpan(span: SpanJSON): SpanJSON {
 /** Keep navigation/network breadcrumbs useful without retaining URL secrets. */
 export function sanitizeSentryBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb {
   if (breadcrumb.message) {
-    breadcrumb.message = sanitizeUrl(breadcrumb.message);
+    breadcrumb.message = sanitizeMessage(breadcrumb.message);
   }
 
   if (breadcrumb.data) {

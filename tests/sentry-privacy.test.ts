@@ -232,3 +232,46 @@ test("removes HTTP header attributes from spans and the root span", () => {
     expected
   );
 });
+
+test("keeps the SQL of a failed query but drops its bound values", () => {
+  const query =
+    'insert into "sales" ("tenant_id", "user_id", "sale_discount_reason") values ($1, $2, $3)';
+  const params =
+    "7a000000-0000-4000-8000-000000000001,user-1,Descuento para\nDoña Ana";
+  const event = {
+    type: undefined,
+    message: `Failed query: ${query}\nparams: ${params}`,
+    exception: {
+      values: [
+        {
+          type: "Error",
+          value: `Failed query: ${query}\nparams: ${params}`,
+        },
+        {
+          type: "PostgresError",
+          value: 'duplicate key value violates unique constraint "x"',
+        },
+      ],
+    },
+    breadcrumbs: [
+      {
+        category: "console",
+        message: `[createSale] failed Error: Failed query: ${query}\nparams: ${params}`,
+      },
+    ],
+  } as ErrorEvent;
+
+  const sanitized = sanitizeSentryEvent(event);
+
+  const redacted = `Failed query: ${query}\nparams: [redacted]`;
+  assert.equal(sanitized.message, redacted);
+  assert.equal(sanitized.exception?.values?.[0].value, redacted);
+  assert.equal(
+    sanitized.exception?.values?.[1].value,
+    'duplicate key value violates unique constraint "x"'
+  );
+  assert.equal(
+    sanitized.breadcrumbs?.[0].message,
+    `[createSale] failed Error: ${redacted}`
+  );
+});

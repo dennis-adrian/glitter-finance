@@ -37,6 +37,11 @@ init options live in `lib/observability/sentry-options.ts`.
   `lib/observability/sentry-privacy.ts` remove them again before delivery,
   together with invitation tokens (`/join/<token>`, also percent-encoded) in
   URLs, messages, span data and the Next.js request path.
+- Failed database queries: the parameterized SQL is kept, the bound values
+  (`params:` in Drizzle's error message) are replaced with `[redacted]`.
+- Expected server action failures (validation, a changed active tenant, a sale
+  outside the void window) are returned to the screen, not thrown, so they are
+  not reported (see `lib/action-result.ts`).
 - Permanent PowerSync upload failures: report only transaction metadata, table
   names, operation types, and PostgreSQL error code. Financial row payloads and
   tenant/user identifiers remain local.
