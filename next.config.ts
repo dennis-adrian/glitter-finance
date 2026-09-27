@@ -2,16 +2,36 @@ import type { NextConfig } from "next";
 import { withSerwist } from "@serwist/turbopack";
 import { withSentryConfig } from "@sentry/nextjs";
 
+// Defense-in-depth headers for every response. A full Content-Security-Policy
+// is deliberately left out until it has been tested against Supabase,
+// PowerSync (workers and WASM), Sentry and the Serwist service worker; the
+// policy below only forbids framing. Vercel already sends HSTS.
+const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+  // Features the app does not use. Allow one here (e.g. camera=(self))
+  // before shipping code that needs it.
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+  },
+];
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   async headers() {
     return [
-      // Advertise the client hint app-wide. Browsers only act on Accept-CH
-      // from the page (navigation) response, which then makes them send the
-      // hint on the color-scheme-varying manifest request too.
       {
         source: "/:path*",
-        headers: [{ key: "Accept-CH", value: "Sec-CH-Prefers-Color-Scheme" }],
+        headers: [
+          ...securityHeaders,
+          // Advertise the client hint app-wide. Browsers only act on
+          // Accept-CH from the page (navigation) response, which then makes
+          // them send the hint on the color-scheme-varying manifest request.
+          { key: "Accept-CH", value: "Sec-CH-Prefers-Color-Scheme" },
+        ],
       },
     ];
   },
