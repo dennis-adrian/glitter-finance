@@ -3,23 +3,25 @@
 import { toActionResult } from "@/lib/action-result";
 import { requireExpectedTenantContext } from "@/lib/auth/user-context";
 import {
+  parseCheckoutRequest,
+  type CheckoutRequest,
+} from "@/lib/sales/checkout-request";
+import {
   createSaleForTenant,
   refundSaleForTenant,
-  type CreateSaleLineInput,
   voidSaleForTenant,
 } from "@/lib/sales/repository";
-import type { PaymentMethod } from "@/lib/types";
+import { requireUuid } from "@/lib/validation";
 
-export type CreateSaleActionInput = {
-  paymentMethod: PaymentMethod;
-  saleDiscountCents: number;
-  saleDiscountReason?: string;
-  lines: CreateSaleLineInput[];
-};
+export type CreateSaleActionInput = CheckoutRequest;
+
+const SALE_NOT_FOUND_MESSAGE = "No se encontró la venta.";
 
 // Every action takes `expectedTenantId`, the tenant the calling screen
 // renders, and refuses to run once another tenant became the active one.
-// Expected failures come back as `{ ok: false, error }` (lib/action-result.ts).
+// Arguments come from the browser, so they are checked before any database
+// work. Expected failures come back as `{ ok: false, error }`
+// (lib/action-result.ts).
 
 export async function createSale(
   expectedTenantId: string,
@@ -30,15 +32,13 @@ export async function createSale(
       expectedTenantId,
       "Se requiere una cuenta para registrar una venta."
     );
+    const request = parseCheckoutRequest(input);
 
     return createSaleForTenant({
       tenantId: context.tenant.id,
       userId: context.user.id,
       userName: context.user.displayName,
-      paymentMethod: input.paymentMethod,
-      saleDiscountCents: input.saleDiscountCents,
-      saleDiscountReason: input.saleDiscountReason,
-      lines: input.lines,
+      ...request,
     });
   });
 }
@@ -53,7 +53,7 @@ export async function voidSale(expectedTenantId: string, saleId: string) {
     return voidSaleForTenant({
       tenantId: context.tenant.id,
       userId: context.user.id,
-      saleId,
+      saleId: requireUuid(saleId, SALE_NOT_FOUND_MESSAGE),
     });
   });
 }
@@ -73,7 +73,7 @@ export async function refundSale(
       tenantId: context.tenant.id,
       userId: context.user.id,
       userName: context.user.displayName,
-      saleId,
+      saleId: requireUuid(saleId, SALE_NOT_FOUND_MESSAGE),
       reason,
     });
   });

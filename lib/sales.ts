@@ -6,6 +6,10 @@ export const paymentLabels: Record<PaymentMethod, string> = {
   qr_transfer: "QR",
 };
 
+export function isPaymentMethod(value: unknown): value is PaymentMethod {
+  return typeof value === "string" && Object.hasOwn(paymentLabels, value);
+}
+
 // The void window. Postgres enforces the same numbers in powersync_void_sale
 // and the sales_void_transition trigger
 // (supabase/manual/20260926120000_powersync_upload_convergence.sql); change

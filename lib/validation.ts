@@ -36,7 +36,7 @@ export function normalizeNote(value: unknown, label: string): string | null {
     return null;
   }
   if (typeof value !== "string") {
-    throw new UserFacingError(`${label} no es válido.`);
+    throw new UserFacingError(`${label} tiene un formato no válido.`);
   }
   const note = value.trim();
   if (characterCount(note) > MAX_NOTE_LENGTH) {

@@ -832,6 +832,9 @@ export function GlitterPosApp({
       showToast("Tu cuenta aún no está configurada.", "danger");
       return;
     }
+    // The image and the initial count are written separately, so they stay
+    // out of the product fields (and out of the server action's arguments).
+    const { imageFile, initialStock, ...productInput } = input;
     const work = beginTenantWork();
     const db = powerSyncDb;
     try {
@@ -854,7 +857,7 @@ export function GlitterPosApp({
         tracksInventory: input.tracksInventory,
         wasTrackingInventory: editingProduct?.tracksInventory ?? false,
         hasInitialMovement: hasInitial,
-        initialStock: input.initialStock,
+        initialStock,
       });
       const needsInitialMovement = initialStockDelta != null;
 
@@ -878,14 +881,14 @@ export function GlitterPosApp({
           ? (await updateProductLocal(db, {
               tenantId: tenant.id,
               productId: editingProduct.id,
-              product: input,
+              product: productInput,
               assertCurrent: work.assertCurrent,
             }),
             editingProduct.id)
           : (
               await createProductLocal(db, {
                 tenantId: tenant.id,
-                product: input,
+                product: productInput,
                 assertCurrent: work.assertCurrent,
               })
             ).productId;
@@ -902,13 +905,13 @@ export function GlitterPosApp({
           });
         }
 
-        if (input.imageFile) {
+        if (imageFile) {
           try {
             work.assertCurrent();
             await uploadProductImageLocal(createSupabaseBrowserClient(), db, {
               tenantId: tenant.id,
               productId,
-              file: input.imageFile,
+              file: imageFile,
               assertCurrent: work.assertCurrent,
             });
           } catch (error) {
@@ -923,16 +926,16 @@ export function GlitterPosApp({
         let product = await unwrapActionResult(
           () =>
             editingProduct
-              ? updateProductAction(tenant.id, editingProduct.id, input)
-              : createProduct(tenant.id, input),
+              ? updateProductAction(tenant.id, editingProduct.id, productInput)
+              : createProduct(tenant.id, productInput),
           "No se pudo guardar el producto"
         );
         work.assertCurrent();
 
-        if (input.imageFile) {
+        if (imageFile) {
           const productId = product.id;
           const formData = new FormData();
-          formData.set("image", input.imageFile);
+          formData.set("image", imageFile);
           try {
             work.assertCurrent();
             product = await unwrapActionResult(

@@ -20,13 +20,16 @@ import {
   updateProductImageForTenant,
   updateProductForTenant,
 } from "@/lib/products/repository";
+import { normalizeProductInput } from "@/lib/products";
 import type { Product, ProductInput } from "@/lib/types";
+import { isUuid, requireUuid } from "@/lib/validation";
 
-const PRODUCT_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PRODUCT_NOT_FOUND_MESSAGE = "No se encontró el producto.";
 
 // Every action takes `expectedTenantId`, the tenant the calling screen
 // renders, and refuses to run once another tenant became the active one.
+// Arguments come from the browser, so they are checked before any database
+// work, with the same rules as the PowerSync writers (normalizeProductInput).
 // Expected failures come back as `{ ok: false, error }` (lib/action-result.ts).
 async function requireTenantId(expectedTenantId: string) {
   const context = await requireExpectedTenantContext(
@@ -42,7 +45,7 @@ export async function createProduct(
 ) {
   return toActionResult(async () => {
     const tenantId = await requireTenantId(expectedTenantId);
-    return createProductForTenant(tenantId, input);
+    return createProductForTenant(tenantId, normalizeProductInput(input));
   });
 }
 
@@ -53,7 +56,11 @@ export async function updateProduct(
 ) {
   return toActionResult(async () => {
     const tenantId = await requireTenantId(expectedTenantId);
-    return updateProductForTenant(tenantId, productId, input);
+    return updateProductForTenant(
+      tenantId,
+      requireUuid(productId, PRODUCT_NOT_FOUND_MESSAGE),
+      normalizeProductInput(input)
+    );
   });
 }
 
@@ -73,7 +80,7 @@ async function uploadProductImageForTenant(
   formData: FormData
 ) {
   const tenantId = await requireTenantId(expectedTenantId);
-  const image = formData.get("image");
+  const image = formData instanceof FormData ? formData.get("image") : null;
 
   if (!(image instanceof File)) {
     throw new UserFacingError("Selecciona una imagen del producto.");
@@ -92,11 +99,11 @@ async function uploadProductImageForTenant(
   }
 
   // Check the product before uploading, so a wrong id leaves no file behind.
-  const current = PRODUCT_ID_RE.test(productId)
-    ? await findProductForTenant(tenantId, productId)
+  const current = isUuid(productId)
+    ? await findProductForTenant(tenantId, productId.toLowerCase())
     : null;
   if (!current) {
-    throw new UserFacingError("No se encontró el producto.");
+    throw new UserFacingError(PRODUCT_NOT_FOUND_MESSAGE);
   }
 
   // Upload with the user's session, not the service role, so Storage applies
@@ -166,7 +173,10 @@ export async function archiveProduct(
 ) {
   return toActionResult(async () => {
     const tenantId = await requireTenantId(expectedTenantId);
-    return archiveProductForTenant(tenantId, productId);
+    return archiveProductForTenant(
+      tenantId,
+      requireUuid(productId, PRODUCT_NOT_FOUND_MESSAGE)
+    );
   });
 }
 
@@ -176,6 +186,9 @@ export async function restoreProduct(
 ) {
   return toActionResult(async () => {
     const tenantId = await requireTenantId(expectedTenantId);
-    return restoreProductForTenant(tenantId, productId);
+    return restoreProductForTenant(
+      tenantId,
+      requireUuid(productId, PRODUCT_NOT_FOUND_MESSAGE)
+    );
   });
 }

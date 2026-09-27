@@ -19,6 +19,7 @@ import {
   buildInviteLink,
 } from "@/lib/invitations/validation";
 import { getRequestOrigin } from "@/lib/request-origin";
+import { requireUuid } from "@/lib/validation";
 
 function generateInviteToken() {
   return randomBytes(32).toString("base64url");
@@ -73,7 +74,13 @@ export async function revokeInvitation(
       NO_ACTIVE_TENANT_MESSAGE
     );
 
-    await revokeInvitationById(invitationId, context.tenant.id);
+    await revokeInvitationById(
+      requireUuid(
+        invitationId,
+        "No se encontró la invitación o ya fue revocada."
+      ),
+      context.tenant.id
+    );
   });
 }
 
@@ -87,6 +94,12 @@ export async function acceptInvitation(token: string) {
     // own post-accept navigation.
     if (!user) {
       throw new UserFacingError("Tu sesión expiró. Vuelve a iniciar sesión.");
+    }
+
+    // Links carry a 43-character base64url token; anything else is no
+    // invitation at all.
+    if (typeof token !== "string" || !token || token.length > 256) {
+      throw new UserFacingError("Esta invitación ya no es válida.");
     }
 
     const displayName = getDisplayName(user);

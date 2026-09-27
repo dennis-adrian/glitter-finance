@@ -3,6 +3,7 @@
 // writes the database, Supabase or the request.
 
 import { UserFacingError } from "@/lib/action-result";
+import { requireUuid } from "@/lib/validation";
 
 export type MembershipRow = {
   tenantId: string;
@@ -54,18 +55,11 @@ export const ACTIVE_TENANT_CHANGED_MESSAGE =
 
 const INVALID_TENANT_ID_MESSAGE = "Identificador de cuenta inválido.";
 
-const TENANT_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export function parseTenantId(tenantId: unknown): string {
-  if (typeof tenantId !== "string") {
-    throw new UserFacingError(INVALID_TENANT_ID_MESSAGE);
-  }
-  const normalized = tenantId.trim().toLowerCase();
-  if (!TENANT_ID_RE.test(normalized)) {
-    throw new UserFacingError(INVALID_TENANT_ID_MESSAGE);
-  }
-  return normalized;
+  return requireUuid(
+    typeof tenantId === "string" ? tenantId.trim() : tenantId,
+    INVALID_TENANT_ID_MESSAGE
+  );
 }
 
 export function readClaimedTenantId(

@@ -12,14 +12,6 @@ import {
 } from "@/lib/product-image-config";
 import type { Product, ProductInput } from "@/lib/types";
 
-function resolveInputImagePath(input: ProductInput) {
-  if (isPlaceholderImagePath(input.imagePath)) {
-    return encodePlaceholderImagePath(input.imageTone);
-  }
-
-  return input.imagePath;
-}
-
 export async function getProductsForTenant(
   tenantId: string
 ): Promise<Product[]> {
@@ -57,7 +49,9 @@ export async function createProductForTenant(
       priceCents: input.priceCents,
       costCents: input.costCents,
       category: input.category,
-      imagePath: resolveInputImagePath(input),
+      // A new product starts with a placeholder. An image is attached after
+      // the insert, by updateProductImageForTenant.
+      imagePath: encodePlaceholderImagePath(input.imageTone),
       tracksInventory: input.tracksInventory ?? false,
       lowStockThreshold: input.lowStockThreshold ?? null,
     })

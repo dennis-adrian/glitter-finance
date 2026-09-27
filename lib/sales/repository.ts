@@ -16,6 +16,7 @@ import {
 } from "@/lib/sales/pricing";
 import { canonicalizeCategory } from "@/lib/sample-data";
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
+import { normalizeNote } from "@/lib/validation";
 
 export type CreateSaleLineInput = SaleLineRequest;
 
@@ -25,7 +26,7 @@ export type CreateSaleInput = {
   userName: string;
   paymentMethod: PaymentMethod;
   saleDiscountCents: number;
-  saleDiscountReason?: string;
+  saleDiscountReason?: string | null;
   lines: CreateSaleLineInput[];
 };
 
@@ -411,6 +412,7 @@ export async function refundSaleForTenant(
     );
   }
 
+  const reason = normalizeNote(input.reason, "El motivo");
   // Same business-time rule as createSaleForTenant.
   const createdAt = new Date();
   let refund: typeof refunds.$inferSelect | undefined;
@@ -437,7 +439,7 @@ export async function refundSaleForTenant(
           tenantId: input.tenantId,
           originalSaleId: input.saleId,
           userId: input.userId,
-          reason: input.reason?.trim() || null,
+          reason,
           createdAt,
           clientCreatedAt: createdAt,
         })
