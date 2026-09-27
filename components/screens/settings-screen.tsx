@@ -4,11 +4,11 @@ import { useState } from "react";
 import {
   Box,
   Check,
+  CloudUpload,
   CreditCard,
   Loader2,
   Plus,
   ReceiptText,
-  RotateCcw,
   Stethoscope,
 } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
@@ -42,7 +42,6 @@ type SettingsScreenProps = {
   onInvitationChange?: (invitation: TenantInvitation | null) => void;
   productCount: number;
   saleCount: number;
-  pendingCount: number;
   openDiagnostics: () => void;
 };
 
@@ -55,7 +54,6 @@ export function SettingsScreen({
   onInvitationChange,
   productCount,
   saleCount,
-  pendingCount,
   openDiagnostics,
 }: SettingsScreenProps) {
   const identity =
@@ -253,9 +251,9 @@ export function SettingsScreen({
           value={String(saleCount)}
         />
         <SettingsItem
-          icon={<RotateCcw size={21} />}
-          label="Ventas cargadas"
-          value={String(pendingCount)}
+          icon={<CloudUpload size={21} />}
+          label="Operaciones sin subir"
+          value={String(gate.pendingCount)}
         />
         <SettingsItem
           icon={<CreditCard size={21} />}
@@ -271,6 +269,7 @@ export function SettingsScreen({
             icon={<Stethoscope size={21} />}
             label="Diagnósticos"
             value="Estado de sincronización y dispositivo"
+            showChevron
           />
         </button>
       </section>

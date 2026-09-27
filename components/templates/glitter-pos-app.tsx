@@ -1297,8 +1297,9 @@ export function GlitterPosApp({
         inviteOrigin={inviteOrigin}
         onInvitationChange={setActiveInvitationState}
         productCount={activeProducts.length}
+        // Every original sale that was not voided, refunded or not: refund
+        // records carry status "refunded" and voided sales "voided".
         saleCount={sales.filter((sale) => sale.status === "completed").length}
-        pendingCount={sales.length}
         openDiagnostics={() => {
           setPreviousView("settings");
           setView("diagnostics");
