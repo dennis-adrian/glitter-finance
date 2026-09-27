@@ -66,6 +66,7 @@ export default async function JoinPage({ params }: JoinPageProps) {
           identity={{
             userId: context.user.id,
             tenantId: context.tenant?.id ?? null,
+            email: context.user.email,
           }}
           loadingLayout="parent"
         >

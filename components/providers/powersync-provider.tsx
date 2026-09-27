@@ -30,15 +30,24 @@ import {
   LocalDataPanel,
   LocalDataPanelButton,
 } from "@/components/providers/local-data-panel";
+import {
+  LocalDataRecoveryPanel,
+  type LocalDataRecovery,
+} from "@/components/providers/local-data-recovery-panel";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { markInitialSyncCompleted } from "@/lib/powersync/initial-sync";
 import { reconcileSyncFailures } from "@/lib/powersync/sync-failures";
 import { flushPendingSyncFailureTelemetry } from "@/lib/observability/report-sync-failure";
 import {
+  planIdentityMismatch,
+  waitForUploadQueueToDrain,
+} from "@/lib/powersync/identity-mismatch";
+import {
   LocalDataTeardownError,
   localDataIdentityMatches,
   readLocalDataIdentity,
+  readUnsyncedLocalWork,
   saveLocalDataIdentity,
   teardownLocalUserData,
   type LocalDataIdentity,
@@ -111,6 +120,7 @@ export function PowerSyncProvider({
   const [identityChange, setIdentityChange] = useState<IdentityChange | null>(
     null
   );
+  const [recovery, setRecovery] = useState<LocalDataRecovery | null>(null);
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const connectorRef = useRef<PowerSyncBackendConnector | null>(null);
   const exposedDbRef = useRef<AbstractPowerSyncDatabase | null>(null);
@@ -121,6 +131,7 @@ export function PowerSyncProvider({
     const currentIdentity: LocalDataIdentity = {
       userId: identity.userId,
       tenantId: identity.tenantId,
+      email: identity.email ?? null,
     };
     let cancelled = false;
     let instance: AbstractPowerSyncDatabase | null = null;
@@ -129,6 +140,7 @@ export function PowerSyncProvider({
       setLocalDataReadyIdentity(null);
       setLocalDataError(null);
       setIdentityChange(null);
+      setRecovery(null);
       setDb(null);
 
       const powerSyncConfigured = isPowerSyncConfigured();
@@ -184,18 +196,63 @@ export function PowerSyncProvider({
         },
       });
 
+      const db = instance;
+      const supabase = createSupabaseClient();
+      const connector = new SupabaseConnector(supabase);
+
       // A device database belongs to exactly one authenticated user + active
       // tenant. An absent identity is deliberately treated as untrusted (for
-      // upgrades from before this marker existed), so stale rows never render.
-      if (!localDataIdentityMatches(readLocalDataIdentity(), currentIdentity)) {
+      // upgrades from before this marker existed), so stale rows never render:
+      // the app stays hidden until the database is cleared. Unsynced work is
+      // never cleared with it; it is uploaded first, or kept until the
+      // identity that can upload it comes back.
+      const storedIdentity = readLocalDataIdentity();
+      if (!localDataIdentityMatches(storedIdentity, currentIdentity)) {
+        const planMismatch = async () =>
+          planIdentityMismatch({
+            stored: storedIdentity,
+            current: currentIdentity,
+            unsynced: await readUnsyncedLocalWork(db),
+          });
+        let plan = await planMismatch();
+        if (cancelled) return;
+
+        if (plan.action === "drain") {
+          setRecovery({ kind: "draining", pendingUploadCount: null });
+          connectorRef.current = connector;
+          await db.connect(connector);
+          const outcome = await waitForUploadQueueToDrain(db, {
+            isCancelled: () => cancelled,
+            onPending: (pendingUploadCount) => {
+              if (!cancelled) {
+                setRecovery({ kind: "draining", pendingUploadCount });
+              }
+            },
+          });
+          if (outcome === "cancelled") return;
+          await db.disconnect();
+          plan = await planMismatch();
+          if (cancelled) return;
+          if (plan.action === "drain") {
+            throw new Error("The upload queue did not drain.");
+          }
+        }
+
+        if (plan.action === "block") {
+          setRecovery({ kind: "blocked", block: plan.block });
+          return;
+        }
+
+        setRecovery(null);
         // disconnectAndClear can remove browser-backed transport state. Give
         // the permanent-upload report a bounded chance to leave the device
         // first; failure must not prevent privacy cleanup or cancellation.
         await flushPendingSyncFailureTelemetry();
+        // Re-checks the queue right before the wipe.
         await teardownLocalUserData({
-          db: instance,
+          db,
           powerSyncRequired: true,
-          refuseWhenUnsynced: false,
+          refuseWhenUnsynced: true,
         });
       }
 
@@ -205,8 +262,6 @@ export function PowerSyncProvider({
       }
       saveLocalDataIdentity(currentIdentity);
 
-      const supabase = createSupabaseClient();
-      const connector = new SupabaseConnector(supabase);
       connectorRef.current = connector;
       await instance.connect(connector);
       try {
@@ -280,7 +335,12 @@ export function PowerSyncProvider({
       setDb((currentDb) => (currentDb === instance ? null : currentDb));
       instance?.close().catch(() => {});
     };
-  }, [identity.userId, identity.tenantId, initializationAttempt]);
+  }, [
+    identity.userId,
+    identity.tenantId,
+    identity.email,
+    initializationAttempt,
+  ]);
 
   const localDataReady = localDataIdentityMatches(
     localDataReadyIdentity,
@@ -413,6 +473,12 @@ export function PowerSyncProvider({
             Volver
           </LocalDataPanelButton>
         </LocalDataPanel>
+      );
+    }
+
+    if (recovery) {
+      return (
+        <LocalDataRecoveryPanel layout={loadingLayout} recovery={recovery} />
       );
     }
 

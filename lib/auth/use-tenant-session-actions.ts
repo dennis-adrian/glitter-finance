@@ -5,32 +5,14 @@ import { toast } from "sonner";
 import { signOut as signOutOnServer } from "@/app/auth/actions";
 import { createTenant, switchTenant } from "@/app/tenants/actions";
 import { usePowerSyncControls } from "@/components/providers/powersync-provider";
-import { changeIdentityAfterLocalTeardown } from "@/lib/auth/identity-change";
+import {
+  changeIdentityAfterLocalTeardown,
+  LOCAL_TEARDOWN_UNAVAILABLE_MESSAGE,
+  refreshSessionForActiveTenant,
+  SIGN_OUT_FAILED_MESSAGE,
+} from "@/lib/auth/identity-change";
 import { isUnsyncedLocalDataRefusal } from "@/lib/powersync/local-data-teardown";
 import { useLocalDataChangeGate } from "@/lib/powersync/use-local-data-change-gate";
-import { createClient } from "@/lib/supabase/client";
-
-export const LOCAL_TEARDOWN_UNAVAILABLE_MESSAGE =
-  "La limpieza local aún no está disponible.";
-export const SESSION_REFRESH_FAILED_MESSAGE =
-  "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página.";
-const SIGN_OUT_FAILED_MESSAGE =
-  "No se pudo cerrar la sesión. Revisa tu conexión y vuelve a intentarlo.";
-
-/** The new tenant claim only reaches the browser with a refreshed JWT. */
-export async function refreshSessionForActiveTenant() {
-  let failure: unknown = null;
-  try {
-    const { error } = await createClient().auth.refreshSession();
-    failure = error;
-  } catch (error) {
-    failure = error;
-  }
-  if (failure) {
-    console.error("[tenant-change] refreshSession failed", failure);
-    throw new Error(SESSION_REFRESH_FAILED_MESSAGE, { cause: failure });
-  }
-}
 
 /** Screen wording, so each screen keeps its own term for a tenant. */
 export type TenantSessionCopy = {

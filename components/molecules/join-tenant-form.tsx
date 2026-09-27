@@ -4,11 +4,11 @@ import { useState } from "react";
 import { acceptInvitation } from "@/app/invitations/actions";
 import { Button } from "@/components/ui/button";
 import { usePowerSyncControls } from "@/components/providers/powersync-provider";
-import { changeIdentityAfterLocalTeardown } from "@/lib/auth/identity-change";
 import {
+  changeIdentityAfterLocalTeardown,
   LOCAL_TEARDOWN_UNAVAILABLE_MESSAGE,
   refreshSessionForActiveTenant,
-} from "@/lib/auth/use-tenant-session-actions";
+} from "@/lib/auth/identity-change";
 import {
   pendingUploadsBlockerMessage,
   type LocalDataChangeBlocker,

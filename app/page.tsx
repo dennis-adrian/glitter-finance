@@ -39,6 +39,7 @@ export default async function Home() {
       identity={{
         userId: context.user.id,
         tenantId: context.tenant?.id ?? null,
+        email: context.user.email,
       }}
     >
       <GlitterPosApp

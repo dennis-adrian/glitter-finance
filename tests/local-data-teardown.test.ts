@@ -8,6 +8,7 @@ import {
 } from "@/lib/observability/report-sync-failure";
 import {
   isUnsyncedLocalDataRefusal,
+  localDataIdentityMatches,
   onLocalDataEvent,
   readLocalDataIdentity,
   readUnsyncedLocalWork,
@@ -302,6 +303,40 @@ test("readUnsyncedLocalWork counts queued uploads and failure markers", async ()
     assert.deepEqual(await readUnsyncedLocalWork(db), {
       pendingUploadCount: 3,
       unresolvedFailureCount: 1,
+    });
+  });
+});
+
+test("the identity marker keeps the account email for display only", async () => {
+  await withBrowser(async (storage) => {
+    saveLocalDataIdentity({
+      userId: "user-a",
+      tenantId: "tenant-a",
+      email: "ana@example.com",
+    });
+    const stored = readLocalDataIdentity();
+    assert.deepEqual(stored, {
+      userId: "user-a",
+      tenantId: "tenant-a",
+      email: "ana@example.com",
+    });
+    assert.equal(
+      localDataIdentityMatches(stored, {
+        userId: "user-a",
+        tenantId: "tenant-a",
+      }),
+      true
+    );
+
+    // Markers written before the email existed still parse.
+    storage.setItem(
+      "glitter-pos-local-data-identity-v1",
+      JSON.stringify({ userId: "user-a", tenantId: null })
+    );
+    assert.deepEqual(readLocalDataIdentity(), {
+      userId: "user-a",
+      tenantId: null,
+      email: null,
     });
   });
 });

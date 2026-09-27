@@ -31,6 +31,11 @@ export type LocalDataEvent = keyof typeof localDataEventNames;
 export type LocalDataIdentity = {
   userId: string;
   tenantId: string | null;
+  /**
+   * Display only: tells the next user which account left unsynced work on
+   * this device. Never part of the identity comparison.
+   */
+  email?: string | null;
 };
 
 type CacheStorageLike = Pick<CacheStorage, "delete" | "keys">;
@@ -162,7 +167,11 @@ export function readLocalDataIdentity(): LocalDataIdentity | null {
     ) {
       return null;
     }
-    return { userId: candidate.userId, tenantId: candidate.tenantId };
+    return {
+      userId: candidate.userId,
+      tenantId: candidate.tenantId,
+      email: typeof candidate.email === "string" ? candidate.email : null,
+    };
   } catch {
     return null;
   }
