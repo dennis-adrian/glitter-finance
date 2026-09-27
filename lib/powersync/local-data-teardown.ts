@@ -3,6 +3,7 @@
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { clearLegacyDraftCartStorage } from "@/lib/powersync/draft-cart";
 import { pendingUploadsBlockerMessage } from "@/lib/powersync/local-data-gate";
+import { resetReportedClientFailures } from "@/lib/observability/report-client-failure";
 import { resetReportedSyncFailures } from "@/lib/observability/report-sync-failure";
 import {
   getUnresolvedSyncFailureCount,
@@ -319,6 +320,7 @@ export async function teardownLocalUserData(input: {
   }
 
   resetReportedSyncFailures();
+  resetReportedClientFailures();
 
   let postDestructiveError: unknown = null;
   try {

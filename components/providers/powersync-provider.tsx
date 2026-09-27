@@ -37,6 +37,7 @@ import {
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { reconcileSyncFailures } from "@/lib/powersync/sync-failures";
+import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import { flushPendingSyncFailureTelemetry } from "@/lib/observability/report-sync-failure";
 import {
   planIdentityMismatch,
@@ -320,6 +321,7 @@ export function PowerSyncProvider({
 
     init().catch((error) => {
       console.error("[PowerSync] init failed", error);
+      reportClientFailure("powersync_init", error);
       if (!cancelled) {
         setDb(null);
         setLocalDataError(

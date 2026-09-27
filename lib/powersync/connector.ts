@@ -29,6 +29,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicEnv } from "@/lib/env";
 import { unreferencedProductImagePaths } from "@/lib/product-image-config";
 import { removeProductImageObjects } from "@/lib/product-images";
+import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import { reportPermanentSyncFailure } from "@/lib/observability/report-sync-failure";
 import {
   reconcileSyncFailures,
@@ -410,6 +411,9 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
             transactionId: transaction.transactionId,
             error: recordingError,
           });
+          // Without the marker the device is not shown as blocked, although
+          // the transaction still is.
+          reportClientFailure("powersync_sync_failure_record", recordingError);
         }
         try {
           reportPermanentSyncFailure({

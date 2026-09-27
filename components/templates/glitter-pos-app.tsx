@@ -92,6 +92,7 @@ import {
   productHasInitialMovementLocal,
 } from "@/lib/powersync/write-inventory";
 import { formatBs } from "@/lib/money";
+import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import type {
   inventoryMovements,
   LocalRow,
@@ -394,6 +395,7 @@ export function GlitterPosApp({
         } catch (error) {
           if (isCurrent()) {
             console.error("[PowerSync] initial movement lookup failed", error);
+            reportClientFailure("powersync_initial_movement_lookup", error);
           }
         }
         return;
@@ -438,6 +440,7 @@ export function GlitterPosApp({
           },
           onError: (error) => {
             console.error("[PowerSync] products watch error", error);
+            reportClientFailure("powersync_products_watch", error);
           },
         },
         { signal: controller.signal }
@@ -491,6 +494,7 @@ export function GlitterPosApp({
           },
           onError: (error) => {
             console.error("[PowerSync] inventory_movements watch error", error);
+            reportClientFailure("powersync_inventory_watch", error);
           },
         },
         { signal: controller.signal }
@@ -562,6 +566,7 @@ export function GlitterPosApp({
           },
           onError: (error) => {
             console.error("[PowerSync] tenant_users watch error", error);
+            reportClientFailure("powersync_tenant_users_watch", error);
           },
         },
         { signal: controller.signal }
@@ -639,6 +644,7 @@ export function GlitterPosApp({
       } catch (error) {
         if (isCurrent()) {
           console.error("[PowerSync] sales rebuild failed", error);
+          reportClientFailure("powersync_sales_rebuild", error);
         }
       }
     }
@@ -649,6 +655,7 @@ export function GlitterPosApp({
           onChange: () => rebuildSales(db),
           onError: (error) => {
             console.error("[PowerSync] sales onChange error", error);
+            reportClientFailure("powersync_sales_watch", error);
           },
         },
         {
@@ -710,6 +717,7 @@ export function GlitterPosApp({
       } catch (error) {
         if (isCurrent()) {
           console.error("[PowerSync] draft cart hydrate failed", error);
+          reportClientFailure("powersync_draft_cart_hydrate", error);
           draftCartReadyRef.current = true;
         }
       }
