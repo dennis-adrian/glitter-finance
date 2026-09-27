@@ -62,7 +62,8 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
         },
         destination: "/",
         failureMessage: "No se pudo unir a esta cuenta.",
-        reportFailure: setError,
+        // This form is unmounted once the teardown succeeded.
+        reportFailure: powerSyncControls.reportIdentityChangeFailure,
       });
       if (!navigating) {
         setJoining(false);

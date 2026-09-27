@@ -72,8 +72,6 @@ export function useTenantSessionActions({
     failureMessage: string;
   }) {
     setError(null);
-    const reportFailure = (message: string) =>
-      setError({ action: input.action, message });
     try {
       if (!controls) {
         throw new Error(LOCAL_TEARDOWN_UNAVAILABLE_MESSAGE);
@@ -86,10 +84,12 @@ export function useTenantSessionActions({
         commit: input.commit,
         destination: input.destination,
         failureMessage: input.failureMessage,
-        reportFailure,
+        // This screen is unmounted once the teardown succeeded.
+        reportFailure: controls.reportIdentityChangeFailure,
       });
     } catch (teardownError) {
-      // Only the teardown throws. Nothing changed on the server, and the
+      // Only the teardown throws. Nothing changed on the server, and unless
+      // the wipe failed halfway (which the provider panel reports), the
       // screen that started the action is still mounted.
       console.error(`[${input.action}] local teardown failed`, teardownError);
       const message =
@@ -100,7 +100,7 @@ export function useTenantSessionActions({
         // The gate snapshot was stale; the screen explains the blocker too.
         toast.error(message);
       } else {
-        reportFailure(message);
+        setError({ action: input.action, message });
       }
       return false;
     }

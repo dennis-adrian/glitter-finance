@@ -22,9 +22,6 @@ importers:
       '@powersync/drizzle-driver':
         specifier: ^0.7.3
         version: 0.7.3(@powersync/common@1.53.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(postgres@3.4.9))
-      '@powersync/react':
-        specifier: ^1.10.0
-        version: 1.10.0(@powersync/common@1.53.2)(react@19.2.7)
       '@powersync/web':
         specifier: ^1.38.2
         version: 1.38.2(@journeyapps/wa-sqlite@1.7.0)(@powersync/common@1.53.2)
@@ -1370,12 +1367,6 @@ packages:
     peerDependencies:
       '@powersync/common': ^1.47.0
       drizzle-orm: <1.0.0
-
-  '@powersync/react@1.10.0':
-    resolution: {integrity: sha512-orM29qocbF8zYTBM27j9nPNztyplpbNVaw8djpqxl8N2wESqHTbHOKpatg+Fa5aofgjzmrkiGwevJvCbiWYYWQ==}
-    peerDependencies:
-      '@powersync/common': ^1.51.0
-      react: '*'
 
   '@powersync/web@1.38.2':
     resolution: {integrity: sha512-lAHpqTnywK/wy120HSS2O8IRSYYXDAVJV8opGGOcBQZwbCB1h8vHk4vJDyJ012iWq6onUJHnQOD95KHzGRR+pw==}
@@ -5985,11 +5976,6 @@ snapshots:
       '@powersync/common': 1.53.2
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(postgres@3.4.9)
       tslib: 2.8.1
-
-  '@powersync/react@1.10.0(@powersync/common@1.53.2)(react@19.2.7)':
-    dependencies:
-      '@powersync/common': 1.53.2
-      react: 19.2.7
 
   '@powersync/web@1.38.2(@journeyapps/wa-sqlite@1.7.0)(@powersync/common@1.53.2)':
     dependencies:

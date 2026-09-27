@@ -147,6 +147,7 @@ test("teardown purges local user data before calling server sign-out", async () 
           db,
           powerSyncRequired: true,
           refuseWhenUnsynced: true,
+          onDestructiveStart: () => events.push("destructive-start"),
           cacheStorage,
         }),
       async () => {
@@ -157,6 +158,7 @@ test("teardown purges local user data before calling server sign-out", async () 
     assert.deepEqual(events, [
       "check-sync-failures",
       "check-upload-queue",
+      "destructive-start",
       "teardown-started",
       "clear-cache:glitter-pos-pages",
       "clear-cache:glitter-pos-api-v1",
@@ -222,6 +224,7 @@ test("teardown refuses before any destructive step while uploads are pending", a
             db,
             powerSyncRequired: true,
             refuseWhenUnsynced: true,
+            onDestructiveStart: () => events.push("destructive-start"),
             cacheStorage,
           }),
         async () => {

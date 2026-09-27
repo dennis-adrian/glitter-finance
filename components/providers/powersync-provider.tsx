@@ -2,23 +2,34 @@
 
 // PowerSyncProvider mounts the per-device PowerSyncDatabase, connects it to
 // the PowerSync Cloud instance using the current Supabase session, and
-// exposes it to descendants two ways:
+// exposes it through OptionalPowerSyncContext: always present, null until the
+// db is ready, so app code can subscribe without throwing during the brief
+// async-init window.
 //
-// - via @powersync/react's PowerSyncContext (only present once the db is
-//   ready) for components that want to use library hooks like useQuery.
-// - via our local OptionalPowerSyncContext (always present; value is null
-//   until the db is ready) so app code can subscribe without throwing during
-//   the brief async-init window.
+// The tree has one shape per phase: the local data panel while the data is
+// being prepared, cleared or recovered, and `children` otherwise. Nothing wraps
+// `children` conditionally, so exposing or withdrawing the db never remounts
+// the app in the middle of an action.
 //
 // The web SDK is browser-only (uses WASM + OPFS + workers); imports are
 // lazy-loaded inside useEffect so SSR never touches them.
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { PowerSyncContext } from "@powersync/react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type {
   AbstractPowerSyncDatabase,
   PowerSyncBackendConnector,
 } from "@powersync/web";
+import {
+  LocalDataPanel,
+  LocalDataPanelButton,
+} from "@/components/providers/local-data-panel";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { markInitialSyncCompleted } from "@/lib/powersync/initial-sync";
@@ -44,13 +55,26 @@ type PowerSyncControls = {
    */
   reconnect: () => Promise<void>;
   /**
-   * Disconnects from sync and wipes the local SQLite store + upload queue.
-   * Called during sign out so the next user on this device doesn't read
-   * stale rows that belong to the previous tenant.
+   * Disconnects from sync and wipes the local SQLite store + upload queue so
+   * the next user on this device doesn't read stale rows that belong to the
+   * previous tenant. Refuses with a LocalDataTeardownError, before destroying
+   * anything, while uploads are pending or sync failures are unresolved. Once
+   * it resolves, the provider shows its progress panel instead of the app
+   * until the caller navigates away.
    */
   teardownForLogout: () => Promise<void>;
-  /** Clear every prior-tenant artifact before changing the active tenant. */
+  /** The same wipe, before changing the active tenant. */
   teardownForTenantChange: () => Promise<void>;
+  /**
+   * Shows why the server-side step failed after a successful teardown. The
+   * app is unmounted by then, so the provider panel is the only place left.
+   */
+  reportIdentityChangeFailure: (message: string) => void;
+};
+
+type IdentityChange = {
+  kind: "logout" | "tenant-change";
+  error: string | null;
 };
 
 const PowerSyncControlsContext = createContext<PowerSyncControls | null>(null);
@@ -84,8 +108,12 @@ export function PowerSyncProvider({
   const [localDataReadyIdentity, setLocalDataReadyIdentity] =
     useState<LocalDataIdentity | null>(null);
   const [localDataError, setLocalDataError] = useState<string | null>(null);
+  const [identityChange, setIdentityChange] = useState<IdentityChange | null>(
+    null
+  );
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const connectorRef = useRef<PowerSyncBackendConnector | null>(null);
+  const exposedDbRef = useRef<AbstractPowerSyncDatabase | null>(null);
   const teardownPromiseRef = useRef<Promise<void> | null>(null);
   const localDataWasJustClearedRef = useRef(false);
 
@@ -100,6 +128,7 @@ export function PowerSyncProvider({
     async function init() {
       setLocalDataReadyIdentity(null);
       setLocalDataError(null);
+      setIdentityChange(null);
       setDb(null);
 
       const powerSyncConfigured = isPowerSyncConfigured();
@@ -253,88 +282,6 @@ export function PowerSyncProvider({
     };
   }, [identity.userId, identity.tenantId, initializationAttempt]);
 
-  // Reconnect/teardown closures are kept on a stable ref so the controls
-  // context value doesn't change identity and trigger spurious consumer
-  // re-renders.
-  const controlsRef = useRef<PowerSyncControls>({
-    reconnect: async () => {
-      if (!db || !connectorRef.current) return;
-      await db.disconnect();
-      await db.connect(connectorRef.current);
-    },
-    teardownForLogout: async () => {},
-    teardownForTenantChange: async () => {},
-  });
-  // Refresh the closures when `db` updates so they capture the live instance.
-  controlsRef.current.reconnect = async () => {
-    if (!db || !connectorRef.current) return;
-    await db.disconnect();
-    await db.connect(connectorRef.current);
-    await reconcileSyncFailures(db);
-  };
-  async function teardown(refuseWhenUnsynced: boolean, reinitialize: boolean) {
-    if (teardownPromiseRef.current) {
-      return teardownPromiseRef.current;
-    }
-
-    // A second request between a successful wipe and the replacement
-    // initialization is already safe: the prior local data is gone.
-    if (!db && localDataWasJustClearedRef.current) {
-      return;
-    }
-
-    const activeDb = db;
-    const teardownPromise = (async () => {
-      // Stop exposing the instance before disconnectAndClear can close it.
-      setDb(null);
-      try {
-        await teardownLocalUserData({
-          db: activeDb,
-          powerSyncRequired: isPowerSyncConfigured(),
-          refuseWhenUnsynced,
-        });
-      } catch (error) {
-        if (
-          error instanceof LocalDataTeardownError &&
-          error.stage === "post-destructive"
-        ) {
-          connectorRef.current = null;
-          localDataWasJustClearedRef.current = true;
-          setLocalDataReadyIdentity(null);
-          setInitializationAttempt((attempt) => attempt + 1);
-        } else {
-          // Recoverable checks occur before destructive work, so callers can
-          // keep using the current instance and show their retry message.
-          setDb(activeDb);
-        }
-        throw error;
-      }
-
-      connectorRef.current = null;
-      localDataWasJustClearedRef.current = true;
-      setLocalDataReadyIdentity(null);
-      if (reinitialize) {
-        setInitializationAttempt((attempt) => attempt + 1);
-      }
-    })();
-    teardownPromiseRef.current = teardownPromise;
-
-    try {
-      await teardownPromise;
-    } finally {
-      teardownPromiseRef.current = null;
-    }
-  }
-  const teardownForIdentityChange = (reinitialize: boolean) =>
-    teardown(true, reinitialize);
-  // Keep both domain names: callers use them to make the authenticated action
-  // explicit. Logout must stay disconnected until server sign-out, while a
-  // tenant change rebuilds the provider if its server-side action fails.
-  controlsRef.current.teardownForLogout = () =>
-    teardownForIdentityChange(false);
-  controlsRef.current.teardownForTenantChange = () =>
-    teardownForIdentityChange(true);
-
   const localDataReady = localDataIdentityMatches(
     localDataReadyIdentity,
     identity
@@ -343,54 +290,149 @@ export function PowerSyncProvider({
   // that precedes effect cleanup, rather than after close() has started.
   const exposedDb = localDataReady ? db : null;
 
-  // Always render children inside the OptionalPowerSyncContext so
-  // useOptionalPowerSyncDb() resolves to null (not "outside provider")
-  // before init completes. PowerSyncContext is only mounted once db exists,
-  // so @powersync/react hooks like useQuery/useStatus don't see undefined.
-  return (
-    <PowerSyncControlsContext.Provider value={controlsRef.current}>
-      <OptionalPowerSyncContext.Provider value={exposedDb}>
-        {!localDataReady ? (
-          <div
-            className={
-              loadingLayout === "parent"
-                ? "grid w-full place-items-center py-4"
-                : "grid min-h-dvh place-items-center p-6"
-            }
-            role={localDataError ? "alert" : "status"}
-            aria-live={localDataError ? "assertive" : "polite"}
-            aria-atomic="true"
+  // Controls run from event handlers, after this has pointed them at the
+  // committed instance.
+  useLayoutEffect(() => {
+    exposedDbRef.current = exposedDb;
+  }, [exposedDb]);
+
+  // One object for the provider's lifetime, so the context value never
+  // changes identity. Its members only read refs and call state setters.
+  const [controls] = useState<PowerSyncControls>(() => {
+    function finishTeardown(
+      kind: IdentityChange["kind"],
+      error: string | null
+    ) {
+      connectorRef.current = null;
+      localDataWasJustClearedRef.current = true;
+      setIdentityChange({ kind, error });
+      setLocalDataReadyIdentity(null);
+    }
+
+    async function teardown(kind: IdentityChange["kind"]) {
+      if (teardownPromiseRef.current) {
+        return teardownPromiseRef.current;
+      }
+
+      const activeDb = exposedDbRef.current;
+      // A second request between a successful wipe and the navigation that
+      // follows it is already safe: the prior local data is gone.
+      if (!activeDb && localDataWasJustClearedRef.current) {
+        return;
+      }
+
+      const teardownPromise = (async () => {
+        try {
+          await teardownLocalUserData({
+            db: activeDb,
+            powerSyncRequired: isPowerSyncConfigured(),
+            refuseWhenUnsynced: true,
+            // Stop exposing the instance before disconnectAndClear can close
+            // it. Refusals happen earlier, so they never touch the app.
+            onDestructiveStart: () => setDb(null),
+          });
+        } catch (error) {
+          if (
+            error instanceof LocalDataTeardownError &&
+            error.stage === "post-destructive"
+          ) {
+            // The database is already gone, so the app cannot resume on it.
+            finishTeardown(kind, error.message);
+          } else {
+            // The destructive steps did not complete; callers keep using the
+            // current instance and show their retry message.
+            setDb((currentDb) => currentDb ?? activeDb);
+          }
+          throw error;
+        }
+
+        // Stay on the progress panel: the caller commits the account change
+        // and reloads, so reconnecting the old identity here would only
+        // re-download the data that was just cleared.
+        finishTeardown(kind, null);
+      })();
+      teardownPromiseRef.current = teardownPromise;
+
+      try {
+        await teardownPromise;
+      } finally {
+        teardownPromiseRef.current = null;
+      }
+    }
+
+    return {
+      reconnect: async () => {
+        const activeDb = exposedDbRef.current;
+        const connector = connectorRef.current;
+        if (!activeDb || !connector) return;
+        await activeDb.disconnect();
+        await activeDb.connect(connector);
+        await reconcileSyncFailures(activeDb);
+      },
+      teardownForLogout: () => teardown("logout"),
+      teardownForTenantChange: () => teardown("tenant-change"),
+      reportIdentityChangeFailure: (message) =>
+        setIdentityChange((current) =>
+          current ? { ...current, error: message } : current
+        ),
+    };
+  });
+
+  function renderLocalDataPanel() {
+    if (localDataError) {
+      return (
+        <LocalDataPanel
+          layout={loadingLayout}
+          tone="alert"
+          message={localDataError}
+        >
+          <LocalDataPanelButton
+            onClick={() => setInitializationAttempt((attempt) => attempt + 1)}
           >
-            <section
-              className={
-                loadingLayout === "parent"
-                  ? "w-full text-center"
-                  : "w-full max-w-sm rounded-2xl bg-card p-6 text-center ring-1 ring-foreground/10"
-              }
-            >
-              <p className="text-sm text-muted-foreground">
-                {localDataError ?? "Preparando los datos locales…"}
-              </p>
-              {localDataError ? (
-                <button
-                  type="button"
-                  className="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-                  onClick={() =>
-                    setInitializationAttempt((attempt) => attempt + 1)
-                  }
-                >
-                  Reintentar limpieza segura
-                </button>
-              ) : null}
-            </section>
-          </div>
-        ) : exposedDb ? (
-          <PowerSyncContext.Provider value={exposedDb}>
-            {children}
-          </PowerSyncContext.Provider>
-        ) : (
-          children
-        )}
+            Reintentar limpieza segura
+          </LocalDataPanelButton>
+        </LocalDataPanel>
+      );
+    }
+
+    if (identityChange?.error) {
+      return (
+        <LocalDataPanel
+          layout={loadingLayout}
+          tone="alert"
+          message={identityChange.error}
+          detail="Los datos locales ya se borraron. Recarga la página, o vuelve para prepararlos de nuevo con la sesión actual."
+        >
+          <LocalDataPanelButton onClick={() => window.location.reload()}>
+            Recargar la página
+          </LocalDataPanelButton>
+          <LocalDataPanelButton
+            variant="secondary"
+            onClick={() => setInitializationAttempt((attempt) => attempt + 1)}
+          >
+            Volver
+          </LocalDataPanelButton>
+        </LocalDataPanel>
+      );
+    }
+
+    return (
+      <LocalDataPanel
+        layout={loadingLayout}
+        tone="status"
+        message={
+          identityChange?.kind === "logout"
+            ? "Cerrando sesión…"
+            : "Preparando los datos locales…"
+        }
+      />
+    );
+  }
+
+  return (
+    <PowerSyncControlsContext.Provider value={controls}>
+      <OptionalPowerSyncContext.Provider value={exposedDb}>
+        {localDataReady ? children : renderLocalDataPanel()}
       </OptionalPowerSyncContext.Provider>
     </PowerSyncControlsContext.Provider>
   );

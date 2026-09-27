@@ -267,6 +267,8 @@ export async function teardownLocalUserData(input: {
   db: AbstractPowerSyncDatabase | null;
   powerSyncRequired: boolean;
   refuseWhenUnsynced: boolean;
+  /** Runs once every check passed, right before the first destructive step. */
+  onDestructiveStart?: () => void;
   cacheStorage?: CacheStorageLike;
 }): Promise<void> {
   const { db } = input;
@@ -282,6 +284,7 @@ export async function teardownLocalUserData(input: {
     await assertNoUnsyncedLocalWork(db);
   }
 
+  input.onDestructiveStart?.();
   // Abort UI work before a cache or database operation yields. Local write
   // helpers re-check their assertion inside write transactions, preventing an
   // operation that was already awaiting from committing after this point.
