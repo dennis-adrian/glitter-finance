@@ -21,7 +21,7 @@ import {
   useOptionalPowerSyncDb,
   usePowerSyncControls,
 } from "@/components/providers/powersync-provider";
-import type { UserTenantContext } from "@/lib/auth/user-context";
+import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import {
   getUnresolvedSyncFailures,
   reconcileSyncFailures,

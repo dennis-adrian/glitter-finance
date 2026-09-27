@@ -23,7 +23,7 @@ import {
   useTenantSessionActions,
   type TenantSessionCopy,
 } from "@/lib/auth/use-tenant-session-actions";
-import type { UserTenantContext } from "@/lib/auth/user-context";
+import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import { pendingUploadsBlockerMessage } from "@/lib/powersync/local-data-gate";
 import type { TenantInvitation, TenantMember } from "@/lib/types";
 import { cn } from "@/lib/utils";

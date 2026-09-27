@@ -1,27 +1,13 @@
 "use server";
 
+import { createTenantWithOwner } from "@/lib/auth/memberships";
+import { getDisplayName, parseTenantId } from "@/lib/auth/tenant-context";
 import {
   assertUserIsMember,
-  getDisplayName,
+  getAuthenticatedUser,
   setActiveTenantClaim,
 } from "@/lib/auth/user-context";
 import { db } from "@/lib/db";
-import { tenantUsers, tenants } from "@/lib/db/schema";
-import { createClient } from "@/lib/supabase/server";
-
-const TENANT_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function parseTenantId(tenantId: unknown): string {
-  if (typeof tenantId !== "string") {
-    throw new Error("Identificador de cuenta inválido.");
-  }
-  const normalized = tenantId.trim();
-  if (!TENANT_ID_RE.test(normalized)) {
-    throw new Error("Identificador de cuenta inválido.");
-  }
-  return normalized;
-}
 
 function parseTenantName(name: unknown): string {
   if (typeof name !== "string") {
@@ -36,10 +22,7 @@ function parseTenantName(name: unknown): string {
 
 export async function switchTenant(tenantId: string) {
   const normalizedTenantId = parseTenantId(tenantId);
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthenticatedUser();
 
   if (!user) {
     throw new Error("No has iniciado sesión.");
@@ -51,47 +34,26 @@ export async function switchTenant(tenantId: string) {
 
 export async function createTenant(name: string) {
   const trimmedName = parseTenantName(name);
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthenticatedUser();
 
   if (!user) {
     throw new Error("No has iniciado sesión.");
   }
 
-  const displayName = getDisplayName({
-    email: user.email,
-    user_metadata: user.user_metadata,
-  });
-
-  const tenant = await db.transaction(async (tx) => {
-    const [createdTenant] = await tx
-      .insert(tenants)
-      .values({
-        name: trimmedName,
-        createdByUserId: user.id,
-      })
-      .returning({ id: tenants.id, name: tenants.name });
-
-    if (!createdTenant) {
-      throw new Error("No se pudo crear la cuenta.");
-    }
-
-    await tx.insert(tenantUsers).values({
-      tenantId: createdTenant.id,
+  const membership = await db.transaction((tx) =>
+    createTenantWithOwner(tx, {
+      name: trimmedName,
       userId: user.id,
-      displayName,
-    });
-
-    return createdTenant;
-  });
+      displayName: getDisplayName(user),
+    })
+  );
+  const tenant = { id: membership.tenantId, name: membership.tenantName };
 
   // The tenant + membership are already committed. A failure setting the active
   // claim must NOT propagate as a failed create — otherwise a retry would
-  // create a duplicate tenant. The next ensureUserTenantContext reconciles the
-  // claim, and the client can still switch into the new tenant from the list.
+  // create a duplicate tenant. The next ensureUserTenantContext on '/'
+  // reconciles the claim, and the client can still switch into the new tenant
+  // from the list.
   try {
     await setActiveTenantClaim(user, tenant.id);
   } catch (error) {

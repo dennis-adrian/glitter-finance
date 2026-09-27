@@ -6,7 +6,7 @@ import {
   getInvitationByToken,
   isInvitationValid,
 } from "@/lib/invitations/repository";
-import { ensureUserTenantContext } from "@/lib/auth/user-context";
+import { resolveUserTenantContext } from "@/lib/auth/user-context";
 
 type JoinPageProps = {
   params: Promise<{
@@ -42,7 +42,9 @@ export default async function JoinPage({ params }: JoinPageProps) {
     return <InvalidInvitationScreen />;
   }
 
-  const context = await ensureUserTenantContext();
+  // Read-only on purpose: a user invited before they had any tenant must end
+  // up only in the inviter's tenant, so this render never bootstraps one.
+  const context = await resolveUserTenantContext();
   if (!context) {
     redirect(`/login?next=${encodeURIComponent(`/join/${token}`)}`);
   }
@@ -62,10 +64,13 @@ export default async function JoinPage({ params }: JoinPageProps) {
           )}
           .
         </p>
+        {/* Only a tenant the session's claim already names: that is the one
+            PowerSync would sync here. Without one (no membership yet, or a
+            claim only '/' can repair) the provider syncs nothing. */}
         <PowerSyncProvider
           identity={{
             userId: context.user.id,
-            tenantId: context.tenant?.id ?? null,
+            tenantId: context.claimedTenantId,
             email: context.user.email,
           }}
           loadingLayout="parent"

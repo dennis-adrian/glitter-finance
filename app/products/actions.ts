@@ -2,7 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { ensureUserTenantContext } from "@/lib/auth/user-context";
+import { resolveUserTenantContext } from "@/lib/auth/user-context";
 import {
   buildProductImageObjectPath,
   productImageMaxBytes,
@@ -25,7 +25,7 @@ const PRODUCT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function requireTenantId() {
-  const context = await ensureUserTenantContext();
+  const context = await resolveUserTenantContext();
 
   if (!context?.tenant) {
     throw new Error("Se requiere una cuenta para gestionar productos.");

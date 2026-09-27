@@ -54,7 +54,7 @@ import type {
   ToastMessage,
 } from "@/lib/types";
 import type { View } from "@/lib/views";
-import type { UserTenantContext } from "@/lib/auth/user-context";
+import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { SyncStatusPill } from "@/components/molecules/sync-status-pill";

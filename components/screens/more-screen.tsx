@@ -17,7 +17,7 @@ import {
   useTenantSessionActions,
   type TenantSessionCopy,
 } from "@/lib/auth/use-tenant-session-actions";
-import type { UserTenantContext } from "@/lib/auth/user-context";
+import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import {
   pendingUploadsBlockerMessage,
   type LocalDataChangeBlocker,

@@ -1,5 +1,5 @@
 import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
-import { ensureMembership } from "@/lib/auth/user-context";
+import { ensureMembership } from "@/lib/auth/memberships";
 import { db } from "@/lib/db";
 import { tenantInvitations, tenants } from "@/lib/db/schema";
 import {

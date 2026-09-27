@@ -1,6 +1,6 @@
 "use server";
 
-import { ensureUserTenantContext } from "@/lib/auth/user-context";
+import { resolveUserTenantContext } from "@/lib/auth/user-context";
 import {
   createSaleForTenant,
   refundSaleForTenant,
@@ -17,7 +17,7 @@ export type CreateSaleActionInput = {
 };
 
 export async function createSale(input: CreateSaleActionInput) {
-  const context = await ensureUserTenantContext();
+  const context = await resolveUserTenantContext();
 
   if (!context?.tenant) {
     throw new Error("Se requiere una cuenta para registrar una venta.");
@@ -35,7 +35,7 @@ export async function createSale(input: CreateSaleActionInput) {
 }
 
 export async function voidSale(saleId: string) {
-  const context = await ensureUserTenantContext();
+  const context = await resolveUserTenantContext();
 
   if (!context?.tenant) {
     throw new Error("Se requiere una cuenta para anular una venta.");
@@ -49,7 +49,7 @@ export async function voidSale(saleId: string) {
 }
 
 export async function refundSale(saleId: string, reason?: string) {
-  const context = await ensureUserTenantContext();
+  const context = await resolveUserTenantContext();
 
   if (!context?.tenant) {
     throw new Error("Se requiere una cuenta para registrar un reembolso.");

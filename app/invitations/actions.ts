@@ -1,9 +1,10 @@
 "use server";
 
 import { randomBytes } from "crypto";
+import { getDisplayName } from "@/lib/auth/tenant-context";
 import {
-  ensureUserTenantContext,
-  getDisplayName,
+  getAuthenticatedUser,
+  resolveUserTenantContext,
   setActiveTenantClaim,
 } from "@/lib/auth/user-context";
 import { DEFAULT_INVITE_TTL_MS } from "@/lib/invitations/constants";
@@ -17,14 +18,13 @@ import {
   buildInviteLink,
 } from "@/lib/invitations/validation";
 import { getRequestOrigin } from "@/lib/request-origin";
-import { createClient } from "@/lib/supabase/server";
 
 function generateInviteToken() {
   return randomBytes(32).toString("base64url");
 }
 
 export async function createInvitation() {
-  const context = await ensureUserTenantContext();
+  const context = await resolveUserTenantContext();
   if (!context?.tenant) {
     throw new Error("No se encontró una cuenta activa.");
   }
@@ -60,7 +60,7 @@ export async function createInvitation() {
 }
 
 export async function revokeInvitation(invitationId: string) {
-  const context = await ensureUserTenantContext();
+  const context = await resolveUserTenantContext();
   if (!context?.tenant) {
     throw new Error("No se encontró una cuenta activa.");
   }
@@ -69,10 +69,7 @@ export async function revokeInvitation(invitationId: string) {
 }
 
 export async function acceptInvitation(token: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthenticatedUser();
 
   // The join page already gates unauthenticated users to /login; this is a
   // defensive guard. Throw (rather than redirect) so the calling client form
@@ -82,10 +79,7 @@ export async function acceptInvitation(token: string) {
     throw new Error("Tu sesión expiró. Vuelve a iniciar sesión.");
   }
 
-  const displayName = getDisplayName({
-    email: user.email,
-    user_metadata: user.user_metadata,
-  });
+  const displayName = getDisplayName(user);
 
   // Validity check + membership write happen in one transaction (with the
   // invitation row locked) so a concurrent revoke/expiry can't slip between
@@ -95,7 +89,7 @@ export async function acceptInvitation(token: string) {
 
   // The membership is already committed — joining succeeded. A failure flipping
   // the active-tenant claim must NOT surface as "accept failed" (matching
-  // createTenant). The next ensureUserTenantContext reconciles the claim.
+  // createTenant). The next ensureUserTenantContext on '/' reconciles the claim.
   try {
     await setActiveTenantClaim(user, tenantId);
   } catch (error) {
