@@ -1,4 +1,8 @@
 import type { EmailOtpType } from "@supabase/supabase-js";
+import {
+  buildUpdatePasswordPath,
+  isUpdatePasswordPath,
+} from "@/lib/auth/password-reset";
 import { sanitizeRedirectPath } from "@/lib/auth/redirect";
 import { isAbsoluteHttpUrl } from "@/lib/invitations/validation";
 
@@ -69,5 +73,18 @@ export function resolveEmailLinkNext(
   const url = new URL(next, "http://localhost");
   return PASS_THROUGH_PATHS.has(url.pathname)
     ? sanitizeRedirectPath(url.searchParams.get("next"), origin)
+    : next;
+}
+
+/**
+ * Where a verified link goes. A recovery link always reaches the password
+ * form, whatever its `next` says, and the form continues to that `next`.
+ */
+export function resolveEmailLinkDestination(
+  type: EmailLinkType,
+  next: string
+): string {
+  return type === "recovery" && !isUpdatePasswordPath(next)
+    ? buildUpdatePasswordPath(next)
     : next;
 }

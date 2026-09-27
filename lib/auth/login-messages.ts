@@ -15,15 +15,24 @@ export const LOGIN_ERROR_MESSAGES = {
   account_preparation_failed: "No se pudo preparar la cuenta.",
   email_link_invalid:
     "El enlace no es válido o ya venció. Si ya confirmaste tu correo, iniciá sesión con tu contraseña.",
+  password_reset_link_invalid:
+    "El enlace para cambiar la contraseña no es válido o ya venció. Pedí uno nuevo.",
 } as const;
 
 export const LOGIN_STATUS_MESSAGES = {
   signup_check_email:
     "Cuenta creada. Revisa tu correo electrónico para confirmarla y luego inicia sesión.",
+  // The same text whether or not the account exists, so the form does not
+  // tell anyone which emails have an account.
+  password_reset_requested:
+    "Si existe una cuenta con ese correo, te enviamos un enlace para crear una contraseña nueva. Revisá también la carpeta de spam.",
 } as const;
 
 export type LoginErrorCode = keyof typeof LOGIN_ERROR_MESSAGES;
 export type LoginStatusCode = keyof typeof LOGIN_STATUS_MESSAGES;
+
+/** The /login screens a redirect can open (the default is the welcome). */
+export type LoginMode = "signin" | "signup" | "reset";
 
 function lookup<Code extends string>(
   messages: Readonly<Record<Code, string>>,

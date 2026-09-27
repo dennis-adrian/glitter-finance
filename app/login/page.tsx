@@ -1,16 +1,28 @@
 import Link from "next/link";
-import { BarChart2, CheckCircle2, ChevronLeft, WifiOff } from "lucide-react";
+import { BarChart2, CheckCircle2, WifiOff } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { AuthForm } from "@/components/molecules/auth-form";
+import { PasswordResetRequestForm } from "@/components/molecules/password-reset-request-form";
+import {
+  AuthPageHeader,
+  AuthPageShell,
+} from "@/components/templates/auth-page-shell";
 import {
   loginErrorMessage,
   loginStatusMessage,
+  type LoginMode,
 } from "@/lib/auth/login-messages";
 import { resolveAuthRedirectPath } from "@/lib/auth/oauth";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { cn } from "@/lib/utils";
 
-type AuthMode = "welcome" | "signin" | "signup";
+type AuthMode = "welcome" | LoginMode;
+
+const screenTitles: Record<LoginMode, string> = {
+  signin: "Iniciar Sesión",
+  signup: "Crear Cuenta",
+  reset: "Recuperar Contraseña",
+};
 
 type LoginPageProps = {
   searchParams: Promise<{
@@ -44,6 +56,12 @@ const benefits = [
 
 function firstValue(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function parseLoginMode(value?: string): LoginMode | null {
+  return value === "signin" || value === "signup" || value === "reset"
+    ? value
+    : null;
 }
 
 function authHref(mode: AuthMode, next: string) {
@@ -120,31 +138,17 @@ function AuthScreen({
   error,
   message,
 }: {
-  mode: Exclude<AuthMode, "welcome">;
+  mode: LoginMode;
   next: string;
   error?: string;
   message?: string;
 }) {
-  const isSignup = mode === "signup";
-
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <header className="flex items-center gap-3 px-4 pt-[max(28px,env(safe-area-inset-top))] pb-6">
-        <Link
-          href={authHref("welcome", next)}
-          aria-label="Volver"
-          className="grid h-8 w-9 shrink-0 place-items-center rounded-full bg-[#f4efe6] text-[#1e2d2b] transition-colors hover:bg-[#e9e1d5] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40"
-        >
-          <ChevronLeft
-            aria-hidden="true"
-            className="size-4"
-            strokeWidth={2.5}
-          />
-        </Link>
-        <h1 className="font-heading text-[28px] leading-[34px] font-extrabold text-[#1e2d2b]">
-          {isSignup ? "Crear Cuenta" : "Iniciar Sesión"}
-        </h1>
-      </header>
+      <AuthPageHeader
+        title={screenTitles[mode]}
+        backHref={authHref(mode === "reset" ? "signin" : "welcome", next)}
+      />
 
       <div className="flex flex-1 flex-col px-6">
         {error ? (
@@ -164,11 +168,22 @@ function AuthScreen({
           </div>
         ) : null}
 
-        <AuthForm
-          mode={mode}
-          next={next}
-          alternateHref={authHref(isSignup ? "signin" : "signup", next)}
-        />
+        {mode === "reset" ? (
+          <PasswordResetRequestForm
+            next={next}
+            signInHref={authHref("signin", next)}
+          />
+        ) : (
+          <AuthForm
+            mode={mode}
+            next={next}
+            alternateHref={authHref(
+              mode === "signup" ? "signin" : "signup",
+              next
+            )}
+            passwordResetHref={authHref("reset", next)}
+          />
+        )}
       </div>
     </div>
   );
@@ -181,23 +196,17 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   // Codes only: unknown values (or free text) show nothing.
   const error = loginErrorMessage(firstValue(params.error)) ?? undefined;
   const message = loginStatusMessage(firstValue(params.message)) ?? undefined;
-  const requestedMode = firstValue(params.mode);
   const mode: AuthMode =
-    requestedMode === "signup"
-      ? "signup"
-      : requestedMode === "signin" || error || message
-        ? "signin"
-        : "welcome";
+    parseLoginMode(firstValue(params.mode)) ??
+    (error || message ? "signin" : "welcome");
 
   return (
-    <main className="grid min-h-dvh bg-[#f2f2f2] text-[#1a2e2c] sm:place-items-center sm:p-4">
-      <section className="flex min-h-dvh w-full max-w-[402px] flex-col overflow-hidden bg-[#fffdf8] shadow-[0_16px_32px_rgba(45,27,20,0.06)] sm:h-[min(874px,calc(100dvh-32px))] sm:min-h-0 sm:rounded-[32px]">
-        {mode === "welcome" ? (
-          <WelcomeScreen next={next} />
-        ) : (
-          <AuthScreen mode={mode} next={next} error={error} message={message} />
-        )}
-      </section>
-    </main>
+    <AuthPageShell>
+      {mode === "welcome" ? (
+        <WelcomeScreen next={next} />
+      ) : (
+        <AuthScreen mode={mode} next={next} error={error} message={message} />
+      )}
+    </AuthPageShell>
   );
 }

@@ -14,6 +14,13 @@ import {
 } from "@/lib/auth/signup-error";
 import { LOGIN_ERROR_MESSAGES } from "@/lib/auth/login-messages";
 import { newPasswordError } from "@/lib/auth/password";
+import {
+  buildUpdatePasswordPath,
+  getPasswordUpdateErrorMessage,
+  isPasswordResetSessionError,
+  PASSWORD_RESET_ORIGIN_UNAVAILABLE_MESSAGE,
+  resolvePasswordUpdateNext,
+} from "@/lib/auth/password-reset";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import { isAbsoluteHttpUrl } from "@/lib/invitations/validation";
 import { getRequestOrigin } from "@/lib/request-origin";
@@ -24,6 +31,14 @@ export type SignUpState = {
 };
 
 export type SignInState = {
+  error: string | null;
+};
+
+export type PasswordResetRequestState = {
+  error: string | null;
+};
+
+export type UpdatePasswordState = {
   error: string | null;
 };
 
@@ -203,6 +218,117 @@ export async function signUpWithPassword(
     redirect(
       buildLoginRedirectPath({ error: "account_preparation_failed" }, next)
     );
+  }
+
+  redirect(next);
+}
+
+/**
+ * Sends the password recovery email. The user sees the same message
+ * whatever Supabase answers: it stays silent for an email without an
+ * account but can rate-limit or fail to send only for a real one, so any
+ * difference would tell which emails have an account.
+ */
+export async function requestPasswordReset(
+  _previousState: PasswordResetRequestState,
+  formData: FormData
+): Promise<PasswordResetRequestState> {
+  const email = getFormString(formData, "email").trim();
+  const origin = await getRequestOrigin();
+  const next = resolveAuthRedirectPath(
+    getFormString(formData, "next") || null,
+    origin
+  );
+  // The callback URL, as for sign-up: the hosted redirect allow lists accept
+  // it, and the recovery email passes it back as `next` (see
+  // lib/auth/email-link.ts), which leads to the password form.
+  const redirectTo = origin
+    ? buildAuthCallbackUrl(origin, buildUpdatePasswordPath(next))
+    : null;
+
+  if (!email) {
+    return { error: "Ingresá tu correo electrónico." };
+  }
+  if (!redirectTo) {
+    return { error: PASSWORD_RESET_ORIGIN_UNAVAILABLE_MESSAGE };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+    if (error) {
+      console.error("[auth] Supabase rejected a password reset request", {
+        code: error.code ?? null,
+        name: error.name,
+        status: error.status ?? null,
+      });
+    }
+  } catch (err) {
+    console.error("[auth] Failed to request a password reset", err);
+  }
+
+  redirect(
+    buildLoginRedirectPath({ message: "password_reset_requested" }, next)
+  );
+}
+
+/**
+ * Sets a new password for the signed-in user: the session the recovery
+ * link opened (app/auth/confirm), or any other one.
+ */
+export async function updatePassword(
+  _previousState: UpdatePasswordState,
+  formData: FormData
+): Promise<UpdatePasswordState> {
+  const password = getFormString(formData, "password");
+  const confirmPassword = getFormString(formData, "confirmPassword");
+  const origin = await getRequestOrigin();
+  const next = resolvePasswordUpdateNext(
+    getFormString(formData, "next") || null,
+    origin
+  );
+
+  const passwordError = newPasswordError(password, confirmPassword);
+  if (passwordError) {
+    return { error: passwordError };
+  }
+
+  const updateResult = await (async () => {
+    try {
+      const supabase = await createClient();
+      return await supabase.auth.updateUser({ password });
+    } catch (err) {
+      console.error("[auth] Failed to update the password", err);
+      return null;
+    }
+  })();
+
+  if (!updateResult) {
+    return {
+      error:
+        "No se pudo conectar con el servicio de inicio de sesión. Intentá de nuevo.",
+    };
+  }
+
+  const { error } = updateResult;
+
+  if (error) {
+    console.error("[auth] Supabase rejected the password update", {
+      code: error.code ?? null,
+      name: error.name,
+      status: error.status ?? null,
+    });
+    if (isPasswordResetSessionError(error)) {
+      redirect(
+        buildLoginRedirectPath(
+          { error: "password_reset_link_invalid", mode: "reset" },
+          next
+        )
+      );
+    }
+    return { error: getPasswordUpdateErrorMessage(error) };
   }
 
   redirect(next);

@@ -1,5 +1,6 @@
 import type {
   LoginErrorCode,
+  LoginMode,
   LoginStatusCode,
 } from "@/lib/auth/login-messages";
 import { sanitizeRedirectPath } from "@/lib/auth/redirect";
@@ -56,10 +57,17 @@ export function resolveAuthRedirectPath(
  * page maps them to its own wording (lib/auth/login-messages.ts).
  */
 export function buildLoginRedirectPath(
-  params: { error?: LoginErrorCode; message?: LoginStatusCode },
+  params: {
+    error?: LoginErrorCode;
+    message?: LoginStatusCode;
+    mode?: LoginMode;
+  },
   next: string
 ): string {
   const search = new URLSearchParams();
+  if (params.mode) {
+    search.set("mode", params.mode);
+  }
   if (params.error) {
     search.set("error", params.error);
   }

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
   parseEmailLinkType,
+  resolveEmailLinkDestination,
   resolveEmailLinkNext,
 } from "@/lib/auth/email-link";
 import { buildLoginRedirectPath } from "@/lib/auth/oauth";
@@ -17,8 +18,15 @@ export async function GET(request: NextRequest) {
     requestUrl.searchParams.get("next"),
     requestUrl.origin
   );
+  // A failed recovery link opens the reset form again, to ask for a new
+  // email.
   const errorUrl = new URL(
-    buildLoginRedirectPath({ error: "email_link_invalid" }, next),
+    buildLoginRedirectPath(
+      type === "recovery"
+        ? { error: "password_reset_link_invalid", mode: "reset" }
+        : { error: "email_link_invalid" },
+      next
+    ),
     requestUrl.origin
   );
 
@@ -46,5 +54,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(errorUrl);
   }
 
-  return NextResponse.redirect(new URL(next, requestUrl.origin));
+  return NextResponse.redirect(
+    new URL(resolveEmailLinkDestination(type, next), requestUrl.origin)
+  );
 }
