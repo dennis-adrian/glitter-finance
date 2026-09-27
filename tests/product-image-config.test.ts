@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import {
@@ -53,6 +54,15 @@ test("image messages follow the configured limits", () => {
     null
   );
   assert.equal(productImageFileError({ size: 1, type: "image/png" }), null);
+});
+
+test("a server action body fits the largest photo Storage accepts", () => {
+  // Without PowerSync the photo is sent to the uploadProductImage action.
+  const config = readFileSync("next.config.ts", "utf8");
+  const limit = /bodySizeLimit:\s*"(\d+)mb"/.exec(config)?.[1];
+  assert.ok(limit, "next.config.ts sets serverActions.bodySizeLimit in mb");
+  // Next parses "mb" as 1024 * 1024 bytes; leave room for the multipart parts.
+  assert.ok(Number(limit) * 1024 * 1024 >= productImageMaxBytes + 64 * 1024);
 });
 
 test("placeholder paths name a known tone or fall back to the default", () => {

@@ -21,6 +21,19 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  experimental: {
+    serverActions: {
+      // Without PowerSync, a product photo reaches Storage through the
+      // uploadProductImage action, whose body Next caps at 1 MB by default.
+      // The editor reduces photos first, but a large transparent PNG, or a
+      // photo the browser could not reduce, can still be bigger, up to the
+      // productImageMaxBytes (5 MB) Storage accepts. The extra 1 MB covers
+      // the multipart overhead. Vercel refuses request bodies over 4.5 MB
+      // before they reach the action, so there the largest photos still fail
+      // (the product itself is saved first, on its own).
+      bodySizeLimit: "6mb",
+    },
+  },
   async headers() {
     return [
       {
