@@ -3,6 +3,7 @@
 import { defaultCache } from "@serwist/turbopack/worker";
 import {
   CacheableResponsePlugin,
+  CacheFirst,
   ExpirationPlugin,
   NetworkFirst,
   NetworkOnly,
@@ -16,6 +17,7 @@ import type {
 } from "serwist";
 import {
   PAGE_CACHE_NAME,
+  POWERSYNC_WASM_CACHE_NAME,
   STATIC_CACHE_NAME,
   SW_CACHE_ID,
 } from "../lib/pwa/cache-names";
@@ -78,6 +80,23 @@ const runtimeCaching: RuntimeCaching[] = [
       plugins: [
         new CacheableResponsePlugin({ statuses: [200] }),
         new ExpirationPlugin({ maxEntries: 16 }),
+      ],
+    }),
+  },
+  // PowerSync's SQLite .wasm. The one the app loads is precached
+  // (lib/pwa/powersync-precache.ts); this rule keeps any other one available
+  // offline, rather than in defaultCache's "others", which expires in a day.
+  // The names are content hashes, so a cached file is never stale.
+  {
+    matcher: ({ sameOrigin, url }) =>
+      sameOrigin &&
+      url.pathname.startsWith("/@powersync/") &&
+      url.pathname.endsWith(".wasm"),
+    handler: new CacheFirst({
+      cacheName: POWERSYNC_WASM_CACHE_NAME,
+      plugins: [
+        new CacheableResponsePlugin({ statuses: [200] }),
+        new ExpirationPlugin({ maxEntries: 4 }),
       ],
     }),
   },

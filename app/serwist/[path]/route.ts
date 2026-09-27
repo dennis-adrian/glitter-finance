@@ -1,4 +1,15 @@
 import { createSerwistRoute } from "@serwist/turbopack";
+import {
+  planPowerSyncPrecache,
+  readPowerSyncAssets,
+} from "@/lib/pwa/powersync-precache";
+
+// Only the PowerSync files the app loads, including the SQLite .wasm an
+// offline start needs.
+const powerSyncPrecache = planPowerSyncPrecache(readPowerSyncAssets());
+if (powerSyncPrecache.warning) {
+  console.warn(`[serwist] ${powerSyncPrecache.warning}`);
+}
 
 export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
   createSerwistRoute({
@@ -7,10 +18,12 @@ export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
     globPatterns: [
       "public/**/*.{js,css,html,ico,png,svg}",
       ".next/static/**/*.{js,css}",
+      ...powerSyncPrecache.include,
     ],
     globIgnores: [
       "**/node_modules/**/*",
       "public/serwist/**/*",
+      ...powerSyncPrecache.ignore,
       ".next/cache/**/*",
       ".next/server/**/*",
       ".next/trace",

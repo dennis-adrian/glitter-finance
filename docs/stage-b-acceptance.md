@@ -88,14 +88,17 @@ Expected:
 2. Close the PWA.
 3. Enable airplane mode.
 4. Relaunch the installed PWA.
-5. Close it again, disable airplane mode, sign out, enable airplane mode and
+5. Leave the PWA closed and offline for more than 24 hours, then relaunch it
+   in airplane mode again.
+6. Close it again, disable airplane mode, sign out, enable airplane mode and
    relaunch the installed PWA.
 
 Expected:
 
-- Step 4 opens Sell Mode from the saved app shell and local PowerSync data,
-  not the "Sin conexión" screen.
-- Step 5 shows the "Sin conexión" screen: signing out removed the saved app
+- Steps 4 and 5 open Sell Mode from the saved app shell and local PowerSync
+  data, not the "Sin conexión" screen. Neither the shell nor the PowerSync
+  SQLite files expire.
+- Step 6 shows the "Sin conexión" screen: signing out removed the saved app
   shell. After disabling airplane mode, "Reintentar" opens the login screen.
 - First-ever offline login is not required and remains out of scope.
 
