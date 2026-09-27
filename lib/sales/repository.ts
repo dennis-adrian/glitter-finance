@@ -14,7 +14,7 @@ import {
   priceSale,
   type SaleLineRequest,
 } from "@/lib/sales/pricing";
-import { canonicalizeCategory } from "@/lib/sample-data";
+import { canonicalizeCategory } from "@/lib/categories";
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
 import { normalizeNote } from "@/lib/validation";
 

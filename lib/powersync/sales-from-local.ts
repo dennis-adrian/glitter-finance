@@ -15,7 +15,7 @@ import type {
   saleLines,
   sales,
 } from "@/lib/db/client-schema";
-import { canonicalizeCategory } from "@/lib/sample-data";
+import { canonicalizeCategory } from "@/lib/categories";
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
 
 export type LocalSaleRow = LocalRow<typeof sales>;

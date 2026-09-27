@@ -1,5 +1,5 @@
 import type { Product } from "@/lib/types";
-import { canonicalizeCategory } from "@/lib/sample-data";
+import { canonicalizeCategory } from "@/lib/categories";
 import {
   placeholderImageTone,
   placeholderImageTones,

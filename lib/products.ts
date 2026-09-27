@@ -5,7 +5,7 @@ import {
   defaultPlaceholderImageTone,
   encodePlaceholderImagePath,
 } from "@/lib/product-image-config";
-import { canonicalizeCategory } from "@/lib/sample-data";
+import { canonicalizeCategory } from "@/lib/categories";
 import type { Product, ProductInput } from "@/lib/types";
 import { characterCount } from "@/lib/validation";
 

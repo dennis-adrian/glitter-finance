@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { CategoryRail } from "@/components/molecules/category-rail";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { ProductCatalogCard } from "@/components/molecules/product-catalog-card";
-import { categories } from "@/lib/sample-data";
+import { categories } from "@/lib/categories";
 import type { Product } from "@/lib/types";
 import { getProductStock } from "@/lib/inventory";
 

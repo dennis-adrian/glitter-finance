@@ -40,7 +40,7 @@ import {
 } from "@/lib/product-image-config";
 import { downscaleProductImage } from "@/lib/product-image-downscale";
 import { emptyProduct, PRODUCT_NAME_MAX_LENGTH } from "@/lib/products";
-import { canonicalizeCategory, categories } from "@/lib/sample-data";
+import { canonicalizeCategory, categories } from "@/lib/categories";
 import type { Product } from "@/lib/types";
 import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import {

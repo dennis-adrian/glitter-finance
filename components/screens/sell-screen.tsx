@@ -7,7 +7,7 @@ import { CategoryRail } from "@/components/molecules/category-rail";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { ProductTile } from "@/components/molecules/product-tile";
 import { CheckoutDock } from "@/components/organisms/checkout-dock";
-import { categories } from "@/lib/sample-data";
+import { categories } from "@/lib/categories";
 import type { Product } from "@/lib/types";
 
 type SellScreenProps = {
