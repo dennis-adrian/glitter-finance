@@ -6,18 +6,10 @@ import {
 } from "crypto";
 import { getServerEnv } from "@/lib/env";
 
-function requireSecretKey(): string {
-  const secret = getServerEnv().invitationSecretKey;
-  if (!secret) {
-    throw new Error(
-      "Missing required environment variable: INVITATION_SECRET_KEY"
-    );
-  }
-  return secret;
-}
-
 function deriveKey(info: string): Buffer {
-  return createHmac("sha256", info).update(requireSecretKey()).digest();
+  return createHmac("sha256", info)
+    .update(getServerEnv().invitationSecretKey)
+    .digest();
 }
 
 function encryptionKey(): Buffer {

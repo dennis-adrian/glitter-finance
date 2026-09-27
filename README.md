@@ -69,7 +69,14 @@ Copy `.env.example` to `.env.local` and fill in:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY`
+- `INVITATION_SECRET_KEY` (any long random string locally, e.g.
+  `openssl rand -base64 32`; keep it stable per environment, since changing it
+  invalidates existing invitation links)
 - `DATABASE_URL`
+
+The server checks all five when it starts (`assertServerEnv` in `lib/env.ts`,
+called from `instrumentation.ts`) and refuses to serve requests while any is
+missing, so a misconfigured deploy fails at once, `/api/health` included.
 
 **Local-only (no PowerSync):** leave `NEXT_PUBLIC_POWERSYNC_URL` empty. The app
 loads products and sales from Supabase on the server and uses server actions for

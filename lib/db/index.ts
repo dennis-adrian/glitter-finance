@@ -1,12 +1,9 @@
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
+import { getDatabaseUrl } from "@/lib/env";
 
-const connectionString = process.env.DATABASE_URL;
-
-if (!connectionString) {
-  throw new Error("Missing required environment variable: DATABASE_URL");
-}
+const connectionString = getDatabaseUrl();
 
 const globalForDb = globalThis as unknown as {
   glitterPostgres?: ReturnType<typeof postgres>;
