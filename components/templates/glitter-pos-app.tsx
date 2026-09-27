@@ -13,6 +13,7 @@ import {
   refundSale as refundSaleAction,
   voidSale as voidSaleAction,
 } from "@/app/sales/actions";
+import { flushSync } from "react-dom";
 import { toast as sonnerToast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { BottomNav } from "@/components/organisms/bottom-nav";
@@ -1156,11 +1157,16 @@ export function GlitterPosApp({
         saleId = sale.id;
       }
       work.assertCurrent();
-      setCompletedSale({
-        ...summary,
-        saleId,
-        createdAt: new Date().toISOString(),
-      });
+      // Commit the summary before the route changes: the route store
+      // re-renders synchronously, and the confirmation screen redirects to
+      // Vender if it renders without a sale.
+      flushSync(() =>
+        setCompletedSale({
+          ...summary,
+          saleId,
+          createdAt: new Date().toISOString(),
+        })
+      );
       // Replace checkout so Back from the confirmation doesn't reopen it.
       navigate({ view: "saleComplete" }, { replace: true });
     } catch (error) {
