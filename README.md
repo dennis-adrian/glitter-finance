@@ -360,8 +360,16 @@ Drizzle does **not** apply migrations in this project, and does **not** own the 
 - **Things Drizzle cannot model.** RLS policies, `auth.users` foreign keys,
   storage policies, `ALTER PUBLICATION`, triggers, and grants are timestamped
   hand-written SQL under `supabase/manual/` and run in the SQL editor after
-  `db:push` (see Hand-written SQL below). Legacy hand-written files still in
-  `supabase/migrations/` from before this split are left as-applied history.
+  `db:push` (see Hand-written SQL below). The hand-written files already in
+  `supabase/migrations/` stay there as applied history, and `db:push` applies
+  them: the custom Drizzle migrations from before this split
+  (`20260607185713`, `20260607185822` and `20260610012303`, all in the Drizzle
+  journal), and `20260628210000_tenant_invitations_rls.sql`, the one sanctioned
+  exception. That file (`auth.users` FKs, `tenant_invitations` RLS and its
+  revoke-only trigger) came after the split and sits outside the Drizzle
+  journal. Moving it would break `db:push` on every environment that has
+  applied it, so it stays; new hand-written SQL always goes in
+  `supabase/manual/`.
 
 ### Daily commands
 

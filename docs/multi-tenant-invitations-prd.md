@@ -133,8 +133,8 @@ A new `uuid` column on `tenants` recording the creator.
 - Declared in `lib/db/schema.ts` as a plain `uuid` (Drizzle cannot model the
   `auth.users` foreign key); **nullable** so existing rows and the
   Drizzle-generated migration don't need a backfill default.
-- The `auth.users` FK (`ON DELETE SET NULL`) is added in hand-written SQL under
-  `supabase/manual/` (§6.2), matching the project rule for `auth.users` FKs.
+- The `auth.users` FK (`ON DELETE SET NULL`) is added in hand-written SQL
+  (§6.2).
 - Set in **both** tenant-creation paths: the sign-in bootstrap
   (`ensureUserTenantContext`) and the new explicit `createTenant` action.
 - No permission is derived from it in this release.
@@ -348,10 +348,15 @@ personal tenant for them:
 - **No `lib/db/client-schema.ts` change** — `tenant_invitations` does not sync,
   and `tenant_users` already exists client-side.
 
-### 6.2 Hand-written SQL (`supabase/manual/`, `auth.users` FKs + RLS)
+### 6.2 Hand-written SQL (`auth.users` FKs + RLS)
 
-A timestamped file under `supabase/manual/`, run in the SQL editor after
-`pnpm db:push` (per the project rules for `auth.users` FKs and RLS):
+This SQL shipped as
+`supabase/migrations/20260628210000_tenant_invitations_rls.sql`, so
+`pnpm db:push` applies it with the Drizzle migration; there is no separate
+manual step. It is the one sanctioned exception to the project rule that
+hand-written SQL lives in `supabase/manual/` (see `CLAUDE.md`): it sits outside
+the Drizzle journal, and moving it now would break `db push` on every
+environment that has applied it. The file contains:
 
 - `tenants.created_by_user_id` → `auth.users(id) ON DELETE SET NULL`.
 - `tenant_invitations.created_by_user_id` → `auth.users(id) ON DELETE SET NULL`
@@ -366,6 +371,9 @@ A timestamped file under `supabase/manual/`, run in the SQL editor after
   - UPDATE (revoke) `USING current_user_has_tenant(tenant_id)`
     `WITH CHECK current_user_has_tenant(tenant_id)`.
   - No DELETE policy (invitations are revoked, not deleted).
+- A `BEFORE UPDATE` trigger (`tenant_invitations_revoke_only_update`) for every
+  writer: an update may only revoke an invitation once (set `revoked_at`), apart
+  from the `created_by_user_id` clear done by the FK above.
 
 > The redeem path reads an invitation **before** the user is a member, so it
 > cannot rely on the member-only SELECT policy. That is fine: redemption runs in
@@ -398,11 +406,10 @@ tenant by writing a `tenant_users` row through PostgREST.
 
 Lighter than the inventory feature because there is no new synced table:
 
-1. `pnpm db:push` — Drizzle migration (the `tenants` column +
-   `tenant_invitations` table).
-2. Run the manual SQL from §6.2 in the Supabase SQL editor (FKs + RLS), against
-   **every** environment.
-3. Ship the app build (server actions, `/join` route, Settings UI). No PowerSync
+1. `pnpm db:push` — the Drizzle migration (the `tenants` column +
+   `tenant_invitations` table) and the hand-written SQL from §6.2 (FKs + RLS),
+   against **every** environment.
+2. Ship the app build (server actions, `/join` route, Settings UI). No PowerSync
    Cloud sync-rule deploy, no publication change.
 
 ### 6.6 Invitation token at rest (hashed lookup + encrypted delivery)
