@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import { UserFacingError } from "@/lib/action-result";
 import { INT4_MAX, MAX_PRICE_CENTS } from "@/lib/money";
 import {
@@ -23,11 +23,17 @@ const valid: ProductInput = {
 
 function recordingDb() {
   const statements: { sql: string; params: unknown[] }[] = [];
+  const execute = async (sql: string, params: unknown[] = []) => {
+    statements.push({ sql, params });
+    return { rowsAffected: 1 };
+  };
   const db = {
-    execute: async (sql: string, params: unknown[] = []) => {
-      statements.push({ sql, params });
-      return { rowsAffected: 1 };
-    },
+    execute,
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        getOptional: async () => ({ id: "product-1" }),
+        execute,
+      } as unknown as Transaction),
   } as unknown as AbstractPowerSyncDatabase;
   return { db, statements };
 }
@@ -134,4 +140,31 @@ test("a new product always starts with a placeholder image", async () => {
   const params = statements[0].params;
   assert.equal(params[2], "Pin");
   assert.equal(params[6], "placeholder:warm");
+});
+
+test("a product edit only writes the optional fields it was given", async () => {
+  const { db, statements } = recordingDb();
+
+  await updateProductLocal(db, {
+    tenantId: "tenant-1",
+    productId: "product-1",
+    product: { ...valid, tracksInventory: true },
+  });
+  await updateProductLocal(db, {
+    tenantId: "tenant-1",
+    productId: "product-1",
+    product: { ...valid, lowStockThreshold: 3 },
+  });
+
+  // The editor has no threshold field: its saves keep the stored one.
+  assert.match(statements[0].sql, /tracks_inventory = \?/);
+  assert.doesNotMatch(statements[0].sql, /low_stock_threshold/);
+  assert.equal(statements[0].params.includes(1), true);
+  assert.doesNotMatch(statements[1].sql, /tracks_inventory/);
+  assert.match(statements[1].sql, /low_stock_threshold = \?/);
+  assert.equal(statements[1].params.includes(3), true);
+  for (const { sql, params } of statements) {
+    assert.match(sql, /updated_at = \?\s+WHERE id = \? AND tenant_id = \?/);
+    assert.deepEqual(params.slice(-2), ["product-1", "tenant-1"]);
+  }
 });

@@ -116,32 +116,46 @@ export async function updateProductLocal(
   const placeholderPath = isPlaceholderImagePath(product.imagePath)
     ? encodePlaceholderImagePath(product.imageTone)
     : null;
+  const assignments = [
+    "name = ?",
+    "price_cents = ?",
+    "cost_cents = ?",
+    "category = ?",
+    `image_path = CASE
+       WHEN image_path IS NULL OR image_path LIKE ?
+         THEN coalesce(?, image_path)
+       ELSE image_path
+     END`,
+  ];
+  const params: (string | number | null)[] = [
+    product.name,
+    product.priceCents,
+    product.costCents,
+    product.category,
+    placeholderImagePathPattern,
+    placeholderPath,
+  ];
+  // Like updateProductForTenant, only the optional fields the caller sent:
+  // the editor has no low-stock threshold field, and saving it must not
+  // clear a threshold set elsewhere.
+  if ("tracksInventory" in product) {
+    assignments.push("tracks_inventory = ?");
+    params.push(product.tracksInventory ? 1 : 0);
+  }
+  if ("lowStockThreshold" in product) {
+    assignments.push("low_stock_threshold = ?");
+    params.push(product.lowStockThreshold ?? null);
+  }
+  assignments.push("updated_at = ?");
+  params.push(nowIso());
+
   await db.writeTransaction(async (tx) => {
     await assertProductOnDevice(tx, input);
     input.assertCurrent?.();
     await tx.execute(
-      `UPDATE products
-         SET name = ?, price_cents = ?, cost_cents = ?, category = ?,
-             image_path = CASE
-               WHEN image_path IS NULL OR image_path LIKE ?
-                 THEN coalesce(?, image_path)
-               ELSE image_path
-             END,
-             tracks_inventory = ?, low_stock_threshold = ?, updated_at = ?
+      `UPDATE products SET ${assignments.join(", ")}
        WHERE id = ? AND tenant_id = ?`,
-      [
-        product.name,
-        product.priceCents,
-        product.costCents,
-        product.category,
-        placeholderImagePathPattern,
-        placeholderPath,
-        product.tracksInventory ? 1 : 0,
-        product.lowStockThreshold ?? null,
-        nowIso(),
-        input.productId,
-        input.tenantId,
-      ]
+      [...params, input.productId, input.tenantId]
     );
   });
 }
