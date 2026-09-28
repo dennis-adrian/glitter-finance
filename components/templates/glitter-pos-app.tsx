@@ -553,7 +553,17 @@ export function GlitterPosApp({
         { signal }
       );
     });
-  }, [powerSyncDb, hydrateProducts, activeTenantId, tenantWorkGeneration]);
+    // The server rows are read through refs, but they are dependencies all
+    // the same: when '/' renders again (a server action that set a cookie
+    // re-renders it), the effect above puts the server rows back, and
+    // subscribing again reads the local rows over them.
+  }, [
+    powerSyncDb,
+    hydrateProducts,
+    activeTenantId,
+    tenantWorkGeneration,
+    initialProducts,
+  ]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
@@ -597,7 +607,8 @@ export function GlitterPosApp({
         { signal }
       );
     });
-  }, [powerSyncDb, activeTenantId, tenantWorkGeneration]);
+    // initialInventory: see the products watch.
+  }, [powerSyncDb, activeTenantId, tenantWorkGeneration, initialInventory]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
@@ -741,6 +752,8 @@ export function GlitterPosApp({
     activeTenantId,
     userNameById,
     tenantWorkGeneration,
+    // See the products watch.
+    initialSales,
   ]);
 
   // The draft cart survives a reload: in the local SQLite store with
