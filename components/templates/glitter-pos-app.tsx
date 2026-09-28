@@ -251,7 +251,9 @@ export function GlitterPosApp({
     useState(noLocalLedgerLoaded);
   const [editorHasInitialMovement, setEditorHasInitialMovement] =
     useState(false);
-  const [inventoryWatchReady, setInventoryWatchReady] = useState(
+  // Whether stock counts can be shown. With PowerSync, once the server sent
+  // movements or the inventory watch read the synced local store.
+  const [inventoryStockReady, setInventoryStockReady] = useState(
     () => !isPowerSyncConfigured() || (initialInventory?.hasMovements ?? false)
   );
   const [teamSyncConfirmed, setTeamSyncConfirmed] = useState(
@@ -360,7 +362,7 @@ export function GlitterPosApp({
       setInventoryMovements([]);
       setOpeningStock(null);
       setLocalLedgerLoaded(noLocalLedgerLoaded);
-      setInventoryWatchReady(false);
+      setInventoryStockReady(false);
       setTeamSyncConfirmed(false);
       setEditorHasInitialMovement(false);
     });
@@ -389,9 +391,9 @@ export function GlitterPosApp({
     setOpeningStock(initialInventory?.opening ?? null);
     setLocalLedgerLoaded(noLocalLedgerLoaded);
     if (!isPowerSyncConfigured()) {
-      setInventoryWatchReady(Boolean(activeTenantId));
+      setInventoryStockReady(Boolean(activeTenantId));
     } else {
-      setInventoryWatchReady(initialInventory?.hasMovements ?? false);
+      setInventoryStockReady(initialInventory?.hasMovements ?? false);
     }
 
     // PowerSyncProvider only renders this tree once this exact identity's
@@ -442,7 +444,6 @@ export function GlitterPosApp({
   // filter the read in case a race or a future code path leaves stale
   // rows on disk under a different tenant_id.
   const powerSyncDb = useOptionalPowerSyncDb();
-  const inventoryStockReady = inventoryWatchReady;
 
   function beginTenantWork() {
     return tenantWorkControllerRef.current!.begin();
@@ -458,7 +459,12 @@ export function GlitterPosApp({
     setTenantWorkGeneration(tenantWorkGenerationRef.current);
   }
 
+  // Whether the product in the editor already has its initial count. Only
+  // looked up while the editor is open: editingProduct stays set after it
+  // closes, and every stock change would otherwise query SQLite again.
+  const editorOpen = view === "editor";
   useEffect(() => {
+    if (!editorOpen) return;
     const generation = tenantWorkGenerationRef.current;
     if (!editingProduct) {
       setEditorHasInitialMovement(false);
@@ -481,7 +487,7 @@ export function GlitterPosApp({
         return;
       }
 
-      if (powerSyncDb?.currentStatus?.hasSynced && inventoryWatchReady) {
+      if (powerSyncDb?.currentStatus?.hasSynced && inventoryStockReady) {
         try {
           const hasInitial = await productHasInitialMovementLocal(
             powerSyncDb,
@@ -501,7 +507,7 @@ export function GlitterPosApp({
 
       if (isCurrent()) {
         setEditorHasInitialMovement(
-          !inventoryWatchReady && productTracksInventory
+          !inventoryStockReady && productTracksInventory
         );
       }
     }
@@ -512,11 +518,12 @@ export function GlitterPosApp({
       cancelled = true;
     };
   }, [
+    editorOpen,
     editingProduct,
     powerSyncDb,
     inventoryMovements,
     stockOpening,
-    inventoryWatchReady,
+    inventoryStockReady,
   ]);
 
   useEffect(() => {
@@ -588,7 +595,7 @@ export function GlitterPosApp({
               setLocalLedgerLoaded((loaded) =>
                 loaded.movements ? loaded : { ...loaded, movements: true }
               );
-              setInventoryWatchReady(true);
+              setInventoryStockReady(true);
             } else {
               // Stock readiness still follows the server data until then.
               setInventoryMovements(
@@ -915,13 +922,13 @@ export function GlitterPosApp({
           )
         ) {
           hasInitial = true;
-        } else if (db?.currentStatus?.hasSynced && inventoryWatchReady) {
+        } else if (db?.currentStatus?.hasSynced && inventoryStockReady) {
           hasInitial = await productHasInitialMovementLocal(
             db,
             existingProduct.id
           );
           work.assertCurrent();
-        } else if (!inventoryWatchReady && existingProduct.tracksInventory) {
+        } else if (!inventoryStockReady && existingProduct.tracksInventory) {
           hasInitial = true;
         }
       }
