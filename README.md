@@ -163,7 +163,13 @@ pnpm db:push       # applies the same migrations to glitter-finance
 `pnpm db:push` applies only `supabase/migrations/`. After it, run the
 `supabase/manual/` files that project has not had yet, in order, in its SQL
 editor (see [Hand-written SQL](#hand-written-sql-supabasemanual)). Deploy the
-app only after both.
+app only after both, unless the release's upgrade notes give another order.
+
+**Upgrading an environment:** [`docs/upgrade-notes.md`](docs/upgrade-notes.md)
+lists, in order, every step staging and then production need for the next
+release: database pre-checks, migrations, hand-written SQL, PowerSync sync
+rules, Auth settings and email templates, Vercel variables, and the checks to
+run after the deploy.
 
 After relinking, update `.env.local` so `NEXT_PUBLIC_SUPABASE_URL`, the publishable and secret keys, and `DATABASE_URL` all match the now-linked project; otherwise the running app and the CLI will talk to different backends.
 
@@ -601,4 +607,20 @@ Server-only code imports `db` from `lib/db/index.ts` for typed reads and writes 
 
 ## Product docs
 
-The PRD lives in [`docs/glitter-finance-prd.md`](docs/glitter-finance-prd.md).
+- [`docs/glitter-finance-prd.md`](docs/glitter-finance-prd.md): the product
+  requirements.
+- [`docs/glitter-inventory-prd.md`](docs/glitter-inventory-prd.md),
+  [`docs/multi-tenant-invitations-prd.md`](docs/multi-tenant-invitations-prd.md)
+  and [`docs/dark-mode-prd.md`](docs/dark-mode-prd.md): feature specs.
+- [`DESIGN.md`](DESIGN.md): the design system and the implemented component
+  specs.
+- [`docs/implementation-notes.md`](docs/implementation-notes.md): how the code
+  is put together, and known follow-ups.
+- [`docs/upgrade-notes.md`](docs/upgrade-notes.md): what each environment needs
+  when the next release is deployed.
+- [`docs/stage-b-acceptance.md`](docs/stage-b-acceptance.md),
+  [`docs/stage-d-acceptance.md`](docs/stage-d-acceptance.md) and
+  [`docs/sync-atomicity-acceptance.md`](docs/sync-atomicity-acceptance.md):
+  real-device acceptance scripts.
+- [`docs/production-observability.md`](docs/production-observability.md):
+  Sentry and uptime setup.
