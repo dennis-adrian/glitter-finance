@@ -338,6 +338,8 @@ NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
 pnpm db:seed:qa             # append `-- --reset` to wipe catalog, stock and sales and reseed
 ```
 
+This script and `pnpm db:invite:tenant-user` take the target, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SECRET_KEY` and `DATABASE_URL`, from one place: all three from the command line, or else all three from `.env.local` (then `.env`). A target split between the command line and a file is refused, and so is a `DATABASE_URL` whose host or pooler user names another project than the Supabase URL. Before writing, they print the target (API URL, database user and host, never the secrets). For anything but the local stack they then ask you to type `yes`; pass `--yes` (`pnpm db:seed:qa -- --yes`) to skip the prompt.
+
 ### Invite a tenant member (Stage D)
 
 During closed testing, additional booth helpers are provisioned manually — not through in-app invite UI. `pnpm db:invite:tenant-user` creates (or refreshes) an auth user, inserts a `tenant_users` row on the target tenant, and sets `app_metadata.tenant_id` so PowerSync scopes replication correctly.

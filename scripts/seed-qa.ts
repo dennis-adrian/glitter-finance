@@ -16,11 +16,16 @@
 //   pnpm db:seed:qa               # seed if empty, otherwise leave data as-is
 //   pnpm db:seed:qa -- --reset    # wipe the QA tenant's catalog, stock and sales, then reseed
 //
+// The three target variables come together from the command line, .env.local
+// or .env (scripts/ops-env.ts). The script prints the target and, for a hosted
+// project, asks for confirmation first; --yes skips the prompt.
+//
 // The auth user, tenant, and membership are always preserved (stable account);
 // only the dummy catalog, stock movements and sales are affected by --reset.
 // Other members of the QA tenant (helpers added with pnpm db:invite:tenant-user)
 // are left alone.
-import "./load-env";
+// Must stay the first import: it loads the env before @/lib/db reads it.
+import { opsEnvSource } from "./load-env";
 
 import { and, eq, isNull } from "drizzle-orm";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
@@ -41,6 +46,7 @@ import {
   refundSaleForTenant,
 } from "@/lib/sales/repository";
 import { findAuthUserByEmail } from "./admin-auth";
+import { confirmOpsTarget } from "./ops-env";
 
 // Stable identifiers so the QA account is recognizable and re-runs are idempotent.
 const QA_TENANT_ID = "7a000000-0000-4000-8000-000000000001";
@@ -277,9 +283,11 @@ async function main() {
   const reset = process.argv.includes("--reset");
   const email = requireEnv("QA_EMAIL");
   const password = requireEnv("QA_PASSWORD");
-  const target = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
 
-  console.log(`Seeding QA account against ${target}`);
+  await confirmOpsTarget(
+    reset ? "reset and reseed the QA account" : "seed the QA account",
+    opsEnvSource
+  );
 
   const user = await findOrCreateAuthUser(email, password);
   console.log(`Auth user ${user.created ? "created" : "found"}: ${user.id}`);

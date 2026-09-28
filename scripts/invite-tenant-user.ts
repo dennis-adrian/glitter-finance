@@ -20,7 +20,12 @@
 //   TENANT_ID=... INVITE_EMAIL=helper@example.com INVITE_PASSWORD=... \
 //   NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
 //   pnpm db:invite:tenant-user
-import "./load-env";
+//
+// The three target variables come together from the command line, .env.local
+// or .env (scripts/ops-env.ts). The script prints the target and, for a hosted
+// project, asks for confirmation first; --yes skips the prompt.
+// Must stay the first import: it loads the env before @/lib/db reads it.
+import { opsEnvSource } from "./load-env";
 
 import { eq, sql } from "drizzle-orm";
 import type { User } from "@supabase/supabase-js";
@@ -30,6 +35,7 @@ import { getDisplayName } from "@/lib/auth/tenant-context";
 import { db } from "@/lib/db";
 import { tenantUsers, tenants } from "@/lib/db/schema";
 import { findAuthUserByEmail } from "./admin-auth";
+import { confirmOpsTarget } from "./ops-env";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -178,6 +184,8 @@ async function main() {
   const resetPassword =
     process.env.INVITE_RESET_PASSWORD?.trim().toLowerCase() === "true";
 
+  await confirmOpsTarget(`add ${email} to tenant ${tenantId}`, opsEnvSource);
+
   const tenant = await ensureTenantExists(tenantId);
   const admin = createAdminClient();
   const existing = await findAuthUserByEmail(admin, email);
@@ -231,7 +239,7 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error(error);
+    console.error(error instanceof Error ? error.message : error);
     process.exit(1);
   })
   .finally(async () => {
