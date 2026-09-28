@@ -111,8 +111,8 @@ async function findOrCreateAuthUser(email: string, password: string) {
     email_confirm: true,
     user_metadata: { display_name: QA_DISPLAY_NAME },
     // Set app_metadata.tenant_id at create time so the very first JWT
-    // carries the claim. PowerSync's sync rules read it via
-    // request.jwt() -> 'app_metadata' ->> 'tenant_id'.
+    // carries the claim. PowerSync's sync streams read it via
+    // auth.parameters() -> 'app_metadata' ->> 'tenant_id'.
     app_metadata: { tenant_id: QA_TENANT_ID },
   });
   if (error || !data.user) {

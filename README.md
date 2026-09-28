@@ -13,10 +13,11 @@ iPhone Safari and Android Chrome) and
 
 - Product catalog with categories, optional cost, archive/restore, and graceful image placeholders.
 - Sell Mode as the default screen with tappable product grid, quantity badges, PowerSync-backed draft cart persistence, and a fixed Cobrar action.
-- Cart review surface with quantity controls and clear-cart.
+- Cart review surface with quantity controls, per-line discounts, and clear-cart (with undo).
 - Payment screen with sale-level discounts and cash/QR checkout.
 - Immutable local sales with snapshotted price/cost data, a sales list, voids, refunds, and date-range reports.
-- Several tenants per user, with a tenant switcher and invitation links for adding team members.
+- Email and password or Google sign-in, with email confirmation and password reset.
+- Several tenants per user, with a tenant switcher and invitation links for adding team members (Settings → Equipo).
 - Optional stock tracking per product: initial count, restocks, adjustments, losses and gifts, with low-stock and oversold states.
 - PowerSync-backed local SQLite reads/writes for products, sales, sale lines, refunds, inventory movements, and local-only draft carts, plus the synced team list.
 - Offline app shell through Serwist, with Supabase and PowerSync API responses kept network-only so synced data remains owned by PowerSync/local SQLite. Product photos from Supabase Storage are the one exception: the service worker caches them so Sell tiles keep their images offline.
@@ -353,9 +354,27 @@ PowerSync auth and app auth must point at the same Supabase project: the JWT's
 must appear in that JWKS response. The connector (`lib/powersync/connector.ts`)
 only hands PowerSync a token whose `app_metadata.tenant_id` is the tenant the
 device's local data belongs to. Otherwise it refreshes the session once, and
-if the claim still differs it logs a warning and PowerSync retries later;
-Diagnostics then shows "La sesión todavía no corresponde al puesto de este
-dispositivo", which a reload fixes.
+if the claim still differs it logs a console warning ("Supabase session claims
+another tenant than the local data") and PowerSync retries later; Diagnostics
+then shows "La sesión todavía no corresponde al puesto de este dispositivo" as
+the download error, which a reload fixes.
+
+The app logs nothing else about the token: not the endpoint, nor the JWT's
+`alg`, `kid`, `iss` or `aud`. When PowerSync rejects a token (`PSYNC_S2101`,
+`PSYNC_S2105`), check those yourself. In the browser's developer tools, copy
+the value of the `sb-<project-ref>-auth-token` cookie (when it is split into
+`.0`, `.1`… cookies, join their values in order). It holds the session, and
+its access token is a live credential, so decode it locally rather than on a
+website:
+
+```bash
+node -e 'const session = JSON.parse(Buffer.from(process.argv[1].replace(/^base64-/, ""), "base64url")); for (const part of session.access_token.split(".").slice(0, 2)) console.log(JSON.parse(Buffer.from(part, "base64url")))' '<cookie value>'
+```
+
+The first object is the JWT header, the second its claims. Compare the
+header's `kid` and `alg` with the keys at the JWKS URI, `iss` with
+`https://<project-ref>.supabase.co/auth/v1`, `aud` with the accepted audience,
+and `app_metadata.tenant_id` with the tenant in Diagnostics.
 
 **After `supabase db reset --linked`:** the reset drops everything in the `public` schema, which includes the `powersync` publication, the grants you gave `powersync_role`, and everything the `supabase/manual/` files installed there: the `inventory_movements` RLS, the financial RPCs and triggers, the product last-write-wins trigger and the Storage policy helper. The role itself survives (it's cluster-level, not database-level), and its password is unchanged. To restore the environment:
 
@@ -392,16 +411,28 @@ pnpm db:seed:qa             # append `-- --reset` to wipe catalog, stock and sal
 
 This script and `pnpm db:invite:tenant-user` take the target, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SECRET_KEY` and `DATABASE_URL`, from one place: all three from the command line, or else all three from `.env.local` (then `.env`). A target split between the command line and a file is refused, and so is a `DATABASE_URL` whose host or pooler user names another project than the Supabase URL. Before writing, they print the target (API URL, database user and host, never the secrets). For anything but the local stack they then ask you to type `yes`; pass `--yes` (`pnpm db:seed:qa -- --yes`) to skip the prompt.
 
-### Invite a tenant member (Stage D)
+### Team members
 
-During closed testing, additional booth helpers are provisioned manually — not through in-app invite UI. `pnpm db:invite:tenant-user` creates (or refreshes) an auth user, inserts a `tenant_users` row on the target tenant, and sets `app_metadata.tenant_id` so PowerSync scopes replication correctly.
+Members join a tenant through the app: **Más → Ajustes → Equipo** creates a
+shareable invitation link (`/join/<token>`) that is valid for 7 days, and the
+same card revokes it. Anyone who opens an active link, signs in (or signs up)
+and taps **Unirme** joins the tenant, which becomes their active tenant. A
+link has no "used" state: it admits everyone who opens it until it expires or
+is revoked. The database keeps only a hash of each link's token, and an
+encrypted copy so the card can show the link again, both keyed by
+`INVITATION_SECRET_KEY` (see [Environment](#environment)). Links are built from
+the deployment's public origin (see
+[Branch preview URLs](#branch-preview-urls-vercel)).
 
-Before inviting:
+#### QA: provision a member from the command line
 
-1. Apply pending migrations (`pnpm db:push`) so `tenant_users.id` exists, then run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) if the environment predates Stage D (see PowerSync setup notes).
-2. Redeploy updated sync rules from `powersync/sync-rules.yaml` in PowerSync Cloud.
-
-Then invite the helper:
+`pnpm db:invite:tenant-user` is a QA convenience, not the way real members
+join: it creates (or refreshes) an auth user with a password, inserts its
+`tenant_users` row on the target tenant, and sets `app_metadata.tenant_id` so
+PowerSync scopes replication to that tenant. Use it to set up test accounts on
+staging, reset a test member's password, or backfill a membership without the
+UI. It needs an environment whose migrations, manual SQL and sync rules are up
+to date (see [Upgrading to the next release](docs/upgrade-notes.md)).
 
 ```bash
 TENANT_ID=7a000000-0000-4000-8000-000000000001 \
@@ -419,6 +450,9 @@ After inviting, have the user sign in on their device. Settings → Equipo shoul
 
 Before running Stage B acceptance on staging:
 
+- The staging app environment in Vercel has all five required server
+  variables (see [Environment](#environment)), including an
+  `INVITATION_SECRET_KEY` generated for staging alone.
 - Supabase migrations are applied to `glitter-finance-staging`.
 - Every file in `supabase/manual/` has been run in order, and the verification
   queries under [Hand-written SQL](#hand-written-sql-supabasemanual) return the
@@ -464,9 +498,6 @@ domain.
 
 Without the wildcard, sign-up email confirmation and OAuth callbacks fail on
 branch deployments because Supabase rejects the dynamic preview origin.
-
-**Deploy** — push and redeploy so `lib/request-origin.ts` and the login page
-changes are live on staging.
 
 ### Production observability
 
@@ -603,7 +634,7 @@ Confirm the publication with the queries under [PowerSync setup](#powersync-setu
 
 ### Runtime data access
 
-Server-only code imports `db` from `lib/db/index.ts` for typed reads and writes through Drizzle. `db` connects directly to Postgres, so it bypasses RLS — treat it as a trusted server context and gate access at the application layer (see `lib/auth/user-context.ts` for the tenant scoping pattern). The `@supabase/ssr` clients in `lib/supabase/` are used for auth and session cookies, not for product/sales data.
+Server-only code imports `db` from `lib/db/index.ts` for typed reads and writes through Drizzle. `db` connects directly to Postgres, so it bypasses RLS — treat it as a trusted server context and gate access at the application layer: tenant-scoped server actions call `requireExpectedTenantContext` (`lib/auth/user-context.ts`) and pass the resulting tenant id into every query. The Supabase clients in `lib/supabase/` are used for auth and session cookies and for product images in Storage (uploads with the user's session; best-effort cleanup and `app_metadata` updates with the secret key in `admin.ts`), never for product or sales rows.
 
 ## Product docs
 
