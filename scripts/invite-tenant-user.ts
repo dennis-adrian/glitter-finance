@@ -12,7 +12,9 @@
 //                          when INVITE_RESET_PASSWORD=true)
 //   INVITE_RESET_PASSWORD  set to "true" to reset an existing user's password
 //                          (requires INVITE_PASSWORD)
-//   INVITE_DISPLAY_NAME    optional display name (defaults from email local-part)
+//   INVITE_DISPLAY_NAME    optional display name. Without it, an existing
+//                          member keeps their name, and a new membership takes
+//                          the auth user's profile name or the email local-part.
 //
 // Usage:
 //   TENANT_ID=... INVITE_EMAIL=helper@example.com INVITE_PASSWORD=... \
@@ -24,6 +26,7 @@ import { eq, sql } from "drizzle-orm";
 import type { User } from "@supabase/supabase-js";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
+import { getDisplayName } from "@/lib/auth/tenant-context";
 import { db } from "@/lib/db";
 import { tenantUsers, tenants } from "@/lib/db/schema";
 import { findAuthUserByEmail } from "./admin-auth";
@@ -45,11 +48,6 @@ function createAdminClient() {
       realtime: { transport: ws as unknown as never },
     }
   );
-}
-
-function defaultDisplayName(email: string) {
-  const local = email.split("@")[0]?.trim();
-  return local || "Vendedor";
 }
 
 async function updateAuthUserForInvite(
@@ -112,13 +110,16 @@ async function ensureTenantExists(tenantId: string) {
   return tenant;
 }
 
-// Unlike the app's ensureMembership (lib/auth/memberships.ts), a re-run also
-// refreshes the display name of an existing membership. One statement, so a
-// concurrent join cannot slip between a lookup and the insert.
+// Unlike the app's ensureMembership (lib/auth/memberships.ts), a re-run with
+// INVITE_DISPLAY_NAME also renames an existing membership. Without it the
+// stored name stays: reports attribute past sales by it, and a re-run that
+// only resets a password must not replace it. One statement, so a concurrent
+// join cannot slip between a lookup and the insert.
 async function upsertMembership(input: {
   tenantId: string;
   userId: string;
   displayName: string;
+  renameExisting: boolean;
 }) {
   const [membership] = await db
     .insert(tenantUsers)
@@ -129,11 +130,22 @@ async function upsertMembership(input: {
     })
     .onConflictDoUpdate({
       target: [tenantUsers.tenantId, tenantUsers.userId],
-      set: { displayName: input.displayName },
+      // Keeping the stored value still returns the row, with its name.
+      set: {
+        displayName: input.renameExisting
+          ? input.displayName
+          : sql`${tenantUsers.displayName}`,
+      },
     })
     // xmax is 0 only on a freshly inserted row version.
-    .returning({ created: sql<boolean>`xmax = 0` });
-  return { created: membership?.created ?? false };
+    .returning({
+      created: sql<boolean>`xmax = 0`,
+      displayName: tenantUsers.displayName,
+    });
+  if (!membership) {
+    throw new Error("Could not create or load the membership.");
+  }
+  return membership;
 }
 
 async function setTenantClaim(userId: string, tenantId: string) {
@@ -163,7 +175,6 @@ async function main() {
   const email = requireEnv("INVITE_EMAIL").trim();
   const explicitDisplayName =
     process.env.INVITE_DISPLAY_NAME?.trim() || undefined;
-  const displayName = explicitDisplayName || defaultDisplayName(email);
   const resetPassword =
     process.env.INVITE_RESET_PASSWORD?.trim().toLowerCase() === "true";
 
@@ -172,6 +183,9 @@ async function main() {
   const existing = await findAuthUserByEmail(admin, email);
 
   let authUser: { id: string; created: boolean };
+  // The name a new membership gets. An existing auth user's profile name
+  // (from sign-up, Google or an earlier invite) comes before the email.
+  let displayName: string;
   if (existing) {
     const password = resetPassword ? requireEnv("INVITE_PASSWORD") : undefined;
     authUser = await updateAuthUserForInvite(
@@ -179,8 +193,10 @@ async function main() {
       password,
       explicitDisplayName
     );
+    displayName = explicitDisplayName ?? getDisplayName(existing);
   } else {
     const password = requireEnv("INVITE_PASSWORD");
+    displayName = explicitDisplayName ?? getDisplayName({ email });
     authUser = await createAuthUserForInvite(email, password, displayName);
   }
 
@@ -188,17 +204,24 @@ async function main() {
     tenantId,
     userId: authUser.id,
     displayName,
+    renameExisting: explicitDisplayName !== undefined,
   });
   await setTenantClaim(authUser.id, tenantId);
 
   console.log("Invited tenant member:");
   console.log(`  tenant: ${tenant.name} (${tenant.id})`);
-  console.log(`  display name: ${displayName}`);
+  console.log(`  display name: ${membership.displayName}`);
   console.log(
     `  auth user: ${authUser.id} (${authUser.created ? "created" : "existing"})`
   );
   console.log(
-    `  membership: ${membership.created ? "created" : "updated existing"}`
+    `  membership: ${
+      membership.created
+        ? "created"
+        : explicitDisplayName
+          ? "existing, renamed"
+          : "existing, name kept"
+    }`
   );
   console.log("");
   console.log(

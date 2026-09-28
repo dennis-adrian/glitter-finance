@@ -357,6 +357,8 @@ NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
 pnpm db:invite:tenant-user
 ```
 
+`INVITE_DISPLAY_NAME` is optional. Without it, re-running the script (to reset a password, for example) keeps an existing member's display name, which reports use for their past sales; a new membership takes the user's profile name, or else the email's local part.
+
 After inviting, have the user sign in on their device. Settings → Equipo should list every member; reports should attribute sales by display name once both devices have synced.
 
 ### Stage B staging checklist
