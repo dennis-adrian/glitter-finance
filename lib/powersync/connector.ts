@@ -17,7 +17,9 @@
 //   Permanent errors are copied into a local-only dead-letter table while the
 //   transaction remains queued; all errors are re-thrown for PowerSync backoff.
 //   A transaction the server will never accept is discarded from Diagnostics
-//   (lib/powersync/discard-sync-failure.ts).
+//   (lib/powersync/discard-sync-failure.ts). A transaction the server defers
+//   because the device clock was ahead is not a failure; it is recorded as a
+//   local upload hold (lib/powersync/upload-holds.ts) and retried.
 //   When a void or refund loses a cross-device conflict, the RPC applies
 //   nothing and returns NULL; the local row is then reverted so the device
 //   matches the server.
@@ -25,6 +27,7 @@
 import {
   type AbstractPowerSyncDatabase,
   type CrudEntry,
+  type CrudTransaction,
   type PowerSyncBackendConnector,
   type PowerSyncCredentials,
   UpdateType,
@@ -34,13 +37,21 @@ import { getPublicEnv } from "@/lib/env";
 import { unreferencedProductImagePaths } from "@/lib/product-image-config";
 import { removeProductImageObjects } from "@/lib/product-images";
 import { reportClientFailure } from "@/lib/observability/report-client-failure";
-import { reportPermanentSyncFailure } from "@/lib/observability/report-sync-failure";
+import {
+  reportPermanentSyncFailure,
+  reportUploadHeldByDeviceClock,
+} from "@/lib/observability/report-sync-failure";
 import { errorCode, uploadTablesLabel } from "@/lib/powersync/crud-metadata";
 import {
   reconcileSyncFailures,
   recordSyncFailure,
   resolveSyncFailure,
 } from "@/lib/powersync/sync-failures";
+import {
+  DEVICE_CLOCK_AHEAD_CODE,
+  recordUploadHold,
+  uploadHeldUntil,
+} from "@/lib/powersync/upload-holds";
 import {
   createUploadPlan,
   InvalidUploadTransactionError,
@@ -99,9 +110,10 @@ function uploadTargetFor(plan: UploadPlan): string {
 // remains queued and blocks later writes until a retry succeeds or the user
 // discards it.
 //
-// Anything else is retried silently with backoff. That includes 55000, which
-// the server raises for a device timestamp more than 5 minutes in the future:
-// the upload succeeds once the server clock catches up.
+// Anything else is retried with backoff. That includes 55000, which the server
+// raises for a device timestamp more than 5 minutes in the future: the upload
+// succeeds once the server clock catches up, and until then a local hold says
+// why the queue waits (lib/powersync/upload-holds.ts).
 const FATAL_RESPONSE_CODES = [
   // Class 22 — Data Exception (type mismatch, range, etc.)
   /^22\d{3}$/,
@@ -221,8 +233,16 @@ export class TenantClaimMismatchError extends Error {
 // every retry until it reloads.
 const CLAIM_REFRESH_INTERVAL_MS = 30_000;
 
+// A deferred upload is reported once it has waited this long in this session.
+// A clock a few minutes ahead holds each upload for a minute or two, and would
+// otherwise send an event for every sale.
+const HELD_UPLOAD_REPORT_AFTER_MS = 10 * 60_000;
+
 export class SupabaseConnector implements PowerSyncBackendConnector {
   private lastClaimRefreshAt: number | null = null;
+  // The transaction the server is deferring, and since when, by the monotonic
+  // clock: the device clock may be corrected while the upload waits.
+  private heldUpload: { transactionId?: number; since: number } | null = null;
 
   /**
    * `expectedTenantId` is the tenant the local database belongs to. Null
@@ -426,10 +446,63 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
             error: reportingError,
           });
         }
+      } else if (errorCode(error) === DEVICE_CLOCK_AHEAD_CODE) {
+        await this.holdForDeviceClock(database, transaction, error, target);
       }
       // Network/5xx failures are not dead-lettered, but all failures remain in
       // the CRUD queue and use PowerSync's retry/backoff behavior.
       throw error;
+    }
+  }
+
+  /**
+   * The server deferred the transaction because one of its timestamps is
+   * more than 5 minutes ahead of the server clock. It stays queued and is
+   * retried, and holds every later upload until the server clock catches up,
+   * so the hold is recorded for the screens, and reported once it has lasted.
+   * Neither step may keep the error from reaching PowerSync.
+   */
+  private async holdForDeviceClock(
+    database: AbstractPowerSyncDatabase,
+    transaction: CrudTransaction,
+    error: unknown,
+    target: string | undefined
+  ): Promise<void> {
+    const now = performance.now();
+    const held =
+      this.heldUpload &&
+      this.heldUpload.transactionId === transaction.transactionId
+        ? this.heldUpload
+        : { transactionId: transaction.transactionId, since: now };
+    this.heldUpload = held;
+
+    if (transaction.transactionId != null) {
+      try {
+        await recordUploadHold(database, {
+          transactionId: transaction.transactionId,
+          operations: transaction.crud,
+          error,
+        });
+      } catch (recordingError) {
+        console.error("[PowerSync] failed to record the upload hold", {
+          transactionId: transaction.transactionId,
+          error: recordingError,
+        });
+      }
+    }
+    if (now - held.since < HELD_UPLOAD_REPORT_AFTER_MS) return;
+    try {
+      reportUploadHeldByDeviceClock({
+        transactionId: transaction.transactionId,
+        operations: transaction.crud,
+        target,
+        heldUntil: uploadHeldUntil(transaction.crud),
+      });
+    } catch (reportingError) {
+      console.error("[PowerSync] failed to report the upload hold", {
+        transactionId: transaction.transactionId,
+        error: reportingError,
+      });
     }
   }
 

@@ -8,6 +8,10 @@ import type {
 import { UpdateType } from "@powersync/web";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  reportUploadHeldByDeviceClock,
+  resetReportedSyncFailures,
+} from "@/lib/observability/report-sync-failure";
+import {
   SupabaseConnector,
   TenantClaimMismatchError,
   UnappliedUpdateError,
@@ -531,7 +535,7 @@ test("drops the local refund when the server had already voided the sale", async
   assert.deepEqual(events, ["local-write", "complete", "resolve-marker"]);
 });
 
-test("retries a future-timestamp rejection without recording a failure", async () => {
+test("retries a future-timestamp rejection and records why the queue waits", async () => {
   const events: string[] = [];
   const localWrites: { sql: string; params?: unknown[] }[] = [];
   const clockError = {
@@ -542,19 +546,87 @@ test("retries a future-timestamp rejection without recording a failure", async (
   const supabase = {
     rpc: async () => ({ data: null, error: clockError }),
   } as unknown as SupabaseClient;
-  const db = recordingDb({
-    crud: saleTransaction(),
-    transactionId: 32,
-    events,
-    localWrites,
-  });
+  const crud = saleTransaction();
+  crud[0].opData!.created_at = "2026-09-29T00:00:00.000Z";
+  crud[1].opData!.created_at = "2026-09-29T00:00:00.000Z";
+  const db = recordingDb({ crud, transactionId: 32, events, localWrites });
 
   await assert.rejects(
     () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
     (error) => error === clockError
   );
 
-  assert.deepEqual(events, []);
+  // A hold, not a failure marker: nothing is completed or dead-lettered.
+  assert.deepEqual(events, ["local-write", "local-write"]);
+  assert.match(localWrites[0].sql, /DELETE FROM upload_holds/);
+  assert.match(localWrites[1].sql, /INSERT INTO upload_holds/);
+  assert.deepEqual(localWrites[1].params?.slice(0, 4), [
+    "transaction:32",
+    32,
+    "2026-09-28T23:55:00.000Z",
+    clockError.message,
+  ]);
+});
+
+test("a deferred upload is reported once it has waited ten minutes", async (t) => {
+  resetReportedSyncFailures();
+  let now = 1_000;
+  t.mock.method(performance, "now", () => now);
+  const clockError = { code: "55000", message: "ahead of the server clock" };
+  const supabase = {
+    rpc: async () => ({ data: null, error: clockError }),
+  } as unknown as SupabaseClient;
+  const crud = saleTransaction();
+  const db = recordingDb({
+    crud,
+    transactionId: 34,
+    events: [],
+    localWrites: [],
+  });
+  const connector = new SupabaseConnector(supabase, "tenant-1");
+  const reportInput = {
+    transactionId: 34,
+    operations: crud,
+    target: "powersync_create_sale",
+    heldUntil: null,
+  };
+
+  await assert.rejects(() => connector.uploadData(db));
+  now += 9 * 60_000;
+  await assert.rejects(() => connector.uploadData(db));
+  // Not reported yet: reporting it here still goes through.
+  assert.equal(reportUploadHeldByDeviceClock(reportInput), true);
+
+  resetReportedSyncFailures();
+  now += 60_000;
+  await assert.rejects(() => connector.uploadData(db));
+  // The connector reported it, so a second report is deduplicated.
+  assert.equal(reportUploadHeldByDeviceClock(reportInput), false);
+});
+
+test("a future-timestamp rejection reaches PowerSync when the hold cannot be recorded", async () => {
+  const clockError = { code: "55000", message: "ahead of the server clock" };
+  const supabase = {
+    rpc: async () => ({ data: null, error: clockError }),
+  } as unknown as SupabaseClient;
+  const db = {
+    ...emptySyncFailureState(),
+    getNextCrudTransaction: async () => ({
+      crud: saleTransaction(),
+      transactionId: 33,
+      complete: async () => {
+        throw new Error("A deferred transaction must not complete.");
+      },
+    }),
+    writeTransaction: async () => {
+      throw new Error("database is locked");
+    },
+  } as unknown as AbstractPowerSyncDatabase;
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+    (error) => error === clockError
+  );
 });
 
 test("treats a permission denial without a session as transient", async () => {

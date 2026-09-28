@@ -147,6 +147,20 @@ export const syncFailures = sqliteTable("sync_failures", {
   discardedAt: text("discarded_at"),
 });
 
+// The upload the server keeps deferring because one of its device timestamps
+// is more than 5 minutes ahead of the server clock (Postgres 55000). Unlike a
+// sync failure it is not permanent: the transaction uploads once the server
+// clock catches up. The row only explains the wait; it applies while its
+// transaction is at the head of the upload queue (lib/powersync/upload-holds.ts).
+export const uploadHolds = sqliteTable("upload_holds", {
+  id: text("id").primaryKey(),
+  transactionId: integer("transaction_id").notNull(),
+  // When the server clock will accept every timestamp in the transaction.
+  heldUntil: text("held_until"),
+  errorMessage: text("error_message").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
 export const clientSchema = {
   products,
   sales,
@@ -160,6 +174,10 @@ export const clientSchema = {
   },
   syncFailures: {
     tableDefinition: syncFailures,
+    options: { localOnly: true },
+  },
+  uploadHolds: {
+    tableDefinition: uploadHolds,
     options: { localOnly: true },
   },
 };

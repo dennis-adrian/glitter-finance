@@ -98,6 +98,59 @@ export function reportPermanentSyncFailure(input: {
 }
 
 /**
+ * A transaction the server defers because one of its device timestamps is
+ * more than 5 minutes ahead of the server clock (55000). It is retried and
+ * uploads by itself, but it holds every later upload from the device for as
+ * long as the clock was ahead, so the uploader reports it once it has waited
+ * a while, at most once per transaction. Like the failure report, only
+ * metadata leaves the device.
+ */
+export function reportUploadHeldByDeviceClock(input: {
+  transactionId?: number;
+  operations: CrudEntry[];
+  /** RPC name or table name(s) the upload was sent to. */
+  target?: string;
+  /** When the server clock accepts the transaction's timestamps. */
+  heldUntil: string | null;
+}): boolean {
+  const target = input.target ?? uploadTablesLabel(input.operations);
+  const holdKey = `hold:tenant:${
+    tenantIdFrom(input.operations) ?? "unknown"
+  }:${syncFailureId(input)}`;
+  if (reportedFailures.has(holdKey)) return false;
+  reportedFailures.add(holdKey);
+
+  Sentry.withScope((scope) => {
+    scope.setLevel("warning");
+    scope.setTag("component", "powersync_upload");
+    scope.setTag("sync_failure", "held");
+    scope.setTag("postgres_code", "55000");
+    scope.setTag("upload_target", target);
+    scope.setFingerprint(["powersync-held-upload", "55000", target]);
+    scope.setContext("sync", {
+      transaction_id: input.transactionId ?? null,
+      upload_target: target,
+      operation_count: input.operations.length,
+      tables: [
+        ...new Set(input.operations.map((operation) => operation.table)),
+      ],
+      operation_types: [
+        ...new Set(input.operations.map((operation) => operation.op)),
+      ],
+      // Compared with the time Sentry received the event, this shows how far
+      // ahead the device clock was.
+      held_until: input.heldUntil,
+    });
+    Sentry.captureMessage(
+      `PowerSync upload held by the device clock (55000 on ${target})`,
+      "warning"
+    );
+  });
+
+  return true;
+}
+
+/**
  * A permanently failed transaction that the user discarded from Diagnostics.
  * Like the failure report, only metadata: the payload stays on the device.
  */

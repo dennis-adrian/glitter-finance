@@ -4,6 +4,7 @@ import type { CrudEntry } from "@powersync/web";
 import {
   permanentSyncFailureFingerprint,
   reportPermanentSyncFailure,
+  reportUploadHeldByDeviceClock,
   resetReportedSyncFailures,
 } from "@/lib/observability/report-sync-failure";
 
@@ -93,5 +94,32 @@ test("fingerprints permanent failures by code and upload target", () => {
   assert.deepEqual(
     permanentSyncFailureFingerprint({ error: new Error("x"), operations: [] }),
     ["powersync-permanent-upload", "unknown", "unknown"]
+  );
+});
+
+test("a held upload is reported once per transaction, apart from failures", () => {
+  resetReportedSyncFailures();
+  const input = {
+    transactionId: 1,
+    operations: [operation("tenant-a")],
+    target: "powersync_create_sale",
+    heldUntil: "2026-09-28T23:55:00.000Z",
+  };
+
+  assert.equal(reportUploadHeldByDeviceClock(input), true);
+  assert.equal(reportUploadHeldByDeviceClock(input), false);
+  assert.equal(
+    reportUploadHeldByDeviceClock({ ...input, transactionId: 2 }),
+    true
+  );
+  // The same transaction can still fail permanently once the clock catches
+  // up, and that failure is reported on its own.
+  assert.equal(
+    reportPermanentSyncFailure({
+      error: { code: "23514" },
+      transactionId: 1,
+      operations: input.operations,
+    }),
+    true
   );
 });
