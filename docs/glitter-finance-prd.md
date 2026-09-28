@@ -206,6 +206,8 @@ A report over a range shows:
 - A breakdown by user (who sold what).
 - Refunds issued in the range, applied as negative amounts so revenue and net earnings reflect them.
 
+The category and product breakdowns split each sale-level discount across the sale's lines in proportion to their totals (in whole cents, the leftover cents going to the largest remainders), so every breakdown adds up to net revenue. A refund counts against its lines, so a range that holds the refund of an earlier sale can show a negative row. The average ticket is the net revenue of the range's sales that were not refunded within the range, divided by how many there are; a refund of a sale from before the range does not lower it.
+
 The gross / discounts / net / cost / net-earnings figures are the heart of the reporting value: a vendor sees not just what they took in but what they actually earned after the cost of their goods.
 
 Because cost is optional, cost of goods sold and net earnings can be based on incomplete data. When any product sold in the range has no recorded cost, the report marks cost of goods sold as incomplete and presents net earnings as an upper bound (true profit is at most this figure), rather than showing a confidently wrong number. A vendor who records cost on all their products gets exact figures; one who records none still gets accurate gross/discounts/net with net earnings clearly flagged as not accounting for cost.

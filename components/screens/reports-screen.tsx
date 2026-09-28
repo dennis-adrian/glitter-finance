@@ -30,6 +30,9 @@ import {
 } from "@/lib/inventory";
 import type { Product, ReportRange, Sale } from "@/lib/types";
 
+/** How many products "Más vendidos" lists before "Ver todos". */
+const TOP_PRODUCTS_COUNT = 6;
+
 type ReportsScreenProps = {
   sales: Sale[];
   products: Product[];
@@ -80,6 +83,7 @@ export function ReportsScreen({
   const [customStart, setCustomStart] = useState(today);
   const [customEnd, setCustomEnd] = useState(today);
   const [now, setNow] = useState(() => Date.now());
+  const [showAllProducts, setShowAllProducts] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15_000);
@@ -110,9 +114,19 @@ export function ReportsScreen({
   const oversoldProducts = trackedStock.filter(
     ({ stock }) => stock.state === "oversold"
   );
-  const averageTicketCents = metrics.transactionCount
-    ? Math.round(metrics.netRevenueCents / metrics.transactionCount)
-    : 0;
+  // A refund of an earlier sale can make a row negative, so bars scale to
+  // the largest amount either way.
+  const categoryMax = Math.max(
+    0,
+    ...categoryTotals.map((item) => Math.abs(item.total))
+  );
+  const paymentMax = Math.max(
+    0,
+    ...paymentTotals.map((item) => Math.abs(item.total))
+  );
+  const listedProducts = showAllProducts
+    ? productTotals
+    : productTotals.slice(0, TOP_PRODUCTS_COUNT);
 
   function handleRangeChange(nextRange: ReportRange) {
     if (nextRange === "custom" && range !== "custom") {
@@ -175,9 +189,13 @@ export function ReportsScreen({
         />
         <MetricCard
           label="Ticket prom."
-          value={formatBs(averageTicketCents, true)}
+          value={formatBs(metrics.averageTicketCents, true)}
         />
-        <MetricCard label="Reembolsos" value={String(metrics.refundCount)} />
+        <MetricCard
+          label="Reembolsos"
+          value={formatBs(metrics.refundedCents, true)}
+          detail={countLabel(metrics.refundCount, "reembolso", "reembolsos")}
+        />
       </div>
 
       {metrics.hasUnknownCost ? (
@@ -189,14 +207,17 @@ export function ReportsScreen({
       ) : null}
 
       <section className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-        <h2 className="mb-3.5 text-lg font-semibold">Ventas por categoría</h2>
+        <h2 className="mb-1.5 text-lg font-semibold">Ventas por categoría</h2>
+        <p className="mb-3.5 text-sm text-muted-foreground">
+          Montos netos, con descuentos y reembolsos: suman el ingreso neto.
+        </p>
         {categoryTotals.length ? (
           categoryTotals.map((item) => (
             <BarRow
               key={item.category}
               label={item.category}
               value={item.total}
-              max={categoryTotals[0].total}
+              max={categoryMax}
             />
           ))
         ) : (
@@ -214,9 +235,7 @@ export function ReportsScreen({
               key={item.label}
               label={item.label}
               value={item.total}
-              max={Math.max(
-                ...paymentTotals.map((total) => Math.abs(total.total))
-              )}
+              max={paymentMax}
             />
           ))
         ) : (
@@ -227,16 +246,33 @@ export function ReportsScreen({
       </section>
 
       <section className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-        <h2 className="mb-3.5 text-lg font-semibold">Más vendidos</h2>
+        <h2 className="mb-1.5 text-lg font-semibold">Más vendidos</h2>
+        <p className="mb-2.5 text-sm text-muted-foreground">
+          Unidades vendidas e ingreso neto de cada producto.
+        </p>
         <ReportList
           empty="Aún no hay productos vendidos en este rango."
-          rows={productTotals.slice(0, 6).map((item) => ({
+          rows={listedProducts.map((item) => ({
             key: item.productId,
             title: item.productName,
             subtitle: countLabel(item.quantity, "unidad", "unidades"),
             value: formatBs(item.total, true),
           }))}
         />
+        {productTotals.length > TOP_PRODUCTS_COUNT ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mt-2 w-full"
+            aria-expanded={showAllProducts}
+            onClick={() => setShowAllProducts((shown) => !shown)}
+          >
+            {showAllProducts
+              ? "Ver menos"
+              : `Ver todos (${productTotals.length})`}
+          </Button>
+        ) : null}
       </section>
 
       {trackedStock.length ? (
