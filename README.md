@@ -24,6 +24,18 @@ iPhone Safari and Android Chrome) and
 
 ## Run locally
 
+You need Node 24 (see `.nvmrc`), Docker for the local Supabase stack, and the
+[Supabase CLI](https://supabase.com/docs/guides/cli/getting-started)
+**2.115.0 or later** on your `PATH` (for example
+`brew install supabase/tap/supabase`, and `brew upgrade supabase` later). The
+CLI is not an npm dependency. The `pnpm db:*` scripts run it through
+`scripts/run-supabase.mjs`, which stops with install instructions when it is
+missing or older than that version (`MIN_CLI_VERSION`, the version
+`supabase/config.toml` is tested with). The script also refuses commands that
+would seed a hosted project: `pnpm db:seed:buckets --linked`, a hosted
+`db reset` without `--no-seed`, and `db push --include-seed`. Add
+`--allow-remote-seed` only if you really mean it.
+
 For local Google sign-in, set
 `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` and
 `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` in `.env.local` before starting the
@@ -320,7 +332,7 @@ dispositivo", which a reload fixes.
    scripts are no-ops once the publication above exists.
 3. Run the verification queries from that section.
 
-Also pass `--no-seed` when resetting any cloud project — the `supabase/seed.sql` script is local-only (creates a demo auth user with a known password, and assumes `pgcrypto` is enabled). It has no business running against staging or prod.
+Also pass `--no-seed` when resetting any cloud project — the `supabase/seed.sql` script is local-only (creates a demo auth user with a known password, and assumes `pgcrypto` is enabled). It has no business running against staging or prod. `pnpm db:reset --linked` refuses to run without `--no-seed`.
 
 ```bash
 supabase db reset --linked --no-seed
