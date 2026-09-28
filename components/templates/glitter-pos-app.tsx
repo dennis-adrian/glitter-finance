@@ -14,6 +14,7 @@ import {
   voidSale as voidSaleAction,
 } from "@/app/sales/actions";
 import { addInventoryMovement as addInventoryMovementAction } from "@/app/inventory/actions";
+import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { toast as sonnerToast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { BottomNav } from "@/components/organisms/bottom-nav";
@@ -93,6 +94,7 @@ import {
   watchLocalTables,
   watchTenantRows,
 } from "@/lib/powersync/local-watch";
+import type { TenantWork } from "@/lib/powersync/tenant-work";
 import { useTenantWork } from "@/lib/powersync/use-tenant-work";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
@@ -124,6 +126,24 @@ function watchFailed(message: string, component: ClientFailureComponent) {
 }
 
 type ToastTone = "success" | "info" | "danger";
+
+const NO_TENANT_MESSAGE = "Tu cuenta aún no está configurada.";
+
+/** What a write for the active tenant gets (see runTenantWrite). */
+type TenantWriteInput = {
+  tenant: NonNullable<UserTenantContext["tenant"]>;
+  work: ReturnType<TenantWork["begin"]>;
+};
+
+/** A write for the active tenant, with and without PowerSync. */
+type TenantWrite<T> = {
+  local: (
+    input: TenantWriteInput & { db: AbstractPowerSyncDatabase }
+  ) => Promise<T>;
+  server: (input: TenantWriteInput) => Promise<T>;
+  /** Set while the write runs; not cleared once its work was cancelled. */
+  pending?: (pending: boolean) => void;
+};
 
 type ProductWrite = {
   kind: "save" | "archive" | "restore";
@@ -775,6 +795,64 @@ export function GlitterPosApp({
     }
   }
 
+  /**
+   * Runs a write for the active tenant. The environment picks the path: with
+   * PowerSync configured, the provider renders the app only once the local
+   * store is ready, so `local` writes to it and the upload queue replicates
+   * the rows to Supabase in the background. (db is null there only during a
+   * local teardown, which has already cancelled tenant work, so `server` is
+   * not called then.) Without PowerSync (local-only mode), `server` calls
+   * the server actions.
+   *
+   * Resolves to the write's result, or to null once its tenant work was
+   * cancelled (a teardown started), which callers ignore. Any other failure,
+   * and a missing tenant, is thrown.
+   */
+  async function runTenantWrite<T>(
+    write: TenantWrite<T>
+  ): Promise<{ value: T } | null> {
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      throw new Error(NO_TENANT_MESSAGE);
+    }
+    const work = tenantWork.begin();
+    const db = powerSyncDb;
+    try {
+      work.assertCurrent();
+      write.pending?.(true);
+      const value = db
+        ? await write.local({ tenant, work, db })
+        : await write.server({ tenant, work });
+      work.assertCurrent();
+      return { value };
+    } catch (error) {
+      if (!work.isCurrent()) {
+        return null;
+      }
+      throw error;
+    } finally {
+      if (work.isCurrent()) {
+        write.pending?.(false);
+      }
+    }
+  }
+
+  /** runTenantWrite for a screen that shows a failure as a toast. */
+  async function runTenantWriteWithToast<T>(
+    failureMessage: string,
+    write: TenantWrite<T>
+  ): Promise<{ value: T } | null> {
+    try {
+      return await runTenantWrite(write);
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : failureMessage,
+        "danger"
+      );
+      return null;
+    }
+  }
+
   function openEditor(product: Product | null) {
     setPreviousView(view === "editor" ? "products" : view);
     setEditingProduct(product);
@@ -811,16 +889,14 @@ export function GlitterPosApp({
     imageFile,
     initialStock,
   }: ProductEditorSaveInput) {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
-      return;
-    }
     const existingProduct = editingProduct ?? createdProductRef.current;
-    const work = tenantWork.begin();
-    const db = powerSyncDb;
-    try {
-      let uploadFailed = false;
+
+    // The initial count to write with the product, if any. Only the local
+    // store can say whether an older product already has one.
+    async function initialStockDeltaToWrite(
+      db: AbstractPowerSyncDatabase | null,
+      work: TenantWriteInput["work"]
+    ) {
       let hasInitial = false;
       if (existingProduct) {
         if (
@@ -841,45 +917,53 @@ export function GlitterPosApp({
           hasInitial = true;
         }
       }
-      const initialStockDelta = resolveInitialStockDelta({
+      return resolveInitialStockDelta({
         tracksInventory: productInput.tracksInventory,
         wasTrackingInventory: existingProduct?.tracksInventory ?? false,
         hasInitialMovement: hasInitial,
         initialStock,
       });
-      const needsInitialMovement = initialStockDelta != null;
+    }
 
-      if (db) {
-        work.assertCurrent();
-        // The initial count is written in the product's own transaction.
-        const initialStockMovement = needsInitialMovement
-          ? { userId: tenantContext.user.id, delta: initialStockDelta }
-          : undefined;
-        const productId = existingProduct
-          ? (await updateProductLocal(db, {
-              tenantId: tenant.id,
-              productId: existingProduct.id,
-              product: productInput,
-              initialStock: initialStockMovement,
-              assertCurrent: work.assertCurrent,
-            }),
-            existingProduct.id)
-          : (
-              await createProductLocal(db, {
+    // Each path resolves to whether the photo upload failed: the product
+    // itself is saved by then.
+    const saved = await runTenantWriteWithToast(
+      "No se pudo guardar el producto",
+      {
+        local: async ({ tenant, work, db }) => {
+          const initialStockDelta = await initialStockDeltaToWrite(db, work);
+          // The initial count is written in the product's own transaction.
+          const initialStockMovement =
+            initialStockDelta != null
+              ? { userId: tenantContext.user.id, delta: initialStockDelta }
+              : undefined;
+          const productId = existingProduct
+            ? (await updateProductLocal(db, {
                 tenantId: tenant.id,
+                productId: existingProduct.id,
                 product: productInput,
                 initialStock: initialStockMovement,
                 assertCurrent: work.assertCurrent,
-              })
-            ).productId;
-        if (!editingProduct) {
-          createdProductRef.current = {
-            id: productId,
-            tracksInventory: productInput.tracksInventory,
-          };
-        }
+              }),
+              existingProduct.id)
+            : (
+                await createProductLocal(db, {
+                  tenantId: tenant.id,
+                  product: productInput,
+                  initialStock: initialStockMovement,
+                  assertCurrent: work.assertCurrent,
+                })
+              ).productId;
+          if (!editingProduct) {
+            createdProductRef.current = {
+              id: productId,
+              tracksInventory: productInput.tracksInventory,
+            };
+          }
 
-        if (imageFile) {
+          if (!imageFile) {
+            return false;
+          }
           try {
             work.assertCurrent();
             await uploadProductImageLocal(createSupabaseBrowserClient(), db, {
@@ -888,89 +972,85 @@ export function GlitterPosApp({
               file: imageFile,
               assertCurrent: work.assertCurrent,
             });
+            return false;
           } catch (error) {
             if (!work.isCurrent()) {
               throw error;
             }
-            uploadFailed = true;
+            return true;
           }
-        }
-      } else {
-        work.assertCurrent();
-        let product = await unwrapActionResult(
-          () =>
-            existingProduct
-              ? updateProductAction(tenant.id, existingProduct.id, productInput)
-              : createProduct(tenant.id, productInput),
-          "No se pudo guardar el producto"
-        );
-        work.assertCurrent();
-        upsertProduct(product);
-        if (!editingProduct) {
-          createdProductRef.current = product;
-        }
-
-        if (needsInitialMovement) {
-          const productId = product.id;
-          const movement = await unwrapActionResult(
+        },
+        server: async ({ tenant, work }) => {
+          const initialStockDelta = await initialStockDeltaToWrite(null, work);
+          let uploadFailed = false;
+          let product = await unwrapActionResult(
             () =>
-              addInventoryMovementAction(tenant.id, {
-                productId,
-                delta: initialStockDelta,
-                reason: "initial",
-              }),
-            "No se pudo guardar el stock inicial"
+              existingProduct
+                ? updateProductAction(
+                    tenant.id,
+                    existingProduct.id,
+                    productInput
+                  )
+                : createProduct(tenant.id, productInput),
+            "No se pudo guardar el producto"
           );
           work.assertCurrent();
-          addInventoryMovementToState(movement);
-        }
+          upsertProduct(product);
+          if (!editingProduct) {
+            createdProductRef.current = product;
+          }
 
-        if (imageFile) {
-          const productId = product.id;
-          const formData = new FormData();
-          formData.set("image", imageFile);
-          try {
-            work.assertCurrent();
-            product = await unwrapActionResult(
-              () => uploadProductImage(tenant.id, productId, formData),
-              "No se pudo subir la imagen"
+          if (initialStockDelta != null) {
+            const productId = product.id;
+            const movement = await unwrapActionResult(
+              () =>
+                addInventoryMovementAction(tenant.id, {
+                  productId,
+                  delta: initialStockDelta,
+                  reason: "initial",
+                }),
+              "No se pudo guardar el stock inicial"
             );
             work.assertCurrent();
-          } catch (error) {
-            if (!work.isCurrent()) {
-              throw error;
-            }
-            uploadFailed = true;
+            addInventoryMovementToState(movement);
           }
-        }
-        work.assertCurrent();
-        upsertProduct(product);
-      }
 
-      work.assertCurrent();
-      if (uploadFailed) {
-        showToast(
-          "Producto guardado, pero no se pudo subir la imagen",
-          "danger"
-        );
-      } else {
-        showToast(
-          editingProduct ? "Producto actualizado" : "Producto agregado",
-          editingProduct ? "info" : "success"
-        );
+          if (imageFile) {
+            const productId = product.id;
+            const formData = new FormData();
+            formData.set("image", imageFile);
+            try {
+              work.assertCurrent();
+              product = await unwrapActionResult(
+                () => uploadProductImage(tenant.id, productId, formData),
+                "No se pudo subir la imagen"
+              );
+              work.assertCurrent();
+            } catch (error) {
+              if (!work.isCurrent()) {
+                throw error;
+              }
+              uploadFailed = true;
+            }
+          }
+          work.assertCurrent();
+          upsertProduct(product);
+          return uploadFailed;
+        },
       }
-      setView("products");
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return;
-      }
+    );
+    if (!saved) {
+      return;
+    }
+    if (saved.value) {
+      showToast("Producto guardado, pero no se pudo subir la imagen", "danger");
+    } else {
       showToast(
-        error instanceof Error
-          ? error.message
-          : "No se pudo guardar el producto",
-        "danger"
+        editingProduct ? "Producto actualizado" : "Producto agregado",
+        editingProduct ? "info" : "success"
       );
     }
+    setView("products");
   }
 
   function handleArchiveProduct(productId: string) {
@@ -980,44 +1060,30 @@ export function GlitterPosApp({
   }
 
   async function archiveProduct(productId: string) {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
+    const archived = await runTenantWriteWithToast(
+      "No se pudo archivar el producto",
+      {
+        local: ({ tenant, work, db }) =>
+          archiveProductLocal(db, {
+            tenantId: tenant.id,
+            productId,
+            assertCurrent: work.assertCurrent,
+          }),
+        server: async ({ tenant, work }) => {
+          const product = await unwrapActionResult(
+            () => archiveProductAction(tenant.id, productId),
+            "No se pudo archivar el producto"
+          );
+          work.assertCurrent();
+          upsertProduct(product);
+        },
+      }
+    );
+    if (!archived) {
       return;
     }
-    const work = tenantWork.begin();
-    const db = powerSyncDb;
-    try {
-      if (db) {
-        work.assertCurrent();
-        await archiveProductLocal(db, {
-          tenantId: tenant.id,
-          productId,
-          assertCurrent: work.assertCurrent,
-        });
-      } else {
-        work.assertCurrent();
-        const product = await unwrapActionResult(
-          () => archiveProductAction(tenant.id, productId),
-          "No se pudo archivar el producto"
-        );
-        work.assertCurrent();
-        upsertProduct(product);
-      }
-      work.assertCurrent();
-      showToast("Producto archivado", "info");
-      setView("products");
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return;
-      }
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "No se pudo archivar el producto",
-        "danger"
-      );
-    }
+    showToast("Producto archivado", "info");
+    setView("products");
   }
 
   function handleRestoreProduct(productId: string) {
@@ -1027,42 +1093,27 @@ export function GlitterPosApp({
   }
 
   async function restoreProduct(productId: string) {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
-      return;
-    }
-    const work = tenantWork.begin();
-    const db = powerSyncDb;
-    try {
-      if (db) {
-        work.assertCurrent();
-        await restoreProductLocal(db, {
-          tenantId: tenant.id,
-          productId,
-          assertCurrent: work.assertCurrent,
-        });
-      } else {
-        work.assertCurrent();
-        const product = await unwrapActionResult(
-          () => restoreProductAction(tenant.id, productId),
-          "No se pudo restaurar el producto"
-        );
-        work.assertCurrent();
-        upsertProduct(product);
+    const restored = await runTenantWriteWithToast(
+      "No se pudo restaurar el producto",
+      {
+        local: ({ tenant, work, db }) =>
+          restoreProductLocal(db, {
+            tenantId: tenant.id,
+            productId,
+            assertCurrent: work.assertCurrent,
+          }),
+        server: async ({ tenant, work }) => {
+          const product = await unwrapActionResult(
+            () => restoreProductAction(tenant.id, productId),
+            "No se pudo restaurar el producto"
+          );
+          work.assertCurrent();
+          upsertProduct(product);
+        },
       }
-      work.assertCurrent();
+    );
+    if (restored) {
       showToast("Producto restaurado", "info");
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return;
-      }
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "No se pudo restaurar el producto",
-        "danger"
-      );
     }
   }
 
@@ -1082,15 +1133,8 @@ export function GlitterPosApp({
     reason: InventoryMovementReason;
     note?: string;
   }) {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      throw new Error("Tu cuenta aún no está configurada.");
-    }
-    const work = tenantWork.begin();
-    const db = powerSyncDb;
-    try {
-      if (db) {
-        work.assertCurrent();
+    const recorded = await runTenantWrite({
+      local: async ({ tenant, work, db }) => {
         await addInventoryMovement(db, {
           tenantId: tenant.id,
           userId: tenantContext.user.id,
@@ -1100,8 +1144,8 @@ export function GlitterPosApp({
           note: input.note,
           assertCurrent: work.assertCurrent,
         });
-      } else {
-        work.assertCurrent();
+      },
+      server: async ({ tenant, work }) => {
         const movement = await unwrapActionResult(
           () =>
             addInventoryMovementAction(tenant.id, {
@@ -1114,14 +1158,10 @@ export function GlitterPosApp({
         );
         work.assertCurrent();
         addInventoryMovementToState(movement);
-      }
-      work.assertCurrent();
+      },
+    });
+    if (recorded) {
       showToast("Inventario actualizado", "success");
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return;
-      }
-      throw error;
     }
   }
 
@@ -1133,183 +1173,136 @@ export function GlitterPosApp({
     if (isCheckingOut || !cartDetails.length) {
       return;
     }
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
-      return;
-    }
 
-    const work = tenantWork.begin();
-    const db = powerSyncDb;
-    setIsCheckingOut(true);
-
-    try {
-      // The environment picks the path. With PowerSync configured, the
-      // provider renders the app only once the local store is ready, so the
-      // sale is written locally: the watch picks up the new rows and the
-      // upload queue replicates them to Supabase in the background. (db is
-      // null there only during a local teardown, which has already cancelled
-      // tenant work, so the server action is not called then.) Without
-      // PowerSync (local-only mode) the server action records the sale.
-      if (db) {
-        work.assertCurrent();
-        const { totalCents } = await createSaleLocal(db, {
-          tenantId: tenant.id,
-          userId: tenantContext.user.id,
-          paymentMethod: method,
-          saleDiscountCents: discount,
-          saleDiscountReason: reason,
-          lines: cartDetails.map((line) => ({
-            product: line.product,
+    // Each path resolves to the sale's total, for the toast.
+    const recorded = await runTenantWriteWithToast(
+      "No se pudo registrar la venta",
+      {
+        pending: setIsCheckingOut,
+        local: async ({ tenant, work, db }) => {
+          const { totalCents } = await createSaleLocal(db, {
+            tenantId: tenant.id,
+            userId: tenantContext.user.id,
+            paymentMethod: method,
+            saleDiscountCents: discount,
+            saleDiscountReason: reason,
+            lines: cartDetails.map((line) => ({
+              product: line.product,
+              quantity: line.quantity,
+              lineDiscountCents: line.lineDiscountCents,
+              lineDiscountReason: line.lineDiscountReason,
+            })),
+            assertCurrent: work.assertCurrent,
+          });
+          work.assertCurrent();
+          clearCart();
+          void draftCartStorage?.clear();
+          return formatBs(totalCents, true);
+        },
+        server: async ({ tenant, work }) => {
+          const lines = cartDetails.map((line) => ({
+            productId: line.productId,
             quantity: line.quantity,
             lineDiscountCents: line.lineDiscountCents,
             lineDiscountReason: line.lineDiscountReason,
-          })),
-          assertCurrent: work.assertCurrent,
-        });
-        work.assertCurrent();
-        clearCart();
-        void draftCartStorage?.clear();
-        showToast(
-          `Venta registrada · ${formatBs(totalCents, true)} · ${paymentLabels[method]}`
-        );
-      } else {
-        work.assertCurrent();
-        const lines = cartDetails.map((line) => ({
-          productId: line.productId,
-          quantity: line.quantity,
-          lineDiscountCents: line.lineDiscountCents,
-          lineDiscountReason: line.lineDiscountReason,
-        }));
-        // A retry of the same checkout (the response was lost, or the
-        // network failed after the server recorded it) reuses the sale id,
-        // so the server returns the recorded sale instead of a duplicate.
-        // Any change to the checkout starts a new attempt.
-        const checkoutKey = JSON.stringify([
-          tenant.id,
-          method,
-          discount,
-          reason ?? "",
-          lines,
-        ]);
-        if (checkoutAttemptRef.current?.key !== checkoutKey) {
-          checkoutAttemptRef.current = {
-            key: checkoutKey,
-            saleId: crypto.randomUUID(),
-          };
-        }
-        const { saleId } = checkoutAttemptRef.current;
-        const sale = await unwrapActionResult(
-          () =>
-            createSale(tenant.id, {
-              saleId,
-              paymentMethod: method,
-              saleDiscountCents: discount,
-              saleDiscountReason: reason,
-              lines,
-            }),
-          "No se pudo registrar la venta"
-        );
-        checkoutAttemptRef.current = null;
-        work.assertCurrent();
-        recordSale(sale);
-        void draftCartStorage?.clear();
-        showToast(
-          `Venta registrada · ${saleTotal(sale)} · ${paymentLabels[method]}`
-        );
+          }));
+          // A retry of the same checkout (the response was lost, or the
+          // network failed after the server recorded it) reuses the sale id,
+          // so the server returns the recorded sale instead of a duplicate.
+          // Any change to the checkout starts a new attempt.
+          const checkoutKey = JSON.stringify([
+            tenant.id,
+            method,
+            discount,
+            reason ?? "",
+            lines,
+          ]);
+          if (checkoutAttemptRef.current?.key !== checkoutKey) {
+            checkoutAttemptRef.current = {
+              key: checkoutKey,
+              saleId: crypto.randomUUID(),
+            };
+          }
+          const { saleId } = checkoutAttemptRef.current;
+          const sale = await unwrapActionResult(
+            () =>
+              createSale(tenant.id, {
+                saleId,
+                paymentMethod: method,
+                saleDiscountCents: discount,
+                saleDiscountReason: reason,
+                lines,
+              }),
+            "No se pudo registrar la venta"
+          );
+          checkoutAttemptRef.current = null;
+          work.assertCurrent();
+          recordSale(sale);
+          void draftCartStorage?.clear();
+          return saleTotal(sale);
+        },
       }
-      work.assertCurrent();
-      setView("sell");
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return;
-      }
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "No se pudo registrar la venta",
-        "danger"
-      );
-    } finally {
-      if (work.isCurrent()) {
-        setIsCheckingOut(false);
-      }
+    );
+    if (!recorded) {
+      return;
     }
+    showToast(
+      `Venta registrada · ${recorded.value} · ${paymentLabels[method]}`
+    );
+    setView("sell");
   }
 
   // Void and refund are confirmed in SaleActionDialog: a refusal is thrown,
   // so the dialog shows its reason, and false means the work was cancelled.
   async function handleVoidSale(saleId: string) {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      throw new Error("Tu cuenta aún no está configurada.");
-    }
-    const work = tenantWork.begin();
-    const db = powerSyncDb;
-    try {
-      if (db) {
-        work.assertCurrent();
-        await voidSaleLocal(db, {
+    const voided = await runTenantWrite({
+      local: ({ tenant, work, db }) =>
+        voidSaleLocal(db, {
           saleId,
           userId: tenantContext.user.id,
           tenantId: tenant.id,
           assertCurrent: work.assertCurrent,
-        });
-      } else {
-        work.assertCurrent();
+        }),
+      server: async ({ tenant, work }) => {
         const sale = await unwrapActionResult(
           () => voidSaleAction(tenant.id, saleId),
           "No se pudo anular la venta"
         );
         work.assertCurrent();
         upsertSale(sale);
-      }
-      work.assertCurrent();
-      showToast("Venta anulada", "info");
-      return true;
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return false;
-      }
-      throw error;
+      },
+    });
+    if (!voided) {
+      return false;
     }
+    showToast("Venta anulada", "info");
+    return true;
   }
 
   async function handleRefundSale(saleId: string, reason?: string) {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      throw new Error("Tu cuenta aún no está configurada.");
-    }
-    const work = tenantWork.begin();
-    const db = powerSyncDb;
-    try {
-      if (db) {
-        work.assertCurrent();
-        await refundSaleLocal(db, {
+    const refunded = await runTenantWrite({
+      local: ({ tenant, work, db }) =>
+        refundSaleLocal(db, {
           saleId,
           userId: tenantContext.user.id,
           tenantId: tenant.id,
           reason,
           assertCurrent: work.assertCurrent,
-        });
-      } else {
-        work.assertCurrent();
+        }),
+      server: async ({ tenant, work }) => {
         const sale = await unwrapActionResult(
           () => refundSaleAction(tenant.id, saleId, reason),
           "No se pudo registrar el reembolso"
         );
         work.assertCurrent();
         upsertSale(sale);
-      }
-      work.assertCurrent();
-      showToast("Reembolso registrado", "info");
-      return true;
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return false;
-      }
-      throw error;
+      },
+    });
+    if (!refunded) {
+      return false;
     }
+    showToast("Reembolso registrado", "info");
+    return true;
   }
 
   function handleClearCart() {
