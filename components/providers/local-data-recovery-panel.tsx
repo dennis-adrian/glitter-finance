@@ -14,9 +14,17 @@ import {
   SIGN_OUT_FAILED_MESSAGE,
 } from "@/lib/auth/identity-change";
 import type { IdentityMismatchBlock } from "@/lib/powersync/identity-mismatch";
+import {
+  describeUploadHold,
+  type UploadHold,
+} from "@/lib/powersync/upload-holds";
 
 export type LocalDataRecovery =
-  | { kind: "draining"; pendingUploadCount: number | null }
+  | {
+      kind: "draining";
+      pendingUploadCount: number | null;
+      uploadHold: UploadHold | null;
+    }
   | { kind: "blocked"; block: IdentityMismatchBlock };
 
 function drainingMessage(pendingUploadCount: number | null) {
@@ -72,7 +80,11 @@ export function LocalDataRecoveryPanel({
         layout={layout}
         tone="status"
         message={drainingMessage(recovery.pendingUploadCount)}
-        detail="Este dispositivo tiene operaciones que aún no llegaron a la nube. Mantén la app abierta y conectada a internet; se subirán antes de mostrar los datos de esta sesión."
+        detail={
+          recovery.uploadHold
+            ? `${describeUploadHold(recovery.uploadHold)} Mantén la app abierta; se subirán antes de mostrar los datos de esta sesión.`
+            : "Este dispositivo tiene operaciones que aún no llegaron a la nube. Mantén la app abierta y conectada a internet; se subirán antes de mostrar los datos de esta sesión."
+        }
       />
     );
   }

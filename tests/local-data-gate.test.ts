@@ -65,3 +65,18 @@ test("the pending uploads message agrees in number", () => {
     "Hay 3 operaciones sin subir a la nube. Conéctate y espera a que se sincronicen antes de unirte."
   );
 });
+
+test("the pending uploads message explains a queue the server defers", () => {
+  assert.match(
+    pendingUploadsBlockerMessage(1, "cerrar sesión", {
+      heldUntil: "2999-01-01T00:00:00.000Z",
+    }),
+    /^Hay 1 operación sin subir a la nube\. Se registraron operaciones con la hora del dispositivo adelantada\. .* Espera a que se suba antes de cerrar sesión\.$/
+  );
+  const stillAhead = pendingUploadsBlockerMessage(2, "unirte", {
+    heldUntil: null,
+  });
+  assert.match(stillAhead, /La hora de este dispositivo está adelantada/);
+  assert.match(stillAhead, /Espera a que se suban antes de unirte\.$/);
+  assert.doesNotMatch(stillAhead, /Conéctate/);
+});

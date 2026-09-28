@@ -7,9 +7,21 @@ import {
 } from "@/lib/powersync/identity-mismatch";
 
 const current = { userId: "user-a", tenantId: "tenant-b" };
-const nothingUnsynced = { pendingUploadCount: 0, unresolvedFailureCount: 0 };
-const pendingOnly = { pendingUploadCount: 3, unresolvedFailureCount: 0 };
-const failed = { pendingUploadCount: 1, unresolvedFailureCount: 1 };
+const nothingUnsynced = {
+  pendingUploadCount: 0,
+  unresolvedFailureCount: 0,
+  uploadHold: null,
+};
+const pendingOnly = {
+  pendingUploadCount: 3,
+  unresolvedFailureCount: 0,
+  uploadHold: null,
+};
+const failed = {
+  pendingUploadCount: 1,
+  unresolvedFailureCount: 1,
+  uploadHold: null,
+};
 
 test("a mismatch with nothing unsynced clears the device", () => {
   for (const stored of [
@@ -83,12 +95,16 @@ test("unattributed pending uploads drain, and block once they fail", () => {
   );
 });
 
-function queueDb(states: Array<{ pending: number; failures: number }>) {
+function queueDb(
+  states: Array<{ pending: number; failures: number }>,
+  holdRows: object[] = []
+) {
   let index = 0;
   const listeners = new Set<() => void>();
   const current = () => states[Math.min(index, states.length - 1)];
   const db = {
-    getAll: async () => [],
+    getAll: async (sql: string) =>
+      /FROM upload_holds/.test(sql) ? holdRows : [],
     getCrudTransactions: async function* () {},
     getOptional: async () => ({ count: current().failures }),
     getUploadQueueStats: async () => {
@@ -126,6 +142,41 @@ test("draining waits until the upload queue is empty", async () => {
   assert.equal(outcome, "drained");
   assert.deepEqual(progress, [2, 1]);
   assert.equal(listenerCount(), 0);
+});
+
+test("draining says why the queue waits when the server defers it", async () => {
+  const { db } = queueDb(
+    [
+      { pending: 2, failures: 0 },
+      { pending: 0, failures: 0 },
+    ],
+    [
+      {
+        id: "transaction:9",
+        transaction_id: 9,
+        held_until: "2026-09-28T23:55:00.000Z",
+        error_message: "The created_at timestamp is ahead.",
+        created_at: "2026-09-28T12:00:00.000Z",
+      },
+    ]
+  );
+  const holds: unknown[] = [];
+
+  const outcome = await waitForUploadQueueToDrain(db, {
+    isCancelled: () => false,
+    onPending: (_count, uploadHold) => holds.push(uploadHold),
+    pollIntervalMs: 1,
+  });
+
+  assert.equal(outcome, "drained");
+  assert.deepEqual(holds, [
+    {
+      transactionId: 9,
+      heldUntil: "2026-09-28T23:55:00.000Z",
+      errorMessage: "The created_at timestamp is ahead.",
+      createdAt: "2026-09-28T12:00:00.000Z",
+    },
+  ]);
 });
 
 test("draining re-checks as soon as the sync status changes", async () => {

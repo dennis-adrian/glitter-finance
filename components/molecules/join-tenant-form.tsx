@@ -15,6 +15,7 @@ import {
   type LocalDataChangeBlocker,
 } from "@/lib/powersync/local-data-gate";
 import { isUnsyncedLocalDataRefusal } from "@/lib/powersync/local-data-teardown";
+import type { UploadHold } from "@/lib/powersync/upload-holds";
 import { useLocalDataChangeGate } from "@/lib/powersync/use-local-data-change-gate";
 
 type JoinTenantFormProps = {
@@ -23,13 +24,14 @@ type JoinTenantFormProps = {
 
 function describeBlocker(
   blocker: LocalDataChangeBlocker,
-  pendingCount: number
+  pendingCount: number,
+  uploadHold: UploadHold | null
 ) {
   switch (blocker) {
     case "sync-failures":
       return "Hay operaciones que no llegaron a la nube. Abre Diagnósticos en Ajustes antes de unirte.";
     case "pending-uploads":
-      return pendingUploadsBlockerMessage(pendingCount, "unirte");
+      return pendingUploadsBlockerMessage(pendingCount, "unirte", uploadHold);
     case "not-synced":
       return "Espera a que termine la sincronización antes de unirte.";
   }
@@ -95,7 +97,7 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
               : "mb-3 text-sm text-muted-foreground"
           }
         >
-          {describeBlocker(gate.blocker, gate.pendingCount)}
+          {describeBlocker(gate.blocker, gate.pendingCount, gate.uploadHold)}
         </p>
       ) : null}
       {error ? (

@@ -4,6 +4,7 @@ import {
   type LocalDataIdentity,
   type UnsyncedLocalWork,
 } from "@/lib/powersync/local-data-teardown";
+import type { UploadHold } from "@/lib/powersync/upload-holds";
 
 /** Why the device keeps another identity's data instead of clearing it. */
 export type IdentityMismatchBlock =
@@ -81,7 +82,10 @@ export async function waitForUploadQueueToDrain(
   db: AbstractPowerSyncDatabase,
   options: {
     isCancelled: () => boolean;
-    onPending?: (pendingUploadCount: number) => void;
+    onPending?: (
+      pendingUploadCount: number,
+      uploadHold: UploadHold | null
+    ) => void;
     pollIntervalMs?: number;
   }
 ): Promise<UploadQueueDrainOutcome> {
@@ -92,7 +96,7 @@ export async function waitForUploadQueueToDrain(
     if (options.isCancelled()) return "cancelled";
     if (unsynced.unresolvedFailureCount > 0) return "failed";
     if (unsynced.pendingUploadCount === 0) return "drained";
-    options.onPending?.(unsynced.pendingUploadCount);
+    options.onPending?.(unsynced.pendingUploadCount, unsynced.uploadHold);
     await nextStatusChange(db, pollIntervalMs);
   }
 }

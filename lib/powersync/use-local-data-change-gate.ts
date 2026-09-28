@@ -10,7 +10,7 @@ import { useSyncStatus } from "@/lib/powersync/use-sync-status";
  * re-checks the queue, so a stale snapshot can only cause a refusal.
  */
 export function useLocalDataChangeGate() {
-  const { state, pendingCount, failureCount } = useSyncStatus();
+  const { state, pendingCount, failureCount, uploadHold } = useSyncStatus();
   const blocker = getLocalDataChangeBlocker({
     powerSyncConfigured: isPowerSyncConfigured(),
     syncState: state,
@@ -22,5 +22,7 @@ export function useLocalDataChangeGate() {
     blocker,
     pendingCount,
     failureCount,
+    /** Why pending uploads wait, when the server defers them. */
+    uploadHold,
   };
 }

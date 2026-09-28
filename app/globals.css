@@ -473,11 +473,15 @@ button {
   animation: sync-pulse 1.2s ease-in-out infinite;
 }
 
-.sync-pill-offline {
+/* Uploads wait for the server clock (lib/powersync/upload-holds.ts); shown
+   like offline, since nothing reaches the server either. */
+.sync-pill-offline,
+.sync-pill-held {
   background: rgba(180, 90, 30, 0.92);
 }
 
-.sync-pill-offline .sync-pill-dot {
+.sync-pill-offline .sync-pill-dot,
+.sync-pill-held .sync-pill-dot {
   background: #f59e0b;
   box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22);
 }

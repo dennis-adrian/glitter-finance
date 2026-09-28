@@ -11,12 +11,20 @@ import {
   getUnresolvedSyncFailureCount,
   reconcileSyncFailures,
 } from "@/lib/powersync/sync-failures";
+import {
+  getUploadHold,
+  sameUploadHold,
+  type UploadHold,
+} from "@/lib/powersync/upload-holds";
 
 export type SyncState =
   | "initializing"
   | "offline"
   | "syncing"
   | "synced"
+  // The server defers the head of the queue until its clock catches up with
+  // the device time the rows were recorded with (lib/powersync/upload-holds.ts).
+  | "held"
   | "blocked";
 
 export type SyncStatusSnapshot = {
@@ -30,6 +38,7 @@ export type SyncStatusSnapshot = {
   downloadError: string | null;
   pendingCount: number;
   failureCount: number;
+  uploadHold: UploadHold | null;
 };
 
 export const initialSyncStatusSnapshot: SyncStatusSnapshot = {
@@ -43,6 +52,7 @@ export const initialSyncStatusSnapshot: SyncStatusSnapshot = {
   downloadError: null,
   pendingCount: 0,
   failureCount: 0,
+  uploadHold: null,
 };
 
 // A tiny local SQLite read, no network. The queue only changes on local
@@ -55,9 +65,13 @@ export function deriveSyncState(input: {
   uploading: boolean;
   downloading: boolean;
   failureCount: number;
+  uploadHeld: boolean;
 }): SyncState {
   if (input.failureCount > 0) return "blocked";
   if (!input.connected) return "offline";
+  // Uploads are attempted and deferred in turn, so the flags below would
+  // alternate between syncing and synced while nothing reaches the server.
+  if (input.uploadHeld) return "held";
   // PowerSync can briefly report connected with neither flag set in the
   // middle of the first download (the downloading flag toggles between
   // buckets). The local store is not complete until hasSynced first turns
@@ -78,7 +92,11 @@ export function syncErrorText(
 
 export function snapshotFromStatus(
   status: SyncStatus | null | undefined,
-  counts: { pendingCount: number; failureCount: number }
+  counts: {
+    pendingCount: number;
+    failureCount: number;
+    uploadHold: UploadHold | null;
+  }
 ): SyncStatusSnapshot {
   const flags = {
     connected: status?.connected ?? false,
@@ -86,14 +104,21 @@ export function snapshotFromStatus(
     uploading: status?.dataFlowStatus.uploading ?? false,
     downloading: status?.dataFlowStatus.downloading ?? false,
   };
+  // A hold only describes a transaction still waiting in the queue.
+  const uploadHold = counts.pendingCount > 0 ? counts.uploadHold : null;
   return {
-    state: deriveSyncState({ ...flags, failureCount: counts.failureCount }),
+    state: deriveSyncState({
+      ...flags,
+      failureCount: counts.failureCount,
+      uploadHeld: uploadHold !== null,
+    }),
     ...flags,
     lastSyncedAt: status?.lastSyncedAt ?? null,
     uploadError: syncErrorText(status?.dataFlowStatus.uploadError),
     downloadError: syncErrorText(status?.dataFlowStatus.downloadError),
     pendingCount: counts.pendingCount,
     failureCount: counts.failureCount,
+    uploadHold,
   };
 }
 
@@ -112,7 +137,8 @@ export function sameSyncStatus(
     a.uploadError === b.uploadError &&
     a.downloadError === b.downloadError &&
     a.pendingCount === b.pendingCount &&
-    a.failureCount === b.failureCount
+    a.failureCount === b.failureCount &&
+    sameUploadHold(a.uploadHold, b.uploadHold)
   );
 }
 
@@ -153,9 +179,10 @@ export function createSyncStatusStore(
 
   async function read() {
     const status = db.currentStatus;
-    const [stats, failures] = await Promise.allSettled([
+    const [stats, failures, hold] = await Promise.allSettled([
       db.getUploadQueueStats(false),
       getUnresolvedSyncFailureCount(db),
+      getUploadHold(db),
     ]);
     // A rejected read keeps the last known count, so a failure marker keeps
     // the device blocked (fails closed) instead of clearing mid-outage. It is
@@ -164,6 +191,8 @@ export function createSyncStatusStore(
       stats.status === "fulfilled" ? stats.value.count : snapshot.pendingCount;
     let failureCount =
       failures.status === "fulfilled" ? failures.value : snapshot.failureCount;
+    const uploadHold =
+      hold.status === "fulfilled" ? hold.value : snapshot.uploadHold;
 
     // A marker only goes stale when its transaction leaves the queue, and the
     // connector reconciles after every upload it completes. This catches
@@ -185,7 +214,9 @@ export function createSyncStatusStore(
       }
     }
 
-    publish(snapshotFromStatus(status, { pendingCount, failureCount }));
+    publish(
+      snapshotFromStatus(status, { pendingCount, failureCount, uploadHold })
+    );
   }
 
   // Status events come in bursts; one read at a time, plus one more if

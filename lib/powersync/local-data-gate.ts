@@ -1,4 +1,8 @@
 import type { SyncState } from "@/lib/powersync/sync-status";
+import {
+  describeUploadHold,
+  type UploadHold,
+} from "@/lib/powersync/upload-holds";
 
 /**
  * Why an action that clears the local data (sign-out, switching, creating or
@@ -37,8 +41,19 @@ export function describePendingUploads(count: number) {
     : `Hay ${count} operaciones sin subir a la nube.`;
 }
 
-/** `action` completes "antes de …", e.g. "cerrar sesión". */
-export function pendingUploadsBlockerMessage(count: number, action: string) {
+/**
+ * `action` completes "antes de …", e.g. "cerrar sesión". With an upload hold
+ * the wait is not about the connection, so the message says what it is.
+ */
+export function pendingUploadsBlockerMessage(
+  count: number,
+  action: string,
+  uploadHold: Pick<UploadHold, "heldUntil"> | null = null
+) {
+  if (uploadHold) {
+    const wait = count === 1 ? "Espera a que se suba" : "Espera a que se suban";
+    return `${describePendingUploads(count)} ${describeUploadHold(uploadHold)} ${wait} antes de ${action}.`;
+  }
   const wait =
     count === 1
       ? "Conéctate y espera a que se sincronice"

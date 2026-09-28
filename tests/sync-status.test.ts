@@ -13,6 +13,7 @@ const idleFlags = {
   uploading: false,
   downloading: false,
   failureCount: 0,
+  uploadHeld: false,
 };
 
 test("derives one sync state, with failures first", () => {
@@ -27,15 +28,28 @@ test("derives one sync state, with failures first", () => {
   );
 });
 
+test("a held upload queue is shown as held while online", () => {
+  const held = { ...idleFlags, uploadHeld: true };
+  assert.equal(deriveSyncState(held), "held");
+  assert.equal(deriveSyncState({ ...held, uploading: true }), "held");
+  assert.equal(deriveSyncState({ ...held, connected: false }), "offline");
+  assert.equal(deriveSyncState({ ...held, failureCount: 1 }), "blocked");
+});
+
 test("sync errors are shown by their message", () => {
   assert.equal(syncErrorText(undefined), null);
   assert.equal(syncErrorText(new Error("fetch failed")), "fetch failed");
 });
 
-function fakeDb(input: { failureCount?: number; pendingCount?: number }) {
+function fakeDb(input: {
+  failureCount?: number;
+  pendingCount?: number;
+  holdRows?: object[];
+}) {
   const state = {
     pendingCount: input.pendingCount ?? 0,
     failureCount: input.failureCount ?? 0,
+    holdRows: input.holdRows ?? [],
     failureCountError: null as Error | null,
     queueReads: 0,
     listeners: new Set<{ statusChanged?: () => void }>(),
@@ -60,6 +74,7 @@ function fakeDb(input: { failureCount?: number; pendingCount?: number }) {
       return { count: state.failureCount };
     },
     getAll: async (sql: string) => {
+      if (/FROM upload_holds/.test(sql)) return state.holdRows;
       if (/FROM sync_failures/.test(sql)) {
         return [{ id: "transaction:7", transaction_id: 7 }];
       }
@@ -143,5 +158,47 @@ test("a failed count read keeps the device blocked", async () => {
   await store.refresh();
   assert.equal(store.getSnapshot().failureCount, 1);
   assert.equal(store.getSnapshot().state, "blocked");
+  unsubscribe();
+});
+
+const holdRow = {
+  id: "transaction:7",
+  transaction_id: 7,
+  held_until: "2026-09-28T23:55:00.000Z",
+  error_message:
+    "The created_at timestamp is more than 5 minutes ahead of the server clock.",
+  created_at: "2026-09-28T12:00:00.000Z",
+};
+
+test("a deferred upload holds the state until the queue moves on", async () => {
+  const { db, state } = fakeDb({ pendingCount: 2, holdRows: [holdRow] });
+  const store = createSyncStatusStore(db, { pollIntervalMs: 60_000 });
+  const unsubscribe = store.subscribe(() => {});
+  await store.refresh();
+
+  assert.equal(store.getSnapshot().state, "held");
+  assert.deepEqual(store.getSnapshot().uploadHold, {
+    transactionId: 7,
+    heldUntil: "2026-09-28T23:55:00.000Z",
+    errorMessage: holdRow.error_message,
+    createdAt: "2026-09-28T12:00:00.000Z",
+  });
+
+  // The held transaction uploaded: its row no longer matches the queue head.
+  state.holdRows = [];
+  await store.refresh();
+  assert.equal(store.getSnapshot().state, "synced");
+  assert.equal(store.getSnapshot().uploadHold, null);
+  unsubscribe();
+});
+
+test("a hold never outlives the upload queue", async () => {
+  const { db } = fakeDb({ pendingCount: 0, holdRows: [holdRow] });
+  const store = createSyncStatusStore(db, { pollIntervalMs: 60_000 });
+  const unsubscribe = store.subscribe(() => {});
+  await store.refresh();
+
+  assert.equal(store.getSnapshot().state, "synced");
+  assert.equal(store.getSnapshot().uploadHold, null);
   unsubscribe();
 });

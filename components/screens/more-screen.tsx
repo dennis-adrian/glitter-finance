@@ -22,6 +22,7 @@ import {
   pendingUploadsBlockerMessage,
   type LocalDataChangeBlocker,
 } from "@/lib/powersync/local-data-gate";
+import type { UploadHold } from "@/lib/powersync/upload-holds";
 import { cn, initialsOf } from "@/lib/utils";
 
 const tenantSessionCopy: TenantSessionCopy = {
@@ -31,7 +32,8 @@ const tenantSessionCopy: TenantSessionCopy = {
 
 function describeBlocker(
   blocker: LocalDataChangeBlocker,
-  pendingCount: number
+  pendingCount: number,
+  uploadHold: UploadHold | null
 ) {
   switch (blocker) {
     case "sync-failures":
@@ -39,7 +41,8 @@ function describeBlocker(
     case "pending-uploads":
       return pendingUploadsBlockerMessage(
         pendingCount,
-        "cambiar de puesto o cerrar sesión"
+        "cambiar de puesto o cerrar sesión",
+        uploadHold
       );
     case "not-synced":
       return "Espera a que termine la sincronización antes de cambiar de puesto o cerrar sesión.";
@@ -275,7 +278,7 @@ export function MoreScreen({
           )}
           role="status"
         >
-          {describeBlocker(gate.blocker, gate.pendingCount)}
+          {describeBlocker(gate.blocker, gate.pendingCount, gate.uploadHold)}
         </p>
       ) : null}
 

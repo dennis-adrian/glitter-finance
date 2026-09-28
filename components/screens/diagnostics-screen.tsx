@@ -9,10 +9,13 @@
 //
 // Each transaction the server permanently rejected is listed with its error
 // and a confirmed "Descartar operación" action, the way out when retrying
-// cannot succeed (see lib/powersync/discard-sync-failure.ts).
+// cannot succeed (see lib/powersync/discard-sync-failure.ts). A transaction the
+// server only defers until its clock catches up (lib/powersync/upload-holds.ts)
+// is explained instead: it needs no action and cannot be discarded.
 
 import {
   AlertTriangle,
+  Clock,
   RefreshCw,
   ClipboardCopy,
   Download,
@@ -33,7 +36,11 @@ import {
   usePowerSyncControls,
 } from "@/components/providers/powersync-provider";
 import type { UserTenantContext } from "@/lib/auth/tenant-context";
-import { formatDateInputInBolivia, formatDateTimeInBolivia } from "@/lib/dates";
+import {
+  formatDateInputInBolivia,
+  formatDateTimeInBolivia,
+  formatDateTimeLabelInBolivia,
+} from "@/lib/dates";
 import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import {
   discardSyncFailure,
@@ -45,6 +52,7 @@ import {
   getUnresolvedSyncFailures,
   type SyncFailure,
 } from "@/lib/powersync/sync-failures";
+import { describeUploadHold } from "@/lib/powersync/upload-holds";
 import {
   useSyncStatus,
   useSyncStatusStore,
@@ -285,6 +293,7 @@ export function DiagnosticsScreen({
         downloadError: sync.downloadError,
         pendingCount: sync.pendingCount,
         pendingBytes: details.pendingBytes,
+        uploadHold: sync.uploadHold,
         failures: details.failures,
         discardedFailures: details.discarded,
       },
@@ -348,6 +357,17 @@ export function DiagnosticsScreen({
             descarta la operación si la nube la sigue rechazando.
           </span>
         </div>
+      ) : sync.uploadHold ? (
+        <div
+          className="mt-3 flex gap-2 rounded-xl border border-[var(--amber)]/35 bg-[var(--amber-surface)] p-3 text-sm text-[var(--amber)]"
+          role="status"
+        >
+          <Clock className="mt-0.5 size-4.25 shrink-0" />
+          <span>
+            {describeUploadHold(sync.uploadHold)} No hace falta descartar nada:
+            la subida se reintenta sola.
+          </span>
+        </div>
       ) : null}
 
       <DiagPanel title="Sincronización">
@@ -382,6 +402,16 @@ export function DiagnosticsScreen({
           label="Transacciones fallidas"
           value={String(sync.failureCount)}
         />
+        {sync.uploadHold ? (
+          <DiagRow
+            label="En espera hasta"
+            value={
+              sync.uploadHold.heldUntil
+                ? formatDateTimeLabelInBolivia(sync.uploadHold.heldUntil)
+                : "—"
+            }
+          />
+        ) : null}
       </DiagPanel>
 
       {details.failures.length ? (

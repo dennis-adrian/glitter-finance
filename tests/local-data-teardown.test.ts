@@ -345,6 +345,61 @@ test("readUnsyncedLocalWork counts queued uploads and failure markers", async ()
     assert.deepEqual(await readUnsyncedLocalWork(db), {
       pendingUploadCount: 3,
       unresolvedFailureCount: 1,
+      uploadHold: null,
+    });
+  });
+});
+
+test("a refusal says when uploads the server deferred will go through", async () => {
+  await withBrowser(async () => {
+    const { db, cacheStorage, events } = refusalProbe({
+      pendingUploads: 2,
+      failures: 0,
+    });
+    db.getAll = (async (sql: string) =>
+      /FROM upload_holds/.test(sql)
+        ? [
+            {
+              id: "transaction:4",
+              transaction_id: 4,
+              held_until: "2999-01-01T00:00:00.000Z",
+              error_message: "The created_at timestamp is ahead.",
+              created_at: "2026-09-28T12:00:00.000Z",
+            },
+          ]
+        : []) as AbstractPowerSyncDatabase["getAll"];
+
+    await assert.rejects(
+      teardownLocalUserData({
+        db,
+        powerSyncRequired: true,
+        refuseWhenUnsynced: true,
+        cacheStorage,
+      }),
+      (error: unknown) => {
+        assert.ok(isUnsyncedLocalDataRefusal(error));
+        assert.equal(error.stage, "pending-uploads");
+        assert.match(error.message, /hora del dispositivo adelantada/);
+        assert.match(error.message, /Espera a que se suban antes de continuar/);
+        return true;
+      }
+    );
+    assert.deepEqual(events, []);
+  });
+});
+
+test("an unreadable upload hold does not fail the unsynced work check", async () => {
+  await withBrowser(async () => {
+    const { db } = refusalProbe({ pendingUploads: 1, failures: 0 });
+    db.getAll = (async (sql: string) => {
+      if (/FROM upload_holds/.test(sql)) throw new Error("no such table");
+      return [];
+    }) as AbstractPowerSyncDatabase["getAll"];
+
+    assert.deepEqual(await readUnsyncedLocalWork(db), {
+      pendingUploadCount: 1,
+      unresolvedFailureCount: 0,
+      uploadHold: null,
     });
   });
 });

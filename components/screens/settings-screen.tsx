@@ -90,7 +90,11 @@ export function SettingsScreen({
     gate.blocker === "sync-failures"
       ? syncFailureExplanation
       : gate.blocker === "pending-uploads"
-        ? pendingUploadsBlockerMessage(gate.pendingCount, "cerrar sesión")
+        ? pendingUploadsBlockerMessage(
+            gate.pendingCount,
+            "cerrar sesión",
+            gate.uploadHold
+          )
         : gate.blocker === "not-synced"
           ? "Espera a que termine la sincronización antes de cerrar sesión."
           : null;
@@ -143,7 +147,8 @@ export function SettingsScreen({
           <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
             {pendingUploadsBlockerMessage(
               gate.pendingCount,
-              "cambiar de cuenta o cerrar sesión"
+              "cambiar de cuenta o cerrar sesión",
+              gate.uploadHold
             )}
           </p>
         ) : gate.blocker === "not-synced" ? (

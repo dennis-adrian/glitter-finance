@@ -10,6 +10,7 @@ import {
   getUnresolvedSyncFailureCount,
   reconcileSyncFailures,
 } from "@/lib/powersync/sync-failures";
+import { getUploadHold, type UploadHold } from "@/lib/powersync/upload-holds";
 import { isStaticAssetCacheName } from "@/lib/pwa/cache-names";
 import { usePosStore } from "@/lib/store";
 
@@ -85,6 +86,8 @@ export function isUnsyncedLocalDataRefusal(
 export type UnsyncedLocalWork = {
   pendingUploadCount: number;
   unresolvedFailureCount: number;
+  /** Why the pending uploads wait, when the server defers them. */
+  uploadHold: UploadHold | null;
 };
 
 /**
@@ -97,7 +100,25 @@ export async function readUnsyncedLocalWork(
   await reconcileSyncFailures(db);
   const unresolvedFailureCount = await getUnresolvedSyncFailureCount(db);
   const { count: pendingUploadCount } = await db.getUploadQueueStats();
-  return { pendingUploadCount, unresolvedFailureCount };
+  return {
+    pendingUploadCount,
+    unresolvedFailureCount,
+    uploadHold:
+      pendingUploadCount > 0 ? await readUploadHoldForMessage(db) : null,
+  };
+}
+
+// The hold only explains a wait; the counts decide. A failed read must not
+// turn into a failed check.
+async function readUploadHoldForMessage(
+  db: AbstractPowerSyncDatabase
+): Promise<UploadHold | null> {
+  try {
+    return await getUploadHold(db);
+  } catch (error) {
+    console.warn("[PowerSync] upload hold read failed", { error });
+    return null;
+  }
 }
 
 async function assertNoUnsyncedLocalWork(db: AbstractPowerSyncDatabase) {
@@ -122,7 +143,11 @@ async function assertNoUnsyncedLocalWork(db: AbstractPowerSyncDatabase) {
     // would never reach the server.
     throw new LocalDataTeardownError(
       "pending-uploads",
-      pendingUploadsBlockerMessage(unsynced.pendingUploadCount, "continuar")
+      pendingUploadsBlockerMessage(
+        unsynced.pendingUploadCount,
+        "continuar",
+        unsynced.uploadHold
+      )
     );
   }
 }

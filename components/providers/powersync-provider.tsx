@@ -231,14 +231,22 @@ export function PowerSyncProvider({
         if (cancelled) return;
 
         if (plan.action === "drain") {
-          setRecovery({ kind: "draining", pendingUploadCount: null });
+          setRecovery({
+            kind: "draining",
+            pendingUploadCount: null,
+            uploadHold: null,
+          });
           connectorRef.current = connector;
           await db.connect(connector);
           const outcome = await waitForUploadQueueToDrain(db, {
             isCancelled: () => cancelled,
-            onPending: (pendingUploadCount) => {
+            onPending: (pendingUploadCount, uploadHold) => {
               if (!cancelled) {
-                setRecovery({ kind: "draining", pendingUploadCount });
+                setRecovery({
+                  kind: "draining",
+                  pendingUploadCount,
+                  uploadHold,
+                });
               }
             },
           });

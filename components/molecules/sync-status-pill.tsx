@@ -21,6 +21,7 @@ const stateLabels: Record<SyncState, string> = {
   offline: "Sin conexión",
   syncing: "Sincronizando…",
   synced: "Sincronizado",
+  held: "Hora adelantada",
   blocked: "Error de sincronización",
 };
 
