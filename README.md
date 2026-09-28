@@ -165,6 +165,11 @@ pnpm db:push       # applies the same migrations to glitter-finance
 `supabase/manual/` files that project has not had yet, in order, in its SQL
 editor (see [Hand-written SQL](#hand-written-sql-supabasemanual)). Deploy the
 app only after both, unless the release's upgrade notes give another order.
+Vercel deploys on push, and its Preview deployments use staging: apply a
+branch's migrations to staging before anyone opens its preview, and to
+production before merging it into the production branch. An app that writes
+rows the old schema rejects blocks each device's upload queue until the
+migration lands.
 
 **Upgrading an environment:** [`docs/upgrade-notes.md`](docs/upgrade-notes.md)
 lists, in order, every step staging and then production need for the next

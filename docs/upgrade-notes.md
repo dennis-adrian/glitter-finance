@@ -144,12 +144,22 @@ keeps working with them.
      creation is not concurrent; that is fine at current table sizes.
    - `supabase/migrations/20260927144544_products_name_category_length_checks.sql`:
      product names up to 120 characters and categories up to 60.
-2. Deploy this release's app build immediately after. The new app writes
-   `initial` stock movements of 0, which the old constraint rejects, so an app
-   deployed long before the migration would leave those uploads failing. And
-   the new server actions (checkout now sends a client-generated sale id, and
+2. Deploy this release's app build immediately after, never before. Vercel
+   deploys on push: every Preview deployment of this release's branch already
+   talks to staging, and a merge into the production branch deploys
+   production. So push the migrations to staging before anyone opens such a
+   preview, and to production before merging.
+
+   The new app writes an `initial` stock movement of 0 when tracking is
+   switched on with the count left blank, and the old constraint rejects it
+   (`23514`). A device that uploads one before the migration shows a red sync
+   pill, and every later upload from it (sales included), its sign-out and
+   tenant switching wait behind that one. Nothing is lost: once the migration
+   is applied, **Forzar sincronización** in Diagnostics sends it.
+
+   The new server actions (checkout now sends a client-generated sale id, and
    tenant-scoped actions take the tenant id the screen shows) do not match the
-   old app's calls.
+   old app's calls either.
 
 PowerSync applies the new client-side indexes on each device when the app
 starts; nothing else is needed for them.
@@ -267,6 +277,9 @@ When they pass, repeat steps 1–8 on production.
   error, and a void that loses to a refund is reverted at the next sync.
   Nothing is lost.
 - Signing out now signs out only the current device.
+- Turning stock tracking back on for a product asks for a count again. A
+  count entered becomes the new starting point; left blank, the earlier count
+  goes on, less everything sold since.
 
 ## Later
 
