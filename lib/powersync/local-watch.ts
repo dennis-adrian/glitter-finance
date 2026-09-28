@@ -63,3 +63,39 @@ export function mergeLocalRowsOverServer<T extends { id: string }>(
     ...server.map((row) => localById.get(row.id) ?? row),
   ];
 }
+
+/**
+ * Watches one query over the active tenant's rows (see watchLocalTables) and
+ * hands `onRows` every result, with whether the first sync has completed.
+ * The query's one parameter is the tenant id. A result is dropped once its
+ * run was replaced or `isCurrent` turns false (the tenant work it was read
+ * for was cancelled). Returns the cleanup.
+ */
+export function watchTenantRows<Row>(
+  db: AbstractPowerSyncDatabase,
+  input: {
+    sql: string;
+    tenantId: string;
+    isCurrent: () => boolean;
+    onRows: (rows: Row[], synced: boolean) => void;
+    onError: (error: Error) => void;
+    /** Watch only once the first sync has completed. */
+    syncedOnly?: boolean;
+  }
+): () => void {
+  return watchLocalTables(db, ({ signal, synced }) => {
+    if (input.syncedOnly && !synced) return;
+    db.watch(
+      input.sql,
+      [input.tenantId],
+      {
+        onResult: (results) => {
+          if (signal.aborted || !input.isCurrent()) return;
+          input.onRows((results.rows?._array ?? []) as Row[], synced);
+        },
+        onError: input.onError,
+      },
+      { signal }
+    );
+  });
+}

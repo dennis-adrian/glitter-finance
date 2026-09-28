@@ -177,6 +177,17 @@ export type InventorySnapshot = {
   hasMovements: boolean;
 };
 
+/** Movements in ledger order: created_at, then id (as the local watch reads them). */
+export function compareMovementsOldestFirst(
+  a: InventoryMovement,
+  b: InventoryMovement
+) {
+  return (
+    Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  );
+}
+
 /**
  * A stored timestamp as epoch ms. Rows written on this device (toISOString,
  * milliseconds) and rows synced from Postgres (microseconds) format the same

@@ -35,7 +35,14 @@ import { unwrapActionResult } from "@/lib/action-result";
 import { ALL_CATEGORIES } from "@/lib/categories";
 import { paymentLabels, saleTotal, sortSalesNewestFirst } from "@/lib/sales";
 import { cartSubtotalCents } from "@/lib/sales/pricing";
-import { mapDbProductToProduct } from "@/lib/product-mapper";
+import {
+  mapLocalProductRow,
+  type LocalProductRow,
+} from "@/lib/powersync/products-from-local";
+import {
+  mapLocalInventoryMovementRow,
+  type LocalInventoryMovementRow,
+} from "@/lib/powersync/inventory-from-local";
 import {
   buildSalesFromLocal,
   type LocalRefundRow,
@@ -84,10 +91,12 @@ import { onLocalDataEvent } from "@/lib/powersync/local-data-teardown";
 import {
   mergeLocalRowsOverServer,
   watchLocalTables,
+  watchTenantRows,
 } from "@/lib/powersync/local-watch";
 import { useTenantWork } from "@/lib/powersync/use-tenant-work";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
+  compareMovementsOldestFirst,
   computeStockByProduct,
   productHasInitialMovement,
   resolveInitialStockDelta,
@@ -101,56 +110,17 @@ import {
   productHasInitialMovementLocal,
 } from "@/lib/powersync/write-inventory";
 import { formatBs } from "@/lib/money";
-import { reportClientFailure } from "@/lib/observability/report-client-failure";
-import type {
-  inventoryMovements,
-  LocalRow,
-  products,
-} from "@/lib/db/client-schema";
+import {
+  reportClientFailure,
+  type ClientFailureComponent,
+} from "@/lib/observability/report-client-failure";
 
-type ProductRow = LocalRow<typeof products>;
-type InventoryMovementRow = LocalRow<typeof inventoryMovements>;
-
-function rowToProduct(row: ProductRow): Product {
-  return mapDbProductToProduct({
-    id: row.id,
-    name: row.name,
-    priceCents: row.price_cents,
-    costCents: row.cost_cents,
-    category: row.category,
-    imagePath: row.image_path,
-    tracksInventory: row.tracks_inventory,
-    lowStockThreshold: row.low_stock_threshold,
-    archivedAt: row.archived_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  });
-}
-
-function rowToInventoryMovement(row: InventoryMovementRow): InventoryMovement {
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    productId: row.product_id,
-    userId: row.user_id,
-    delta: row.delta,
-    // A Postgres enum (inventory_movement_reason), stored as text locally.
-    reason: row.reason as InventoryMovementReason,
-    note: row.note,
-    createdAt: row.created_at,
-    clientCreatedAt: row.client_created_at,
+/** Logs and reports a failed local watch, which would otherwise go quiet. */
+function watchFailed(message: string, component: ClientFailureComponent) {
+  return (error: unknown) => {
+    console.error(`[PowerSync] ${message}`, error);
+    reportClientFailure(component, error);
   };
-}
-
-// The order of the inventory_movements watch: created_at, then id.
-function compareMovementsOldestFirst(
-  a: InventoryMovement,
-  b: InventoryMovement
-) {
-  return (
-    Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
-    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-  );
 }
 
 type ToastTone = "success" | "info" | "danger";
@@ -505,37 +475,22 @@ export function GlitterPosApp({
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
-    const db = powerSyncDb;
-    const isCurrentGeneration = tenantWork.captureGeneration();
-    const isCurrent = (signal: AbortSignal) =>
-      !signal.aborted && isCurrentGeneration();
-
-    return watchLocalTables(db, ({ signal, synced }) => {
-      db.watch(
-        "SELECT * FROM products WHERE tenant_id = ? ORDER BY created_at DESC",
-        [activeTenantId],
-        {
-          onResult: (results) => {
-            if (!isCurrent(signal)) return;
-            const rows = ((results.rows as unknown as { _array?: ProductRow[] })
-              ?._array ?? []) as ProductRow[];
-            const localProducts = rows.map(rowToProduct);
-            hydrateProducts(
-              synced
-                ? localProducts
-                : mergeLocalRowsOverServer(
-                    initialProductsRef.current,
-                    localProducts
-                  )
-            );
-          },
-          onError: (error) => {
-            console.error("[PowerSync] products watch error", error);
-            reportClientFailure("powersync_products_watch", error);
-          },
-        },
-        { signal }
-      );
+    return watchTenantRows<LocalProductRow>(powerSyncDb, {
+      sql: "SELECT * FROM products WHERE tenant_id = ? ORDER BY created_at DESC",
+      tenantId: activeTenantId,
+      isCurrent: tenantWork.captureGeneration(),
+      onRows: (rows, synced) => {
+        const localProducts = rows.map(mapLocalProductRow);
+        hydrateProducts(
+          synced
+            ? localProducts
+            : mergeLocalRowsOverServer(
+                initialProductsRef.current,
+                localProducts
+              )
+        );
+      },
+      onError: watchFailed("products watch error", "powersync_products_watch"),
     });
     // The server rows are read through refs, but they are dependencies all
     // the same: when '/' renders again (a server action that set a cookie
@@ -552,45 +507,32 @@ export function GlitterPosApp({
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
-    const db = powerSyncDb;
-    const isCurrentGeneration = tenantWork.captureGeneration();
-    const isCurrent = (signal: AbortSignal) =>
-      !signal.aborted && isCurrentGeneration();
-
-    return watchLocalTables(db, ({ signal, synced }) => {
-      db.watch(
-        "SELECT * FROM inventory_movements WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
-        [activeTenantId],
-        {
-          onResult: (results) => {
-            if (!isCurrent(signal)) return;
-            const rows = ((
-              results.rows as unknown as { _array?: InventoryMovementRow[] }
-            )?._array ?? []) as InventoryMovementRow[];
-            const localMovements = rows.map(rowToInventoryMovement);
-            if (synced) {
-              setInventoryMovements(localMovements);
-              setLocalLedgerLoaded((loaded) =>
-                loaded.movements ? loaded : { ...loaded, movements: true }
-              );
-              setInventoryStockReady(true);
-            } else {
-              // Stock readiness still follows the server data until then.
-              setInventoryMovements(
-                mergeLocalRowsOverServer(
-                  initialInventoryRef.current?.movements ?? [],
-                  localMovements
-                ).sort(compareMovementsOldestFirst)
-              );
-            }
-          },
-          onError: (error) => {
-            console.error("[PowerSync] inventory_movements watch error", error);
-            reportClientFailure("powersync_inventory_watch", error);
-          },
-        },
-        { signal }
-      );
+    return watchTenantRows<LocalInventoryMovementRow>(powerSyncDb, {
+      sql: "SELECT * FROM inventory_movements WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
+      tenantId: activeTenantId,
+      isCurrent: tenantWork.captureGeneration(),
+      onRows: (rows, synced) => {
+        const localMovements = rows.map(mapLocalInventoryMovementRow);
+        if (synced) {
+          setInventoryMovements(localMovements);
+          setLocalLedgerLoaded((loaded) =>
+            loaded.movements ? loaded : { ...loaded, movements: true }
+          );
+          setInventoryStockReady(true);
+        } else {
+          // Stock readiness still follows the server data until then.
+          setInventoryMovements(
+            mergeLocalRowsOverServer(
+              initialInventoryRef.current?.movements ?? [],
+              localMovements
+            ).sort(compareMovementsOldestFirst)
+          );
+        }
+      },
+      onError: watchFailed(
+        "inventory_movements watch error",
+        "powersync_inventory_watch"
+      ),
     });
     // initialInventory: see the products watch.
   }, [
@@ -604,51 +546,40 @@ export function GlitterPosApp({
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
     const db = powerSyncDb;
-    const isCurrentGeneration = tenantWork.captureGeneration();
-    const isCurrent = (signal: AbortSignal) =>
-      !signal.aborted && isCurrentGeneration();
     setTeamSyncConfirmed(initialTenantMembersRef.current.length === 0);
     teamSyncEverConfirmedRef.current = false;
 
-    return watchLocalTables(db, ({ signal, synced }) => {
+    return watchTenantRows<LocalTenantUserRow>(db, {
+      sql: "SELECT * FROM tenant_users WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
+      tenantId: activeTenantId,
+      isCurrent: tenantWork.captureGeneration(),
       // Memberships are never written on the device: before the first sync
       // there is nothing local to show, and the server members stay.
-      if (!synced) return;
-      db.watch(
-        "SELECT * FROM tenant_users WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
-        [activeTenantId],
-        {
-          onResult: (results) => {
-            if (!isCurrent(signal)) return;
-            const rows = ((
-              results.rows as unknown as { _array?: LocalTenantUserRow[] }
-            )?._array ?? []) as LocalTenantUserRow[];
-            const mapped = rows.map(mapTenantUserRow);
-            const serverMembers = initialTenantMembersRef.current;
-            const hasSynced = db.currentStatus?.hasSynced ?? false;
-            const confirmed = isTeamReplicationConfirmed(
-              mapped,
-              serverMembers,
-              hasSynced
-            );
-            if (confirmed) {
-              teamSyncEverConfirmedRef.current = true;
-            }
-            setTeamSyncConfirmed(confirmed);
-            setTenantMembers((prev) =>
-              mergeTenantMembersFromWatch(prev, mapped, {
-                allowMemberShrink: teamSyncEverConfirmedRef.current,
-                replicationConfirmed: confirmed,
-              })
-            );
-          },
-          onError: (error) => {
-            console.error("[PowerSync] tenant_users watch error", error);
-            reportClientFailure("powersync_tenant_users_watch", error);
-          },
-        },
-        { signal }
-      );
+      syncedOnly: true,
+      onRows: (rows) => {
+        const mapped = rows.map(mapTenantUserRow);
+        const serverMembers = initialTenantMembersRef.current;
+        const hasSynced = db.currentStatus?.hasSynced ?? false;
+        const confirmed = isTeamReplicationConfirmed(
+          mapped,
+          serverMembers,
+          hasSynced
+        );
+        if (confirmed) {
+          teamSyncEverConfirmedRef.current = true;
+        }
+        setTeamSyncConfirmed(confirmed);
+        setTenantMembers((prev) =>
+          mergeTenantMembersFromWatch(prev, mapped, {
+            allowMemberShrink: teamSyncEverConfirmedRef.current,
+            replicationConfirmed: confirmed,
+          })
+        );
+      },
+      onError: watchFailed(
+        "tenant_users watch error",
+        "powersync_tenant_users_watch"
+      ),
     });
   }, [powerSyncDb, activeTenantId, tenantWork, tenantWorkGeneration]);
 
@@ -723,10 +654,7 @@ export function GlitterPosApp({
       db.onChange(
         {
           onChange: () => rebuildSales(signal, synced),
-          onError: (error) => {
-            console.error("[PowerSync] sales onChange error", error);
-            reportClientFailure("powersync_sales_watch", error);
-          },
+          onError: watchFailed("sales onChange error", "powersync_sales_watch"),
         },
         {
           signal,

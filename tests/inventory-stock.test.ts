@@ -3,6 +3,7 @@ import test from "node:test";
 import { UserFacingError } from "@/lib/action-result";
 import { inventoryMovementReasonEnum } from "@/lib/db/schema";
 import {
+  compareMovementsOldestFirst,
   computeStockByProduct,
   isValidMovementDelta,
   MAX_QUANTITY,
@@ -509,5 +510,26 @@ test("an initial is only written when one is missing and wanted", () => {
       initialStock: 5,
     }),
     null
+  );
+});
+
+test("movements sort by instant, then id, whatever their timestamp format", () => {
+  const full = (id: string, createdAt: string): InventoryMovement => ({
+    ...movement(id, "restock", 1, createdAt),
+    tenantId: "tenant-1",
+    userId: "user-1",
+    note: null,
+    clientCreatedAt: createdAt,
+  });
+  const sorted = [
+    full("c", "2026-09-01T12:00:00.000001+00:00"),
+    full("b", "2026-09-01T12:00:00.000Z"),
+    full("a", "2026-09-01T12:00:00Z"),
+    full("d", "2026-09-01T11:59:59.999Z"),
+  ].sort(compareMovementsOldestFirst);
+
+  assert.deepEqual(
+    sorted.map((entry) => entry.id),
+    ["d", "a", "b", "c"]
   );
 });
