@@ -1,7 +1,7 @@
 # Glitter Finance — Inventory Tracking PRD
 
 **Author:** Adrian Guzman
-**Status:** Draft v1.1
+**Status:** Draft v1.5
 **Date:** June 2026
 **Parent:** `docs/glitter-finance-prd.md` (this feature is Future Feature §11.1, promoted to its own spec)
 
@@ -24,6 +24,10 @@
 > v1.4 — '/' no longer sends the whole ledger for first paint: the server sums
 > everything recorded before a recent cutoff per product (the **opening**,
 > with the same baseline rules) and sends only the later rows (§7.2).
+>
+> v1.5 — §9 no longer claims that clock skew cannot affect stock: the
+> baseline compares device timestamps across devices, so skew near the moment
+> of a count can include or leave out a sale.
 
 ---
 
@@ -507,10 +511,25 @@ default constant).
 - **`tracks_inventory` is itself LWW** (it's a product column). Acceptable: it's
   a rare setup-time toggle, not a per-sale mutation. The _counts_ are never LWW
   because they live in the append-only ledger.
-- **Clock skew:** movements carry device time in `created_at`; ordering of
-  supply events does not affect the SUM (addition is commutative), so skew
-  cannot corrupt the derived total. Postgres holds back (retryably) a movement
-  stamped more than 5 minutes ahead of its clock, as for sales (parent PRD §9).
+- **Clock skew:** movements and sales carry the recording device's time in
+  `created_at` (parent PRD §9). After the baseline their order does not matter,
+  because the total is a sum. The baseline itself is a timestamp comparison
+  across devices, though (§3, §7.2): a movement or sale counts only when its
+  `created_at` is at or after the latest `initial` count's. So a device whose
+  clock is **behind** the one that took the count can stamp a sale made just
+  after the count before it, and that sale is ignored (stock overstated). A
+  device whose clock is **ahead** can stamp a sale made just before the count
+  after it, and that sale is subtracted although the count already reflects
+  it (stock understated). Only rows within the clock difference of the count
+  are affected, and an `adjustment` corrects the result, as for any
+  miscount. Postgres holds back (retryably) a row stamped more than 5 minutes
+  ahead of its clock, which bounds the ahead case but not the behind one.
+  The opening cutoff (§7.2) compares timestamps the same way: before a
+  PowerSync device's first sync completes, a local row stamped more than 35
+  days in the past is taken as already inside the opening and does not count
+  until the sync completes. Comparing against a server-assigned time, or
+  having the count record the last sale it covers, would remove this risk;
+  neither is built.
 
 ## 10. Performance
 
