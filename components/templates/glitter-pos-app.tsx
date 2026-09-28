@@ -50,7 +50,9 @@ import {
   mergeTenantMembersFromWatch,
   type LocalTenantUserRow,
 } from "@/lib/powersync/tenant-users-from-local";
+import { createScrollMemory } from "@/lib/scroll-memory";
 import { usePosStore } from "@/lib/store";
+import { useSalesRangeState } from "@/lib/use-sales-range";
 import type {
   CartLine,
   PaymentMethod,
@@ -202,9 +204,15 @@ export function GlitterPosApp({
   const [catalogQuery, setCatalogQuery] = useState("");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
-  const [saleDetailReturnView, setSaleDetailReturnView] = useState<
-    "sales" | "reports"
-  >("sales");
+  // Where Payment's back button returns: the screen that opened it.
+  const [paymentReturnView, setPaymentReturnView] = useState<"sell" | "cart">(
+    "sell"
+  );
+  // Kept here rather than in the screens, which unmount on every view
+  // change: the range Sales and Reports share, the Sales list's page, and
+  // its scroll position while a sale's detail is open.
+  const salesRange = useSalesRangeState();
+  const [salesScrollMemory] = useState(createScrollMemory);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   // The product save, archive or restore in progress. One runs at a time: a
   // second tap while a slow photo upload or server round-trip is still
@@ -323,7 +331,6 @@ export function GlitterPosApp({
       setEditingProduct(null);
       createdProductRef.current = null;
       setSelectedSaleId(null);
-      setSaleDetailReturnView("sales");
       setIsCheckingOut(false);
       setActiveInvitationState(null);
       setTenantMembers([]);
@@ -1345,10 +1352,14 @@ export function GlitterPosApp({
     setView("sell");
   }
 
-  function openSaleDetail(saleId: string, returnView: "sales" | "reports") {
+  function openSaleDetail(saleId: string) {
     setSelectedSaleId(saleId);
-    setSaleDetailReturnView(returnView);
     setView("saleDetail");
+  }
+
+  function openPayment(from: "sell" | "cart") {
+    setPaymentReturnView(from);
+    setView("payment");
   }
 
   const content = {
@@ -1367,13 +1378,14 @@ export function GlitterPosApp({
         addToCart={addToCart}
         decrementCart={decrementCart}
         openCart={() => setView("cart")}
-        openPayment={() => setView("payment")}
+        openPayment={() => openPayment("sell")}
         openProductEditor={() => openEditor(null)}
       />
     ),
     reports: (
       <ReportsScreen
         sales={sales}
+        rangeState={salesRange}
         products={activeProducts}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
@@ -1383,7 +1395,9 @@ export function GlitterPosApp({
     sales: (
       <SalesScreen
         sales={sales}
-        openSale={(saleId) => openSaleDetail(saleId, "sales")}
+        rangeState={salesRange}
+        scrollMemory={salesScrollMemory}
+        openSale={openSaleDetail}
         voidSale={handleVoidSale}
         refundSale={handleRefundSale}
       />
@@ -1426,10 +1440,7 @@ export function GlitterPosApp({
         // Every original sale that was not voided, refunded or not: refund
         // records carry status "refunded" and voided sales "voided".
         saleCount={sales.filter((sale) => sale.status === "completed").length}
-        openDiagnostics={() => {
-          setPreviousView("settings");
-          setView("diagnostics");
-        }}
+        openDiagnostics={() => setView("diagnostics")}
       />
     ),
     cart: (
@@ -1442,14 +1453,14 @@ export function GlitterPosApp({
         setLineDiscount={setLineDiscount}
         clearCart={handleClearCart}
         back={() => setView("sell")}
-        charge={() => setView("payment")}
+        charge={() => openPayment("cart")}
       />
     ),
     payment: (
       <PaymentScreen
         subtotal={cartSubtotal}
         count={cartCount}
-        back={() => setView("sell")}
+        back={() => setView(paymentReturnView)}
         pay={handlePayment}
         isSubmitting={isCheckingOut}
       />
@@ -1477,7 +1488,7 @@ export function GlitterPosApp({
       <SaleDetailScreen
         sale={selectedSale}
         sales={sales}
-        back={() => setView(saleDetailReturnView)}
+        back={() => setView("sales")}
         voidSale={handleVoidSale}
         refundSale={handleRefundSale}
       />

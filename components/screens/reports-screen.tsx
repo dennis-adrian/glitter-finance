@@ -25,7 +25,7 @@ import {
 } from "@/lib/inventory";
 import type { Product, Sale } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
-import { useSalesInRange, useSalesRangeState } from "@/lib/use-sales-range";
+import { useSalesInRange, type SalesRangeState } from "@/lib/use-sales-range";
 
 /** How many products "Más vendidos" lists before "Ver todos". */
 const TOP_PRODUCTS_COUNT = 6;
@@ -40,6 +40,8 @@ function largestAmount(rows: { total: number }[]) {
 
 type ReportsScreenProps = {
   sales: Sale[];
+  /** Shared with Sales, so "Ver ventas" lists the same range. */
+  rangeState: SalesRangeState;
   products: Product[];
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
@@ -78,12 +80,12 @@ function ReportList({
 
 export function ReportsScreen({
   sales,
+  rangeState,
   products,
   stockByProduct,
   inventoryStockReady,
   openSales,
 }: ReportsScreenProps) {
-  const rangeState = useSalesRangeState();
   const [now] = useNow();
   const [showAllProducts, setShowAllProducts] = useState(false);
 

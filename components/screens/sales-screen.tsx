@@ -22,9 +22,10 @@ import {
 import { formatBs } from "@/lib/money";
 import { countLabel } from "@/lib/plural";
 import { computeMetrics, indexSales } from "@/lib/sales";
+import { useRestoredScroll, type ScrollMemory } from "@/lib/scroll-memory";
 import type { Sale } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
-import { useSalesInRange, useSalesRangeState } from "@/lib/use-sales-range";
+import { useSalesInRange, type SalesRangeState } from "@/lib/use-sales-range";
 import {
   canRefundSale,
   canVoidSale,
@@ -39,6 +40,13 @@ import {
 
 type SalesScreenProps = {
   sales: Sale[];
+  /**
+   * The range, shared with Reports, and the list's page. GlitterPosApp keeps
+   * them, and `scrollMemory`, while a sale's detail is open, so going back
+   * returns to the same rows at the same position.
+   */
+  rangeState: SalesRangeState;
+  scrollMemory: ScrollMemory;
   openSale: (saleId: string) => void;
   voidSale: (saleId: string) => Promise<boolean>;
   refundSale: (saleId: string, reason?: string) => Promise<boolean>;
@@ -96,11 +104,13 @@ function IncomeInfoDrawer() {
 
 export function SalesScreen({
   sales,
+  rangeState,
+  scrollMemory,
   openSale,
   voidSale,
   refundSale,
 }: SalesScreenProps) {
-  const rangeState = useSalesRangeState();
+  const screenRef = useRestoredScroll<HTMLElement>(scrollMemory);
   const [now, setNow] = useNow();
   const [action, setAction] = useState<{
     sale: Sale;
@@ -147,6 +157,11 @@ export function SalesScreen({
       : refundSale(action.sale.id, reason);
   }
 
+  function handleOpenSale(saleId: string) {
+    scrollMemory.save(screenRef.current?.scrollTop ?? 0);
+    openSale(saleId);
+  }
+
   function requestVoid(selectedSale: Sale) {
     const checkedAt = Date.now();
     if (!canVoidSale(selectedSale, saleIndex, checkedAt)) {
@@ -157,7 +172,7 @@ export function SalesScreen({
   }
 
   return (
-    <section className="screen">
+    <section ref={screenRef} className="screen">
       <Header
         title="Ventas"
         left={<BrandMark />}
@@ -234,7 +249,7 @@ export function SalesScreen({
                   canVoid={canVoidSale(sale, saleIndex, now)}
                   canRefund={canRefundSale(sale, saleIndex)}
                   statusLabel={saleStatusLabel(sale, saleIndex)}
-                  openSale={openSale}
+                  openSale={handleOpenSale}
                   requestVoid={requestVoid}
                   requestRefund={(selectedSale) =>
                     setAction({ sale: selectedSale, type: "refund" })
