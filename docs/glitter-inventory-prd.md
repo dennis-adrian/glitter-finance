@@ -1,7 +1,7 @@
 # Glitter Finance — Inventory Tracking PRD
 
 **Author:** Adrian Guzman
-**Status:** Draft v1.5
+**Status:** Draft v1.6
 **Date:** June 2026
 **Parent:** `docs/glitter-finance-prd.md` (this feature is Future Feature §11.1, promoted to its own spec)
 
@@ -28,6 +28,12 @@
 > v1.5 — §9 no longer claims that clock skew cannot affect stock: the
 > baseline compares device timestamps across devices, so skew near the moment
 > of a count can include or leave out a sale.
+>
+> v1.6 — corrects v1.3: turning tracking on records the count entered, also
+> for a product that was tracked before, so sales made while it was not
+> tracked no longer count against it. A blank field records 0 only when the
+> device knows the product has no count yet; otherwise the earlier count
+> stays the baseline (§4, §5.1, §9).
 
 ---
 
@@ -113,8 +119,9 @@ stock(product) =   Σ inventory_movements.delta            (for that product)
 ```
 
 Only rows at or after the product's **baseline** count: its latest `initial`
-movement, which is a stock count taken when tracking started. Earlier movements
-and sales are already reflected in that count (see §7.2).
+movement, which is a stock count taken when tracking started (or started
+again). Earlier movements and sales are already reflected in that count (see
+§7.2).
 
 Negative results are allowed and meaningful (oversold). Nothing in the formula
 prevents or clamps them.
@@ -192,7 +199,8 @@ Sign discipline (enforced by a CHECK, see §6.2):
   sellable.
 - `true` → stock is derived and surfaced. Toggling it off later hides the badge
   but retains all movement rows (append-only); toggling back on resumes
-  derivation from the existing ledger.
+  derivation from the existing ledger, from a new count when one is entered
+  (§5.1).
 
 Optional, recommended: **`products.low_stock_threshold`** `integer NULL`. When
 null, a global default constant is used for the "low" badge. Lets a vendor set,
@@ -206,30 +214,46 @@ MVP can ship with a single global constant.
 In the Product Editor (`components/screens/product-editor.tsx`), a
 `tracks_inventory` toggle. When turned on, an **initial stock** numeric field
 appears. Saving writes one `inventory_movements` row with `reason = 'initial'`
-and `delta = <count>` — or `0` when the field is left blank — so every tracked
-product has a baseline and sales made before tracking started never count
-against it. (A product that was already tracked without an `initial` gets one
-only when a count is entered, so earlier restocks are not silently discarded.)
-Setting initial stock is a calm catalog-setup action (like images per parent
-§7.1), not a mid-sale action.
+and `delta = <count>`, so sales made before tracking started never count
+against it. Setting initial stock is a calm catalog-setup action (like images
+per parent §7.1), not a mid-sale action.
 
-The `initial` movement is written **once per product** by the app. Subsequent
-changes to on-hand stock are made through restock / adjustment (below), never by
-re-editing an "initial" value. This preserves the append-only ledger.
+What the save records (`resolveInitialStockDelta` in `lib/inventory.ts`,
+called from `glitter-pos-app.tsx`; the editor shows the field in the same
+cases, `asksForInitialStock`):
 
-**Double-`initial` rule (decided).** The `initial` movement is written only when
-the product has no known `initial` movement. This is guarded at two layers:
-the editor hides the initial-stock field once an `initial` movement exists
-(`showInitialStockField` / `hasInitialMovement`), and the save path re-checks
-with `productHasInitialMovement` before writing (`resolveInitialStockDelta` in
-`lib/inventory.ts`, called from `glitter-pos-app.tsx`). No database uniqueness
-constraint is added: two members enabling tracking offline on the same product
-could each write an `initial`, which is an accepted, rare, and self-correcting
-race. Both rows sync, and every device takes the **latest** `initial` as the
-baseline (ties broken by id), so they converge on the same count; reconcile
-with a normal `adjustment` if needed, exactly as overselling is handled. A
-partial unique index was rejected because the second offline write would fail
-at upload and block the device's upload queue.
+- **Turning tracking on** (a new product, or one saved untracked until now)
+  always shows the field, also when the product was tracked before. A count
+  entered is recorded as a new `initial`, which becomes the baseline. Left
+  blank, the field records `0` only when the product is known to have no
+  `initial` yet. When it has one, the earlier count stays the baseline and
+  everything sold since counts against it, including sales made while the
+  product was not tracked; the hint under the field says so.
+- **A product that already tracks stock** shows the field only while it has
+  no `initial`, and gets one only when a count is entered, so earlier
+  restocks are not silently discarded.
+
+Whether a product has an `initial` (`lookUpInitialMovement`) comes from the
+ledger in memory (the server's rows and this device's own) and, on a
+PowerSync device, from the local store (`initialMovementStateLocal`). Before
+the device's first sync completes, the local store holds only its own writes,
+so "none found" is **unknown**: a blank field then records nothing, because a
+0 could replace a count another device made. The hint asks for the count
+instead of promising 0. Without PowerSync the server's ledger is all there is.
+
+Subsequent changes to on-hand stock are made through restock / adjustment
+(below), never by re-editing an "initial" value. This preserves the
+append-only ledger.
+
+**Several `initial` rows (decided).** No database uniqueness constraint is
+added. Besides a deliberate new count, two members enabling tracking offline
+on the same product could each write an `initial`, which is an accepted, rare,
+and self-correcting race. Both rows sync, and every device takes the
+**latest** `initial` as the baseline (ties broken by id), so they converge on
+the same count; reconcile with a normal `adjustment` if needed, exactly as
+overselling is handled. A partial unique index was rejected because the
+second offline write would fail at upload and block the device's upload
+queue.
 
 ### 5.2 Restock and adjustment
 
@@ -481,8 +505,8 @@ default constant).
 
 - **Product Editor** (`components/screens/product-editor.tsx`,
   `product-editor.helpers.ts`): `tracks_inventory` toggle, initial-stock field
-  (first enable only), restock / adjustment / loss / gift actions with optional
-  note.
+  (whenever tracking is turned on, and for a tracked product without a count),
+  restock / adjustment / loss / gift actions with optional note.
 - **Product Tile** (`components/molecules/product-tile.tsx`): stock figure and
   low/out/oversold treatment for tracked products; nothing for untracked.
 - **Products list** (`components/screens/products-screen.tsx`): optional
@@ -501,7 +525,9 @@ default constant).
 - **Untracked products:** never show stock, never blocked — current behavior,
   fully preserved. Mixed catalogs (some tracked, some not) must work.
 - **Toggling tracking off:** retains movement rows; hides the badge. Toggling
-  back on resumes derivation. No data loss.
+  back on resumes derivation: from the count entered then, or, with the field
+  left blank, from the earlier count, less everything sold since (sales made
+  while untracked included). No row is lost either way.
 - **Archived products:** archiving is independent of stock; archived products are
   not sold so their derived stock is inert. Movements are retained.
 - **Oversold across devices:** if two offline phones each oversell, the ledger +

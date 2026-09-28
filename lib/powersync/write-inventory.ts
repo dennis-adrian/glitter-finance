@@ -5,6 +5,7 @@ import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import { nowIso } from "@/lib/dates";
 import {
   normalizeInventoryMovement,
+  type InitialMovementState,
   type InventoryMovementReason,
 } from "@/lib/inventory";
 
@@ -18,17 +19,25 @@ export type AddInventoryMovementInput = {
   assertCurrent?: () => void;
 };
 
-export async function productHasInitialMovementLocal(
-  db: AbstractPowerSyncDatabase,
+/**
+ * Whether the local store has an `initial` count for the product. It holds
+ * this device's own writes from the start, but other devices' rows only once
+ * the first sync has completed: until then, no row found is "unknown".
+ */
+export async function initialMovementStateLocal(
+  db: Pick<AbstractPowerSyncDatabase, "getAll" | "currentStatus">,
   productId: string
-): Promise<boolean> {
+): Promise<InitialMovementState> {
   const rows = await db.getAll<{ id: string }>(
     `SELECT id FROM inventory_movements
      WHERE product_id = ? AND reason = 'initial'
      LIMIT 1`,
     [productId]
   );
-  return rows.length > 0;
+  if (rows.length > 0) {
+    return "recorded";
+  }
+  return db.currentStatus?.hasSynced ? "none" : "unknown";
 }
 
 type PreparedInventoryMovement = {

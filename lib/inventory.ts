@@ -119,28 +119,56 @@ export function normalizeInventoryMovement(input: {
 }
 
 /**
- * The `initial` delta to record when a product is saved, or null for none.
- *
- * Stock counts from the product's latest `initial` (see computeStockByProduct),
- * so switching tracking on always records one — the entered count, or 0 when
- * the field is left blank — and sales made before tracking started never count
- * against the new stock. A product that already tracks stock but has no
- * `initial` gets one only when a count is entered: writing 0 there would
- * silently discard restocks recorded without a baseline.
+ * Whether a product already has an `initial` count: "recorded" or "none" when
+ * the device can tell, "unknown" when it cannot yet (a PowerSync device
+ * before its first sync completes holds only its own writes).
  */
-export function resolveInitialStockDelta(input: {
+export type InitialMovementState = "none" | "recorded" | "unknown";
+
+type InitialStockContext = {
   tracksInventory: boolean;
   wasTrackingInventory: boolean;
-  hasInitialMovement: boolean;
-  initialStock?: number;
-}): number | null {
-  if (!input.tracksInventory || input.hasInitialMovement) {
+  initialMovement: InitialMovementState;
+};
+
+/**
+ * Whether the editor asks for a count: whenever tracking is being switched
+ * on (a new product included), and for a tracked product known to have no
+ * `initial` yet. The same cases as resolveInitialStockDelta records one.
+ */
+export function asksForInitialStock(input: InitialStockContext) {
+  return (
+    input.tracksInventory &&
+    (!input.wasTrackingInventory || input.initialMovement === "none")
+  );
+}
+
+/**
+ * The `initial` delta to record when a product is saved, or null for none.
+ *
+ * Stock counts from the product's latest `initial` (see computeStockByProduct).
+ * Switching tracking on records the count entered, so sales made while the
+ * product was not tracked never count against it, even when it was tracked
+ * before. Left blank, it records 0 only when the product is known to have no
+ * `initial`: an earlier count then stays the baseline, and an "unknown" state
+ * may hide one that a 0 would replace.
+ *
+ * A product that already tracks stock gets an `initial` only when it has none
+ * and a count is entered: writing 0 there would silently discard restocks
+ * recorded without a baseline.
+ */
+export function resolveInitialStockDelta(
+  input: InitialStockContext & { initialStock?: number }
+): number | null {
+  if (!asksForInitialStock(input)) {
     return null;
   }
   if (input.initialStock != null) {
     return input.initialStock;
   }
-  return input.wasTrackingInventory ? null : 0;
+  return !input.wasTrackingInventory && input.initialMovement === "none"
+    ? 0
+    : null;
 }
 
 type StockMovement = Pick<
@@ -328,6 +356,31 @@ export function productHasInitialMovement(
       )
     )
   );
+}
+
+/**
+ * Whether a product already has an `initial` count. The ledger in memory
+ * holds the server's rows and this device's own writes. On a PowerSync
+ * device, `readLocal` also asks the local store, which alone can say "none"
+ * or "unknown" (initialMovementStateLocal). Without PowerSync, the ledger in
+ * memory is all there is once `ledgerReady`.
+ */
+export async function lookUpInitialMovement(input: {
+  productId: string;
+  movements: Pick<InventoryMovement, "productId" | "reason">[];
+  opening: OpeningStock | null;
+  readLocal: ((productId: string) => Promise<InitialMovementState>) | null;
+  ledgerReady: boolean;
+}): Promise<InitialMovementState> {
+  if (
+    productHasInitialMovement(input.productId, input.movements, input.opening)
+  ) {
+    return "recorded";
+  }
+  if (input.readLocal) {
+    return input.readLocal(input.productId);
+  }
+  return input.ledgerReady ? "none" : "unknown";
 }
 
 export function getProductStock(

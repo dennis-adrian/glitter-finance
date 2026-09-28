@@ -3,14 +3,17 @@ import test from "node:test";
 import { UserFacingError } from "@/lib/action-result";
 import { inventoryMovementReasonEnum } from "@/lib/db/schema";
 import {
+  asksForInitialStock,
   compareMovementsOldestFirst,
   computeStockByProduct,
   isValidMovementDelta,
   MAX_QUANTITY,
   movementDeltaError,
   normalizeInventoryMovement,
+  lookUpInitialMovement,
   productHasInitialMovement,
   resolveInitialStockDelta,
+  type InitialMovementState,
   type InventoryMovement,
   type OpeningStock,
 } from "@/lib/inventory";
@@ -449,68 +452,177 @@ test("movements from a server action get the local writer's checks", () => {
   }
 });
 
-test("switching tracking on always records an initial count", () => {
-  const base = { tracksInventory: true, hasInitialMovement: false };
+test("switching tracking on records the count entered", () => {
+  for (const initialMovement of ["none", "recorded", "unknown"] as const) {
+    for (const initialStock of [0, 12]) {
+      assert.equal(
+        resolveInitialStockDelta({
+          tracksInventory: true,
+          wasTrackingInventory: false,
+          initialMovement,
+          initialStock,
+        }),
+        initialStock,
+        `${initialMovement}, ${initialStock}`
+      );
+    }
+  }
+});
 
+test("a blank count on switching tracking on is 0 only without an earlier one", () => {
+  const blank = { tracksInventory: true, wasTrackingInventory: false };
+
+  // No count yet: sales from before tracking must not count.
   assert.equal(
-    resolveInitialStockDelta({ ...base, wasTrackingInventory: false }),
+    resolveInitialStockDelta({ ...blank, initialMovement: "none" }),
     0
   );
+  // An earlier count stays the baseline.
   assert.equal(
-    resolveInitialStockDelta({
-      ...base,
-      wasTrackingInventory: false,
-      initialStock: 12,
-    }),
-    12
+    resolveInitialStockDelta({ ...blank, initialMovement: "recorded" }),
+    null
   );
+  // Before the first sync the device may not see an earlier count, which a
+  // 0 would replace.
   assert.equal(
-    resolveInitialStockDelta({
-      ...base,
-      wasTrackingInventory: false,
-      initialStock: 0,
-    }),
-    0
+    resolveInitialStockDelta({ ...blank, initialMovement: "unknown" }),
+    null
   );
 });
 
-test("an initial is only written when one is missing and wanted", () => {
-  // Already tracked without a baseline: blank keeps earlier restocks.
+test("a tracked product gets an initial only when it has none and one is entered", () => {
+  const tracked = { tracksInventory: true, wasTrackingInventory: true };
+
+  // Without a baseline, blank keeps the earlier restocks.
   assert.equal(
-    resolveInitialStockDelta({
-      tracksInventory: true,
-      wasTrackingInventory: true,
-      hasInitialMovement: false,
-    }),
+    resolveInitialStockDelta({ ...tracked, initialMovement: "none" }),
     null
   );
   assert.equal(
     resolveInitialStockDelta({
-      tracksInventory: true,
-      wasTrackingInventory: true,
-      hasInitialMovement: false,
+      ...tracked,
+      initialMovement: "none",
       initialStock: 0,
     }),
     0
   );
-  assert.equal(
-    resolveInitialStockDelta({
-      tracksInventory: true,
-      wasTrackingInventory: false,
-      hasInitialMovement: true,
-      initialStock: 5,
-    }),
-    null
-  );
+  for (const initialMovement of ["recorded", "unknown"] as const) {
+    assert.equal(
+      resolveInitialStockDelta({
+        ...tracked,
+        initialMovement,
+        initialStock: 5,
+      }),
+      null,
+      initialMovement
+    );
+  }
   assert.equal(
     resolveInitialStockDelta({
       tracksInventory: false,
       wasTrackingInventory: false,
-      hasInitialMovement: false,
+      initialMovement: "none",
       initialStock: 5,
     }),
     null
   );
+});
+
+test("the editor asks for a count whenever it would be recorded", () => {
+  const states = ["none", "recorded", "unknown"] as const;
+  for (const tracksInventory of [false, true]) {
+    for (const wasTrackingInventory of [false, true]) {
+      for (const initialMovement of states) {
+        const context = {
+          tracksInventory,
+          wasTrackingInventory,
+          initialMovement,
+        };
+        assert.equal(
+          asksForInitialStock(context),
+          resolveInitialStockDelta({ ...context, initialStock: 7 }) === 7,
+          JSON.stringify(context)
+        );
+      }
+    }
+  }
+  // Switching tracking on again asks for a new count.
+  assert.equal(
+    asksForInitialStock({
+      tracksInventory: true,
+      wasTrackingInventory: false,
+      initialMovement: "recorded",
+    }),
+    true
+  );
+});
+
+test("a count entered when tracking is switched on again leaves out the sales in between", () => {
+  const movements = [movement("m1", "initial", 10, "2026-09-01T10:00:00.000Z")];
+  const sales = [
+    sale("s1", 2, "2026-09-01T12:00:00.000Z"),
+    // Sold while the product was not tracked.
+    sale("s2", 20, "2026-09-02T12:00:00.000Z"),
+  ];
+
+  const recount = resolveInitialStockDelta({
+    tracksInventory: true,
+    wasTrackingInventory: false,
+    initialMovement: "recorded",
+    initialStock: 6,
+  });
+  assert.equal(recount, 6);
+  assert.equal(
+    computeStockByProduct(
+      [...movements, movement("m2", "initial", 6, "2026-09-10T10:00:00.000Z")],
+      sales
+    ).get(PRODUCT),
+    6
+  );
+  // Left blank, the earlier count goes on, less everything sold since.
+  assert.equal(computeStockByProduct(movements, sales).get(PRODUCT), -12);
+});
+
+test("an initial count is unknown only while the device cannot tell", async () => {
+  const opening: OpeningStock = {
+    asOf: "2026-09-10T00:00:00.000Z",
+    levels: [
+      {
+        productId: "counted",
+        units: 4,
+        baseline: { id: "m0", createdAt: "2026-09-01T10:00:00.000Z" },
+      },
+    ],
+  };
+  const lookUp = (
+    productId: string,
+    readLocal: ((id: string) => Promise<InitialMovementState>) | null,
+    ledgerReady = true
+  ) =>
+    lookUpInitialMovement({
+      productId,
+      movements: [{ productId: "counted-here", reason: "initial" }],
+      opening,
+      readLocal,
+      ledgerReady,
+    });
+  const local = (state: InitialMovementState) => async () => state;
+
+  // In memory: no need to ask the local store.
+  const unreadable = async (): Promise<InitialMovementState> => {
+    throw new Error("unexpected local read");
+  };
+  assert.equal(await lookUp("counted", unreadable), "recorded");
+  assert.equal(await lookUp("counted-here", unreadable), "recorded");
+
+  // With PowerSync, the local store decides.
+  assert.equal(await lookUp("other", local("recorded")), "recorded");
+  assert.equal(await lookUp("other", local("none")), "none");
+  assert.equal(await lookUp("other", local("unknown")), "unknown");
+
+  // Without PowerSync, the ledger in memory is the whole ledger.
+  assert.equal(await lookUp("other", null), "none");
+  assert.equal(await lookUp("other", null, false), "unknown");
 });
 
 test("movements sort by instant, then id, whatever their timestamp format", () => {

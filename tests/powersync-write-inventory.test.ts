@@ -2,13 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import {
+  initialStockHint,
   parseNonNegativeInteger,
   parsePositiveInteger,
   parseSignedInteger,
   stockAmountError,
 } from "@/components/screens/product-editor.helpers";
-import { MAX_QUANTITY } from "@/lib/inventory";
-import { addInventoryMovement } from "@/lib/powersync/write-inventory";
+import { MAX_QUANTITY, resolveInitialStockDelta } from "@/lib/inventory";
+import {
+  addInventoryMovement,
+  initialMovementStateLocal,
+} from "@/lib/powersync/write-inventory";
 import { MAX_NOTE_LENGTH } from "@/lib/validation";
 
 function recordingDb() {
@@ -43,6 +47,62 @@ test("a zero initial is written, and a second initial is not blocked", async () 
   assert.match(statements[0].sql, /INSERT INTO inventory_movements/);
   assert.deepEqual(statements[0].params.slice(4, 6), [0, "initial"]);
   assert.deepEqual(statements[1].params.slice(4, 6), [8, "initial"]);
+});
+
+test("no local initial is unknown until the first sync has completed", async () => {
+  const store = (hasSynced: boolean | undefined, initialIds: string[]) => ({
+    currentStatus: { hasSynced } as AbstractPowerSyncDatabase["currentStatus"],
+    getAll: (async (sql: string, params: unknown[] = []) => {
+      assert.match(sql, /reason = 'initial'/);
+      assert.deepEqual(params, ["product-1"]);
+      return initialIds.map((id) => ({ id }));
+    }) as AbstractPowerSyncDatabase["getAll"],
+  });
+
+  // This device's own count is on the store from the start.
+  assert.equal(
+    await initialMovementStateLocal(store(false, ["m1"]), "product-1"),
+    "recorded"
+  );
+  assert.equal(
+    await initialMovementStateLocal(store(true, ["m1"]), "product-1"),
+    "recorded"
+  );
+  assert.equal(
+    await initialMovementStateLocal(store(true, []), "product-1"),
+    "none"
+  );
+  // Another device's count may not have arrived yet.
+  assert.equal(
+    await initialMovementStateLocal(store(false, []), "product-1"),
+    "unknown"
+  );
+  assert.equal(
+    await initialMovementStateLocal(store(undefined, []), "product-1"),
+    "unknown"
+  );
+});
+
+test("the initial-stock hint promises a 0 only when a blank field records one", () => {
+  for (const wasTrackingInventory of [false, true]) {
+    for (const initialMovement of ["none", "recorded", "unknown"] as const) {
+      const context = { wasTrackingInventory, initialMovement };
+      const blankRecordsZero =
+        resolveInitialStockDelta({ ...context, tracksInventory: true }) === 0;
+      assert.equal(
+        /vacío, empieza en 0/.test(initialStockHint(context)),
+        blankRecordsZero,
+        JSON.stringify(context)
+      );
+    }
+  }
+  assert.match(
+    initialStockHint({
+      wasTrackingInventory: false,
+      initialMovement: "recorded",
+    }),
+    /sigue el conteo anterior/
+  );
 });
 
 test("deltas Postgres would reject never reach the upload queue", async () => {

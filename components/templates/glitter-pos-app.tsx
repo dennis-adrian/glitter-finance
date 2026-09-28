@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   archiveProduct as archiveProductAction,
   createProduct,
@@ -100,8 +100,9 @@ import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/clie
 import {
   compareMovementsOldestFirst,
   computeStockByProduct,
-  productHasInitialMovement,
+  lookUpInitialMovement,
   resolveInitialStockDelta,
+  type InitialMovementState,
   type InventoryMovement,
   type InventoryMovementReason,
   type InventorySnapshot,
@@ -109,7 +110,7 @@ import {
 } from "@/lib/inventory";
 import {
   addInventoryMovement,
-  productHasInitialMovementLocal,
+  initialMovementStateLocal,
 } from "@/lib/powersync/write-inventory";
 import { formatBs } from "@/lib/money";
 import {
@@ -239,8 +240,12 @@ export function GlitterPosApp({
   // Until both do, stock counts from the server's opening (see stockOpening).
   const [localLedgerLoaded, setLocalLedgerLoaded] =
     useState(noLocalLedgerLoaded);
-  const [editorHasInitialMovement, setEditorHasInitialMovement] =
-    useState(false);
+  // Whether the product in the editor already has its initial count (see
+  // lookUpInitialMovement), for the product it was looked up for.
+  const [editorInitialMovement, setEditorInitialMovement] = useState<{
+    productId: string;
+    state: InitialMovementState;
+  } | null>(null);
   // Whether stock counts can be shown. With PowerSync, once the server sent
   // movements or the inventory watch read the synced local store.
   const [inventoryStockReady, setInventoryStockReady] = useState(
@@ -348,7 +353,7 @@ export function GlitterPosApp({
       setLocalLedgerLoaded(noLocalLedgerLoaded);
       setInventoryStockReady(false);
       setTeamSyncConfirmed(false);
-      setEditorHasInitialMovement(false);
+      setEditorInitialMovement(null);
     });
 
     return () => {
@@ -426,72 +431,63 @@ export function GlitterPosApp({
   // rows on disk under a different tenant_id.
   const powerSyncDb = useOptionalPowerSyncDb();
 
-  // Whether the product in the editor already has its initial count. Only
-  // looked up while the editor is open: editingProduct stays set after it
-  // closes, and every stock change would otherwise query SQLite again.
-  const editorOpen = view === "editor";
-  useEffect(() => {
-    if (!editorOpen) return;
-    const isCurrentGeneration = tenantWork.captureGeneration();
-    if (!editingProduct) {
-      setEditorHasInitialMovement(false);
-      return;
-    }
+  // Whether a product already has its initial count, from the ledger in
+  // memory and, with PowerSync, the local store (see lookUpInitialMovement).
+  const initialMovementOf = useCallback(
+    (productId: string, db: AbstractPowerSyncDatabase | null) =>
+      lookUpInitialMovement({
+        productId,
+        movements: inventoryMovements,
+        opening: stockOpening,
+        readLocal: db ? (id) => initialMovementStateLocal(db, id) : null,
+        ledgerReady: inventoryStockReady,
+      }),
+    [inventoryMovements, stockOpening, inventoryStockReady]
+  );
 
+  // The same for the product in the editor. Only looked up while the editor
+  // is open: editingProduct stays set after it closes, and every stock change
+  // would otherwise query SQLite again.
+  const editorOpen = view === "editor";
+  const editingProductId = editingProduct?.id ?? null;
+  useEffect(() => {
+    if (!editorOpen || !editingProductId) return;
+    const isCurrentGeneration = tenantWork.captureGeneration();
     let cancelled = false;
     const isCurrent = () => !cancelled && isCurrentGeneration();
-    const productId = editingProduct.id;
-    const productTracksInventory = editingProduct.tracksInventory;
+    const productId = editingProductId;
 
-    async function loadEditorInitialMovementState() {
-      if (
-        productHasInitialMovement(productId, inventoryMovements, stockOpening)
-      ) {
+    initialMovementOf(productId, powerSyncDb).then(
+      (state) => {
         if (isCurrent()) {
-          setEditorHasInitialMovement(true);
+          setEditorInitialMovement({ productId, state });
         }
-        return;
-      }
-
-      if (powerSyncDb?.currentStatus?.hasSynced && inventoryStockReady) {
-        try {
-          const hasInitial = await productHasInitialMovementLocal(
-            powerSyncDb,
-            productId
-          );
-          if (isCurrent()) {
-            setEditorHasInitialMovement(hasInitial);
-          }
-        } catch (error) {
-          if (isCurrent()) {
-            console.error("[PowerSync] initial movement lookup failed", error);
-            reportClientFailure("powersync_initial_movement_lookup", error);
-          }
+      },
+      (error: unknown) => {
+        if (isCurrent()) {
+          console.error("[PowerSync] initial movement lookup failed", error);
+          reportClientFailure("powersync_initial_movement_lookup", error);
         }
-        return;
       }
-
-      if (isCurrent()) {
-        setEditorHasInitialMovement(
-          !inventoryStockReady && productTracksInventory
-        );
-      }
-    }
-
-    void loadEditorInitialMovementState();
+    );
 
     return () => {
       cancelled = true;
     };
   }, [
     editorOpen,
-    editingProduct,
+    editingProductId,
     powerSyncDb,
-    inventoryMovements,
-    stockOpening,
-    inventoryStockReady,
+    initialMovementOf,
     tenantWork,
   ]);
+  // A new product has no count yet. One not looked up yet (or whose lookup
+  // failed) is unknown until it is.
+  const editorInitialMovementState: InitialMovementState = !editingProductId
+    ? "none"
+    : editorInitialMovement?.productId === editingProductId
+      ? editorInitialMovement.state
+      : "unknown";
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
@@ -891,36 +887,21 @@ export function GlitterPosApp({
   }: ProductEditorSaveInput) {
     const existingProduct = editingProduct ?? createdProductRef.current;
 
-    // The initial count to write with the product, if any. Only the local
-    // store can say whether an older product already has one.
+    // The initial count to write with the product, if any
+    // (resolveInitialStockDelta). A new product has none yet.
     async function initialStockDeltaToWrite(
       db: AbstractPowerSyncDatabase | null,
       work: TenantWriteInput["work"]
     ) {
-      let hasInitial = false;
+      let initialMovement: InitialMovementState = "none";
       if (existingProduct) {
-        if (
-          productHasInitialMovement(
-            existingProduct.id,
-            inventoryMovements,
-            stockOpening
-          )
-        ) {
-          hasInitial = true;
-        } else if (db?.currentStatus?.hasSynced && inventoryStockReady) {
-          hasInitial = await productHasInitialMovementLocal(
-            db,
-            existingProduct.id
-          );
-          work.assertCurrent();
-        } else if (!inventoryStockReady && existingProduct.tracksInventory) {
-          hasInitial = true;
-        }
+        initialMovement = await initialMovementOf(existingProduct.id, db);
+        work.assertCurrent();
       }
       return resolveInitialStockDelta({
         tracksInventory: productInput.tracksInventory,
         wasTrackingInventory: existingProduct?.tracksInventory ?? false,
-        hasInitialMovement: hasInitial,
+        initialMovement,
         initialStock,
       });
     }
@@ -1442,7 +1423,7 @@ export function GlitterPosApp({
         product={editingProduct}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
-        hasInitialMovement={editorHasInitialMovement}
+        initialMovement={editorInitialMovementState}
         onInventoryMovement={handleInventoryMovement}
         back={() =>
           setView(previousView === "sell" ? "products" : previousView)

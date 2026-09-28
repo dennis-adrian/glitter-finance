@@ -27,8 +27,10 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
+  asksForInitialStock,
   getProductStock,
   stockValueLabel,
+  type InitialMovementState,
   type InventoryMovementReason,
 } from "@/lib/inventory";
 import {
@@ -50,6 +52,7 @@ import type { Product, ProductInput } from "@/lib/types";
 import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import {
   INITIAL_STOCK_ERROR,
+  initialStockHint,
   parseNonNegativeInteger,
   parsePositiveInteger,
   parseSignedInteger,
@@ -83,7 +86,8 @@ type ProductEditorProps = {
   product: Product | null;
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
-  hasInitialMovement: boolean;
+  /** Whether the product already has its initial count. */
+  initialMovement: InitialMovementState;
   /** A save or archive still running; both buttons wait for it. */
   pendingWrite: "save" | "archive" | null;
   back: () => void;
@@ -101,7 +105,7 @@ export function ProductEditor({
   product,
   stockByProduct,
   inventoryStockReady,
-  hasInitialMovement,
+  initialMovement,
   pendingWrite,
   back,
   save,
@@ -164,8 +168,11 @@ export function ProductEditor({
   const trackingPersisted = product?.tracksInventory ?? false;
   const trackingDirty =
     Boolean(product) && tracksInventory !== trackingPersisted;
-  const showInitialStockField =
-    tracksInventory && (!product || !hasInitialMovement);
+  const showInitialStockField = asksForInitialStock({
+    tracksInventory,
+    wasTrackingInventory: trackingPersisted,
+    initialMovement,
+  });
   const currentStock =
     product && trackingPersisted && inventoryStockReady
       ? getProductStock(product, stockByProduct)
@@ -480,9 +487,10 @@ export function ProductEditor({
             </FormField>
             {/* The count is a baseline: earlier sales are not subtracted. */}
             <p className="mt-1.5 text-sm text-muted-foreground">
-              {trackingPersisted
-                ? "Unidades que tienes ahora."
-                : "Unidades que tienes ahora. Si lo dejas vacío, empieza en 0."}
+              {initialStockHint({
+                wasTrackingInventory: trackingPersisted,
+                initialMovement,
+              })}
             </p>
           </>
         ) : null}

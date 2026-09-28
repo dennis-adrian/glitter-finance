@@ -1,4 +1,8 @@
-import { MAX_QUANTITY, MAX_QUANTITY_LABEL } from "@/lib/inventory";
+import {
+  MAX_QUANTITY,
+  MAX_QUANTITY_LABEL,
+  type InitialMovementState,
+} from "@/lib/inventory";
 import {
   formatBs,
   isValidCents,
@@ -101,6 +105,27 @@ export function parseSignedInteger(value: string) {
 }
 
 export const INITIAL_STOCK_ERROR = `El stock inicial debe ser un número entero de 0 a ${MAX_QUANTITY_LABEL}, sin decimales.`;
+
+/**
+ * The hint under the initial-stock field: what a blank field does, as
+ * resolveInitialStockDelta decides it.
+ */
+export function initialStockHint(input: {
+  wasTrackingInventory: boolean;
+  initialMovement: InitialMovementState;
+}) {
+  if (input.wasTrackingInventory) {
+    return "Unidades que tienes ahora.";
+  }
+  switch (input.initialMovement) {
+    case "none":
+      return "Unidades que tienes ahora. Si lo dejas vacío, empieza en 0.";
+    case "recorded":
+      return "Unidades que tienes ahora. Si lo dejas vacío, sigue el conteo anterior y descuenta lo vendido desde entonces.";
+    case "unknown":
+      return "Unidades que tienes ahora. Escríbelas para que no se descuenten ventas anteriores.";
+  }
+}
 
 /**
  * Why a typed stock amount cannot be recorded, or null when it is valid,
