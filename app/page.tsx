@@ -9,6 +9,27 @@ import { getProductsForTenant } from "@/lib/products/repository";
 import { getSalesForTenant } from "@/lib/sales/repository";
 import { getRequestOrigin } from "@/lib/request-origin";
 
+async function loadTenantData(tenantId: string) {
+  const members = getTenantMembersForTenant(tenantId);
+
+  const [products, sales, tenantMembers, inventoryMovements, activeInvitation] =
+    await Promise.all([
+      getProductsForTenant(tenantId),
+      getSalesForTenant(tenantId, { members }),
+      members,
+      getInventoryMovementsForTenant(tenantId),
+      getActiveInvitationForTenant(tenantId),
+    ]);
+
+  return {
+    products,
+    sales,
+    tenantMembers,
+    inventoryMovements,
+    activeInvitation,
+  };
+}
+
 export default async function Home() {
   const context = await ensureUserTenantContext();
 
@@ -18,21 +39,15 @@ export default async function Home() {
 
   const inviteOrigin = await getRequestOrigin();
 
-  const [
-    initialProducts,
-    initialSales,
-    initialTenantMembers,
-    initialInventoryMovements,
-    activeInvitation,
-  ] = context.tenant
-    ? await Promise.all([
-        getProductsForTenant(context.tenant.id),
-        getSalesForTenant(context.tenant.id),
-        getTenantMembersForTenant(context.tenant.id),
-        getInventoryMovementsForTenant(context.tenant.id),
-        getActiveInvitationForTenant(context.tenant.id),
-      ])
-    : [[], [], [], [], null];
+  const data = context.tenant
+    ? await loadTenantData(context.tenant.id)
+    : {
+        products: [],
+        sales: [],
+        tenantMembers: [],
+        inventoryMovements: [],
+        activeInvitation: null,
+      };
 
   return (
     <PowerSyncProvider
@@ -44,11 +59,11 @@ export default async function Home() {
     >
       <GlitterPosApp
         tenantContext={context}
-        initialProducts={initialProducts}
-        initialSales={initialSales}
-        initialTenantMembers={initialTenantMembers}
-        initialInventoryMovements={initialInventoryMovements}
-        activeInvitation={activeInvitation}
+        initialProducts={data.products}
+        initialSales={data.sales}
+        initialTenantMembers={data.tenantMembers}
+        initialInventoryMovements={data.inventoryMovements}
+        activeInvitation={data.activeInvitation}
         inviteOrigin={inviteOrigin ?? ""}
       />
     </PowerSyncProvider>

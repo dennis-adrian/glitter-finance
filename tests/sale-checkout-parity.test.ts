@@ -3,7 +3,7 @@
 // repository (lib/sales/repository.ts). The repository runs against an
 // in-memory stand-in for Drizzle, installed through the global lib/db reuses
 // across hot reloads. The stand-in ignores WHERE clauses: each test starts
-// from empty sale tables.
+// from empty sale tables. The last tests cover loading the sales back.
 
 import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
@@ -318,4 +318,42 @@ test("legacy sale-line categories report under their current name", async () => 
       ["Stickers"]
     );
   }
+});
+
+test("loaded sales take seller names from the members they are given", async () => {
+  const { createSaleForTenant, getSalesForTenant } = await loadRepository();
+  const saleId = crypto.randomUUID();
+  await createSaleForTenant(serverSale(saleId));
+  const refundUserId = "00000000-0000-4000-8000-000000000004";
+  const refundedAt = new Date(Date.now() + 60_000);
+  fake.tables.get(refunds)!.push({
+    id: crypto.randomUUID(),
+    tenantId: TENANT_ID,
+    originalSaleId: saleId,
+    userId: refundUserId,
+    reason: null,
+    createdAt: refundedAt,
+    clientCreatedAt: refundedAt,
+  });
+  const members = [
+    { id: "m1", userId: USER_ID, displayName: "Ana", createdAt: "" },
+    { id: "m2", userId: refundUserId, displayName: "Beto", createdAt: "" },
+  ];
+
+  assert.deepEqual(
+    (
+      await getSalesForTenant(TENANT_ID, { members: Promise.resolve(members) })
+    ).map((sale) => [sale.status, sale.userName, sale.lines.length]),
+    [
+      ["refunded", "Beto", 2],
+      ["completed", "Ana", 2],
+    ]
+  );
+
+  // Without members, the names are queried: none are stored here.
+  const queried = await getSalesForTenant(TENANT_ID);
+  assert.deepEqual(
+    queried.map((sale) => sale.userName),
+    ["Vendedor", "Vendedor"]
+  );
 });

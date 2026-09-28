@@ -13,6 +13,7 @@ import {
   REFUNDED_SALE_VOID_MESSAGE,
   SALE_ALREADY_REFUNDED_MESSAGE,
   SALE_ALREADY_VOIDED_MESSAGE,
+  sortSalesNewestFirst,
   VOID_WINDOW_EXPIRED_MESSAGE,
   VOIDED_SALE_REFUND_MESSAGE,
 } from "@/lib/sales";
@@ -22,7 +23,7 @@ import {
   type SaleLineRequest,
 } from "@/lib/sales/pricing";
 import { canonicalizeCategory } from "@/lib/categories";
-import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
+import type { PaymentMethod, Sale, SaleLine, TenantMember } from "@/lib/types";
 import { normalizeNote } from "@/lib/validation";
 
 export type CreateSaleLineInput = SaleLineRequest;
@@ -74,70 +75,27 @@ function mapSaleLine(line: typeof saleLines.$inferSelect): SaleLine {
   };
 }
 
-async function loadUserNamesForTenant(tenantId: string, userIds: string[]) {
-  const uniqueUserIds = [...new Set(userIds)];
-
-  if (!uniqueUserIds.length) {
-    return new Map<string, string>();
-  }
-
-  const rows = await db
-    .select({
-      userId: tenantUsers.userId,
-      displayName: tenantUsers.displayName,
-    })
-    .from(tenantUsers)
-    .where(
-      and(
-        eq(tenantUsers.tenantId, tenantId),
-        inArray(tenantUsers.userId, uniqueUserIds)
-      )
-    );
-
-  return new Map(rows.map((user) => [user.userId, user.displayName]));
-}
-
-async function loadLinesBySaleId(tenantId: string, saleIds: string[]) {
-  if (!saleIds.length) {
-    return new Map<string, SaleLine[]>();
-  }
-
-  const lineRows = await db
-    .select()
-    .from(saleLines)
-    .where(
-      and(eq(saleLines.tenantId, tenantId), inArray(saleLines.saleId, saleIds))
-    )
-    .orderBy(asc(saleLines.createdAt));
-
+function groupLinesBySaleId(lineRows: Array<typeof saleLines.$inferSelect>) {
   const linesBySaleId = new Map<string, SaleLine[]>();
 
   for (const line of lineRows) {
     const mappedLine = mapSaleLine(line);
-    linesBySaleId.set(line.saleId, [
-      ...(linesBySaleId.get(line.saleId) ?? []),
-      mappedLine,
-    ]);
+    const existing = linesBySaleId.get(line.saleId);
+    if (existing) {
+      existing.push(mappedLine);
+    } else {
+      linesBySaleId.set(line.saleId, [mappedLine]);
+    }
   }
 
   return linesBySaleId;
 }
 
-async function mapSaleRowsForTenant(
-  tenantId: string,
-  saleRows: Array<typeof sales.$inferSelect>
+function mapSaleRows(
+  saleRows: Array<typeof sales.$inferSelect>,
+  linesBySaleId: ReadonlyMap<string, SaleLine[]>,
+  userNameById: ReadonlyMap<string, string>
 ) {
-  const [linesBySaleId, userNameById] = await Promise.all([
-    loadLinesBySaleId(
-      tenantId,
-      saleRows.map((sale) => sale.id)
-    ),
-    loadUserNamesForTenant(
-      tenantId,
-      saleRows.map((sale) => sale.userId)
-    ),
-  ]);
-
   return saleRows.map((sale): Sale => {
     const voidedAt = sale.voidedAt ? toIso(sale.voidedAt) : undefined;
 
@@ -159,6 +117,26 @@ async function mapSaleRowsForTenant(
   });
 }
 
+/** Display names of the tenant's members, by user id. */
+async function loadUserNamesForTenant(tenantId: string, userId?: string) {
+  const rows = await db
+    .select({
+      userId: tenantUsers.userId,
+      displayName: tenantUsers.displayName,
+    })
+    .from(tenantUsers)
+    .where(
+      userId
+        ? and(
+            eq(tenantUsers.tenantId, tenantId),
+            eq(tenantUsers.userId, userId)
+          )
+        : eq(tenantUsers.tenantId, tenantId)
+    );
+
+  return new Map(rows.map((user) => [user.userId, user.displayName]));
+}
+
 async function getSaleForTenant(tenantId: string, saleId: string) {
   const [sale] = await db
     .select()
@@ -170,7 +148,21 @@ async function getSaleForTenant(tenantId: string, saleId: string) {
     throw new UserFacingError("No se encontró la venta.");
   }
 
-  const [mappedSale] = await mapSaleRowsForTenant(tenantId, [sale]);
+  const [lineRows, userNameById] = await Promise.all([
+    db
+      .select()
+      .from(saleLines)
+      .where(
+        and(eq(saleLines.tenantId, tenantId), eq(saleLines.saleId, sale.id))
+      )
+      .orderBy(asc(saleLines.createdAt)),
+    loadUserNamesForTenant(tenantId, sale.userId),
+  ]);
+  const [mappedSale] = mapSaleRows(
+    [sale],
+    groupLinesBySaleId(lineRows),
+    userNameById
+  );
 
   if (!mappedSale) {
     throw new UserFacingError("No se encontró la venta.");
@@ -308,37 +300,55 @@ export async function createSaleForTenant(
   return recorded ?? getSaleForTenant(input.tenantId, input.saleId);
 }
 
-export async function getSalesForTenant(tenantId: string): Promise<Sale[]> {
-  const saleRows = await db
-    .select()
-    .from(sales)
-    .where(eq(sales.tenantId, tenantId))
-    .orderBy(desc(sales.createdAt));
+export type GetSalesForTenantOptions = {
+  /**
+   * The tenant's members, when the caller loads them anyway: seller names
+   * are taken from them instead of queried again.
+   */
+  members?: Promise<readonly TenantMember[]> | readonly TenantMember[];
+};
 
-  if (!saleRows.length) {
-    return [];
-  }
-
-  const refundRows = await db
-    .select()
-    .from(refunds)
-    .where(eq(refunds.tenantId, tenantId))
-    .orderBy(desc(refunds.createdAt));
-
-  const [mappedSales, refundUserNameById] = await Promise.all([
-    mapSaleRowsForTenant(tenantId, saleRows),
-    loadUserNamesForTenant(
-      tenantId,
-      refundRows.map((refund) => refund.userId)
-    ),
+/**
+ * Every sale and refund of the tenant. Lines are loaded by tenant, never by
+ * a list of sale ids, whose one bind parameter per sale runs out at 65,535.
+ */
+export async function getSalesForTenant(
+  tenantId: string,
+  { members }: GetSalesForTenantOptions = {}
+): Promise<Sale[]> {
+  const [saleRows, lineRows, refundRows, userNameById] = await Promise.all([
+    db
+      .select()
+      .from(sales)
+      .where(eq(sales.tenantId, tenantId))
+      .orderBy(desc(sales.createdAt)),
+    db
+      .select()
+      .from(saleLines)
+      .where(eq(saleLines.tenantId, tenantId))
+      .orderBy(asc(saleLines.createdAt)),
+    db
+      .select()
+      .from(refunds)
+      .where(eq(refunds.tenantId, tenantId))
+      .orderBy(desc(refunds.createdAt)),
+    members
+      ? Promise.resolve(members).then(
+          (loaded) =>
+            new Map(loaded.map((member) => [member.userId, member.displayName]))
+        )
+      : loadUserNamesForTenant(tenantId),
   ]);
 
-  const saleById = new Map(mappedSales.map((sale) => [sale.id, sale]));
-  const mappedRefunds = mapRefundRows(refundRows, saleById, refundUserNameById);
-
-  return [...mappedSales, ...mappedRefunds].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  const mappedSales = mapSaleRows(
+    saleRows,
+    groupLinesBySaleId(lineRows),
+    userNameById
   );
+  const saleById = new Map(mappedSales.map((sale) => [sale.id, sale]));
+  const mappedRefunds = mapRefundRows(refundRows, saleById, userNameById);
+
+  return sortSalesNewestFirst([...mappedSales, ...mappedRefunds]);
 }
 
 type SalesTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
