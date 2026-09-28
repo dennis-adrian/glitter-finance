@@ -328,14 +328,14 @@ supabase db reset --linked --no-seed
 
 ### QA seed
 
-`pnpm db:seed:qa` creates (or refreshes) a stable QA account on the Supabase project the env vars point at — typically `glitter-finance-staging`. It provisions a dummy catalog, completed sales, a voided sale, and a refunded sale, attached to a fixed tenant id so re-runs are idempotent. The auth user and tenant are always preserved; `--reset` only wipes the catalog and sales.
+`pnpm db:seed:qa` creates (or refreshes) a stable QA account on the Supabase project the env vars point at — typically `glitter-finance-staging`. It provisions a dummy catalog (one product with stock tracking and its stock movements), completed sales, a voided sale, and a refunded sale, attached to a fixed tenant id so re-runs are idempotent. The auth user, the tenant and the QA user's membership are always preserved, and other members of the QA tenant are left alone; `--reset` only wipes the catalog, stock movements and sales, in one transaction.
 
 Pass the target credentials inline so the command always runs against the intended project:
 
 ```bash
 QA_EMAIL=qa@glitterfinance.app QA_PASSWORD=... \
 NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
-pnpm db:seed:qa             # append `-- --reset` to wipe catalog + sales and reseed
+pnpm db:seed:qa             # append `-- --reset` to wipe catalog, stock and sales and reseed
 ```
 
 ### Invite a tenant member (Stage D)

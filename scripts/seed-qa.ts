@@ -14,22 +14,25 @@
 //   QA_EMAIL=qa@glitterfinance.app QA_PASSWORD=... \
 //   NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
 //   pnpm db:seed:qa               # seed if empty, otherwise leave data as-is
-//   pnpm db:seed:qa -- --reset    # wipe the QA tenant's catalog + sales, then reseed
+//   pnpm db:seed:qa -- --reset    # wipe the QA tenant's catalog, stock and sales, then reseed
 //
 // The auth user, tenant, and membership are always preserved (stable account);
-// only the dummy catalog and sales are affected by --reset.
+// only the dummy catalog, stock movements and sales are affected by --reset.
+// Other members of the QA tenant (helpers added with pnpm db:invite:tenant-user)
+// are left alone.
 import "./load-env";
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
+import { ensureMembership } from "@/lib/auth/memberships";
 import { client, db } from "@/lib/db";
 import {
+  inventoryMovements,
   products,
   refunds,
   saleLines,
   sales,
-  tenantUsers,
   tenants,
 } from "@/lib/db/schema";
 import { createProductForTenant } from "@/lib/products/repository";
@@ -113,54 +116,71 @@ async function findOrCreateAuthUser(email: string, password: string) {
 }
 
 async function ensureTenant(userId: string) {
-  const [existingTenant] = await db
-    .select({ id: tenants.id })
-    .from(tenants)
-    .where(eq(tenants.id, QA_TENANT_ID))
-    .limit(1);
+  await db
+    .insert(tenants)
+    .values({ id: QA_TENANT_ID, name: QA_TENANT_NAME, createdByUserId: userId })
+    .onConflictDoNothing({ target: tenants.id });
 
-  if (!existingTenant) {
-    await db.insert(tenants).values({ id: QA_TENANT_ID, name: QA_TENANT_NAME });
-  }
+  // Deleting the auth user clears the owner (ON DELETE SET NULL), so a
+  // recreated QA user takes it back. An owner that still exists is kept.
+  await db
+    .update(tenants)
+    .set({ createdByUserId: userId })
+    .where(and(eq(tenants.id, QA_TENANT_ID), isNull(tenants.createdByUserId)));
 
-  const [membership] = await db
-    .select({ userId: tenantUsers.userId })
-    .from(tenantUsers)
-    .where(eq(tenantUsers.tenantId, QA_TENANT_ID))
-    .limit(1);
-
-  if (!membership) {
-    await db.insert(tenantUsers).values({
-      tenantId: QA_TENANT_ID,
-      userId,
-      displayName: QA_DISPLAY_NAME,
-    });
-  } else if (membership.userId !== userId) {
-    // The auth user was recreated with a new id; repoint the membership.
-    await db
-      .update(tenantUsers)
-      .set({ userId })
-      .where(eq(tenantUsers.tenantId, QA_TENANT_ID));
-  }
+  // Only the QA user's own membership. A deleted auth user's memberships are
+  // already gone (ON DELETE CASCADE), and any other row on this tenant
+  // belongs to a helper, which must keep its own membership.
+  await ensureMembership(db, {
+    tenantId: QA_TENANT_ID,
+    userId,
+    displayName: QA_DISPLAY_NAME,
+  });
 }
 
-// Deletes only the QA tenant's catalog and sales. FKs are ON DELETE RESTRICT,
-// so children are removed before parents. The service-role db connection
-// bypasses RLS, which is required because sales are otherwise immutable.
+// Deletes only the QA tenant's catalog, stock movements and sales. FKs are ON
+// DELETE RESTRICT, so children are removed before parents, and one
+// transaction keeps a failure from leaving products without their sales. The
+// direct db connection bypasses RLS, which is required because sales are
+// otherwise immutable.
 async function resetTenantData() {
-  await db.delete(refunds).where(eq(refunds.tenantId, QA_TENANT_ID));
-  await db.delete(saleLines).where(eq(saleLines.tenantId, QA_TENANT_ID));
-  await db.delete(sales).where(eq(sales.tenantId, QA_TENANT_ID));
-  await db.delete(products).where(eq(products.tenantId, QA_TENANT_ID));
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(inventoryMovements)
+      .where(eq(inventoryMovements.tenantId, QA_TENANT_ID));
+    await tx.delete(refunds).where(eq(refunds.tenantId, QA_TENANT_ID));
+    await tx.delete(saleLines).where(eq(saleLines.tenantId, QA_TENANT_ID));
+    await tx.delete(sales).where(eq(sales.tenantId, QA_TENANT_ID));
+    await tx.delete(products).where(eq(products.tenantId, QA_TENANT_ID));
+  });
 }
 
 async function seedData(userId: string) {
+  // A product with stock tracking, so the QA account also covers stock
+  // badges and the movement history. Its sales below take stock from it.
   const sticker = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Sticker Pack",
     priceCents: 2000,
     costCents: 600,
     category: "Stickers",
+    tracksInventory: true,
+    lowStockThreshold: 5,
   });
+  for (const [delta, reason] of [
+    [20, "initial"],
+    [10, "restock"],
+  ] as const) {
+    const createdAt = new Date();
+    await db.insert(inventoryMovements).values({
+      tenantId: QA_TENANT_ID,
+      productId: sticker.id,
+      userId,
+      delta,
+      reason,
+      createdAt,
+      clientCreatedAt: createdAt,
+    });
+  }
   const print = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Art Print A4",
     priceCents: 5000,
@@ -269,7 +289,7 @@ async function main() {
 
   if (reset) {
     await resetTenantData();
-    console.log("Existing QA catalog + sales wiped (--reset).");
+    console.log("Existing QA catalog, stock and sales wiped (--reset).");
   }
 
   const [existingProduct] = await db
@@ -284,7 +304,7 @@ async function main() {
     );
   } else {
     await seedData(user.id);
-    console.log("Dummy catalog + sales seeded.");
+    console.log("Dummy catalog, stock and sales seeded.");
   }
 
   console.log("\nQA login:");
