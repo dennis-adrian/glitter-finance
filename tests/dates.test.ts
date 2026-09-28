@@ -4,8 +4,10 @@ import {
   filterSalesByRange,
   formatDateTimeInBolivia,
   formatDateTimeLabelInBolivia,
+  nowIso,
   relativeTime,
   resolveSalesRange,
+  toIso,
 } from "@/lib/dates";
 
 test("today uses Bolivia midnight rather than the device timezone", () => {
@@ -102,4 +104,12 @@ test("recent sales count minutes, then hours in the right number", () => {
   assert.equal(relativeTime(ago(5), now), "Hace 5 min");
   assert.equal(relativeTime(ago(60), now), "Hace 1 hora");
   assert.equal(relativeTime(ago(179), now), "Hace 2 horas");
+});
+
+test("timestamps are stored as ISO UTC text", () => {
+  const date = new Date("2026-09-28T08:05:09-04:00");
+
+  assert.equal(toIso(date), "2026-09-28T12:05:09.000Z");
+  assert.equal(toIso("2026-09-28T12:05:09.000Z"), "2026-09-28T12:05:09.000Z");
+  assert.match(nowIso(), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 });

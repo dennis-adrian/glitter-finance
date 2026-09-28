@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { nowIso } from "@/lib/dates";
 import { isFreshDraftCart } from "@/lib/draft-cart";
 import { priceLine } from "@/lib/sales/pricing";
 import type { CartLine, Product, Sale } from "@/lib/types";
@@ -33,10 +34,6 @@ type PosState = {
   recordSale: (sale: Sale) => void;
   upsertSale: (sale: Sale) => void;
 };
-
-function nowIso() {
-  return new Date().toISOString();
-}
 
 /**
  * A line discount is an amount (a percentage resolves when it is applied), so

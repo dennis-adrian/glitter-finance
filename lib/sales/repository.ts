@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 import { UserFacingError } from "@/lib/action-result";
+import { toIso } from "@/lib/dates";
 import { db } from "@/lib/db";
 import {
   products,
@@ -53,10 +54,6 @@ export type RefundSaleInput = {
   saleId: string;
   reason?: string;
 };
-
-function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : value;
-}
 
 function mapSaleLine(line: typeof saleLines.$inferSelect): SaleLine {
   return {

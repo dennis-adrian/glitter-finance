@@ -2,6 +2,7 @@ import "server-only";
 
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { UserFacingError } from "@/lib/action-result";
+import { toIso } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { inventoryMovements, products } from "@/lib/db/schema";
 import {
@@ -9,10 +10,6 @@ import {
   type InventoryMovement,
   type InventorySnapshot,
 } from "@/lib/inventory";
-
-function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : value;
-}
 
 function mapDbInventoryMovement(
   row: typeof inventoryMovements.$inferSelect

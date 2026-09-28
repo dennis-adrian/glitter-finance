@@ -2,18 +2,11 @@
 // PowerSync's INSERT path — no upload-connector changes needed.
 
 import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
+import { nowIso } from "@/lib/dates";
 import {
   normalizeInventoryMovement,
   type InventoryMovementReason,
 } from "@/lib/inventory";
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function uuid() {
-  return crypto.randomUUID();
-}
 
 export type AddInventoryMovementInput = {
   tenantId: string;
@@ -59,7 +52,7 @@ export function prepareInventoryMovement(
   input: Omit<AddInventoryMovementInput, "assertCurrent">
 ): PreparedInventoryMovement {
   return {
-    id: uuid(),
+    id: crypto.randomUUID(),
     tenantId: input.tenantId,
     productId: input.productId,
     userId: input.userId,

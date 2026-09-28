@@ -8,6 +8,16 @@ export const APP_LOCALE = "es-BO";
 
 const BOLIVIA_UTC_OFFSET = "-04:00";
 
+/** The current instant as ISO 8601 UTC text, as every timestamp is stored. */
+export function nowIso() {
+  return new Date().toISOString();
+}
+
+/** A Postgres timestamp (a Date from Drizzle) or ISO text, as ISO text. */
+export function toIso(value: Date | string) {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
 type CalendarDate = {
   year: number;
   month: number;

@@ -2,6 +2,7 @@
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import type { draftCart, LocalRow } from "@/lib/db/client-schema";
+import { nowIso } from "@/lib/dates";
 import {
   isFreshDraftCart,
   normalizeDraftCartLines,
@@ -15,10 +16,6 @@ const legacyStorageKey = "glitter-pos-local-v1";
 const legacyMigrationKey = "glitter-pos-draft-cart-migrated-v1";
 
 type DraftCartRow = LocalRow<typeof draftCart>;
-
-function nowIso() {
-  return new Date().toISOString();
-}
 
 function parseLines(linesJson: string): CartLine[] {
   try {

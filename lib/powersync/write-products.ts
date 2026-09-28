@@ -17,6 +17,7 @@
 // new path.
 
 import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
+import { nowIso } from "@/lib/dates";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildProductImageObjectPath,
@@ -34,14 +35,6 @@ import {
 } from "@/lib/powersync/write-inventory";
 import { normalizeProductInput } from "@/lib/products";
 import type { ProductInput } from "@/lib/types";
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function uuid() {
-  return crypto.randomUUID();
-}
 
 /**
  * Before the first sync completes, the local store holds only this device's
@@ -99,7 +92,7 @@ export async function createProductLocal(
 ): Promise<{ productId: string }> {
   // Checked here so a row Postgres would reject never enters the upload queue.
   const product = normalizeProductInput(input.product);
-  const productId = uuid();
+  const productId = crypto.randomUUID();
   const initialMovement = prepareInitialStock(
     input.tenantId,
     productId,

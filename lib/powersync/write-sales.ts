@@ -9,6 +9,7 @@
 // the network, no separate "optimistic update" code path.
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import { nowIso } from "@/lib/dates";
 import {
   isWithinVoidWindow,
   REFUNDED_SALE_VOID_MESSAGE,
@@ -20,14 +21,6 @@ import {
 import { priceSale } from "@/lib/sales/pricing";
 import type { PaymentMethod, Product } from "@/lib/types";
 import { normalizeNote } from "@/lib/validation";
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function uuid() {
-  return crypto.randomUUID();
-}
 
 export type CreateSaleLocalLine = {
   product: Product;
@@ -66,7 +59,7 @@ export async function createSaleLocal(
     new Map(input.lines.map((line) => [line.product.id, line.product]))
   );
 
-  const saleId = uuid();
+  const saleId = crypto.randomUUID();
   const now = nowIso();
 
   // PowerSync batches all ops within a writeTransaction into one CRUD
@@ -99,7 +92,7 @@ export async function createSaleLocal(
            line_discount_reason, line_total_cents, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          uuid(),
+          crypto.randomUUID(),
           saleId,
           input.tenantId,
           line.productId,
@@ -228,7 +221,15 @@ export async function refundSaleLocal(
       `INSERT INTO refunds
         (id, tenant_id, original_sale_id, user_id, reason, created_at, client_created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [uuid(), input.tenantId, input.saleId, input.userId, reason, now, now]
+      [
+        crypto.randomUUID(),
+        input.tenantId,
+        input.saleId,
+        input.userId,
+        reason,
+        now,
+        now,
+      ]
     );
   });
 }

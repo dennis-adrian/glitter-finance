@@ -1,5 +1,6 @@
 import type { Product } from "@/lib/types";
 import { canonicalizeCategory } from "@/lib/categories";
+import { toIso } from "@/lib/dates";
 import {
   placeholderImageTone,
   placeholderImageTones,
@@ -19,10 +20,6 @@ type DbProduct = {
   createdAt: Date | string;
   updatedAt: Date | string;
 };
-
-function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : value;
-}
 
 function deriveImageTone(seed: string) {
   const total = [...seed].reduce((sum, char) => sum + char.charCodeAt(0), 0);
