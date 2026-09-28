@@ -312,8 +312,16 @@ unresolved.
 Two rejections are retried without a failure marker, because they fix
 themselves: a permission error while the device has no Supabase session (it
 uploads again after sign-in), and a device timestamp more than 5 minutes ahead
-of the server clock (Postgres code `55000`; it uploads once the server clock
-catches up, so check the device clock if it persists).
+of the server clock (Postgres code `55000`). The second one uploads only once
+the server clock reaches the stored timestamp minus 5 minutes, and every later
+upload from that device waits behind it. Correcting the device clock does not
+release rows already queued; it only stops new ones from being held. The
+device records the wait in the local-only `upload_holds` table: the sync pill
+reads **Hora adelantada**, Settings and More say from when the cloud accepts
+the rows, and Diagnostics shows **En espera hasta**. Sentry gets a
+`PowerSync upload held by the device clock` warning once a transaction has
+waited 10 minutes. Nothing needs discarding; do not clear browser/PWA storage
+while it waits.
 
 Then configure the matching PowerSync Cloud instance. Each Supabase environment
 must have its own PowerSync instance or a carefully separated configuration;

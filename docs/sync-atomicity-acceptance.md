@@ -107,9 +107,28 @@ Set a device clock 10 minutes ahead and record a sale while online.
 Expected:
 
 - The upload fails with `55000` and is retried; no failure marker appears.
+- The sync pill reads **Hora adelantada**, and Diagnostics shows **En espera
+  hasta** with the time the cloud accepts the sale (its `created_at` minus 5
+  minutes).
 - Once the server clock is within 5 minutes of the sale's `created_at`, the
-  retry succeeds without user action.
+  retry succeeds without user action, and the pill goes back to
+  **Sincronizado**.
 - Products and inventory movements created on that device behave the same way.
+
+Then set the clock 12 hours ahead, record a sale, correct the clock to
+automatic time, and record a second sale.
+
+Expected:
+
+- Both sales stay pending: correcting the clock does not release the first
+  one, and the second waits behind it.
+- Settings and More explain that operations were recorded with the device
+  time ahead and say from when the cloud accepts them; signing out, switching
+  and joining a tenant stay blocked.
+- After 10 minutes of waiting, Sentry receives one warning for the
+  transaction, `PowerSync upload held by the device clock`, with `held_until`
+  in its context and no row data.
+- No failure marker appears and Diagnostics offers nothing to discard.
 
 ## Failure classification
 
