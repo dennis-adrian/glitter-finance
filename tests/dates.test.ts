@@ -92,3 +92,14 @@ test("sales older than a day show their Bolivian date", () => {
   const now = Date.parse("2026-09-28T12:00:00.000Z");
   assert.match(relativeTime("2026-09-27T03:05:09.000Z", now), /^26.sept$/);
 });
+
+test("recent sales count minutes, then hours in the right number", () => {
+  const now = Date.parse("2026-09-28T12:00:00.000Z");
+  const ago = (minutes: number) =>
+    new Date(now - minutes * 60_000).toISOString();
+
+  assert.equal(relativeTime(ago(0), now), "Ahora");
+  assert.equal(relativeTime(ago(5), now), "Hace 5 min");
+  assert.equal(relativeTime(ago(60), now), "Hace 1 hora");
+  assert.equal(relativeTime(ago(179), now), "Hace 2 horas");
+});

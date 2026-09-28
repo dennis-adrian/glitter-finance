@@ -1,3 +1,4 @@
+import { countLabel } from "@/lib/plural";
 import type { ReportRange } from "@/lib/types";
 
 export const BOLIVIA_TIME_ZONE = "America/La_Paz";
@@ -217,7 +218,9 @@ export function relativeTime(iso: string, now = Date.now()) {
   const minutes = minutesSince(iso, now);
   if (minutes < 1) return "Ahora";
   if (minutes < 60) return `Hace ${minutes} min`;
-  if (minutes < 1440) return `Hace ${Math.floor(minutes / 60)} hora`;
+  if (minutes < 1440) {
+    return `Hace ${countLabel(Math.floor(minutes / 60), "hora", "horas")}`;
+  }
   return formatValidDate(iso, boliviaDayMonthFormatter);
 }
 

@@ -1,6 +1,7 @@
 import { BadgeDollarSign, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatBs } from "@/lib/money";
+import { countLabel } from "@/lib/plural";
 
 type CartSummaryProps = {
   itemCount: number;
@@ -20,7 +21,7 @@ export function CartSummary({
   return (
     <div className="absolute inset-x-0 bottom-0 bg-card px-4 pt-7 pb-5 shadow-[0_-14px_38px_rgba(32,24,48,0.13)]">
       <span className="text-sm text-muted-foreground">
-        Subtotal ({itemCount} productos)
+        Subtotal ({countLabel(itemCount, "producto", "productos")})
       </span>
       <div className="mt-0.5 mb-4 flex items-center justify-between">
         <strong className="text-2xl font-bold tabular-nums">

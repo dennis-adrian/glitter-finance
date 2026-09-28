@@ -14,6 +14,7 @@ import {
   resolveSalesRange,
 } from "@/lib/dates";
 import { formatBs } from "@/lib/money";
+import { countLabel } from "@/lib/plural";
 import {
   computeCategoryTotals,
   computeMetrics,
@@ -232,7 +233,7 @@ export function ReportsScreen({
           rows={productTotals.slice(0, 6).map((item) => ({
             key: item.productId,
             title: item.productName,
-            subtitle: `${item.quantity} unidades`,
+            subtitle: countLabel(item.quantity, "unidad", "unidades"),
             value: formatBs(item.total, true),
           }))}
         />
@@ -255,8 +256,8 @@ export function ReportsScreen({
           />
           {oversoldProducts.length ? (
             <p className="mt-2.5 text-sm text-muted-foreground">
-              {oversoldProducts.length} producto
-              {oversoldProducts.length === 1 ? "" : "s"} con sobreventa.
+              {countLabel(oversoldProducts.length, "producto", "productos")} con
+              sobreventa.
             </p>
           ) : null}
         </section>
@@ -269,7 +270,7 @@ export function ReportsScreen({
           rows={userTotals.map((item) => ({
             key: item.userId,
             title: item.userName,
-            subtitle: `${item.transactionCount} ventas`,
+            subtitle: countLabel(item.transactionCount, "venta", "ventas"),
             value: formatBs(item.total, true),
           }))}
         />

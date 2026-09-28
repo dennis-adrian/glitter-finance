@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { relativeTime } from "@/lib/dates";
+import { countLabel } from "@/lib/plural";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { useSyncStatus, type SyncState } from "@/lib/powersync/use-sync-status";
 
@@ -54,9 +55,9 @@ export function SyncStatusPill() {
 
   let meta: string | null = null;
   if (showFailures) {
-    meta = `${failureCount} fallida${failureCount === 1 ? "" : "s"}`;
+    meta = countLabel(failureCount, "fallida", "fallidas");
   } else if (showPending) {
-    meta = `${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}`;
+    meta = countLabel(pendingCount, "pendiente", "pendientes");
   } else if (showTimestamp) {
     meta = relativeTime(lastSyncedAt.toISOString()).toLowerCase();
   }

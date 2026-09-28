@@ -26,6 +26,7 @@ import {
   resolveSalesRange,
 } from "@/lib/dates";
 import { formatBs } from "@/lib/money";
+import { countLabel } from "@/lib/plural";
 import { computeMetrics } from "@/lib/sales";
 import type { ReportRange, Sale } from "@/lib/types";
 import {
@@ -251,12 +252,9 @@ export function SalesScreen({
           </div>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          {metrics.transactionCount} venta
-          {metrics.transactionCount === 1 ? "" : "s"}
+          {countLabel(metrics.transactionCount, "venta", "ventas")}
           {metrics.refundCount
-            ? ` · ${metrics.refundCount} reembolso${
-                metrics.refundCount === 1 ? "" : "s"
-              }`
+            ? ` · ${countLabel(metrics.refundCount, "reembolso", "reembolsos")}`
             : ""}
         </p>
       </section>

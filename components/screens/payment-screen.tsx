@@ -13,6 +13,7 @@ import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clampDiscount, formatBs, parseDiscountInput } from "@/lib/money";
+import { countLabel } from "@/lib/plural";
 import { isWithinSaleLimit, saleTotalCents } from "@/lib/sales/pricing";
 import type { PaymentMethod } from "@/lib/types";
 import { MAX_NOTE_LENGTH } from "@/lib/validation";
@@ -89,7 +90,7 @@ export function PaymentScreen({
           {totalError ? "Cobrar" : `Cobrar ${formatBs(total, true)}`}
         </strong>
         <small className="text-sm text-muted-foreground">
-          {count} productos
+          {countLabel(count, "producto", "productos")}
         </small>
         {totalError ? (
           <p className="mt-2 text-sm text-destructive">{totalError}</p>
