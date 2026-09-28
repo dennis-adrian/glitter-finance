@@ -1,46 +1,45 @@
 # Billetera Ferial Implementation Notes
 
-## Current Slice
+## Current State
 
-This first implementation is a local-first Stage A slice. It deliberately proves the high-frequency POS interaction before wiring in hosted infrastructure.
+The app covers the code for the PRD's build stages A to D (see the README) on its production architecture: Supabase Auth and Postgres, Drizzle for the schema and the server repositories, and PowerSync for the per-device SQLite store the screens read and write.
 
 Implemented now:
 
-- Mobile-first Next.js app shell.
-- Persistent local product catalog, draft cart, and sales history.
-- Sell Mode default landing screen.
-- Tap product to add, long-press product to decrement.
-- Cart review screen.
-- Payment screen with sale-level discount presets and custom discount.
-- Cash and QR payment methods.
+- Mobile-first Next.js app shell, installable as a PWA, with an offline app shell through Serwist.
+- Sell Mode default landing screen: tap a product to add it, long-press to take one off.
+- Cart review screen, and a draft cart that survives a reload.
+- Payment screen with per-line and sale-level discounts (an amount or a percentage), cash and QR.
 - Immutable sales with snapshotted product price, cost, category, and quantity.
-- Void and refund actions in reports.
-- Basic reporting over today, week, and month.
-- Supabase SSR client scaffolding, auth actions, callback route, and login page.
-- Drizzle schema and Drizzle-journaled migrations in `supabase/migrations` for tenants, users, products, sales, sale lines, refunds, Supabase auth foreign keys, and RLS policies.
+- A sales list with each sale's detail, voids within the void window, and refunds.
+- Reports over today, week, month, or a custom range: by category, payment method, product, and seller.
+- Optional stock tracking per product.
+- Several tenants per user, a tenant switcher, and invitation links.
+- Email and password or Google sign-in, and password reset.
+- A sync status pill and a tester Diagnostics screen.
 
 ## Backend Boundary
 
-The local store is intentionally shaped like the eventual sync model:
+The data model is the sync model:
 
-- Products, sales, sale lines, voids, and refunds use client-generated IDs.
+- Products, sales, sale lines, refunds, and inventory movements take client-generated IDs, so a device can create them offline.
 - Committed sales are append-only.
 - Sales snapshot price and cost at the time of sale.
 - Draft carts are local-only and not represented as committed sales.
 
-Supabase Auth, Drizzle schema, runtime Drizzle client, and RLS policies are scaffolded. Drizzle owns migration generation/tracking; the output folder is `supabase/migrations` to align with Supabase project structure. PowerSync, storage-backed image upload, and replacing the local Zustand store with synced reads/writes are the next infrastructure layer.
+Drizzle owns the schema and migration generation/tracking; the output folder is `supabase/migrations` to align with Supabase project structure, and what Drizzle cannot model lives in `supabase/manual/` (see the README). With PowerSync configured, screens read and write the device's SQLite store and PowerSync uploads the writes (`lib/powersync/`). Without it (local-only mode), the same screens call server actions backed by the Drizzle repositories (`lib/*/repository.ts`).
 
 Server actions (`app/*/actions.ts`, except the auth form actions, which return their own state) return an `ActionResult` from `lib/action-result.ts`: `{ ok: true, data }`, or `{ ok: false, error }` with a Spanish message for an expected failure (invalid input, a changed active tenant, a sale outside the void window). Code below them signals those failures by throwing a `UserFacingError`, and `toActionResult` turns it into the result; any other error is still thrown, so Next.js masks it and Sentry reports it. A thrown action error would reach the browser as Next.js' generic English message in production, so screens call actions through `unwrapActionResult`, which shows the action's message or a Spanish fallback.
 
 Every writer checks input with the same shared rules before anything is written, so a value Postgres would reject never enters the PowerSync upload queue, where a data error blocks every later upload from the device. Amounts are parsed by `lib/money.ts` (es-BO grouping, `MAX_PRICE_CENTS`), stock amounts are bounded by `MAX_QUANTITY` and the movement sign rules in `lib/inventory.ts`, products go through `normalizeProductInput` (`lib/products.ts`), ids and notes through `lib/validation.ts`, and `lib/sales/pricing.ts` prices a sale for both the PowerSync writer and the server action (and gives the cart and payment screens the same totals). Server actions also check the shape of their browser-supplied arguments first (`lib/sales/checkout-request.ts` for checkout). The server-action checkout sends a browser-generated sale id and reuses it on retries, so a retry after a lost response returns the recorded sale instead of a duplicate.
 
-Tenant bootstrap is wired into the root app entry. An authenticated user is resolved through Supabase Auth; if they have no `tenant_users` membership, the server creates a tenant and membership row through Drizzle before rendering the POS. The UI still uses the local Zustand product/sales store until Supabase-backed product and sale repositories are connected.
+Tenant bootstrap is wired into the root app entry. An authenticated user is resolved through Supabase Auth; if they have no `tenant_users` membership, the server creates a tenant and membership row through Drizzle before rendering the POS.
 
 The home page (`app/page.tsx`) paints the POS from server data without sending the tenant's whole history, whose size would otherwise grow the page with every sale. Products and members come whole. Stock comes as an opening: everything recorded more than 35 days before the request (`RECENT_HISTORY_DAYS`) summed per product in Postgres, plus the movements since then as rows (`getInventorySnapshotForTenant`; see the inventory PRD, §7.2). Sales and refunds are loaded by tenant and date in Postgres, never by a list of sale ids, and in parallel. With PowerSync only the last 35 days of sales and refunds are sent (with the earlier sales those refunds return): they paint Sales and Reports until the device's first sync, after which the local store holds the whole history. Before that first sync, a range older than 35 days shows no sales and Settings counts only the recent ones. Without PowerSync these sales are all the screens have, so every sale is sent, as every range of Reports needs.
 
 ## Known Follow-ups
 
-Deferred items that are acceptable for the current slice but should be revisited. None block the current Stage A work.
+Deferred items that are acceptable for now but should be revisited.
 
 ### Product image upload
 

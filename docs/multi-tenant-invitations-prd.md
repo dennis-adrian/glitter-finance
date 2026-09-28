@@ -93,10 +93,11 @@ What already exists and is reusable:
 - **A CLI invite already wires the mechanics** (`scripts/invite-tenant-user.ts`):
   create/find the auth user, ensure a `tenant_users` row, set the tenant claim.
   We reuse the _membership_ and _claim_ mechanics and drop the rest.
-- **PowerSync clear/reconnect controls exist.** `usePowerSyncControls()` exposes
-  `clearLocal()` (`disconnectAndClear`) and `reconnect()`
-  (`components/providers/powersync-provider.tsx`) — already used by sign-out. The
-  tenant switch reuses exactly these.
+- **PowerSync teardown/reconnect controls exist.** `usePowerSyncControls()`
+  exposes `teardownForLogout()` and `teardownForTenantChange()` (both a guarded
+  `disconnectAndClear`) and `reconnect()`
+  (`components/providers/powersync-provider.tsx`). Sign-out uses the first; the
+  tenant switch uses `teardownForTenantChange()`.
 - **The auth callback already supports a safe `next` round-trip**
   (`app/auth/callback/route.ts`, `sanitizeRedirectPath`).
 
@@ -262,36 +263,35 @@ list with no extra wiring (same mechanism as the inventory PRD §3.2).
 In **Settings**, a tenant switcher lists the user's memberships with the active
 one marked, plus a "Crear nueva cuenta" entry.
 
-Selecting a different tenant runs `switchTenant(tenantId)`:
+Selecting a different tenant runs, in this order
+(`changeIdentityAfterLocalTeardown` in `lib/auth/identity-change.ts`):
 
-1. **Server action:** assert the user is a member of `tenantId` (membership
-   check), then write `app_metadata.tenant_id = tenantId` via the admin client.
-2. **Client orchestration** (the switcher is a client component, like sign-out):
-   - **Precondition — sync settled:** switching is hard-blocked unless the
-     client is fully synced with **zero** pending uploads. The switcher gates on
-     the existing sync-status signal (`useSyncStatus` —
-     `state === "synced" && pendingCount === 0`) and the buttons stay disabled
-     otherwise. This runs _before_ `clearLocal()`, because clearing wipes the
-     upload queue — switching mid-flush would silently drop the previous
-     tenant's unsynced writes.
-   - `await powerSyncControls.clearLocal()` — wipe the previous tenant's local
-     SQLite + upload queue (must happen while the connection is live, exactly as
-     sign-out does).
-   - Refresh the Supabase session so the JWT carries the new claim
-     (`supabase.auth.refreshSession()`), mirroring the connector's existing
-     refresh-on-missing-claim logic.
-   - Force the server components to re-fetch for the new active tenant
-     (`router.refresh()` or a full reload of `/`). PowerSync re-connects via the
-     provider with the new claim and re-syncs the new tenant's data.
+1. **Precondition — sync settled:** switching is hard-blocked unless the client
+   is fully synced with **zero** pending uploads and no unresolved sync
+   failures. The switcher gates on `useLocalDataChangeGate` and its buttons stay
+   disabled otherwise.
+2. **Local teardown:** `await powerSyncControls.teardownForTenantChange()`
+   re-reads the upload queue and refuses, before any destructive step, while
+   anything is unsynced (so a stale gate can only produce a refusal, never lost
+   writes). Otherwise it disconnects and wipes the previous tenant's local
+   SQLite store and upload queue.
+3. **Server action:** `switchTenant(tenantId)` asserts the user is a member of
+   `tenantId` (membership check), then writes
+   `app_metadata.tenant_id = tenantId` via the admin client.
+4. Refresh the Supabase session so the JWT carries the new claim
+   (`refreshSessionForActiveTenant`).
+5. A full reload of `/`, so the server components render the new active tenant
+   and PowerSync re-connects with the new claim and re-syncs its data.
 
-This is the **same clear-then-reconnect dance as sign-out**
-(`handleSignOut` → `clearLocal` → ...), only it stays signed in and points the
-claim at a different tenant. One tenant's data is resident per device at a time;
-switching is a deliberate re-sync, not a merge.
+This is the **same teardown-then-reload sequence as sign-out**
+(`teardownForLogout` → `signOut` → `/login`), only it stays signed in and
+points the claim at a different tenant. One tenant's data is resident per
+device at a time; switching is a deliberate re-sync, not a merge.
 
 > **Guardrail:** never PATCH a record after a switch without a completed
-> `clearLocal`. A half-cleared store would upload rows under the wrong tenant
-> claim. The switch action must `await clearLocal()` before the session refresh.
+> teardown. A half-cleared store would upload rows under the wrong tenant
+> claim. The switch must `await teardownForTenantChange()` before the server
+> action and the session refresh.
 
 ### 5.5 Auth flow carries `next`
 
@@ -425,8 +425,8 @@ tenant by writing a `tenant_users` row through PostgREST.
 - **Publication: unchanged.** Do **not** add `tenant_invitations` to the
   `powersync` publication. (Call-out because the inventory PRD §6.3 trained us to
   add new tables to the publication — this one is the deliberate exception.)
-- The only PowerSync-adjacent behavior is the **clear + reconnect on switch**
-  (§5.4), which uses existing controls and needs no infra change.
+- The only PowerSync-adjacent behavior is the **local teardown + reload on
+  switch** (§5.4), which uses existing controls and needs no infra change.
 
 ### 6.5 Deploy ordering
 
@@ -490,8 +490,8 @@ too; the replacement never revokes a link that could still be redeemed.
 - `revokeInvitation(expectedTenantId, invitationId)` → sets `revoked_at`.
 - `acceptInvitation(token)` → validate, upsert membership, set active claim,
   redirect.
-- `switchTenant(tenantId)` → membership check + write claim (client finishes the
-  clear/refresh/refresh dance).
+- `switchTenant(tenantId)` → membership check + write claim (the client tears
+  down its local data before it, then refreshes the session and reloads).
 - `createTenant(name?)` → insert tenant + membership (one tx, sets
   `created_by_user_id`), then behaves like a switch to it.
 
@@ -514,7 +514,8 @@ writer) so the actions and the existing bootstrap share one implementation.
   end.
 - **Equipo** section: keep the read-only member list; add the **invite-link
   card** (§5.1) above or below it.
-- Reuse the existing sign-out clear-local pattern for the switch handler.
+- Reuse the sign-out teardown sequence (`changeIdentityAfterLocalTeardown`) for
+  the switch handler.
 
 ### 7.4 Cleanup
 
@@ -548,10 +549,10 @@ writer) so the actions and the existing bootstrap share one implementation.
   members.
 - **Revoked/expired link** → invalid screen; no tenant info leaked; user can ask
   for a fresh link.
-- **Switching with unsynced local writes** → `clearLocal` wipes the upload queue.
-  The switch must only run when sync is settled; otherwise pending writes for the
-  old tenant are lost. Gate the switcher on a settled sync status (reuse the
-  diagnostics/sync-status signal) or warn — see Open Items.
+- **Switching with unsynced local writes** → the switcher is gated on a settled
+  sync (`useLocalDataChangeGate`), and `teardownForTenantChange` refuses before
+  wiping anything while uploads are pending or a sync failure is unresolved, so
+  pending writes for the old tenant are never lost (see Open Items).
 - **Active tenant changed elsewhere while this device has unsynced writes** (a
   switch, create or join on another device, or another user signing in here) →
   the device's identity no longer matches its local data. The provider never

@@ -2,18 +2,23 @@
 
 Offline-first point-of-sale PWA for Bolivian festival vendors.
 
-This repository currently implements the Stage A product slice and the Stage B
-offline/sync hardening code path from the PRD. Stage B is code-ready for
-acceptance, but it is not considered accepted until the documented real-device
-offline tests pass on iPhone Safari installed PWA and Android Chrome installed
-PWA.
+This repository implements the code for the PRD's build stages A to D (the
+core POS loop, offline and sync hardening, date-range reports, and several
+users per account) plus optional per-product inventory tracking
+([`docs/glitter-inventory-prd.md`](docs/glitter-inventory-prd.md)). A stage is
+not considered accepted until its documented real-device tests pass: see
+[`docs/stage-b-acceptance.md`](docs/stage-b-acceptance.md) (installed PWAs on
+iPhone Safari and Android Chrome) and
+[`docs/stage-d-acceptance.md`](docs/stage-d-acceptance.md).
 
 - Product catalog with categories, optional cost, archive/restore, and graceful image placeholders.
 - Sell Mode as the default screen with tappable product grid, quantity badges, PowerSync-backed draft cart persistence, and a fixed Cobrar action.
 - Cart review surface with quantity controls and clear-cart.
 - Payment screen with sale-level discounts and cash/QR checkout.
-- Immutable local sales with snapshotted price/cost data, recent sales, voids, refunds, and basic reports.
-- PowerSync-backed local SQLite reads/writes for products, sales, sale lines, refunds, and local-only draft carts.
+- Immutable local sales with snapshotted price/cost data, a sales list, voids, refunds, and date-range reports.
+- Several tenants per user, with a tenant switcher and invitation links for adding team members.
+- Optional stock tracking per product: initial count, restocks, adjustments, losses and gifts, with low-stock and oversold states.
+- PowerSync-backed local SQLite reads/writes for products, sales, sale lines, refunds, inventory movements, and local-only draft carts, plus the synced team list.
 - Offline app shell through Serwist, with Supabase and PowerSync API responses kept network-only so synced data remains owned by PowerSync/local SQLite. Product photos from Supabase Storage are the one exception: the service worker caches them so Sell tiles keep their images offline.
 - Sync status visibility and a tester diagnostics surface for pending queue count, offline/reconnect state, errors, and last sync time.
 
