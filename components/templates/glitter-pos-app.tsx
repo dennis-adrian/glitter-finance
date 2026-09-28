@@ -33,12 +33,11 @@ import { SettingsScreen } from "@/components/screens/settings-screen";
 import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
 import { unwrapActionResult } from "@/lib/action-result";
 import { ALL_CATEGORIES } from "@/lib/categories";
-import { paymentLabels, saleTotal } from "@/lib/sales";
+import { paymentLabels, saleTotal, sortSalesNewestFirst } from "@/lib/sales";
 import { cartSubtotalCents } from "@/lib/sales/pricing";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
 import {
   buildSalesFromLocal,
-  compareSalesNewestFirst,
   type LocalRefundRow,
   type LocalSaleLineRow,
   type LocalSaleRow,
@@ -715,8 +714,8 @@ export function GlitterPosApp({
           );
         } else {
           hydrateSales(
-            mergeLocalRowsOverServer(initialSalesRef.current, localSales).sort(
-              compareSalesNewestFirst
+            sortSalesNewestFirst(
+              mergeLocalRowsOverServer(initialSalesRef.current, localSales)
             )
           );
         }

@@ -3,7 +3,7 @@
 // SQLite store: sales, sale_lines, refunds.
 //
 // Mirrors the server-side reconstruction in lib/sales/repository.ts
-// (mapSaleRowsForTenant + mapRefundRows). Kept as a pure function so it can
+// (mapSaleRows + mapRefundRows). Kept as a pure function so it can
 // be called from a watch handler without React glue.
 //
 // Caller supplies display names from synced tenant_users rows (see
@@ -16,6 +16,7 @@ import type {
   sales,
 } from "@/lib/db/client-schema";
 import { canonicalizeCategory } from "@/lib/categories";
+import { sortSalesNewestFirst } from "@/lib/sales";
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
 
 export type LocalSaleRow = LocalRow<typeof sales>;
@@ -96,10 +97,5 @@ export function buildSalesFromLocal(
     ];
   });
 
-  return [...completedSales, ...refundSales].sort(compareSalesNewestFirst);
-}
-
-/** The order of every sales list: newest first. */
-export function compareSalesNewestFirst(a: Sale, b: Sale) {
-  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  return sortSalesNewestFirst([...completedSales, ...refundSales]);
 }
