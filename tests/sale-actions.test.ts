@@ -7,6 +7,7 @@ import {
   saleStatusLabel,
 } from "@/components/screens/sale-detail-screen.helpers";
 import {
+  indexSales,
   isWithinVoidWindow,
   REFUNDED_SALE_VOID_MESSAGE,
   SALE_ALREADY_REFUNDED_MESSAGE,
@@ -37,16 +38,28 @@ test("void window includes exactly ten minutes and excludes the next millisecond
   const original = sale();
   const createdAt = new Date(original.createdAt).getTime();
 
-  assert.equal(canVoidSale(original, [original], createdAt + 600_000), true);
-  assert.equal(canVoidSale(original, [original], createdAt + 600_001), false);
+  assert.equal(
+    canVoidSale(original, indexSales([original]), createdAt + 600_000),
+    true
+  );
+  assert.equal(
+    canVoidSale(original, indexSales([original]), createdAt + 600_001),
+    false
+  );
 });
 
 test("void allows small clock skew but rejects clearly future createdAt", () => {
   const original = sale();
   const createdAt = new Date(original.createdAt).getTime();
 
-  assert.equal(canVoidSale(original, [original], createdAt - 5_000), true);
-  assert.equal(canVoidSale(original, [original], createdAt - 5_001), false);
+  assert.equal(
+    canVoidSale(original, indexSales([original]), createdAt - 5_000),
+    true
+  );
+  assert.equal(
+    canVoidSale(original, indexSales([original]), createdAt - 5_001),
+    false
+  );
 });
 
 test("refunds block both corrective actions on the original sale", () => {
@@ -58,9 +71,12 @@ test("refunds block both corrective actions on the original sale", () => {
     refundOfSaleId: original.id,
   });
 
-  assert.equal(canVoidSale(original, [original, refund]), false);
-  assert.equal(canRefundSale(original, [original, refund]), false);
-  assert.equal(saleStatusLabel(original, [original, refund]), "Reembolsada");
+  assert.equal(canVoidSale(original, indexSales([original, refund])), false);
+  assert.equal(canRefundSale(original, indexSales([original, refund])), false);
+  assert.equal(
+    saleStatusLabel(original, indexSales([original, refund])),
+    "Reembolsada"
+  );
 });
 
 test("voided sales cannot be refunded", () => {
@@ -70,8 +86,8 @@ test("voided sales cannot be refunded", () => {
     voidedByUserId: "user-1",
   });
 
-  assert.equal(canVoidSale(voided, [voided]), false);
-  assert.equal(canRefundSale(voided, [voided]), false);
+  assert.equal(canVoidSale(voided, indexSales([voided])), false);
+  assert.equal(canRefundSale(voided, indexSales([voided])), false);
 });
 
 test("the void window allows the clock skew of a second device", () => {
@@ -114,14 +130,19 @@ test("a refused void or refund says why", () => {
   const voided = sale({ status: "voided" });
 
   assert.equal(
-    saleActionBlockedMessage("void", original, [original], createdAt),
+    saleActionBlockedMessage(
+      "void",
+      original,
+      indexSales([original]),
+      createdAt
+    ),
     null
   );
   assert.equal(
     saleActionBlockedMessage(
       "void",
       original,
-      [original],
+      indexSales([original]),
       createdAt + VOID_WINDOW_MS + 1
     ),
     VOID_WINDOW_EXPIRED_MESSAGE
@@ -131,30 +152,43 @@ test("a refused void or refund says why", () => {
     saleActionBlockedMessage(
       "refund",
       original,
-      [original],
+      indexSales([original]),
       createdAt + VOID_WINDOW_MS + 1
     ),
     null
   );
   assert.equal(
-    saleActionBlockedMessage("void", original, [original, refund], createdAt),
+    saleActionBlockedMessage(
+      "void",
+      original,
+      indexSales([original, refund]),
+      createdAt
+    ),
     REFUNDED_SALE_VOID_MESSAGE
   );
   assert.equal(
-    saleActionBlockedMessage("refund", original, [original, refund]),
+    saleActionBlockedMessage(
+      "refund",
+      original,
+      indexSales([original, refund])
+    ),
     SALE_ALREADY_REFUNDED_MESSAGE
   );
   assert.match(
-    saleActionBlockedMessage("refund", refund, [original, refund]) ?? "",
+    saleActionBlockedMessage(
+      "refund",
+      refund,
+      indexSales([original, refund])
+    ) ?? "",
     /reembolso/
   );
   // The dialog's copy of the sale can be older than the list it checks.
   assert.equal(
-    saleActionBlockedMessage("void", original, [voided], createdAt),
+    saleActionBlockedMessage("void", original, indexSales([voided]), createdAt),
     SALE_ALREADY_VOIDED_MESSAGE
   );
   assert.equal(
-    saleActionBlockedMessage("refund", original, [voided]),
+    saleActionBlockedMessage("refund", original, indexSales([voided])),
     VOIDED_SALE_REFUND_MESSAGE
   );
 });

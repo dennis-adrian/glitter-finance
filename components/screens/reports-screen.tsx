@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { BarChart3, Info, Wallet } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
@@ -8,11 +8,6 @@ import { BarRow } from "@/components/atoms/bar-row";
 import { MetricCard } from "@/components/atoms/metric-card";
 import { DateRangePicker } from "@/components/molecules/date-range-picker";
 import { Button } from "@/components/ui/button";
-import {
-  filterSalesByRange,
-  formatDateInputInBolivia,
-  resolveSalesRange,
-} from "@/lib/dates";
 import { formatBs } from "@/lib/money";
 import { countLabel } from "@/lib/plural";
 import {
@@ -28,10 +23,20 @@ import {
   stockStateWord,
   stockValueLabel,
 } from "@/lib/inventory";
-import type { Product, ReportRange, Sale } from "@/lib/types";
+import type { Product, Sale } from "@/lib/types";
+import { useNow } from "@/lib/use-now";
+import { useSalesInRange, useSalesRangeState } from "@/lib/use-sales-range";
 
 /** How many products "Más vendidos" lists before "Ver todos". */
 const TOP_PRODUCTS_COUNT = 6;
+
+/**
+ * The bar scale of a breakdown. A refund of an earlier sale can make a row
+ * negative, so bars scale to the largest amount either way.
+ */
+function largestAmount(rows: { total: number }[]) {
+  return Math.max(0, ...rows.map((row) => Math.abs(row.total)));
+}
 
 type ReportsScreenProps = {
   sales: Sale[];
@@ -78,64 +83,43 @@ export function ReportsScreen({
   inventoryStockReady,
   openSales,
 }: ReportsScreenProps) {
-  const today = formatDateInputInBolivia();
-  const [range, setRange] = useState<ReportRange>("today");
-  const [customStart, setCustomStart] = useState(today);
-  const [customEnd, setCustomEnd] = useState(today);
-  const [now, setNow] = useState(() => Date.now());
+  const rangeState = useSalesRangeState();
+  const [now] = useNow();
   const [showAllProducts, setShowAllProducts] = useState(false);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const rangeResolution = resolveSalesRange(
-    range,
-    customStart,
-    customEnd,
-    new Date(now)
+  // Computed once per change of the sales or the range, not on every tick
+  // of `now` or toggle of the product list.
+  const { error: rangeError, sales: salesInRange } = useSalesInRange(
+    sales,
+    rangeState,
+    now
   );
-  const visibleSales = useMemo(
+  const { metrics, categoryTotals, paymentTotals, productTotals, userTotals } =
+    useMemo(
+      () => ({
+        metrics: computeMetrics(salesInRange),
+        categoryTotals: computeCategoryTotals(salesInRange),
+        paymentTotals: computePaymentTotals(salesInRange),
+        productTotals: computeProductTotals(salesInRange),
+        userTotals: computeUserTotals(salesInRange),
+      }),
+      [salesInRange]
+    );
+  const trackedStock = useMemo(
     () =>
-      filterSalesByRange(sales, range, customStart, customEnd, new Date(now)),
-    [customEnd, customStart, now, range, sales]
+      inventoryStockReady
+        ? computeTrackedProductStock(products, stockByProduct).sort((a, b) =>
+            compareStockSeverity(a.stock.state, b.stock.state)
+          )
+        : [],
+    [inventoryStockReady, products, stockByProduct]
   );
-  const metrics = computeMetrics(visibleSales);
-  const categoryTotals = computeCategoryTotals(visibleSales);
-  const paymentTotals = computePaymentTotals(visibleSales);
-  const productTotals = computeProductTotals(visibleSales);
-  const userTotals = computeUserTotals(visibleSales);
-  const trackedStock = inventoryStockReady
-    ? computeTrackedProductStock(products, stockByProduct).sort((a, b) =>
-        compareStockSeverity(a.stock.state, b.stock.state)
-      )
-    : [];
-  const oversoldProducts = trackedStock.filter(
+  const oversoldCount = trackedStock.filter(
     ({ stock }) => stock.state === "oversold"
-  );
-  // A refund of an earlier sale can make a row negative, so bars scale to
-  // the largest amount either way.
-  const categoryMax = Math.max(
-    0,
-    ...categoryTotals.map((item) => Math.abs(item.total))
-  );
-  const paymentMax = Math.max(
-    0,
-    ...paymentTotals.map((item) => Math.abs(item.total))
-  );
+  ).length;
   const listedProducts = showAllProducts
     ? productTotals
     : productTotals.slice(0, TOP_PRODUCTS_COUNT);
-
-  function handleRangeChange(nextRange: ReportRange) {
-    if (nextRange === "custom" && range !== "custom") {
-      const date = formatDateInputInBolivia(new Date(now));
-      setCustomStart(date);
-      setCustomEnd(date);
-    }
-    setRange(nextRange);
-  }
 
   return (
     <section className="screen">
@@ -153,13 +137,13 @@ export function ReportsScreen({
       />
 
       <DateRangePicker
-        range={range}
-        customStart={customStart}
-        customEnd={customEnd}
-        error={range === "custom" ? rangeResolution.error : null}
-        setRange={handleRangeChange}
-        setCustomStart={setCustomStart}
-        setCustomEnd={setCustomEnd}
+        range={rangeState.range}
+        customStart={rangeState.customStart}
+        customEnd={rangeState.customEnd}
+        error={rangeState.range === "custom" ? rangeError : null}
+        setRange={rangeState.setRange}
+        setCustomStart={rangeState.setCustomStart}
+        setCustomEnd={rangeState.setCustomEnd}
       />
 
       <div className="relative mb-3 overflow-hidden rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
@@ -217,7 +201,7 @@ export function ReportsScreen({
               key={item.category}
               label={item.category}
               value={item.total}
-              max={categoryMax}
+              max={largestAmount(categoryTotals)}
             />
           ))
         ) : (
@@ -235,7 +219,7 @@ export function ReportsScreen({
               key={item.label}
               label={item.label}
               value={item.total}
-              max={paymentMax}
+              max={largestAmount(paymentTotals)}
             />
           ))
         ) : (
@@ -290,9 +274,9 @@ export function ReportsScreen({
               value: stockValueLabel(stock),
             }))}
           />
-          {oversoldProducts.length ? (
+          {oversoldCount ? (
             <p className="mt-2.5 text-sm text-muted-foreground">
-              {countLabel(oversoldProducts.length, "producto", "productos")} con
+              {countLabel(oversoldCount, "producto", "productos")} con
               sobreventa.
             </p>
           ) : null}

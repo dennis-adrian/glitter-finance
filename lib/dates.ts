@@ -194,6 +194,21 @@ export function resolveSalesRange(
   return { bounds: rangeFromCalendarDates(start, today), error: null };
 }
 
+/** The records created within `bounds` (start inclusive, end exclusive). */
+export function filterSalesByBounds<T extends { createdAt: string }>(
+  sales: T[],
+  bounds: SalesRangeBounds
+) {
+  return sales.filter((sale) => {
+    const createdAt = new Date(sale.createdAt).getTime();
+    return (
+      !Number.isNaN(createdAt) &&
+      createdAt >= bounds.start &&
+      createdAt < bounds.end
+    );
+  });
+}
+
 export function filterSalesByRange<T extends { createdAt: string }>(
   sales: T[],
   range: ReportRange,
@@ -202,16 +217,7 @@ export function filterSalesByRange<T extends { createdAt: string }>(
   now = new Date()
 ) {
   const resolution = resolveSalesRange(range, customStart, customEnd, now);
-  if (!resolution.bounds) return [];
-
-  return sales.filter((sale) => {
-    const createdAt = new Date(sale.createdAt).getTime();
-    return (
-      !Number.isNaN(createdAt) &&
-      createdAt >= resolution.bounds.start &&
-      createdAt < resolution.bounds.end
-    );
-  });
+  return resolution.bounds ? filterSalesByBounds(sales, resolution.bounds) : [];
 }
 
 export function relativeTime(iso: string, now = Date.now()) {

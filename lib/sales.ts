@@ -178,8 +178,41 @@ function accountableSales(sales: Sale[]) {
   return sales.filter((sale) => sale.status !== "voided");
 }
 
-export function hasRefundForSale(sales: Sale[], saleId: string) {
-  return sales.some((sale) => sale.refundOfSaleId === saleId);
+/**
+ * A list of sales indexed once, so per-row checks (a sale's status, whether
+ * it can still be voided or refunded) look sales up instead of scanning the
+ * whole list for every row.
+ */
+export type SaleIndex = {
+  byId: ReadonlyMap<string, Sale>;
+  /** The refund record of each refunded sale, by the refunded sale's id. */
+  refundBySaleId: ReadonlyMap<string, Sale>;
+};
+
+export function indexSales(sales: readonly Sale[]): SaleIndex {
+  const byId = new Map<string, Sale>();
+  const refundBySaleId = new Map<string, Sale>();
+  for (const sale of sales) {
+    byId.set(sale.id, sale);
+    if (sale.refundOfSaleId) {
+      refundBySaleId.set(sale.refundOfSaleId, sale);
+    }
+  }
+  return { byId, refundBySaleId };
+}
+
+export function hasRefundForSale(index: SaleIndex, saleId: string) {
+  return index.refundBySaleId.has(saleId);
+}
+
+/** Newest first, each date parsed once rather than on every comparison. */
+export function sortSalesNewestFirst<T extends { createdAt: string }>(
+  sales: readonly T[]
+): T[] {
+  return sales
+    .map((sale) => ({ sale, time: Date.parse(sale.createdAt) }))
+    .sort((a, b) => b.time - a.time)
+    .map(({ sale }) => sale);
 }
 
 export type SalesMetrics = {

@@ -6,7 +6,7 @@ import {
   ReceiptText,
   Wallet,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { DetailRow } from "@/components/atoms/detail-row";
 import { Header } from "@/components/atoms/header";
@@ -21,12 +21,14 @@ import {
   saleCostCents,
   saleDiscountTotalCents,
   saleGrossCents,
+  indexSales,
   saleHasUnknownCost,
   saleLineDiscountCents,
   saleNetCents,
   saleProfitCents,
 } from "@/lib/sales";
 import type { Sale } from "@/lib/types";
+import { useNow } from "@/lib/use-now";
 import {
   canRefundSale,
   canVoidSale,
@@ -60,12 +62,8 @@ export function SaleDetailScreen({
   refundSale,
 }: SaleDetailScreenProps) {
   const [action, setAction] = useState<SaleAction | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const [now, setNow] = useNow();
+  const saleIndex = useMemo(() => indexSales(sales), [sales]);
 
   if (!sale) {
     return (
@@ -87,12 +85,12 @@ export function SaleDetailScreen({
   const lineDiscount = saleLineDiscountCents(sale);
   const totalDiscount = saleDiscountTotalCents(sale);
   const hasUnknownCost = saleHasUnknownCost(sale);
-  const canVoid = canVoidSale(sale, sales, now);
-  const canRefund = canRefundSale(sale, sales);
+  const canVoid = canVoidSale(sale, saleIndex, now);
+  const canRefund = canRefundSale(sale, saleIndex);
   const originalSale = sale.refundOfSaleId
-    ? sales.find((item) => item.id === sale.refundOfSaleId)
+    ? saleIndex.byId.get(sale.refundOfSaleId)
     : null;
-  const refundRecord = sales.find((item) => item.refundOfSaleId === sale.id);
+  const refundRecord = saleIndex.refundBySaleId.get(sale.id);
 
   return (
     <section className="screen">
@@ -104,7 +102,7 @@ export function SaleDetailScreen({
 
       <section className="mb-3.5 rounded-2xl bg-card p-4 text-center ring-1 ring-foreground/10">
         <span className="inline-flex min-h-7 items-center rounded-full bg-primary/10 px-3 text-sm font-bold text-primary">
-          {saleStatusLabel(sale, sales)}
+          {saleStatusLabel(sale, saleIndex)}
         </span>
         <h2 className="mt-2.5 text-lg font-semibold">
           {saleReferenceLabel(sale)}
@@ -152,7 +150,7 @@ export function SaleDetailScreen({
         <DetailRow label="Registró" value={sale.userName} />
         <DetailRow
           label="Estado"
-          value={saleStatusLabel(sale, sales)}
+          value={saleStatusLabel(sale, saleIndex)}
           tone={sale.status === "voided" ? "danger" : "strong"}
         />
         {sale.voidedAt ? (
@@ -233,7 +231,7 @@ export function SaleDetailScreen({
           disabled={!canVoid}
           onClick={() => {
             const checkedAt = Date.now();
-            if (!canVoidSale(sale, sales, checkedAt)) {
+            if (!canVoidSale(sale, saleIndex, checkedAt)) {
               setNow(checkedAt);
               return;
             }
@@ -273,7 +271,7 @@ export function SaleDetailScreen({
           const blocked = saleActionBlockedMessage(
             action,
             sale,
-            sales,
+            saleIndex,
             checkedAt
           );
           if (blocked) {
