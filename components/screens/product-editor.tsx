@@ -6,13 +6,13 @@ import {
   ArchiveRestore,
   Camera,
   Check,
-  ChevronLeft,
   Edit3,
   Minus,
   Plus,
 } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { FormField } from "@/components/atoms/form-field";
+import { BackButton } from "@/components/atoms/back-button";
 import { Header } from "@/components/atoms/header";
 import { ProductArt } from "@/components/atoms/product-art";
 import { Button } from "@/components/ui/button";
@@ -295,16 +295,7 @@ export function ProductEditor({
     <section className="screen editor-screen">
       <Header
         title={product ? "Editar producto" : "Nuevo producto"}
-        left={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={back}
-            aria-label="Volver"
-          >
-            <ChevronLeft className="size-6" />
-          </Button>
-        }
+        left={<BackButton back={back} />}
         right={<BrandMark size="small" />}
       />
 

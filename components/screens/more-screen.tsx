@@ -22,7 +22,7 @@ import {
   pendingUploadsBlockerMessage,
   type LocalDataChangeBlocker,
 } from "@/lib/powersync/local-data-gate";
-import { cn } from "@/lib/utils";
+import { cn, initialsOf } from "@/lib/utils";
 
 const tenantSessionCopy: TenantSessionCopy = {
   switchFailed: "No se pudo cambiar de puesto.",
@@ -112,10 +112,8 @@ export function MoreScreen({
   openSettings,
 }: MoreScreenProps) {
   const identity =
-    tenantContext.user.displayName ||
-    tenantContext.user.email ||
-    "Billetera Ferial";
-  const initials = identity.slice(0, 2).toUpperCase();
+    tenantContext.user.displayName || tenantContext.user.email || null;
+  const initials = initialsOf(identity);
   const {
     gate,
     switchingTenantId,
@@ -172,7 +170,7 @@ export function MoreScreen({
           </span>
           <span className="min-w-0 flex-1">
             <strong className="block truncate text-base font-bold">
-              {identity}
+              {identity ?? "Billetera Ferial"}
             </strong>
             <small className="block truncate text-[13px] text-muted-foreground">
               {tenantContext.user.email ?? "Usuario autenticado"}

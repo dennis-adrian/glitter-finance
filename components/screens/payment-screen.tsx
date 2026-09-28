@@ -1,14 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
-import {
-  Banknote,
-  ChevronLeft,
-  ChevronRight,
-  Edit3,
-  Info,
-  QrCode,
-} from "lucide-react";
+import { Banknote, ChevronRight, Edit3, Info, QrCode } from "lucide-react";
+import { BackButton } from "@/components/atoms/back-button";
 import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,19 +64,7 @@ export function PaymentScreen({
 
   return (
     <section className="screen detail-screen">
-      <Header
-        title="Pago"
-        left={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={back}
-            aria-label="Volver"
-          >
-            <ChevronLeft className="size-6" />
-          </Button>
-        }
-      />
+      <Header title="Pago" left={<BackButton back={back} />} />
 
       <div className="py-8 text-center">
         <span className="text-sm text-muted-foreground">Monto total</span>

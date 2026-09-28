@@ -13,7 +13,6 @@
 
 import {
   AlertTriangle,
-  ChevronLeft,
   RefreshCw,
   ClipboardCopy,
   Download,
@@ -23,6 +22,7 @@ import { toast } from "sonner";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import { BackButton } from "@/components/atoms/back-button";
 import { Header } from "@/components/atoms/header";
 import { DiscardSyncFailureDialog } from "@/components/molecules/discard-sync-failure-dialog";
 import { Button } from "@/components/ui/button";
@@ -330,19 +330,7 @@ export function DiagnosticsScreen({
 
   return (
     <section className="screen">
-      <Header
-        title="Diagnósticos"
-        left={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={back}
-            aria-label="Volver"
-          >
-            <ChevronLeft className="size-6" />
-          </Button>
-        }
-      />
+      <Header title="Diagnósticos" left={<BackButton back={back} />} />
 
       {details.failures.length ? (
         <div

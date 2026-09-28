@@ -1,16 +1,10 @@
-import { TriangleAlert } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { formatBs } from "@/lib/money";
-import {
-  type ProductStock,
-  stockAriaLabel,
-  stockBadgeLabel,
-  stockNeedsGlyph,
-} from "@/lib/inventory";
+import type { ProductStock } from "@/lib/inventory";
 import type { Product } from "@/lib/types";
 import { ProductArt } from "@/components/atoms/product-art";
+import { ProductNamePrice } from "@/components/atoms/product-name-price";
+import { StockBadge } from "@/components/atoms/stock-badge";
 
 type ProductCatalogCardProps = {
   product: Product;
@@ -45,26 +39,8 @@ export function ProductCatalogCard({
         onClick={() => openEditor(product)}
       >
         <ProductArt product={product} />
-        {stock ? (
-          <Badge
-            variant={stock.state === "oversold" ? "destructive" : "secondary"}
-            className="absolute top-2 left-2 h-6 gap-1 rounded-full font-semibold"
-            aria-label={stockAriaLabel(stock)}
-          >
-            {stockNeedsGlyph(stock.state) ? (
-              <TriangleAlert aria-hidden="true" />
-            ) : null}
-            {stockBadgeLabel(stock)}
-          </Badge>
-        ) : null}
-        <div className="px-3 pt-2.5 pb-3.5">
-          <span className="block text-[15px] leading-tight text-foreground">
-            {product.name}
-          </span>
-          <strong className="mt-1 block text-xl leading-none font-bold text-primary">
-            {formatBs(product.priceCents, true)}
-          </strong>
-        </div>
+        {stock ? <StockBadge stock={stock} /> : null}
+        <ProductNamePrice product={product} />
       </button>
       {product.archivedAt ? (
         <Button

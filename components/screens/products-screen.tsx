@@ -10,6 +10,7 @@ import { categories } from "@/lib/categories";
 import { filterProducts } from "@/lib/products";
 import type { Product } from "@/lib/types";
 import { getProductStock } from "@/lib/inventory";
+import { initialsOf } from "@/lib/utils";
 
 type ProductsScreenProps = {
   products: Product[];
@@ -30,7 +31,7 @@ type ProductsScreenProps = {
 
 export function ProductsScreen(props: ProductsScreenProps) {
   const identity = props.userDisplayName || props.userEmail || null;
-  const initials = identity ? identity.slice(0, 2).toUpperCase() : "?";
+  const initials = initialsOf(identity);
 
   const filtered = filterProducts(props.products, props.category, props.query);
 

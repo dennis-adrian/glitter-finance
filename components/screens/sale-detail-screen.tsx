@@ -1,14 +1,8 @@
-import {
-  AlertTriangle,
-  ChevronLeft,
-  Info,
-  QrCode,
-  ReceiptText,
-  Wallet,
-} from "lucide-react";
+import { AlertTriangle, Info, QrCode, ReceiptText, Wallet } from "lucide-react";
 import { useMemo, useState } from "react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { DetailRow } from "@/components/atoms/detail-row";
+import { BackButton } from "@/components/atoms/back-button";
 import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/molecules/empty-state";
@@ -45,14 +39,6 @@ type SaleDetailScreenProps = {
   voidSale: (saleId: string) => Promise<boolean>;
   refundSale: (saleId: string, reason?: string) => Promise<boolean>;
 };
-
-function BackButton({ back }: { back: () => void }) {
-  return (
-    <Button variant="ghost" size="icon" onClick={back} aria-label="Volver">
-      <ChevronLeft className="size-6" />
-    </Button>
-  );
-}
 
 export function SaleDetailScreen({
   sale,

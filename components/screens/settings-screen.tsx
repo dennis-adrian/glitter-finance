@@ -26,7 +26,7 @@ import {
 import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import { pendingUploadsBlockerMessage } from "@/lib/powersync/local-data-gate";
 import type { TenantInvitation, TenantMember } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, initialsOf } from "@/lib/utils";
 
 const tenantSessionCopy: TenantSessionCopy = {
   switchFailed: "No se pudo cambiar de cuenta.",
@@ -56,11 +56,9 @@ export function SettingsScreen({
   saleCount,
   openDiagnostics,
 }: SettingsScreenProps) {
-  const identity =
-    tenantContext.user.displayName ||
-    tenantContext.user.email ||
-    "Billetera Ferial";
-  const initials = identity.slice(0, 2).toUpperCase();
+  const initials = initialsOf(
+    tenantContext.user.displayName || tenantContext.user.email
+  );
   const {
     gate,
     switchingTenantId,
@@ -305,7 +303,7 @@ export function SettingsScreen({
             const roleLabel = isOwner
               ? "Propietario"
               : "Vendedor en esta cuenta";
-            const memberInitials = member.displayName.slice(0, 2).toUpperCase();
+            const memberInitials = initialsOf(member.displayName);
             return (
               <div
                 className="flex items-center gap-2.5 border-b border-border py-2 last:border-b-0"
