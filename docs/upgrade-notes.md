@@ -126,9 +126,10 @@ stops syncing at once.
 
 - Confirm that `tenant_users` is in the `powersync` publication (the query is
   under [PowerSync setup](../README.md#powersync-setup)). It already had to be.
-- If **Validate** rejects the membership subquery (`AND … IN (SELECT …)`), do
-  not deploy anything else: the syntax follows the PowerSync Sync Streams
-  documentation but has not been validated by PowerSync Cloud yet.
+- If **Validate** rejects the membership subquery (`AND … IN (SELECT …)`),
+  the streams already deployed stay in place. Fix the file and validate again
+  before going on to step 4. The syntax follows the PowerSync Sync Streams
+  documentation but has not been through PowerSync Cloud's validator yet.
 
 Deploy the streams before (or together with) the app in step 4. The old app
 keeps working with them.
