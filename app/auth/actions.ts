@@ -26,19 +26,8 @@ import { isAbsoluteHttpUrl } from "@/lib/invitations/validation";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { createClient } from "@/lib/supabase/server";
 
-export type SignUpState = {
-  error: string | null;
-};
-
-export type SignInState = {
-  error: string | null;
-};
-
-export type PasswordResetRequestState = {
-  error: string | null;
-};
-
-export type UpdatePasswordState = {
+/** What the sign-in, sign-up and password forms show after submitting. */
+export type AuthFormState = {
   error: string | null;
 };
 
@@ -48,9 +37,9 @@ function getFormString(formData: FormData, key: string) {
 }
 
 export async function signInWithPassword(
-  _previousState: SignInState,
+  _previousState: AuthFormState,
   formData: FormData
-): Promise<SignInState> {
+): Promise<AuthFormState> {
   const email = getFormString(formData, "email");
   const password = getFormString(formData, "password");
   const origin = await getRequestOrigin();
@@ -145,9 +134,9 @@ export async function signInWithGoogle(formData: FormData) {
 }
 
 export async function signUpWithPassword(
-  _previousState: SignUpState,
+  _previousState: AuthFormState,
   formData: FormData
-): Promise<SignUpState> {
+): Promise<AuthFormState> {
   const email = getFormString(formData, "email").trim();
   const password = getFormString(formData, "password");
   const confirmPassword = getFormString(formData, "confirmPassword");
@@ -230,9 +219,9 @@ export async function signUpWithPassword(
  * difference would tell which emails have an account.
  */
 export async function requestPasswordReset(
-  _previousState: PasswordResetRequestState,
+  _previousState: AuthFormState,
   formData: FormData
-): Promise<PasswordResetRequestState> {
+): Promise<AuthFormState> {
   const email = getFormString(formData, "email").trim();
   const origin = await getRequestOrigin();
   const next = resolveAuthRedirectPath(
@@ -279,9 +268,9 @@ export async function requestPasswordReset(
  * link opened (app/auth/confirm), or any other one.
  */
 export async function updatePassword(
-  _previousState: UpdatePasswordState,
+  _previousState: AuthFormState,
   formData: FormData
-): Promise<UpdatePasswordState> {
+): Promise<AuthFormState> {
   const password = getFormString(formData, "password");
   const confirmPassword = getFormString(formData, "confirmPassword");
   const origin = await getRequestOrigin();

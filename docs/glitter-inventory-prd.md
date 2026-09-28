@@ -142,7 +142,7 @@ more devices in the same tenant stream.
   extra wiring.
 - **Attribution.** `inventory_movements.user_id` is resolved to a display name
   the same way sale sellers are: against the synced `tenant_users` rows via
-  `resolveUserDisplayName` / `buildUserNameMap`
+  `buildUserNameMap`
   (`lib/powersync/tenant-users-from-local.ts`). Not surfaced in the MVP (movement
   history is out of scope), but recorded so any future "restocked by" view is
   consistent with the rest of the app.

@@ -240,6 +240,6 @@ export function relativeTime(iso: string, now = Date.now()) {
   return formatValidDate(iso, boliviaDayMonthFormatter);
 }
 
-export function minutesSince(iso: string, now = Date.now()) {
+function minutesSince(iso: string, now = Date.now()) {
   return Math.floor((now - new Date(iso).getTime()) / 60000);
 }

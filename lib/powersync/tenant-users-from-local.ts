@@ -116,11 +116,3 @@ export function mergeTenantMembersFromWatch(
   }
   return mapped;
 }
-
-export function resolveUserDisplayName(
-  userId: string,
-  members: TenantMember[],
-  fallback = "Vendedor"
-): string {
-  return buildUserNameMap(members).get(userId) ?? fallback;
-}

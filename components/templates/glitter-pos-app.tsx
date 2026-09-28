@@ -59,7 +59,6 @@ import type {
   Sale,
   TenantInvitation,
   TenantMember,
-  ToastMessage,
 } from "@/lib/types";
 import type { View } from "@/lib/views";
 import type { UserTenantContext } from "@/lib/auth/tenant-context";
@@ -153,6 +152,8 @@ function compareMovementsOldestFirst(
     (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   );
 }
+
+type ToastTone = "success" | "info" | "danger";
 
 type ProductWrite = {
   kind: "save" | "archive" | "restore";
@@ -848,7 +849,7 @@ export function GlitterPosApp({
     };
   }, [draftCartStorage, tenantWorkGeneration]);
 
-  function showToast(text: string, tone: ToastMessage["tone"] = "success") {
+  function showToast(text: string, tone: ToastTone = "success") {
     if (tone === "danger") {
       sonnerToast.error(text);
     } else if (tone === "info") {

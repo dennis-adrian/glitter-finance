@@ -19,7 +19,6 @@ function membership(tenantId: string, name: string): MembershipRow {
     tenantName: name,
     tenantCreatedByUserId: "owner-1",
     displayName: "Ana",
-    membershipCreatedAt: new Date("2026-09-01T12:00:00.000Z"),
   };
 }
 

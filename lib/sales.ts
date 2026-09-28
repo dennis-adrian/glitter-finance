@@ -59,7 +59,7 @@ export function saleDiscountTotalCents(sale: Sale) {
   return sale.saleDiscountCents + saleLineDiscountCents(sale);
 }
 
-export function saleLineTotalCents(sale: Sale) {
+function saleLineTotalCents(sale: Sale) {
   return sale.lines.reduce((total, line) => total + line.lineTotalCents, 0);
 }
 

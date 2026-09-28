@@ -3,6 +3,7 @@
 // writes the database, Supabase or the request.
 
 import { UserFacingError } from "@/lib/action-result";
+import type { TenantSummary } from "@/lib/types";
 import { requireUuid } from "@/lib/validation";
 
 export type MembershipRow = {
@@ -10,7 +11,6 @@ export type MembershipRow = {
   tenantName: string;
   tenantCreatedByUserId: string | null;
   displayName: string;
-  membershipCreatedAt: Date;
 };
 
 export type UserTenantContext = {
@@ -24,10 +24,7 @@ export type UserTenantContext = {
     name: string;
     createdByUserId: string | null;
   } | null;
-  tenants: {
-    id: string;
-    name: string;
-  }[];
+  tenants: TenantSummary[];
 };
 
 /** The read-only resolver's result, see resolveUserTenantContextFor. */

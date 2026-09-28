@@ -4,7 +4,6 @@ import type { paymentMethodEnum } from "@/lib/db/schema";
 
 export type PaymentMethod = (typeof paymentMethodEnum.enumValues)[number];
 export type SaleStatus = "completed" | "voided" | "refunded";
-export type CostStatus = "known" | "unknown";
 
 export type Product = {
   id: string;
@@ -94,10 +93,4 @@ export type TenantInvitation = {
   expiresAt: string;
   revokedAt: string | null;
   createdAt: string;
-};
-
-export type ToastMessage = {
-  id: string;
-  text: string;
-  tone: "success" | "info" | "danger";
 };

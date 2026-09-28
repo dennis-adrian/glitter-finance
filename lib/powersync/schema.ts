@@ -7,5 +7,3 @@ import { DrizzleAppSchema } from "@powersync/drizzle-driver";
 import { clientSchema } from "@/lib/db/client-schema";
 
 export const AppSchema = new DrizzleAppSchema(clientSchema);
-
-export type Database = (typeof AppSchema)["types"];

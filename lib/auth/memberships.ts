@@ -16,7 +16,6 @@ export async function loadAllMemberships(
       tenantName: tenants.name,
       tenantCreatedByUserId: tenants.createdByUserId,
       displayName: tenantUsers.displayName,
-      membershipCreatedAt: tenantUsers.createdAt,
     })
     .from(tenantUsers)
     .innerJoin(tenants, eq(tenantUsers.tenantId, tenants.id))
@@ -95,7 +94,7 @@ export async function createTenantWithOwner(
       userId: input.userId,
       displayName: input.displayName,
     })
-    .returning({ createdAt: tenantUsers.createdAt });
+    .returning({ id: tenantUsers.id });
 
   if (!membership) {
     throw new Error("No se pudo crear la cuenta.");
@@ -106,6 +105,5 @@ export async function createTenantWithOwner(
     tenantName: tenant.name,
     tenantCreatedByUserId: input.userId,
     displayName: input.displayName,
-    membershipCreatedAt: membership.createdAt,
   };
 }

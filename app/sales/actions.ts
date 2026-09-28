@@ -13,8 +13,6 @@ import {
 } from "@/lib/sales/repository";
 import { requireUuid } from "@/lib/validation";
 
-export type CreateSaleActionInput = CheckoutRequest;
-
 const SALE_NOT_FOUND_MESSAGE = "No se encontró la venta.";
 
 // Every action takes `expectedTenantId`, the tenant the calling screen
@@ -25,7 +23,7 @@ const SALE_NOT_FOUND_MESSAGE = "No se encontró la venta.";
 
 export async function createSale(
   expectedTenantId: string,
-  input: CreateSaleActionInput
+  input: CheckoutRequest
 ) {
   return toActionResult(async () => {
     const context = await requireExpectedTenantContext(
