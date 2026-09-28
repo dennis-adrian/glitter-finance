@@ -5,6 +5,7 @@ import { Check, Copy, Link2, Share2 } from "lucide-react";
 import { createInvitation, revokeInvitation } from "@/app/invitations/actions";
 import { Button } from "@/components/ui/button";
 import { unwrapActionResult } from "@/lib/action-result";
+import { APP_LOCALE } from "@/lib/dates";
 import {
   INVITE_ORIGIN_UNAVAILABLE_MESSAGE,
   buildInviteLink,
@@ -23,7 +24,7 @@ type InviteTeamCardProps = {
 };
 
 function formatAbsoluteExpiry(expiresAt: string) {
-  return new Intl.DateTimeFormat("es", {
+  return new Intl.DateTimeFormat(APP_LOCALE, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(expiresAt));
@@ -37,7 +38,7 @@ function formatRelativeExpiry(expiresAt: string): string | null {
   if (ms <= 0) {
     return "Caducado";
   }
-  const rtf = new Intl.RelativeTimeFormat("es", { numeric: "auto" });
+  const rtf = new Intl.RelativeTimeFormat(APP_LOCALE, { numeric: "auto" });
   if (ms >= 86_400_000) {
     const days = Math.round(ms / 86_400_000);
     return `Caduca ${rtf.format(days, "day")}`;

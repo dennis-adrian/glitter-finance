@@ -1,3 +1,5 @@
+import { APP_LOCALE } from "@/lib/dates";
+
 /** Largest value a Postgres `integer` column holds. */
 export const INT4_MAX = 2_147_483_647;
 
@@ -8,13 +10,19 @@ export const INT4_MAX = 2_147_483_647;
  */
 export const MAX_PRICE_CENTS = 100_000_000;
 
+const wholeBsFormatter = new Intl.NumberFormat(APP_LOCALE, {
+  maximumFractionDigits: 0,
+});
+const centsBsFormatter = new Intl.NumberFormat(APP_LOCALE, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 export function formatBs(cents: number, compact = false) {
-  const value = cents / 100;
   const hasDecimals = Math.abs(cents % 100) > 0;
-  const formatted = new Intl.NumberFormat("es-BO", {
-    minimumFractionDigits: hasDecimals ? 2 : 0,
-    maximumFractionDigits: 2,
-  }).format(value);
+  const formatted = (hasDecimals ? centsBsFormatter : wholeBsFormatter).format(
+    cents / 100
+  );
 
   return compact ? `${formatted} Bs` : `Bs ${formatted}`;
 }

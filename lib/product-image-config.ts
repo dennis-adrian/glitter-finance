@@ -4,6 +4,9 @@
 // Storage enforces the same size, type and path rules:
 // supabase/manual/20260926130000_product_images_storage_rules.sql (hosted)
 // and supabase/config.toml (local stack). Keep them in step.
+
+import { APP_LOCALE } from "@/lib/dates";
+
 export const productImagesBucket = "product-images";
 export const productImageMaxBytes = 5 * 1024 * 1024;
 export const productImageMimeTypes = ["image/jpeg", "image/png"] as const;
@@ -33,7 +36,7 @@ const productImageFormats = productImageMimeTypes.map((type) =>
 export const productImageMaxSizeLabel = `${productImageMaxBytes / (1024 * 1024)} MB`;
 
 /** "JPG y PNG": the accepted formats, for the editor's hint. */
-export const productImageFormatsLabel = new Intl.ListFormat("es", {
+export const productImageFormatsLabel = new Intl.ListFormat(APP_LOCALE, {
   type: "conjunction",
 }).format(productImageFormats);
 
@@ -41,7 +44,7 @@ export const productImageFormatsLabel = new Intl.ListFormat("es", {
 export const productImageAccept = productImageMimeTypes.join(",");
 
 export const PRODUCT_IMAGE_TYPE_MESSAGE = `La imagen debe estar en formato ${new Intl.ListFormat(
-  "es",
+  APP_LOCALE,
   { type: "disjunction" }
 ).format(productImageFormats)}.`;
 export const PRODUCT_IMAGE_EMPTY_MESSAGE = "La imagen seleccionada está vacía.";

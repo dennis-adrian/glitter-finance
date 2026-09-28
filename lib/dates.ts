@@ -2,6 +2,9 @@ import type { ReportRange } from "@/lib/types";
 
 export const BOLIVIA_TIME_ZONE = "America/La_Paz";
 
+/** The locale every screen formats dates, times and numbers in. */
+export const APP_LOCALE = "es-BO";
+
 const BOLIVIA_UTC_OFFSET = "-04:00";
 
 type CalendarDate = {
@@ -26,7 +29,7 @@ const boliviaDateFormatter = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 
-const boliviaDateLabelFormatter = new Intl.DateTimeFormat("es-BO", {
+const boliviaDateLabelFormatter = new Intl.DateTimeFormat(APP_LOCALE, {
   timeZone: BOLIVIA_TIME_ZONE,
   weekday: "long",
   day: "numeric",
@@ -34,10 +37,25 @@ const boliviaDateLabelFormatter = new Intl.DateTimeFormat("es-BO", {
   year: "numeric",
 });
 
-const boliviaDateTimeFormatter = new Intl.DateTimeFormat("es-BO", {
+const boliviaDateTimeFormatter = new Intl.DateTimeFormat(APP_LOCALE, {
   timeZone: BOLIVIA_TIME_ZONE,
   dateStyle: "short",
   timeStyle: "medium",
+});
+
+const boliviaDateTimeLabelFormatter = new Intl.DateTimeFormat(APP_LOCALE, {
+  timeZone: BOLIVIA_TIME_ZONE,
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+const boliviaDayMonthFormatter = new Intl.DateTimeFormat(APP_LOCALE, {
+  timeZone: BOLIVIA_TIME_ZONE,
+  day: "2-digit",
+  month: "short",
 });
 
 function toCalendarDate(value: Date): CalendarDate {
@@ -114,12 +132,19 @@ export function formatDateLabelInBolivia(iso: string) {
   return boliviaDateLabelFormatter.format(new Date(iso));
 }
 
+function formatValidDate(value: string | Date, formatter: Intl.DateTimeFormat) {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : formatter.format(date);
+}
+
 /** A timestamp in Bolivian local time, for status and diagnostic screens. */
 export function formatDateTimeInBolivia(value: string | Date) {
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : boliviaDateTimeFormatter.format(date);
+  return formatValidDate(value, boliviaDateTimeFormatter);
+}
+
+/** A date and time in Bolivian local time, as a sale's detail shows it. */
+export function formatDateTimeLabelInBolivia(value: string | Date) {
+  return formatValidDate(value, boliviaDateTimeLabelFormatter);
 }
 
 export function resolveSalesRange(
@@ -188,16 +213,12 @@ export function filterSalesByRange<T extends { createdAt: string }>(
   });
 }
 
-export function relativeTime(iso: string) {
-  const minutes = minutesSince(iso);
+export function relativeTime(iso: string, now = Date.now()) {
+  const minutes = minutesSince(iso, now);
   if (minutes < 1) return "Ahora";
   if (minutes < 60) return `Hace ${minutes} min`;
   if (minutes < 1440) return `Hace ${Math.floor(minutes / 60)} hora`;
-  return new Intl.DateTimeFormat("es-BO", {
-    timeZone: BOLIVIA_TIME_ZONE,
-    day: "2-digit",
-    month: "short",
-  }).format(new Date(iso));
+  return formatValidDate(iso, boliviaDayMonthFormatter);
 }
 
 export function minutesSince(iso: string, now = Date.now()) {

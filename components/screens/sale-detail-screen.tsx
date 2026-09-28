@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { SaleActionDialog } from "@/components/molecules/sale-action-dialog";
 import { SaleLineDetail } from "@/components/molecules/sale-line-detail";
+import { formatDateTimeLabelInBolivia } from "@/lib/dates";
 import { formatBs } from "@/lib/money";
 import {
   paymentLabels,
@@ -42,15 +43,6 @@ type SaleDetailScreenProps = {
   voidSale: (saleId: string) => Promise<boolean>;
   refundSale: (saleId: string, reason?: string) => Promise<boolean>;
 };
-
-const dateFormatter = new Intl.DateTimeFormat("es-BO", {
-  timeZone: "America/La_Paz",
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 function BackButton({ back }: { back: () => void }) {
   return (
@@ -121,7 +113,7 @@ export function SaleDetailScreen({
           {formatBs(net, true)}
         </strong>
         <p className="text-sm text-muted-foreground">
-          {dateFormatter.format(new Date(sale.createdAt))}
+          {formatDateTimeLabelInBolivia(sale.createdAt)}
         </p>
       </section>
 
@@ -149,12 +141,12 @@ export function SaleDetailScreen({
         ) : null}
         <DetailRow
           label="Creada"
-          value={dateFormatter.format(new Date(sale.createdAt))}
+          value={formatDateTimeLabelInBolivia(sale.createdAt)}
         />
         {sale.clientCreatedAt ? (
           <DetailRow
             label="Hora local"
-            value={dateFormatter.format(new Date(sale.clientCreatedAt))}
+            value={formatDateTimeLabelInBolivia(sale.clientCreatedAt)}
           />
         ) : null}
         <DetailRow label="Registró" value={sale.userName} />
@@ -166,7 +158,7 @@ export function SaleDetailScreen({
         {sale.voidedAt ? (
           <DetailRow
             label="Anulada"
-            value={dateFormatter.format(new Date(sale.voidedAt))}
+            value={formatDateTimeLabelInBolivia(sale.voidedAt)}
             tone="danger"
           />
         ) : null}

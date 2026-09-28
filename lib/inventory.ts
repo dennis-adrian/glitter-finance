@@ -1,4 +1,5 @@
 import { UserFacingError } from "@/lib/action-result";
+import { APP_LOCALE } from "@/lib/dates";
 import type { inventoryMovementReasonEnum } from "@/lib/db/schema";
 import type { Product, Sale } from "@/lib/types";
 import { normalizeNote } from "@/lib/validation";
@@ -35,7 +36,7 @@ export type ProductStock = {
  */
 export const MAX_QUANTITY = 1_000_000;
 
-export const MAX_QUANTITY_LABEL = new Intl.NumberFormat("es-BO").format(
+export const MAX_QUANTITY_LABEL = new Intl.NumberFormat(APP_LOCALE).format(
   MAX_QUANTITY
 );
 

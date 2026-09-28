@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   filterSalesByRange,
   formatDateTimeInBolivia,
+  formatDateTimeLabelInBolivia,
+  relativeTime,
   resolveSalesRange,
 } from "@/lib/dates";
 
@@ -76,4 +78,17 @@ test("timestamps are shown in Bolivian local time", () => {
     formatted
   );
   assert.equal(formatDateTimeInBolivia("not a date"), "—");
+});
+
+test("a sale's date and time are labeled in Bolivian local time", () => {
+  // 03:05 UTC is 23:05 of the previous day in La Paz.
+  const formatted = formatDateTimeLabelInBolivia("2026-09-27T03:05:09.000Z");
+  assert.match(formatted, /^26.sept.2026/);
+  assert.match(formatted, /11:05/);
+  assert.equal(formatDateTimeLabelInBolivia("not a date"), "—");
+});
+
+test("sales older than a day show their Bolivian date", () => {
+  const now = Date.parse("2026-09-28T12:00:00.000Z");
+  assert.match(relativeTime("2026-09-27T03:05:09.000Z", now), /^26.sept$/);
 });
