@@ -3,6 +3,7 @@ import { GlitterPosApp } from "@/components/templates/glitter-pos-app";
 import { PowerSyncProvider } from "@/components/providers/powersync-provider";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import { getTenantMembersForTenant } from "@/lib/auth/tenant-members";
+import { isPowerSyncConfigured } from "@/lib/env";
 import { getInventorySnapshotForTenant } from "@/lib/inventory/repository";
 import { getActiveInvitationForTenant } from "@/lib/invitations/repository";
 import { getProductsForTenant } from "@/lib/products/repository";
@@ -10,10 +11,11 @@ import { getSalesForTenant } from "@/lib/sales/repository";
 import { getRequestOrigin } from "@/lib/request-origin";
 
 /**
- * How many days of stock movements '/' sends as rows; the stock from before
- * them arrives summed per product (getInventorySnapshotForTenant). Far longer
- * than the void window, so stock counts a sale that can still be voided from
- * its row.
+ * How much history '/' sends as rows: enough for every preset range of Sales
+ * and Reports ("Esta semana", "Este mes"), and far longer than the void
+ * window, so stock counts a sale that can still be voided from its row. The
+ * stock from before it arrives summed per product
+ * (getInventorySnapshotForTenant).
  */
 const RECENT_HISTORY_DAYS = 35;
 
@@ -28,7 +30,14 @@ async function loadTenantData(tenantId: string) {
   const [products, sales, tenantMembers, inventory, activeInvitation] =
     await Promise.all([
       getProductsForTenant(tenantId),
-      getSalesForTenant(tenantId, { members }),
+      // With PowerSync the device's local store holds the whole history once
+      // its first sync completes; these rows only paint the screens until
+      // then, so recent sales are enough. Without it these sales are the
+      // whole history the screens have, so custom ranges need all of them.
+      getSalesForTenant(tenantId, {
+        since: isPowerSyncConfigured() ? recentHistoryStart : undefined,
+        members,
+      }),
       members,
       getInventorySnapshotForTenant(tenantId, recentHistoryStart),
       getActiveInvitationForTenant(tenantId),

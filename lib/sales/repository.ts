@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 import { UserFacingError } from "@/lib/action-result";
 import { db } from "@/lib/db";
 import {
@@ -302,6 +302,12 @@ export async function createSaleForTenant(
 
 export type GetSalesForTenantOptions = {
   /**
+   * Only the sales and refunds recorded from this instant on, plus what
+   * their records need: the earlier sale a refund returns, and the refund
+   * of a sale. Everything when omitted.
+   */
+  since?: Date;
+  /**
    * The tenant's members, when the caller loads them anyway: seller names
    * are taken from them instead of queried again.
    */
@@ -309,28 +315,69 @@ export type GetSalesForTenantOptions = {
 };
 
 /**
- * Every sale and refund of the tenant. Lines are loaded by tenant, never by
- * a list of sale ids, whose one bind parameter per sale runs out at 65,535.
+ * Which sales and refunds getSalesForTenant loads. Filtered by tenant (and
+ * date) in Postgres, never by a list of ids, whose one bind parameter per
+ * sale runs out at 65,535.
  */
+function salesHistoryFilters(tenantId: string, since: Date | undefined) {
+  if (!since) {
+    return {
+      sales: eq(sales.tenantId, tenantId),
+      refunds: eq(refunds.tenantId, tenantId),
+    };
+  }
+
+  const salesSince = db
+    .select({ id: sales.id })
+    .from(sales)
+    .where(and(eq(sales.tenantId, tenantId), gte(sales.createdAt, since)));
+  const refundedSince = db
+    .select({ id: refunds.originalSaleId })
+    .from(refunds)
+    .where(and(eq(refunds.tenantId, tenantId), gte(refunds.createdAt, since)));
+
+  return {
+    sales: and(
+      eq(sales.tenantId, tenantId),
+      or(gte(sales.createdAt, since), inArray(sales.id, refundedSince))
+    ),
+    refunds: and(
+      eq(refunds.tenantId, tenantId),
+      or(
+        gte(refunds.createdAt, since),
+        inArray(refunds.originalSaleId, salesSince)
+      )
+    ),
+  };
+}
+
 export async function getSalesForTenant(
   tenantId: string,
-  { members }: GetSalesForTenantOptions = {}
+  { since, members }: GetSalesForTenantOptions = {}
 ): Promise<Sale[]> {
+  const filters = salesHistoryFilters(tenantId, since);
   const [saleRows, lineRows, refundRows, userNameById] = await Promise.all([
-    db
-      .select()
-      .from(sales)
-      .where(eq(sales.tenantId, tenantId))
-      .orderBy(desc(sales.createdAt)),
+    db.select().from(sales).where(filters.sales).orderBy(desc(sales.createdAt)),
+    // The lines of the sales loaded above.
     db
       .select()
       .from(saleLines)
-      .where(eq(saleLines.tenantId, tenantId))
+      .where(
+        since
+          ? and(
+              eq(saleLines.tenantId, tenantId),
+              inArray(
+                saleLines.saleId,
+                db.select({ id: sales.id }).from(sales).where(filters.sales)
+              )
+            )
+          : eq(saleLines.tenantId, tenantId)
+      )
       .orderBy(asc(saleLines.createdAt)),
     db
       .select()
       .from(refunds)
-      .where(eq(refunds.tenantId, tenantId))
+      .where(filters.refunds)
       .orderBy(desc(refunds.createdAt)),
     members
       ? Promise.resolve(members).then(

@@ -36,6 +36,8 @@ Every writer checks input with the same shared rules before anything is written,
 
 Tenant bootstrap is wired into the root app entry. An authenticated user is resolved through Supabase Auth; if they have no `tenant_users` membership, the server creates a tenant and membership row through Drizzle before rendering the POS. The UI still uses the local Zustand product/sales store until Supabase-backed product and sale repositories are connected.
 
+The home page (`app/page.tsx`) paints the POS from server data without sending the tenant's whole history, whose size would otherwise grow the page with every sale. Products and members come whole. Stock comes as an opening: everything recorded more than 35 days before the request (`RECENT_HISTORY_DAYS`) summed per product in Postgres, plus the movements since then as rows (`getInventorySnapshotForTenant`; see the inventory PRD, §7.2). Sales and refunds are loaded by tenant and date in Postgres, never by a list of sale ids, and in parallel. With PowerSync only the last 35 days of sales and refunds are sent (with the earlier sales those refunds return): they paint Sales and Reports until the device's first sync, after which the local store holds the whole history. Before that first sync, a range older than 35 days shows no sales and Settings counts only the recent ones. Without PowerSync these sales are all the screens have, so every sale is sent, as every range of Reports needs.
+
 ## Known Follow-ups
 
 Deferred items that are acceptable for the current slice but should be revisited. None block the current Stage A work.

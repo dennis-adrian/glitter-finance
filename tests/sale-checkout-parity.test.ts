@@ -340,15 +340,23 @@ test("loaded sales take seller names from the members they are given", async () 
     { id: "m2", userId: refundUserId, displayName: "Beto", createdAt: "" },
   ];
 
-  assert.deepEqual(
-    (
-      await getSalesForTenant(TENANT_ID, { members: Promise.resolve(members) })
-    ).map((sale) => [sale.status, sale.userName, sale.lines.length]),
-    [
-      ["refunded", "Beto", 2],
-      ["completed", "Ana", 2],
-    ]
-  );
+  // The recent-history call runs the same queries with date filters, which
+  // the stand-in ignores.
+  for (const loaded of [
+    await getSalesForTenant(TENANT_ID, { members: Promise.resolve(members) }),
+    await getSalesForTenant(TENANT_ID, {
+      since: new Date(Date.now() - 60_000),
+      members,
+    }),
+  ]) {
+    assert.deepEqual(
+      loaded.map((sale) => [sale.status, sale.userName, sale.lines.length]),
+      [
+        ["refunded", "Beto", 2],
+        ["completed", "Ana", 2],
+      ]
+    );
+  }
 
   // Without members, the names are queried: none are stored here.
   const queried = await getSalesForTenant(TENANT_ID);
