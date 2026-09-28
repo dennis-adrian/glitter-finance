@@ -79,6 +79,40 @@ pnpm format:check
 CI (`.github/workflows/ci.yml`) runs the same checks on every pull request and
 on pushes to `main`, `develop`, and `staging`.
 
+### Database checks
+
+```bash
+pnpm test:db              # every tests/db/*.test.sql
+pnpm test:db -- rls       # only files whose name contains "rls"
+pnpm test:db -- --keep    # leave the database running and print how to connect
+```
+
+`pnpm test:db` (`scripts/test-db.ts`) checks what the unit tests cannot
+reach: tenant isolation under RLS, for the tables and for product images in
+Storage; the PowerSync upload RPCs (idempotent retries, void and refund
+conflicts, member and tenant checks, device timestamps); and the triggers
+(void window, refunds of voided sales, last-write-wins product edits,
+revoke-only invitations). Run it after changing `lib/db/schema.ts`, a
+migration or a file in `supabase/manual/`. CI does not run it yet.
+
+It creates a throwaway PostgreSQL cluster in a temporary directory, listening
+on 127.0.0.1 only, and deletes it afterwards. It applies
+`tests/db/supabase-stubs.sql` (the parts of Supabase the SQL relies on: API
+roles and grants, `auth.users`, `auth.uid()`, Storage tables), the migrations,
+every `supabase/manual/` file twice (each must be safe to re-run) and
+`supabase/seed.sql`, then runs each `tests/db/*.test.sql` in a transaction
+that it rolls back. It needs neither Docker nor the Supabase stack, and never
+reads `DATABASE_URL`. It does need the PostgreSQL server binaries (`initdb`,
+`pg_ctl`, `postgres`, `psql`), found through `pg_config` or in `PG_BIN`: for
+example `brew install postgresql@17`, or
+`PG_BIN=/usr/lib/postgresql/17/bin pnpm test:db` on Debian or Ubuntu. It is
+tested with PostgreSQL 18; hosted Supabase projects run 17.
+
+To add a check, write SQL in a new or existing `tests/db/*.test.sql` file with
+the helpers in `tests/db/test-helpers.sql`: `tests.authenticate(user_id)` acts
+as a signed-in user (or, with `NULL`, as a request with only the publishable
+key), and `tests.is`, `tests.ok` and `tests.throws` assert.
+
 ## Environment
 
 Copy `.env.example` to `.env.local` and fill in:

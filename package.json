@@ -25,6 +25,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
+    "test:db": "tsx scripts/test-db.ts",
     "lint": "eslint .",
     "format:write": "prettier --write .",
     "format:check": "prettier --check ."
