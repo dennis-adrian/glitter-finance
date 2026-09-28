@@ -1228,11 +1228,13 @@ export function GlitterPosApp({
     setIsCheckingOut(true);
 
     try {
-      // Local-first when PowerSync is ready: the watch subscription picks up
-      // the new rows and updates the sales list, and the upload queue
-      // replicates to Supabase in the background. Without PowerSync
-      // (local-only mode, when it is not configured) the server action
-      // records the sale.
+      // The environment picks the path. With PowerSync configured, the
+      // provider renders the app only once the local store is ready, so the
+      // sale is written locally: the watch picks up the new rows and the
+      // upload queue replicates them to Supabase in the background. (db is
+      // null there only during a local teardown, which has already cancelled
+      // tenant work, so the server action is not called then.) Without
+      // PowerSync (local-only mode) the server action records the sale.
       if (db) {
         work.assertCurrent();
         const { totalCents } = await createSaleLocal(db, {

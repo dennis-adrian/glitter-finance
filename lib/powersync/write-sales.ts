@@ -188,9 +188,10 @@ export async function refundSaleLocal(
   // Atomic check + INSERT. Most important for refunds because the local
   // SQLite refunds mirror has no UNIQUE(original_sale_id) constraint
   // (only the Postgres source does). Two simultaneous refund attempts
-  // without serialization would both pass the existence check, both
-  // INSERT, and PowerSync's uploader would discard one server-side via
-  // 23505 — leaving a phantom duplicate in local SQLite indefinitely.
+  // without serialization would both pass the existence check and both
+  // INSERT. The server keeps one: the refund RPC answers the second upload
+  // with the first refund's id and the connector drops the local copy. Until
+  // that upload, though, the device would count the sale as refunded twice.
   await db.writeTransaction(async (tx) => {
     input.assertCurrent?.();
     const saleRows = await tx.getAll<{

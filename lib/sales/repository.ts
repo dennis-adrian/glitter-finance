@@ -486,13 +486,8 @@ export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
 export async function refundSaleForTenant(
   input: RefundSaleInput
 ): Promise<Sale> {
+  // Only reads the sales table, so a refund's id is "not found" here.
   const original = await getSaleForTenant(input.tenantId, input.saleId);
-
-  if (original.refundOfSaleId) {
-    throw new UserFacingError(
-      "No se puede reembolsar un registro de reembolso."
-    );
-  }
 
   const reason = normalizeNote(input.reason, "El motivo");
   // Same business-time rule as createSaleForTenant.

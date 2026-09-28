@@ -11,7 +11,9 @@
 //
 // - uploadData: drains PowerSync's local CRUD queue. Sale, void, and refund
 //   transactions go through authenticated Postgres RPCs so the remote commit is
-//   atomic. Other supported transactions contain exactly one row operation.
+//   atomic. Product and inventory transactions are uploaded row by row
+//   through PostgREST, in queue order (a product saved with its initial
+//   stock count is one transaction of two rows).
 //   Permanent errors are copied into a local-only dead-letter table while the
 //   transaction remains queued; all errors are re-thrown for PowerSync backoff.
 //   A transaction the server will never accept is discarded from Diagnostics
