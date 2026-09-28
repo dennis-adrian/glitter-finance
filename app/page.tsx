@@ -3,31 +3,38 @@ import { GlitterPosApp } from "@/components/templates/glitter-pos-app";
 import { PowerSyncProvider } from "@/components/providers/powersync-provider";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import { getTenantMembersForTenant } from "@/lib/auth/tenant-members";
-import { getInventoryMovementsForTenant } from "@/lib/inventory/repository";
+import { getInventorySnapshotForTenant } from "@/lib/inventory/repository";
 import { getActiveInvitationForTenant } from "@/lib/invitations/repository";
 import { getProductsForTenant } from "@/lib/products/repository";
 import { getSalesForTenant } from "@/lib/sales/repository";
 import { getRequestOrigin } from "@/lib/request-origin";
 
+/**
+ * How many days of stock movements '/' sends as rows; the stock from before
+ * them arrives summed per product (getInventorySnapshotForTenant). Far longer
+ * than the void window, so stock counts a sale that can still be voided from
+ * its row.
+ */
+const RECENT_HISTORY_DAYS = 35;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 async function loadTenantData(tenantId: string) {
+  const recentHistoryStart = new Date(
+    Date.now() - RECENT_HISTORY_DAYS * DAY_MS
+  );
   const members = getTenantMembersForTenant(tenantId);
 
-  const [products, sales, tenantMembers, inventoryMovements, activeInvitation] =
+  const [products, sales, tenantMembers, inventory, activeInvitation] =
     await Promise.all([
       getProductsForTenant(tenantId),
       getSalesForTenant(tenantId, { members }),
       members,
-      getInventoryMovementsForTenant(tenantId),
+      getInventorySnapshotForTenant(tenantId, recentHistoryStart),
       getActiveInvitationForTenant(tenantId),
     ]);
 
-  return {
-    products,
-    sales,
-    tenantMembers,
-    inventoryMovements,
-    activeInvitation,
-  };
+  return { products, sales, tenantMembers, inventory, activeInvitation };
 }
 
 export default async function Home() {
@@ -45,7 +52,7 @@ export default async function Home() {
         products: [],
         sales: [],
         tenantMembers: [],
-        inventoryMovements: [],
+        inventory: null,
         activeInvitation: null,
       };
 
@@ -62,7 +69,7 @@ export default async function Home() {
         initialProducts={data.products}
         initialSales={data.sales}
         initialTenantMembers={data.tenantMembers}
-        initialInventoryMovements={data.inventoryMovements}
+        initialInventory={data.inventory}
         activeInvitation={data.activeInvitation}
         inviteOrigin={inviteOrigin ?? ""}
       />

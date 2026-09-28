@@ -8,8 +8,10 @@ import {
   MAX_QUANTITY,
   movementDeltaError,
   normalizeInventoryMovement,
+  productHasInitialMovement,
   resolveInitialStockDelta,
   type InventoryMovement,
+  type OpeningStock,
 } from "@/lib/inventory";
 import type { Sale } from "@/lib/types";
 
@@ -163,6 +165,221 @@ test("voided sales are ignored and refunds return units", () => {
   );
 
   assert.equal(stock.get(PRODUCT), 10);
+});
+
+/** Deterministic pseudo-random numbers in [0, 1), so a failure reproduces. */
+function seededRandom(seed: number) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1_664_525 + 1_013_904_223) >>> 0;
+    return state / 2 ** 32;
+  };
+}
+
+const LEDGER_START = Date.parse("2026-08-01T00:00:00.000Z");
+const HOUR_MS = 3_600_000;
+
+/**
+ * A random ledger over a few products: every movement reason, voided sales,
+ * and refunds, some of them recorded at the same millisecond (or within one,
+ * in microseconds, as Postgres returns them).
+ */
+function randomLedger(seed: number) {
+  const random = seededRandom(seed);
+  const pick = <T>(items: readonly T[]) =>
+    items[Math.floor(random() * items.length)];
+  const productIds = ["p-a", "p-b", "p-c"];
+  const at = () => {
+    const ms = LEDGER_START + Math.floor(random() * 40) * HOUR_MS;
+    const iso = new Date(ms).toISOString();
+    return random() < 0.3 ? iso.replace("Z", "456Z") : iso;
+  };
+  const deltaFor: Record<InventoryMovement["reason"], () => number> = {
+    initial: () => Math.floor(random() * 20),
+    restock: () => 1 + Math.floor(random() * 10),
+    adjustment: () => pick([-3, -1, 2, 5]),
+    loss: () => -1 - Math.floor(random() * 3),
+    gift: () => -1,
+  };
+
+  const movements = Array.from({ length: 30 }, (_, index) => {
+    const reason = pick(inventoryMovementReasonEnum.enumValues);
+    return {
+      id: `m-${String(index).padStart(2, "0")}`,
+      productId: pick(productIds),
+      reason,
+      delta: deltaFor[reason](),
+      createdAt: at(),
+    };
+  });
+
+  const sales: Sale[] = [];
+  for (let index = 0; index < 40; index += 1) {
+    const recorded = sale(`s-${index}`, 1 + Math.floor(random() * 3), at(), {
+      status: random() < 0.15 ? "voided" : "completed",
+    });
+    recorded.lines = recorded.lines.map((line) => ({
+      ...line,
+      productId: pick(productIds),
+    }));
+    sales.push(recorded);
+    if (recorded.status === "completed" && random() < 0.2) {
+      sales.push({
+        ...recorded,
+        id: `r-${index}`,
+        createdAt: new Date(
+          Date.parse(recorded.createdAt) + Math.floor(random() * 5) * HOUR_MS
+        ).toISOString(),
+        status: "refunded",
+        refundOfSaleId: recorded.id,
+      });
+    }
+  }
+
+  return { productIds, movements, sales };
+}
+
+/**
+ * The opening the server computes (getInventorySnapshotForTenant): the stock
+ * from the rows before `asOf` alone, with each product's latest `initial`
+ * among them.
+ */
+function openingOf(
+  ledger: ReturnType<typeof randomLedger>,
+  asOf: string
+): OpeningStock {
+  const before = (createdAt: string) =>
+    Date.parse(createdAt) < Date.parse(asOf);
+  const movements = ledger.movements.filter((row) => before(row.createdAt));
+  const stock = computeStockByProduct(
+    movements,
+    ledger.sales.filter((row) => before(row.createdAt))
+  );
+  return {
+    asOf,
+    levels: ledger.productIds.map((productId) => {
+      const baseline = movements
+        .filter(
+          (row) => row.productId === productId && row.reason === "initial"
+        )
+        .sort(
+          (a, b) =>
+            Date.parse(b.createdAt) - Date.parse(a.createdAt) ||
+            (b.id > a.id ? 1 : -1)
+        )[0];
+      return {
+        productId,
+        units: stock.get(productId) ?? 0,
+        baseline: baseline
+          ? { id: baseline.id, createdAt: baseline.createdAt }
+          : null,
+      };
+    }),
+  };
+}
+
+test("an opening plus the rows after it gives the stock of the whole ledger", () => {
+  for (let seed = 1; seed <= 200; seed += 1) {
+    const ledger = randomLedger(seed);
+    const whole = computeStockByProduct(ledger.movements, ledger.sales);
+    const asOf = new Date(
+      LEDGER_START + (seed % 42) * HOUR_MS - (seed % 2)
+    ).toISOString();
+    const after = (createdAt: string) =>
+      Date.parse(createdAt) >= Date.parse(asOf);
+
+    // Rows before the opening may be passed too (the whole local ledger
+    // after the first sync): the opening already counts them.
+    for (const rows of [
+      {
+        movements: ledger.movements.filter((row) => after(row.createdAt)),
+        sales: ledger.sales.filter((row) => after(row.createdAt)),
+      },
+      ledger,
+    ]) {
+      const split = computeStockByProduct(
+        rows.movements,
+        rows.sales,
+        openingOf(ledger, asOf)
+      );
+      for (const productId of ledger.productIds) {
+        assert.equal(
+          split.get(productId) ?? 0,
+          whole.get(productId) ?? 0,
+          `seed ${seed}, ${productId}`
+        );
+      }
+    }
+  }
+});
+
+test("a count after the opening replaces it", () => {
+  const opening: OpeningStock = {
+    asOf: "2026-09-10T00:00:00.000Z",
+    levels: [
+      {
+        productId: PRODUCT,
+        units: 12,
+        baseline: { id: "m0", createdAt: "2026-09-01T10:00:00.000Z" },
+      },
+    ],
+  };
+
+  assert.equal(
+    computeStockByProduct(
+      [movement("m1", "restock", 3, "2026-09-11T10:00:00.000Z")],
+      [sale("s1", 2, "2026-09-12T10:00:00.000Z")],
+      opening
+    ).get(PRODUCT),
+    12 + 3 - 2
+  );
+  assert.equal(
+    computeStockByProduct(
+      [
+        movement("m1", "restock", 3, "2026-09-11T10:00:00.000Z"),
+        movement("m2", "initial", 5, "2026-09-11T12:00:00.000Z"),
+      ],
+      [sale("s1", 2, "2026-09-12T10:00:00.000Z")],
+      opening
+    ).get(PRODUCT),
+    5 - 2
+  );
+  assert.equal(
+    computeStockByProduct([], [], {
+      ...opening,
+      levels: [{ ...opening.levels[0], baseline: null }],
+    }).get(PRODUCT),
+    12
+  );
+});
+
+test("an initial count in the opening or after it is found", () => {
+  const opening: OpeningStock = {
+    asOf: "2026-09-10T00:00:00.000Z",
+    levels: [
+      {
+        productId: "counted",
+        units: 4,
+        baseline: { id: "m0", createdAt: "2026-09-01T10:00:00.000Z" },
+      },
+      { productId: "restocked", units: 9, baseline: null },
+    ],
+  };
+  const movements = [
+    { productId: "counted-later", reason: "initial" as const },
+    { productId: "restocked", reason: "restock" as const },
+  ];
+
+  assert.equal(productHasInitialMovement("counted", movements, opening), true);
+  assert.equal(
+    productHasInitialMovement("counted-later", movements, opening),
+    true
+  );
+  assert.equal(
+    productHasInitialMovement("restocked", movements, opening),
+    false
+  );
+  assert.equal(productHasInitialMovement("counted", movements), false);
 });
 
 test("movement deltas follow the Postgres sign discipline for every reason", () => {

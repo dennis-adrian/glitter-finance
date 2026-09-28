@@ -20,6 +20,10 @@
 > `initial` may be 0, and turning tracking on always records one, so a product
 > with earlier sales no longer starts out oversold (§4, §5.1). The partial
 > unique index on `initial` was dropped, as §5.1 already required.
+>
+> v1.4 — '/' no longer sends the whole ledger for first paint: the server sums
+> everything recorded before a recent cutoff per product (the **opening**,
+> with the same baseline rules) and sends only the later rows (§7.2).
 
 ---
 
@@ -450,6 +454,19 @@ the synced row sets.
 It is **off the tap critical path** — the sale write does no inventory work, so
 checkout latency is unchanged. At festival scale (hundreds of `sale_lines` and a
 handful of movements per product) the SUM is trivial in SQLite / memory.
+
+**Opening.** The server-rendered first paint does not carry the whole ledger.
+`getInventorySnapshotForTenant` (`lib/inventory/repository.ts`) sums, in one
+SQL query, every movement, sale and refund recorded more than 35 days before
+the request, per product and by the rules above (timestamps truncated to
+milliseconds, as `Date.parse` reads them), together with each product's latest
+`initial` among them. It sends that opening plus the movements since the
+cutoff as rows. `computeStockByProduct(movements, sales, opening)` skips rows
+before the cutoff and adds the opening's units unless a later `initial`
+replaced its baseline. Without PowerSync the opening stays for the whole
+session. With PowerSync, once the first sync has filled the local store, stock
+counts from the local rows alone again, so rows that reach the server late
+with an old date (a device that was offline for weeks) count too.
 
 Expose a small derived shape per product for the UI: `{ remaining, state:
 'normal' | 'low' | 'out' | 'oversold' }`, where `state` is computed from

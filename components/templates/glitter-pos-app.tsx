@@ -95,6 +95,8 @@ import {
   resolveInitialStockDelta,
   type InventoryMovement,
   type InventoryMovementReason,
+  type InventorySnapshot,
+  type OpeningStock,
 } from "@/lib/inventory";
 import {
   addInventoryMovement,
@@ -158,12 +160,15 @@ type ProductWrite = {
   productId: string | null;
 };
 
+const noLocalLedgerLoaded = { movements: false, sales: false };
+
 type GlitterPosAppProps = {
   tenantContext: UserTenantContext;
   initialProducts: Product[];
   initialSales: Sale[];
   initialTenantMembers: TenantMember[];
-  initialInventoryMovements: InventoryMovement[];
+  /** Null without a tenant. */
+  initialInventory: InventorySnapshot | null;
   activeInvitation: TenantInvitation | null;
   inviteOrigin: string;
 };
@@ -173,7 +178,7 @@ export function GlitterPosApp({
   initialProducts,
   initialSales,
   initialTenantMembers,
-  initialInventoryMovements,
+  initialInventory,
   activeInvitation,
   inviteOrigin,
 }: GlitterPosAppProps) {
@@ -235,11 +240,19 @@ export function GlitterPosApp({
     useState<TenantMember[]>(initialTenantMembers);
   const [inventoryMovements, setInventoryMovements] = useState<
     InventoryMovement[]
-  >(initialInventoryMovements);
+  >(() => initialInventory?.movements ?? []);
+  const [openingStock, setOpeningStock] = useState<OpeningStock | null>(
+    () => initialInventory?.opening ?? null
+  );
+  // Which of the movements and sales hold the device's whole ledger: with
+  // PowerSync, once their watch reads the local store after the first sync.
+  // Until both do, stock counts from the server's opening (see stockOpening).
+  const [localLedgerLoaded, setLocalLedgerLoaded] =
+    useState(noLocalLedgerLoaded);
   const [editorHasInitialMovement, setEditorHasInitialMovement] =
     useState(false);
   const [inventoryWatchReady, setInventoryWatchReady] = useState(
-    () => !isPowerSyncConfigured() || initialInventoryMovements.length > 0
+    () => !isPowerSyncConfigured() || (initialInventory?.hasMovements ?? false)
   );
   const [teamSyncConfirmed, setTeamSyncConfirmed] = useState(
     () => initialTenantMembers.length === 0
@@ -249,7 +262,7 @@ export function GlitterPosApp({
   // sync completes (see the watches below).
   const initialProductsRef = useRef(initialProducts);
   const initialSalesRef = useRef(initialSales);
-  const initialInventoryMovementsRef = useRef(initialInventoryMovements);
+  const initialInventoryRef = useRef(initialInventory);
   const teamSyncEverConfirmedRef = useRef(false);
   const [tenantWorkGeneration, setTenantWorkGeneration] = useState(0);
   const tenantWorkGenerationRef = useRef(0);
@@ -301,9 +314,19 @@ export function GlitterPosApp({
     () => buildUserNameMap(membersForNames),
     [membersForNames]
   );
+  // '/' sends the ledger up to a recent cutoff summed per product (the
+  // opening), and the movements and sales after it as rows. Without
+  // PowerSync that stays so. With it, the local store holds every row once
+  // the first sync completes, and stock counts from those alone, so rows
+  // that reach the server late with an old date (a device offline for
+  // weeks) count as well.
+  const stockOpening =
+    localLedgerLoaded.movements && localLedgerLoaded.sales
+      ? null
+      : openingStock;
   const stockByProduct = useMemo(
-    () => computeStockByProduct(inventoryMovements, sales),
-    [inventoryMovements, sales]
+    () => computeStockByProduct(inventoryMovements, sales, stockOpening),
+    [inventoryMovements, sales, stockOpening]
   );
   const activeTenantId = tenantContext.tenant?.id ?? null;
 
@@ -335,6 +358,8 @@ export function GlitterPosApp({
       setActiveInvitationState(null);
       setTenantMembers([]);
       setInventoryMovements([]);
+      setOpeningStock(null);
+      setLocalLedgerLoaded(noLocalLedgerLoaded);
       setInventoryWatchReady(false);
       setTeamSyncConfirmed(false);
       setEditorHasInitialMovement(false);
@@ -356,15 +381,17 @@ export function GlitterPosApp({
   useEffect(() => {
     initialProductsRef.current = initialProducts;
     initialSalesRef.current = initialSales;
-    initialInventoryMovementsRef.current = initialInventoryMovements;
+    initialInventoryRef.current = initialInventory;
     hydrateProducts(initialProducts);
     hydrateSales(initialSales);
     setTenantMembers(initialTenantMembers);
-    setInventoryMovements(initialInventoryMovements);
+    setInventoryMovements(initialInventory?.movements ?? []);
+    setOpeningStock(initialInventory?.opening ?? null);
+    setLocalLedgerLoaded(noLocalLedgerLoaded);
     if (!isPowerSyncConfigured()) {
       setInventoryWatchReady(Boolean(activeTenantId));
     } else {
-      setInventoryWatchReady(initialInventoryMovements.length > 0);
+      setInventoryWatchReady(initialInventory?.hasMovements ?? false);
     }
 
     // PowerSyncProvider only renders this tree once this exact identity's
@@ -383,7 +410,7 @@ export function GlitterPosApp({
     initialProducts,
     initialSales,
     initialTenantMembers,
-    initialInventoryMovements,
+    initialInventory,
     activeTenantId,
     tenantContext.user.id,
   ]);
@@ -445,7 +472,9 @@ export function GlitterPosApp({
     const productTracksInventory = editingProduct.tracksInventory;
 
     async function loadEditorInitialMovementState() {
-      if (productHasInitialMovement(productId, inventoryMovements)) {
+      if (
+        productHasInitialMovement(productId, inventoryMovements, stockOpening)
+      ) {
         if (isCurrent()) {
           setEditorHasInitialMovement(true);
         }
@@ -482,7 +511,13 @@ export function GlitterPosApp({
     return () => {
       cancelled = true;
     };
-  }, [editingProduct, powerSyncDb, inventoryMovements, inventoryWatchReady]);
+  }, [
+    editingProduct,
+    powerSyncDb,
+    inventoryMovements,
+    stockOpening,
+    inventoryWatchReady,
+  ]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
@@ -540,12 +575,15 @@ export function GlitterPosApp({
             const localMovements = rows.map(rowToInventoryMovement);
             if (synced) {
               setInventoryMovements(localMovements);
+              setLocalLedgerLoaded((loaded) =>
+                loaded.movements ? loaded : { ...loaded, movements: true }
+              );
               setInventoryWatchReady(true);
             } else {
               // Stock readiness still follows the server data until then.
               setInventoryMovements(
                 mergeLocalRowsOverServer(
-                  initialInventoryMovementsRef.current,
+                  initialInventoryRef.current?.movements ?? [],
                   localMovements
                 ).sort(compareMovementsOldestFirst)
               );
@@ -659,14 +697,18 @@ export function GlitterPosApp({
           refundRows,
           resolveUserName
         );
-        hydrateSales(
-          synced
-            ? localSales
-            : mergeLocalRowsOverServer(
-                initialSalesRef.current,
-                localSales
-              ).sort(compareSalesNewestFirst)
-        );
+        if (synced) {
+          hydrateSales(localSales);
+          setLocalLedgerLoaded((loaded) =>
+            loaded.sales ? loaded : { ...loaded, sales: true }
+          );
+        } else {
+          hydrateSales(
+            mergeLocalRowsOverServer(initialSalesRef.current, localSales).sort(
+              compareSalesNewestFirst
+            )
+          );
+        }
       } catch (error) {
         if (isCurrent(signal)) {
           console.error("[PowerSync] sales rebuild failed", error);
@@ -852,7 +894,13 @@ export function GlitterPosApp({
       let uploadFailed = false;
       let hasInitial = false;
       if (existingProduct) {
-        if (productHasInitialMovement(existingProduct.id, inventoryMovements)) {
+        if (
+          productHasInitialMovement(
+            existingProduct.id,
+            inventoryMovements,
+            stockOpening
+          )
+        ) {
           hasInitial = true;
         } else if (db?.currentStatus?.hasSynced && inventoryWatchReady) {
           hasInitial = await productHasInitialMovementLocal(

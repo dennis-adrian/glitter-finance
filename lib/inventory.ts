@@ -148,6 +148,35 @@ type StockMovement = Pick<
   "id" | "productId" | "delta" | "reason" | "createdAt"
 >;
 
+/** One product's stock from the part of the ledger an OpeningStock sums. */
+export type OpeningStockLevel = {
+  productId: string;
+  /** Units on hand from the movements and sales recorded before `asOf`. */
+  units: number;
+  /** The product's latest `initial` movement before `asOf`, if it has one. */
+  baseline: { id: string; createdAt: string } | null;
+};
+
+/**
+ * The ledger before `asOf`, already summed per product on the server
+ * (getInventorySnapshotForTenant), so '/' does not send every movement and
+ * sale since the tenant started. computeStockByProduct adds the rows from
+ * `asOf` on.
+ */
+export type OpeningStock = {
+  asOf: string;
+  levels: OpeningStockLevel[];
+};
+
+/** What '/' sends for stock: the opening, then the movements after it. */
+export type InventorySnapshot = {
+  opening: OpeningStock;
+  /** The movements recorded from `opening.asOf` on, oldest first. */
+  movements: InventoryMovement[];
+  /** Whether the tenant has recorded any movement at all. */
+  hasMovements: boolean;
+};
+
 /**
  * A stored timestamp as epoch ms. Rows written on this device (toISOString,
  * milliseconds) and rows synced from Postgres (microseconds) format the same
@@ -176,29 +205,62 @@ function isLaterBaseline(candidate: Baseline, current: Baseline) {
  * only the latest `initial` counts, and movements and sales before it are
  * ignored. Several `initial` rows are legal (two devices can each record one
  * while offline); every device converges on the latest, with ties broken by id.
+ *
+ * With an `opening`, the rows created before its `asOf` are already summed in
+ * it, so they are skipped here. A product's opening units count unless a
+ * later `initial` replaced the opening's baseline.
  */
 export function computeStockByProduct(
   movements: StockMovement[],
-  sales: Sale[]
+  sales: Sale[],
+  opening?: OpeningStock | null
 ): Map<string, number> {
   const stock = new Map<string, number>();
   const baselineByProduct = new Map<string, Baseline>();
+  const openingAtMs = opening
+    ? timestampMs(opening.asOf)
+    : Number.NEGATIVE_INFINITY;
+  const isInOpening = (createdAt: string) =>
+    timestampMs(createdAt) < openingAtMs;
 
-  for (const movement of movements) {
-    if (movement.reason !== "initial") {
-      continue;
-    }
-    const candidate = {
-      id: movement.id,
-      atMs: timestampMs(movement.createdAt),
-    };
-    const current = baselineByProduct.get(movement.productId);
+  function considerBaseline(productId: string, candidate: Baseline) {
+    const current = baselineByProduct.get(productId);
     if (!current || isLaterBaseline(candidate, current)) {
-      baselineByProduct.set(movement.productId, candidate);
+      baselineByProduct.set(productId, candidate);
+    }
+  }
+
+  for (const level of opening?.levels ?? []) {
+    if (level.baseline) {
+      considerBaseline(level.productId, {
+        id: level.baseline.id,
+        atMs: timestampMs(level.baseline.createdAt),
+      });
     }
   }
 
   for (const movement of movements) {
+    if (movement.reason !== "initial" || isInOpening(movement.createdAt)) {
+      continue;
+    }
+    considerBaseline(movement.productId, {
+      id: movement.id,
+      atMs: timestampMs(movement.createdAt),
+    });
+  }
+
+  for (const level of opening?.levels ?? []) {
+    const baseline = baselineByProduct.get(level.productId);
+    if (baseline && baseline.id !== level.baseline?.id) {
+      continue;
+    }
+    stock.set(level.productId, (stock.get(level.productId) ?? 0) + level.units);
+  }
+
+  for (const movement of movements) {
+    if (isInOpening(movement.createdAt)) {
+      continue;
+    }
     const baseline = baselineByProduct.get(movement.productId);
     if (baseline) {
       const superseded =
@@ -221,6 +283,9 @@ export function computeStockByProduct(
     }
     const sign = sale.refundOfSaleId ? -1 : 1;
     const saleAtMs = timestampMs(sale.createdAt);
+    if (saleAtMs < openingAtMs) {
+      continue;
+    }
     for (const line of sale.lines) {
       const baseline = baselineByProduct.get(line.productId);
       if (baseline && saleAtMs < baseline.atMs) {
@@ -238,11 +303,19 @@ export function computeStockByProduct(
 
 export function productHasInitialMovement(
   productId: string,
-  movements: Pick<InventoryMovement, "productId" | "reason">[]
+  movements: Pick<InventoryMovement, "productId" | "reason">[],
+  opening?: OpeningStock | null
 ) {
-  return movements.some(
-    (movement) =>
-      movement.productId === productId && movement.reason === "initial"
+  return (
+    movements.some(
+      (movement) =>
+        movement.productId === productId && movement.reason === "initial"
+    ) ||
+    Boolean(
+      opening?.levels.some(
+        (level) => level.productId === productId && level.baseline
+      )
+    )
   );
 }
 
