@@ -1,6 +1,11 @@
 import type { AbstractPowerSyncDatabase, CrudEntry } from "@powersync/web";
 import type { LocalRow, syncFailures } from "@/lib/db/client-schema";
 import { reportSyncFailureReconciliationError } from "@/lib/observability/report-sync-failure";
+import {
+  errorDetails,
+  syncFailureId,
+  tenantIdFrom,
+} from "@/lib/powersync/crud-metadata";
 
 type SyncFailureRow = LocalRow<typeof syncFailures>;
 
@@ -76,52 +81,6 @@ export function describeSyncFailure(operationsJson: string): string {
   if (has("products", "PATCH")) return "Cambio de producto";
   if (has("inventory_movements", "PUT")) return "Movimiento de inventario";
   return "Operación";
-}
-
-export function syncFailureId(input: {
-  transactionId?: number;
-  operations: CrudEntry[];
-}): string {
-  if (input.transactionId != null) {
-    return `transaction:${input.transactionId}`;
-  }
-  return `operations:${input.operations
-    .map((operation) => operation.clientId)
-    .join("-")}`;
-}
-
-function errorDetails(error: unknown): {
-  code: string | null;
-  message: string;
-} {
-  if (error instanceof Error) {
-    const code = (error as Error & { code?: unknown }).code;
-    return {
-      code: typeof code === "string" ? code : null,
-      message: error.message,
-    };
-  }
-  if (error && typeof error === "object") {
-    const candidate = error as { code?: unknown; message?: unknown };
-    return {
-      code: typeof candidate.code === "string" ? candidate.code : null,
-      message:
-        typeof candidate.message === "string"
-          ? candidate.message
-          : "Permanent upload failure",
-    };
-  }
-  return { code: null, message: String(error) };
-}
-
-function tenantIdFrom(operations: CrudEntry[]): string | null {
-  for (const operation of operations) {
-    const tenantId = operation.opData?.tenant_id;
-    if (typeof tenantId === "string" && tenantId) {
-      return tenantId;
-    }
-  }
-  return null;
 }
 
 export async function recordSyncFailure(

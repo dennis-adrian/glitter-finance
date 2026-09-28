@@ -22,10 +22,10 @@ import type {
   Transaction,
 } from "@powersync/web";
 import { reportDiscardedSyncFailure } from "@/lib/observability/report-sync-failure";
+import { syncFailureId } from "@/lib/powersync/crud-metadata";
 import {
   parseSyncFailureOperations,
   reconcileSyncFailures,
-  syncFailureId,
 } from "@/lib/powersync/sync-failures";
 
 /** The synced tables (lib/db/client-schema.ts); local-only tables never upload. */

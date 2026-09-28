@@ -5,7 +5,7 @@ import {
   createUploadPlan,
   InvalidUploadTransactionError,
 } from "@/lib/powersync/upload-plan";
-import { syncFailureId } from "@/lib/powersync/sync-failures";
+import { syncFailureId } from "@/lib/powersync/crud-metadata";
 
 function operation(input: {
   table: string;

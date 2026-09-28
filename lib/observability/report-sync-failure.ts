@@ -1,27 +1,15 @@
 import * as Sentry from "@sentry/nextjs";
 import type { CrudEntry } from "@powersync/web";
+import {
+  errorCode,
+  syncFailureId,
+  tenantIdFrom,
+  uploadTablesLabel,
+} from "@/lib/powersync/crud-metadata";
 
 const reportedFailures = new Set<string>();
 let reconciliationErrorReported = false;
 const telemetryFlushTimeoutMs = 2_000;
-
-function errorCode(error: unknown): string {
-  if (!error || typeof error !== "object") return "unknown";
-  const code = (error as { code?: unknown }).code;
-  return typeof code === "string" ? code : "unknown";
-}
-
-/** Upload target when the caller has no plan: the sorted table names. */
-function tablesFrom(operations: CrudEntry[]): string {
-  const tables = [
-    ...new Set(
-      operations
-        .map((operation) => operation.table)
-        .filter((table): table is string => typeof table === "string")
-    ),
-  ].sort();
-  return tables.length ? tables.join("+") : "unknown";
-}
 
 /**
  * Groups permanent failures by SQLSTATE and by what the upload targeted (the
@@ -35,17 +23,10 @@ export function permanentSyncFailureFingerprint(input: {
 }): [string, string, string] {
   return [
     "powersync-permanent-upload",
-    errorCode(input.error),
-    input.target ?? tablesFrom(input.operations),
+    errorCode(input.error) ?? "unknown",
+    // Upload target when the caller has no plan: the table names.
+    input.target ?? uploadTablesLabel(input.operations),
   ];
-}
-
-function tenantIdFrom(operations: CrudEntry[]): string {
-  for (const operation of operations) {
-    const tenantId = operation.opData?.tenant_id;
-    if (typeof tenantId === "string" && tenantId) return tenantId;
-  }
-  return "unknown";
 }
 
 export function resetReportedSyncFailures() {
@@ -82,13 +63,9 @@ export function reportPermanentSyncFailure(input: {
 }): boolean {
   const fingerprint = permanentSyncFailureFingerprint(input);
   const [, code, target] = fingerprint;
-  const tenantId = tenantIdFrom(input.operations);
-  const failureKey =
-    input.transactionId != null
-      ? `tenant:${tenantId}:transaction:${input.transactionId}`
-      : `tenant:${tenantId}:operations:${input.operations
-          .map((operation) => operation.clientId)
-          .join("-")}`;
+  const failureKey = `tenant:${
+    tenantIdFrom(input.operations) ?? "unknown"
+  }:${syncFailureId(input)}`;
   if (reportedFailures.has(failureKey)) return false;
   reportedFailures.add(failureKey);
 
@@ -131,10 +108,7 @@ export function reportDiscardedSyncFailure(input: {
   removedFromQueue: boolean;
 }): void {
   const code = input.errorCode ?? "unknown";
-  const tables = [
-    ...new Set(input.operations.map((operation) => operation.table)),
-  ].sort();
-  const target = tables.length ? tables.join("+") : "unknown";
+  const target = uploadTablesLabel(input.operations);
 
   Sentry.withScope((scope) => {
     scope.setLevel("warning");

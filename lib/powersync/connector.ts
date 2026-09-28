@@ -33,6 +33,7 @@ import { unreferencedProductImagePaths } from "@/lib/product-image-config";
 import { removeProductImageObjects } from "@/lib/product-images";
 import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import { reportPermanentSyncFailure } from "@/lib/observability/report-sync-failure";
+import { errorCode, uploadTablesLabel } from "@/lib/powersync/crud-metadata";
 import {
   reconcileSyncFailures,
   recordSyncFailure,
@@ -87,9 +88,7 @@ function uploadTargetFor(plan: UploadPlan): string {
     case "single-operation":
       return plan.operation.table;
     case "multi-operation":
-      return [...new Set(plan.operations.map((operation) => operation.table))]
-        .sort()
-        .join("+");
+      return uploadTablesLabel(plan.operations);
   }
 }
 
@@ -111,12 +110,6 @@ const FATAL_RESPONSE_CODES = [
   /^42501$/,
   ...SERVER_SCHEMA_MISMATCH_CODES,
 ];
-
-function errorCode(error: unknown): string | null {
-  if (!error || typeof error !== "object") return null;
-  const code = (error as { code?: unknown }).code;
-  return typeof code === "string" ? code : null;
-}
 
 function isFatalError(error: unknown): boolean {
   if (error instanceof InvalidUploadTransactionError) return true;
