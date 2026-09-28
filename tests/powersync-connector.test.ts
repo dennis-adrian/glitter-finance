@@ -611,6 +611,105 @@ test("records a permission denial for a signed-in user", async () => {
   assert.equal(localWrites[1].params?.[4], "42501");
 });
 
+function productInsert() {
+  return [
+    operation({
+      clientId: 12,
+      table: "products",
+      id: "product-1",
+      op: UpdateType.PUT,
+      data: { tenant_id: "tenant-1", name: "Sticker" },
+    }),
+  ];
+}
+
+test("treats an insert whose id is already on the server as uploaded", async () => {
+  // A retry after a lost response: the first attempt inserted the row.
+  for (const duplicate of [
+    {
+      code: "23505",
+      details: "Key (id)=(product-1) already exists.",
+      message: 'duplicate key value violates unique constraint "products_pkey"',
+    },
+    {
+      code: "23505",
+      message: 'duplicate key value violates unique constraint "products_pkey"',
+    },
+  ]) {
+    const events: string[] = [];
+    const supabase = {
+      from: () => ({ insert: async () => ({ error: duplicate }) }),
+    } as unknown as SupabaseClient;
+    const db = recordingDb({
+      crud: productInsert(),
+      transactionId: 40,
+      events,
+      localWrites: [],
+    });
+
+    await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+    assert.deepEqual(events, ["complete", "resolve-marker"]);
+  }
+});
+
+test("records a duplicate on any other unique constraint", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const duplicate = {
+    code: "23505",
+    details: "Key (id, tenant_id)=(product-1, tenant-1) already exists.",
+    message:
+      'duplicate key value violates unique constraint "products_id_tenant_id_unique"',
+  };
+  const supabase = {
+    auth: sessionAuth({ access_token: "token" }),
+    from: () => ({ insert: async () => ({ error: duplicate }) }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: productInsert(),
+    transactionId: 41,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+    (error) => error === duplicate
+  );
+
+  assert.deepEqual(events, ["record-failure", "record-failure"]);
+  assert.equal(localWrites[1].params?.[4], "23505");
+});
+
+test("records a financial retry that no longer matches the server", async () => {
+  // The RPC raises 23505 when a sale id already belongs to different data.
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const conflict = {
+    code: "23505",
+    message: "The sale identifier already belongs to different data.",
+  };
+  const supabase = {
+    auth: sessionAuth({ access_token: "token" }),
+    rpc: async () => ({ data: null, error: conflict }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: saleTransaction(),
+    transactionId: 42,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+    (error) => error === conflict
+  );
+
+  assert.deepEqual(events, ["record-failure", "record-failure"]);
+  assert.equal(localWrites[1].params?.[4], "23505");
+});
+
 test("records a missing RPC as a failure that says what to fix", async () => {
   const events: string[] = [];
   const localWrites: { sql: string; params?: unknown[] }[] = [];
