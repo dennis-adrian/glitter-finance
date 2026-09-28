@@ -1,7 +1,7 @@
 # Glitter Finance — Product Requirements Document
 
 **Author:** Adrian Guzman
-**Status:** Draft v1.13
+**Status:** Draft v1.14
 **Date:** May 2026
 
 ---
@@ -34,8 +34,9 @@ Glitter Finance is a fast, offline-first POS with profit-aware reporting. It inc
 - Reporting over date ranges, including gross, discounts, cost of goods sold, and net earnings.
 - Real accounts with multi-tenant data isolation and offline-first sync.
 - Multiple users per account, so relatives or friends taking turns at a booth can each record sales from their own phone.
+- Optional stock tracking per product, specified in its own PRD ([`glitter-inventory-prd.md`](./glitter-inventory-prd.md)).
 
-Capabilities planned for later (inventory tracking, events, QR labels and scanning, bundles, subscriptions, payment-proof attachments, expenses and full P&L, data export) are described in section 11, Future Features.
+Capabilities planned for later (events, QR labels and scanning, bundles, subscriptions, payment-proof attachments, expenses and full P&L, data export) are described in section 11, Future Features.
 
 ## 4. Rollout Strategy
 
@@ -43,7 +44,7 @@ Glitter Finance launches as a focused POS and grows from there.
 
 **Closed testing.** The first user is Adrian. The app needs to be good enough to be the primary tool at a real Glitter-adjacent event before being shown to anyone else. Five initial testers, each with both an iPhone and an Android device, provide dual-platform validation throughout development. The build sequence and validation gates are detailed in section 10.
 
-**Public beta.** Once the core is proven at a real event, the app opens to a wider set of vendors with self-serve sign-up and a public marketing site. The target user is an illustrator, crafter, or small artisan who sells at several events per year.
+**Public beta.** Once the core is proven at a real event, the app opens to a wider set of vendors with a public marketing site. Self-serve sign-up (email and password, or Google) is already open. The target user is an illustrator, crafter, or small artisan who sells at several events per year.
 
 ## 5. Core Concepts (Domain Model)
 
@@ -99,18 +100,18 @@ Products are a tappable, priced catalog.
 
 Sell Mode is the highest-traffic screen and the one the design prioritizes. The screen is dominated by the product grid; the cart is not shown persistently, so the grid gets the full width. Layout principles:
 
-- Large touch targets (minimum 56 px tap height).
+- Large touch targets: every control is at least 44 × 44 px (see `DESIGN.md`), primary actions are 48–52 px tall, and each product tile is one large target.
 - One-handed reachability on phones. The same layout is used on tablet, scaled up, rather than a separate cart-alongside layout, so there is one interaction model across devices.
 - Product grid showing each product's image (or placeholder), name, and price. Filterable by category.
 - Each product tile that is currently in the cart shows a small quantity tag (a badge with the count of that product in the cart), so the vendor sees at a glance what has been added without opening the cart.
-- Grid tile interaction: tapping a tile adds one of that product to the cart; tapping and holding a tile removes one (decrements by one). Both update the tile's quantity tag, the order icon's count badge, and the live total under the Cobrar button immediately. This lets the vendor add and correct entirely from the grid without opening the cart.
-- An order icon button (Lucide `scroll-text`, next to the Cobrar button) opens the cart view for review and fine-tuning. The icon carries a badge with the total item count. Opening the cart is optional, not required to check out.
-- A large, always-visible **"Cobrar"** button is fixed at the bottom of the Sell Mode screen. It is disabled while the cart is empty and becomes enabled the moment the first item is added. Its label reads "Cobrar," and directly below in a smaller font it shows, updating in real time, the amount that will be charged. Tapping it goes to the payment screen.
+- Grid tile interaction: tapping a tile adds one of that product to the cart; tapping and holding a tile removes one (decrements by one). Both update the tile's quantity tag, the order icon's count badge, and the live total on the Cobrar button immediately. This lets the vendor add and correct entirely from the grid without opening the cart.
+- An order icon button (Lucide `receipt-text`, next to the Cobrar button) opens the cart view for review and fine-tuning. The icon carries a badge with the total item count. Opening the cart is optional, not required to check out.
+- A large, always-visible **"Cobrar"** button is fixed at the bottom of the Sell Mode screen. It is disabled while the cart is empty and becomes enabled the moment the first item is added. Its label reads "COBRAR," and the amount that will be charged sits beside it on the same button, updating in real time. Tapping it goes to the payment screen.
 - The cart view (opened from the order icon) shows the current sale lines, per-line quantity controls (-, +) and one-tap remove, the total, and its own "Cobrar" button so the vendor can charge directly after reviewing the order. It is a review surface, not a required step; the same Cobrar action exists on the main Sell Mode screen.
 
 The sale flow (the cart is implicit; Sell Mode always opens with an empty cart):
 
-1. Add items by tapping products in the grid; each tap adds one and increments the tile's quantity tag. Tap and hold a tile to remove one. The Cobrar button enables on the first item, and the live amount beneath it updates with every change. The first item added brings the current sale into existence; no explicit "begin" action is required.
+1. Add items by tapping products in the grid; each tap adds one and increments the tile's quantity tag. Tap and hold a tile to remove one. The Cobrar button enables on the first item, and the live amount on it updates with every change. The first item added brings the current sale into existence; no explicit "begin" action is required.
 2. Optionally open the cart (order icon) to review lines, fine-tune quantities, or remove lines. The cart view has its own Cobrar button, so the vendor can charge from there too. Not required to check out.
 3. Tap "Cobrar" (from the main screen or the cart view) to go to the payment screen.
 4. On the payment screen, optionally apply a discount (see section 7.4), then select cash or QR transfer. Selecting the method immediately commits the sale and returns to Sell Mode: the cart empties, the grid tags clear, and a brief non-blocking toast confirms the sale (e.g. "Venta registrada · 45 Bs · Efectivo"). The toast auto-dismisses after a couple of seconds and does not block starting the next sale; tapping any product dismisses it and begins the next sale.
@@ -136,7 +137,7 @@ The MVP supports full-sale refunds (reversing an entire sale). Partial refunds (
 
 **Checkout commits immediately.** Selecting the payment method commits the sale and returns to Sell Mode in one action, with no blocking confirmation step or modal. Confirmation is a brief non-blocking toast showing the amount and payment method, which auto-dismisses and never sits in front of the next sale. The guiding rule is "charge, done, next customer."
 
-Products are always sellable; there is no stock count and no out-of-stock state. (Inventory tracking, when added, preserves this by never blocking a sale; see section 11.)
+Products are always sellable. Stock tracking is optional per product ([`glitter-inventory-prd.md`](./glitter-inventory-prd.md)): a tracked product shows its count and a low, out-of-stock or oversold state, but a stock count never blocks a sale. Untracked products have no count and no out-of-stock state.
 
 ### 7.3 Sell Mode Performance Acceptance Criteria
 
@@ -175,7 +176,7 @@ Pago:        [ Efectivo ]   [ QR ]
 
 The presets 2 Bs, 5 Bs, and 10 Bs apply that absolute amount off in one tap. "Otro" opens a custom input supporting both an absolute amount and a percentage; a percentage resolves to an absolute cents value at the moment it is applied, so the sale record is unambiguous about the amount discounted. Applying a discount updates the displayed total in real time before the vendor selects a payment method.
 
-Per-line discounts are a secondary action tucked into a line item options sheet in the cart view (long-press or swipe on a cart line), since they are less common than a whole-sale discount. The same absolute-or-percentage input applies.
+Per-line discounts are a secondary action in the cart view: each cart line has a discount button (a pencil icon) that opens an inline amount-or-percentage field and an optional reason under that line, since they are less common than a whole-sale discount. The same absolute-or-percentage input applies.
 
 Discount reasons are optional free text.
 
@@ -189,7 +190,7 @@ A tenant can have multiple users, so relatives or friends taking turns at a boot
 
 Because each sale is independent and append-only with a client-generated UUID, two people selling on the same account at the same time produce sales that both sync without any conflict to resolve.
 
-Roles and permissions, per-user restricted views, invite-and-revoke flows, and real-time propagation (seeing another user's sale appear instantly) are future features (section 11). The core is that more than one person can ring up sales on the same account, and reports attribute each sale.
+Members join through invitation links that any member creates and can revoke in Settings, and one user can belong to several accounts and switch between them ([`multi-tenant-invitations-prd.md`](./multi-tenant-invitations-prd.md)). Roles and permissions, per-user restricted views, removing a member from the app, and real-time propagation (seeing another user's sale appear instantly) are future features (section 11). The core is that more than one person can ring up sales on the same account, and reports attribute each sale.
 
 ### 7.6 Reports
 
@@ -216,18 +217,19 @@ Reports are viewed in-app over the selected date range. Exporting report or sale
 
 ## 8. Screens and Flows
 
-The app opens directly into Sell Mode; there is no separate home or dashboard. A persistent bottom navigation bar gives one-tap access to the main areas (Sell, Sales, Reports, Catalog, Settings), with Sell as the default. This keeps the vendor's primary task, ringing up a sale, immediately in front of them on launch.
+The app opens directly into Sell Mode; there is no separate home or dashboard. A persistent bottom navigation bar has four destinations: **POS Venta** (Sell Mode, the default), **Ventas** (sales), **Catálogo**, and **Más**, which leads to Reports, Settings, the account switcher, and sign-out; the nav keeps **Más** highlighted on Reports and Settings. This keeps the vendor's primary task, ringing up a sale, immediately in front of them on launch.
 
-- **Auth:** sign up, log in, password reset.
-- **Onboarding:** brief walkthrough leading to adding the first product, then into Sell Mode.
+- **Auth:** sign up, log in (email and password, or Google), email confirmation, password reset.
+- **Onboarding:** brief walkthrough leading to adding the first product, then into Sell Mode. Not built yet: today a new account lands in Sell Mode with an empty catalog, which offers a button to add the first product.
 - **Sell Mode (default landing screen):** the core sales UI, a full-width product grid (tap to add, tap-and-hold to remove) with per-tile quantity tags, an order icon, and a fixed-bottom "Cobrar" button showing the live total (section 7.2).
 - **Cart view:** opened from the order icon; a review surface showing current sale lines, quantity controls, remove, total, a "Cobrar" button, and clear-cart. Not required to check out.
 - **Payment screen:** reached by tapping Cobrar; sale-level discount (2 / 5 / 10 Bs presets plus "Otro") and payment-method selection (Efectivo / QR). Selecting a method commits the sale.
-- **Product Catalog:** list, search, filter, create, edit, archive.
+- **Product Catalog:** list, search, filter, create, edit, archive, restore.
 - **Product Detail / Edit:** name, price, optional cost, category, optional image.
 - **Sales / Sale Detail:** a dedicated date-range ledger, defaulting to today. It shows completed sales, voids, and refunds; opening one shows its lines and totals. Void (within the window) and refund actions are available only for eligible original completed sales, not for voided sales or refund records shown in the ledger. Committed sales are never deleted.
+- **Más:** the signed-in user, the accounts they belong to (switch, or create a new one), and entries for Reports, Settings, and sign-out.
 - **Reports:** date-range selector and the figures in section 7.6.
-- **Settings:** account, users on the account, sign out.
+- **Settings:** account, users on the account and the invitation link, appearance (light/dark), a summary (active products, recorded sales, operations not yet uploaded), and the entry to Diagnostics.
 - **Diagnostics (tester-only):** sync queue depth, last sync timestamp, online/offline status, device info, "force sync now" button.
 
 Tablet uses the same single-screen Sell Mode as phones, scaled up with more grid columns; the cart is reached via the order icon on both. Everything else is mobile-first single column.
@@ -262,7 +264,7 @@ All sales and products stay on the device and in the cloud indefinitely.
 
 ## 10. Build Sequence and Validation
 
-The build is sequenced so the core sell-and-track loop is proven before harder technical layers are added around it. The whole sequence uses the real account system from the start: Supabase Auth, real `tenant_id` scoping, and PowerSync sync rules keyed on the authenticated user. Public self-serve registration arrives with the public beta; during closed testing, testers are provisioned by manual invite.
+The build is sequenced so the core sell-and-track loop is proven before harder technical layers are added around it. The whole sequence uses the real account system from the start: Supabase Auth, real `tenant_id` scoping, and PowerSync sync rules keyed on the authenticated user. Self-serve registration and in-app invitation links arrived during closed testing, ahead of the public beta; a QA script still provisions test accounts by hand on staging.
 
 **Stage A — Core POS loop (local-first).** The data model (tenant, user, product, sale with discounts and price/cost snapshotting). Catalog management, Sell Mode with tap selection, cash and QR payment, void-within-window. Real auth and tenancy in place. Sync in this stage assumes a generally-online developer environment; the data path is final (same tables, tenant model, and PowerSync-backed schema as production) while the resilience around it is hardened in Stage B. Checkpoint: a small, low-stakes personal real-use test (Adrian using it at one event) to confirm the sell loop feels right.
 
@@ -278,9 +280,9 @@ Capabilities planned beyond the initial release. They are documented here so the
 
 ### 11.1 Inventory tracking (optional per product)
 
-A vendor will be able to opt a product into inventory tracking. Tracked products carry a stock count; untracked products behave as they do today (no count, always sellable). When tracking is on, sales decrement stock and the product can surface low/out-of-stock states.
+Shipped, and specified in its own PRD, [`glitter-inventory-prd.md`](./glitter-inventory-prd.md). A vendor opts a product into tracking; tracked products carry a stock count derived from an append-only movement ledger and the sales, and untracked products behave as before (no count, always sellable). Tracked products surface low, out-of-stock, and oversold states.
 
-A sale is never blocked by a stock disagreement. Selling a tracked product with insufficient stock shows an out-of-stock visual state, prompts a "sell anyway?" confirmation, and on confirmation records the sale and lets stock go negative, flagging the product `oversold` for later reconciliation. A buyer at the booth always takes priority over a bookkeeping count.
+A sale is never blocked by a stock disagreement: selling a tracked product with insufficient stock records the sale and lets stock go negative, flagging the product `oversold` for later reconciliation. A buyer at the booth always takes priority over a bookkeeping count. A "sell anyway?" confirmation was left out of the first release (inventory PRD, §5.3).
 
 ### 11.2 Warehouse / global inventory
 
@@ -300,7 +302,7 @@ A priced combo that, when sold, decrements multiple component products. A bundle
 
 ### 11.6 Multi-user roles and refinements
 
-Roles and permissions, per-user restricted views, invite-and-revoke flows, and real-time propagation so one user sees another's sale appear instantly.
+Roles and permissions, per-user restricted views, removing a member (or leaving an account) from the app, and real-time propagation so one user sees another's sale appear instantly. Invitation links with revoke have shipped ([`multi-tenant-invitations-prd.md`](./multi-tenant-invitations-prd.md)).
 
 ### 11.7 Payment-proof attachments
 
@@ -339,9 +341,10 @@ Exporting sales and report data to a file (CSV at minimum) so a vendor can keep 
 - Next.js 16 (App Router) + TypeScript
 - Tailwind CSS 4 + shadcn/ui for components
 - Serwist for the PWA service worker
-- react-hook-form + Zod for forms and validation
+- Forms use plain React state (and `useActionState` for the auth forms); input rules live in shared modules under `lib/` (`money.ts`, `validation.ts`, `products.ts`, `sales/pricing.ts`, …) that the screens, the PowerSync writers, and the server actions all use. No form or schema library.
 - Zustand for client-side state
-- Recharts for report visualizations
+- Reports are plain Tailwind bars and figures; no chart library.
+- Sonner for toasts, `@wrksz/themes` for light and dark mode, React Email for the auth emails
 - Lucide React (lucide.dev) as the icon set
 
 All libraries are pinned to their latest stable versions at project start and kept current thereafter, unless a specific version is called out (as with Next.js 16 and Tailwind CSS 4).
@@ -349,11 +352,12 @@ All libraries are pinned to their latest stable versions at project start and ke
 **Brand**
 
 - Primary color: `#6822E2`. Applied through the Tailwind 4 theme and the shadcn/ui token set so it propagates consistently across components.
+- _Open decision:_ the app ships a teal theme instead (`--primary` `#00786F` light and `#009E91` dark in `app/globals.css`, documented in `DESIGN.md`). Whether this line or the theme should change is the product owner's call; until then `DESIGN.md` describes what ships.
 
 **Backend**
 
 - Supabase (hosted) providing Postgres + Auth + Storage
-- Drizzle ORM for schema definition and typed queries (server-side Postgres; the client-side SQLite schema is derived from Drizzle tables via `@powersync/drizzle-driver`)
+- Drizzle ORM for schema definition and typed queries on server-side Postgres. The per-device SQLite schema comes from a Drizzle SQLite mirror (`lib/db/client-schema.ts`) through `@powersync/drizzle-driver`; queries on the device are raw SQL typed by those tables.
 - Drizzle Kit to diff the TypeScript schema and emit SQL migration files
 - Supabase CLI as the migration runner and the local development stack (see section 12.4)
 
@@ -368,8 +372,8 @@ All libraries are pinned to their latest stable versions at project start and ke
 - Vercel for hosting the Next.js app
 - PowerSync Cloud
 - Supabase managed Postgres
-- PostHog for product analytics
 - Sentry for error tracking
+- Product analytics: not set up yet (PostHog was the plan)
 
 **Locale and formatting**
 
@@ -384,7 +388,7 @@ The PowerSync free tier covers closed testing: 2 GB synced per month, 500 MB hos
 
 ### 12.3 Authentication
 
-Supabase Auth handles email/password sign-up and sign-in. No OAuth providers initially. Row-level security policies in Supabase Postgres enforce tenant isolation independently of client-side checks, which also cleanly supports multiple users on one tenant.
+Supabase Auth handles sign-up and sign-in with email and password (with email confirmation and password reset) or with Google. Row-level security policies in Supabase Postgres enforce tenant isolation independently of client-side checks, which also cleanly supports multiple users on one tenant.
 
 ### 12.4 Schema and Migrations
 
@@ -406,7 +410,7 @@ Glitter Finance is built without a dedicated designer. UI work is done iterative
 
 **Design system: shadcn/ui.** All components compose from a consistent library, giving AI agents a predictable vocabulary and producing visual coherence by default.
 
-**UI style guide document.** Produced once early and used as context for every UI prompt thereafter. Covers touch-target minimums (56 px), spacing scale, color usage, when to use modals vs drawers vs full screens, loading states, error states, and Sell Mode layout rules. Treated as the authoritative reference and updated as the design evolves.
+**UI style guide document.** `DESIGN.md`, produced early and used as context for every UI prompt thereafter. Covers touch-target minimums (44 px), spacing scale, color usage, when to use modals vs drawers vs full screens, loading states, error states, and Sell Mode layout rules. Treated as the authoritative reference and updated as the design evolves.
 
 **Deliberate Sell Mode design pass before backend integration.** Touch-optimized POS interfaces are unforgiving, so Sell Mode mockups are reviewed and iterated with the AI before sync wiring goes in. Other screens are built more iteratively.
 
@@ -429,11 +433,11 @@ Glitter Finance is built without a dedicated designer. UI work is done iterative
 - **Product framing:** Glitter Finance is a POS first. Selling is the spine; reporting and multi-user round out the initial release.
 - **Product name:** Glitter Finance.
 - **Platform:** PWA. Native Expo apps optional later.
-- **Backend:** Supabase. **Offline/sync:** PowerSync. **ORM:** Drizzle (server-side Postgres and client-side SQLite).
+- **Backend:** Supabase. **Offline/sync:** PowerSync. **ORM:** Drizzle (the Postgres schema and server queries, and the device's SQLite schema).
 - **Schema and migrations ownership:** Drizzle owns the TypeScript schema and emits SQL via `drizzle-kit generate`. Supabase CLI applies migrations (`supabase db push`) and runs the local development stack (`supabase start`, `supabase db reset`). Hand-written SQL for RLS, auth foreign keys, triggers, functions and grants lives in `supabase/manual/` and is run in the SQL editor after `db push` (one legacy exception, `20260628210000_tenant_invitations_rls.sql`, stays in `supabase/migrations/`). Drizzle Kit is not used as a migration runner. Detail in section 12.4.
-- **Frontend stack:** Next.js 16 (App Router), TypeScript, Tailwind CSS 4, shadcn/ui, Serwist, react-hook-form, Zod, Zustand, Recharts. Icons: Lucide React (the order/cart entry uses `scroll-text`). Libraries kept on their latest stable versions unless pinned (Next 16, Tailwind 4).
-- **Brand:** primary color `#6822E2`, applied via the Tailwind 4 theme and shadcn/ui tokens.
-- **Hosting:** Vercel. **Telemetry:** PostHog (analytics) and Sentry (errors).
+- **Frontend stack:** Next.js 16 (App Router), TypeScript, Tailwind CSS 4, shadcn/ui, Serwist, Zustand, Sonner. Input rules in shared `lib/` modules rather than a form or schema library; reports without a chart library. Icons: Lucide React (the order/cart entry uses `receipt-text`). Libraries kept on their latest stable versions unless pinned (Next 16, Tailwind 4).
+- **Brand:** primary color `#6822E2`, applied via the Tailwind 4 theme and shadcn/ui tokens. Open: the shipped theme is teal (section 12.1).
+- **Hosting:** Vercel. **Telemetry:** Sentry (errors); product analytics not set up yet.
 - **Locale:** Spanish only. Money (price and cost) stored as integer cents.
 - **Timestamps:** stored in UTC (Postgres `timestamptz`), converted to Bolivia time (UTC−4) only at the UI edge. Report date ranges are computed against Bolivia day boundaries, not UTC.
 - **Sales model:** sales attach to the tenant with a timestamp; reporting is date-range based.
@@ -441,14 +445,14 @@ Glitter Finance is built without a dedicated designer. UI work is done iterative
 - **Sale immutability:** a committed sale is never edited or deleted. An immediate mistake is handled by void within a 10-minute window (retained, excluded from totals); a later reversal is a refund, an append-only record referencing the original sale and shown as a negative amount. Full-sale refunds in the MVP; partial refunds are a future feature.
 - **Reports:** show gross, discounts, net, cost of goods sold, and net earnings over a date range, plus breakdowns. Viewed in-app; data export is a future feature.
 - **Discounts:** sale-level (on the payment screen, with 2 / 5 / 10 Bs presets plus "Otro" for a custom absolute or percentage amount) and per-line (in the cart view). Percentages resolve to an absolute cents amount at apply time.
-- **Navigation:** the app opens directly into Sell Mode (no home or dashboard screen); a persistent bottom nav gives one-tap access to Sell, Sales, Reports, Catalog, and Settings.
+- **Navigation:** the app opens directly into Sell Mode (no home or dashboard screen); a persistent four-item bottom nav gives one-tap access to POS Venta, Ventas, Catálogo, and Más, which holds Reports, Settings, the account switcher, and sign-out.
 - **Draft cart persistence:** an uncommitted cart is durable; it survives navigation, backgrounding, and long idle periods, and is cleared only by charging or explicit clear-cart (with a 24-hour age-out on launch). Persistence is off the tap critical path: instant in-memory updates, debounced async writes to a local-only SQLite draft table plus a flush on background/visibility-change, so tapping is never blocked by storage.
 - **Cart presentation and grid gestures:** the cart is not shown persistently. The product grid fills the screen; tapping a tile adds one of that product and tapping-and-holding removes one, with each in-cart tile showing a quantity tag. A fixed-bottom "Cobrar" button (enabled once the cart is non-empty) shows the live total and is the direct path to checkout; the cart view (opened via the order icon beside it) also has its own Cobrar button so the vendor can charge after reviewing. No "Start Sale" step; the first tapped item begins the sale; an explicit "clear cart" in the cart view abandons an in-progress sale.
 - **Checkout:** commits immediately on payment-method selection and returns to Sell Mode. Confirmation is a brief non-blocking toast (amount and payment method), not a dedicated confirmation screen, to keep the hot path fast.
 - **Sell Mode speed:** defined by concrete timed acceptance scenarios in section 7.3, measured vendor-app interaction time only, on a warm Sell Mode, on both Android and iPhone. A miss on either platform is a release blocker.
 - **Product images:** optional and non-blocking, uploaded at catalog-setup time, with graceful placeholders.
-- **Multiple users per account:** included. Multiple users per tenant recording independent sales with per-user attribution. Roles, permissions, restricted views, invites, and real-time propagation are future features.
-- **Authentication:** Supabase Auth, real tenant scoping, PowerSync sync rules keyed on the authenticated user. Public self-serve sign-up arrives with the public beta; testers provisioned by manual invite during closed testing.
+- **Multiple users per account:** included. Multiple users per tenant recording independent sales with per-user attribution; members join through revocable invitation links, and a user can belong to several tenants. Roles, permissions, restricted views, member removal, and real-time propagation are future features.
+- **Authentication:** Supabase Auth (email and password, or Google), real tenant scoping, PowerSync sync rules keyed on the authenticated user's active tenant and membership. Self-serve sign-up is open.
 - **iOS as a primary validation target:** OPFSCoopSyncVFS configured from the moment PowerSync is wired in.
 - **No designer:** AI-assisted UI work with a style guide document and a deliberate Sell Mode design pass.
 
