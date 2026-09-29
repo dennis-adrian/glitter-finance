@@ -102,7 +102,8 @@ export async function recordSyncFailure(
       [failureId]
     );
     // An upload already in flight when the transaction was discarded can
-    // still fail afterwards. The discard stands.
+    // still fail afterwards. The discard stands, as does a decision to
+    // discard whose dequeue has not run yet.
     if (existing?.discarded_at) return;
 
     await tx.execute(`DELETE FROM sync_failures WHERE id = ?`, [failureId]);
@@ -125,13 +126,17 @@ export async function recordSyncFailure(
   });
 }
 
+/**
+ * The transaction uploaded. A decision to discard it that had not dequeued it
+ * yet (discardSyncFailure) is withdrawn: its data reached the server.
+ */
 export async function resolveSyncFailure(
   db: AbstractPowerSyncDatabase,
   input: { transactionId?: number; operations: CrudEntry[] }
 ): Promise<void> {
   await db.execute(
     `UPDATE sync_failures
-     SET resolved_at = ?
+     SET resolved_at = ?, discarded_at = NULL
      WHERE id = ? AND resolved_at IS NULL`,
     [new Date().toISOString(), syncFailureId(input)]
   );
@@ -167,14 +172,18 @@ export async function getUnresolvedSyncFailures(
   return rows.map(toSyncFailure);
 }
 
-/** Discarded failures, kept with their payload until the data is cleared. */
+/**
+ * Discarded failures, kept with their payload until the data is cleared. A
+ * discard still in progress, or interrupted before its transaction left the
+ * queue, is still a pending failure (getUnresolvedSyncFailures) instead.
+ */
 export async function getDiscardedSyncFailures(
   db: AbstractPowerSyncDatabase
 ): Promise<SyncFailure[]> {
   const rows = await db.getAll<SyncFailureListRow>(
     `SELECT ${syncFailureColumns}
      FROM sync_failures
-     WHERE discarded_at IS NOT NULL
+     WHERE discarded_at IS NOT NULL AND resolved_at IS NOT NULL
      ORDER BY discarded_at DESC`
   );
   return rows.map(toSyncFailure);

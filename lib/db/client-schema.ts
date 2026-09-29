@@ -138,8 +138,9 @@ export const draftCart = sqliteTable("draft_cart", {
 // transaction stays at the head of the PowerSync CRUD queue, so financial sync
 // failures are visible and recoverable instead of disappearing into console
 // output. A marker is resolved once its transaction leaves the queue, either
-// uploaded after a retry or discarded from Diagnostics (discarded_at); the
-// record, payload included, stays until the local data is cleared.
+// uploaded after a retry or discarded from Diagnostics (discarded_at, set
+// before the transaction leaves the queue); the record, payload included,
+// stays until the local data is cleared.
 export const syncFailures = sqliteTable("sync_failures", {
   id: text("id").primaryKey(),
   transactionId: integer("transaction_id"),

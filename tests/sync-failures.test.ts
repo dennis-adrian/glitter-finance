@@ -10,6 +10,7 @@ import {
   parseSyncFailureOperations,
   reconcileSyncFailures,
   recordSyncFailure,
+  resolveSyncFailure,
 } from "@/lib/powersync/sync-failures";
 
 function marker(transactionId: number) {
@@ -102,6 +103,25 @@ test("a discarded failure is not recorded again by a late upload", async () => {
   });
 
   assert.deepEqual(writes, []);
+});
+
+test("an upload that got through withdraws a pending decision to discard it", async () => {
+  const writes: { sql: string; params?: unknown[] }[] = [];
+  const db = {
+    execute: async (sql: string, params?: unknown[]) => {
+      writes.push({ sql, params });
+    },
+  } as unknown as AbstractPowerSyncDatabase;
+
+  await resolveSyncFailure(db, { transactionId: 9, operations: [] });
+
+  assert.equal(writes.length, 1);
+  // Only a marker still pending: a completed discard stands.
+  assert.match(
+    writes[0].sql,
+    /SET resolved_at = \?, discarded_at = NULL\s+WHERE id = \? AND resolved_at IS NULL/
+  );
+  assert.equal(writes[0].params?.[1], "transaction:9");
 });
 
 test("stored payloads are read back and described", () => {

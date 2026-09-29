@@ -50,6 +50,7 @@ import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import {
   discardSyncFailure,
   SyncFailureDiscardError,
+  type DiscardSyncFailureResult,
 } from "@/lib/powersync/discard-sync-failure";
 import {
   describeSyncFailure,
@@ -258,8 +259,9 @@ export function DiagnosticsScreen({
     if (!db) {
       throw new Error("La base local no está disponible en este momento.");
     }
+    let result: DiscardSyncFailureResult;
     try {
-      await discardSyncFailure(db, failure.id);
+      result = await discardSyncFailure(db, failure.id);
     } catch (error) {
       if (error instanceof SyncFailureDiscardError) throw error;
       console.error("[Diagnostics] discard failed", error);
@@ -269,7 +271,11 @@ export function DiagnosticsScreen({
       setDetailsVersion((version) => version + 1);
       void syncStatusStore.refresh();
     }
-    toast.success("Operación descartada");
+    toast.success(
+      result.revertFailed
+        ? "Operación descartada. Sus cambios se deshacen en este dispositivo con la próxima sincronización."
+        : "Operación descartada"
+    );
   }
 
   async function handleCopy() {

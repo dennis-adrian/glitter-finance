@@ -7,6 +7,14 @@
 // the local tables, and keep its failure record (payload included) as
 // discarded, for the diagnostic export.
 //
+// The decision is recorded before the transaction leaves the queue, and the
+// failure is resolved as discarded before the local rows are undone. Each
+// step is its own write, so an interruption between them never loses the
+// record: it stays listed and exported, as a pending failure until it has
+// left the queue, then as discarded (reconcileSyncFailures resolves it, or
+// discarding it again does). Undoing the rows is the only step allowed to
+// fail: the next checkpoint puts them back in line with the server anyway.
+//
 // Undoing the local change follows what PowerSync does when it applies a
 // checkpoint: each affected row goes back to the last version the server sent
 // (PowerSync's ps_oplog), and the local changes still queued after the
@@ -21,6 +29,7 @@ import type {
   CrudEntry,
   Transaction,
 } from "@powersync/web";
+import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import { reportDiscardedSyncFailure } from "@/lib/observability/report-sync-failure";
 import { syncFailureId } from "@/lib/powersync/crud-metadata";
 import {
@@ -258,17 +267,64 @@ async function revertLocalRows(
   return steps.length;
 }
 
-async function markDiscarded(
-  tx: Pick<Transaction, "execute">,
-  failureId: string,
-  now: string
+/**
+ * Records the decision to discard, before the transaction leaves the queue.
+ * From then on a late failure of an upload in flight does not record it again
+ * (recordSyncFailure), and an upload that got through withdraws it
+ * (resolveSyncFailure). False when the failure is no longer pending.
+ */
+async function markDiscardDecided(
+  db: AbstractPowerSyncDatabase,
+  failureId: string
+): Promise<boolean> {
+  return db.writeTransaction(async (tx) => {
+    const pending = await tx.getOptional<{ id: string }>(
+      `SELECT id FROM sync_failures WHERE id = ? AND resolved_at IS NULL`,
+      [failureId]
+    );
+    if (!pending) return false;
+    await tx.execute(
+      `UPDATE sync_failures SET discarded_at = coalesce(discarded_at, ?)
+       WHERE id = ?`,
+      [new Date().toISOString(), failureId]
+    );
+    return true;
+  });
+}
+
+/** The transaction stayed queued, so it is a failure again, not a discard. */
+async function withdrawDiscardDecision(
+  db: AbstractPowerSyncDatabase,
+  failureId: string
 ) {
-  await tx.execute(
-    `UPDATE sync_failures
-     SET discarded_at = ?, resolved_at = coalesce(resolved_at, ?)
-     WHERE id = ?`,
-    [now, now, failureId]
+  await db.execute(
+    `UPDATE sync_failures SET discarded_at = NULL
+     WHERE id = ? AND resolved_at IS NULL`,
+    [failureId]
   );
+}
+
+/**
+ * Resolves the failure as discarded once nothing of it is queued. False when
+ * the decision was withdrawn meanwhile, because the upload got through.
+ */
+async function resolveAsDiscarded(
+  db: AbstractPowerSyncDatabase,
+  failureId: string
+): Promise<boolean> {
+  return db.writeTransaction(async (tx) => {
+    const marker = await tx.getOptional<{ discarded_at: string | null }>(
+      `SELECT discarded_at FROM sync_failures WHERE id = ?`,
+      [failureId]
+    );
+    if (!marker?.discarded_at) return false;
+    await tx.execute(
+      `UPDATE sync_failures SET resolved_at = coalesce(resolved_at, ?)
+       WHERE id = ?`,
+      [new Date().toISOString(), failureId]
+    );
+    return true;
+  });
 }
 
 export type DiscardSyncFailureResult = {
@@ -276,6 +332,11 @@ export type DiscardSyncFailureResult = {
   removedFromQueue: boolean;
   /** Local rows put back to their server version (or removed). */
   revertedRows: number;
+  /**
+   * Undoing the local rows failed. The discard stands; the next checkpoint
+   * puts those rows back in line with the server.
+   */
+  revertFailed: boolean;
 };
 
 /**
@@ -311,21 +372,7 @@ export async function discardSyncFailure(
       operations: head.crud,
     }) === failureId;
 
-  let result: DiscardSyncFailureResult;
-  if (isHead) {
-    // Leave the queue first. If the revert below does not happen, the next
-    // checkpoint still puts the rows back in line with the server, whereas a
-    // revert without the dequeue would leave a queued upload the device no
-    // longer shows.
-    await head.complete();
-    const discarded = head.crud.map(operationFromCrudEntry);
-    const revertedRows = await db.writeTransaction(async (tx) => {
-      const reverted = await revertLocalRows(tx, discarded);
-      await markDiscarded(tx, failureId, new Date().toISOString());
-      return reverted;
-    });
-    result = { removedFromQueue: true, revertedRows };
-  } else {
+  if (!isHead) {
     const stillQueued = await db.getOptional<{ queued: number }>(
       `SELECT 1 AS queued FROM ps_crud
        WHERE id IN (SELECT value FROM json_each(?))
@@ -335,22 +382,55 @@ export async function discardSyncFailure(
     if (stillQueued) {
       throw new SyncFailureDiscardError(SYNC_FAILURE_NOT_NEXT_MESSAGE);
     }
-    // Nothing of it is queued any more, so only the marker is left. Whether
-    // it reached the server is unknown, so the local rows are not touched.
-    await markDiscarded(db, failureId, new Date().toISOString());
-    result = { removedFromQueue: false, revertedRows: 0 };
+  }
+
+  if (!(await markDiscardDecided(db, failureId))) {
+    throw new SyncFailureDiscardError(SYNC_FAILURE_NOT_PENDING_MESSAGE);
+  }
+  if (isHead) {
+    try {
+      await head.complete();
+    } catch (error) {
+      try {
+        await withdrawDiscardDecision(db, failureId);
+      } catch {
+        // Discarding it again carries the decision through.
+      }
+      throw error;
+    }
+  }
+  if (!(await resolveAsDiscarded(db, failureId))) {
+    throw new SyncFailureDiscardError(SYNC_FAILURE_NOT_PENDING_MESSAGE);
+  }
+
+  // A marker that was not at the head had nothing queued any more. Whether
+  // it reached the server is unknown, so its local rows are not touched.
+  let revertedRows = 0;
+  let revertFailed = false;
+  if (isHead) {
+    try {
+      revertedRows = await db.writeTransaction((tx) =>
+        revertLocalRows(tx, head.crud.map(operationFromCrudEntry))
+      );
+    } catch (error) {
+      console.error("[PowerSync] failed to undo a discarded upload", {
+        error,
+      });
+      reportClientFailure("powersync_sync_failure_revert", error);
+      revertFailed = true;
+    }
   }
 
   try {
     reportDiscardedSyncFailure({
       errorCode: failure.error_code,
       operations: storedOperations,
-      removedFromQueue: result.removedFromQueue,
+      removedFromQueue: isHead,
     });
   } catch (reportingError) {
     console.error("[PowerSync] failed to report a discarded upload", {
       error: reportingError,
     });
   }
-  return result;
+  return { removedFromQueue: isHead, revertedRows, revertFailed };
 }
