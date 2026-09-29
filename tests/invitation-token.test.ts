@@ -3,7 +3,7 @@
 // again; both keys derive from INVITATION_SECRET_KEY.
 
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createDecipheriv, createHmac } from "node:crypto";
 import test from "node:test";
 import { stubModule, withEnv } from "./support/stub-module";
 
@@ -106,6 +106,45 @@ test("the hash key is derived, not the secret itself", async () => {
       .digest("base64url");
     assert.notEqual(hashInvitationToken(TOKEN), withRawSecret);
   });
+});
+
+test("the lookup hash and the delivery ciphertext use separate keys", async () => {
+  const secret = "invitation-secret-a";
+  const deriveKey = (info: string) =>
+    createHmac("sha256", info).update(secret).digest();
+  const hashKey = deriveKey("invitation-token-hash-v1");
+  const encryptionKey = deriveKey("invitation-delivery-encrypt-v1");
+
+  await withKey(
+    secret,
+    ({ hashInvitationToken, encryptInvitationDeliveryToken }) => {
+      assert.equal(
+        hashInvitationToken(TOKEN),
+        createHmac("sha256", hashKey).update(TOKEN).digest("base64url")
+      );
+
+      // IV (12 bytes), then the GCM tag (16 bytes), then the encrypted token.
+      const packed = Buffer.from(
+        encryptInvitationDeliveryToken(TOKEN),
+        "base64url"
+      );
+      const decryptWith = (key: Buffer) => {
+        const decipher = createDecipheriv(
+          "aes-256-gcm",
+          key,
+          packed.subarray(0, 12)
+        );
+        decipher.setAuthTag(packed.subarray(12, 28));
+        return Buffer.concat([
+          decipher.update(packed.subarray(28)),
+          decipher.final(),
+        ]).toString("utf8");
+      };
+      assert.equal(decryptWith(encryptionKey), TOKEN);
+      // Someone holding the lookup key cannot read delivered links with it.
+      assert.throws(() => decryptWith(hashKey));
+    }
+  );
 });
 
 test("a missing server key fails instead of hashing with an empty key", async () => {
