@@ -32,6 +32,7 @@ import {
   comparisonWindow,
   filterByBounds,
   percentChange,
+  trendGranularity,
 } from "@/lib/reports";
 import type { Product, ReportRange, Sale } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -127,10 +128,13 @@ export function ReportsScreen({
     comparison ? filterByBounds(sales, comparison.bounds) : []
   );
   const trend = bounds ? buildTrendBuckets(visibleSales, bounds, now) : [];
-  const trendTitle =
-    trend.length && bounds && bounds.end - bounds.start <= 24 * 60 * 60 * 1000
-      ? "Ingreso neto por hora"
-      : "Ingreso neto por día";
+  const trendTitle = bounds
+    ? {
+        hour: "Ingreso neto por hora",
+        day: "Ingreso neto por día",
+        week: "Ingreso neto por semana",
+      }[trendGranularity(bounds, now)]
+    : "";
 
   function handleRangeChange(nextRange: ReportRange) {
     if (nextRange === "custom" && range !== "custom") {

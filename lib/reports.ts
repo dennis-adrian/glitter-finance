@@ -93,21 +93,40 @@ function boliviaHour(time: number) {
   return Number(hourFormatter.format(new Date(time)));
 }
 
+export type TrendGranularity = "hour" | "day" | "week";
+
+/** Days from the range start to today (or the range end, if earlier). */
+function elapsedDays(bounds: SalesRangeBounds, now: number) {
+  const end = Math.min(bounds.end, Math.max(now, bounds.start + HOUR_MS));
+  return Math.max(1, Math.ceil((end - bounds.start) / DAY_MS));
+}
+
 /**
- * Net revenue per hour (single-day ranges), per day (up to ~2 months), or
- * per week (longer custom ranges) for the trend chart. Day buckets run from
- * the range start to today; hourly buckets span business hours (08–20)
- * widened to include every sale.
+ * Bucket size for the trend chart: hours for single-day ranges, days up to
+ * ~2 months, weeks beyond that.
+ */
+export function trendGranularity(
+  bounds: SalesRangeBounds,
+  now: number
+): TrendGranularity {
+  const days = Math.max(1, Math.round((bounds.end - bounds.start) / DAY_MS));
+  if (days === 1) return "hour";
+  return elapsedDays(bounds, now) > 62 ? "week" : "day";
+}
+
+/**
+ * Net revenue per trendGranularity bucket for the trend chart. Day and week
+ * buckets run from the range start to today; hourly buckets span business
+ * hours (08–20) widened to include every sale.
  */
 export function buildTrendBuckets(
   sales: Sale[],
   bounds: SalesRangeBounds,
   now: number
 ): TrendBucket[] {
-  const end = Math.min(bounds.end, Math.max(now, bounds.start + HOUR_MS));
-  const days = Math.max(1, Math.round((bounds.end - bounds.start) / DAY_MS));
+  const granularity = trendGranularity(bounds, now);
 
-  if (days === 1) {
+  if (granularity === "hour") {
     const hours = sales.map((sale) =>
       boliviaHour(new Date(sale.createdAt).getTime())
     );
@@ -129,8 +148,8 @@ export function buildTrendBuckets(
     });
   }
 
-  const dayCount = Math.max(1, Math.ceil((end - bounds.start) / DAY_MS));
-  const step = dayCount > 62 ? 7 : 1;
+  const dayCount = elapsedDays(bounds, now);
+  const step = granularity === "week" ? 7 : 1;
   const axis = dayCount <= 7 ? weekdayAxisFormatter : dayAxisFormatter;
   return Array.from({ length: Math.ceil(dayCount / step) }, (_, index) => {
     const start = bounds.start + index * step * DAY_MS;

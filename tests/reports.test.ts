@@ -5,6 +5,7 @@ import {
   buildTrendBuckets,
   comparisonWindow,
   percentChange,
+  trendGranularity,
 } from "@/lib/reports";
 import type { Sale } from "@/lib/types";
 
@@ -98,4 +99,24 @@ test("multi-day trends stop at today", () => {
     buckets.map((bucket) => bucket.netCents),
     [0, 4000, 0]
   );
+});
+
+test("long custom ranges switch the trend to weekly buckets", () => {
+  const now = Date.parse("2026-09-28T12:00:00Z");
+  const day = resolveSalesRange("today", "", "", new Date(now)).bounds!;
+  const month = resolveSalesRange("custom", "2026-09-01", "2026-09-28").bounds!;
+  const quarter = resolveSalesRange(
+    "custom",
+    "2026-06-01",
+    "2026-09-28"
+  ).bounds!;
+
+  assert.equal(trendGranularity(day, now), "hour");
+  assert.equal(trendGranularity(month, now), "day");
+  assert.equal(trendGranularity(quarter, now), "week");
+
+  const weekly = buildTrendBuckets([], quarter, now);
+  // Jun 1 → Sep 28 is 120 elapsed days: 18 weekly buckets.
+  assert.equal(weekly.length, 18);
+  assert.match(weekly[0].title, /^Semana del /);
 });
