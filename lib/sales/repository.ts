@@ -1,3 +1,5 @@
+// No `import "server-only"` here: scripts/seed-qa.ts imports this module
+// under plain tsx, where that marker throws (tests/server-only-marker.test.ts).
 import { and, asc, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 import { UserFacingError } from "@/lib/action-result";
 import { toIso } from "@/lib/dates";

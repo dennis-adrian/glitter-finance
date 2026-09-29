@@ -1,3 +1,5 @@
+// No `import "server-only"` here: scripts/seed-qa.ts imports ensureMembership
+// under plain tsx, where that marker throws (tests/server-only-marker.test.ts).
 import { and, asc, eq } from "drizzle-orm";
 import type { MembershipRow } from "@/lib/auth/tenant-context";
 import { db } from "@/lib/db";
