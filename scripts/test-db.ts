@@ -6,8 +6,9 @@
 //
 // Needs the PostgreSQL server binaries (initdb, pg_ctl, postgres and psql) on
 // PATH, or their directory in PG_BIN. It does not use Docker, the Supabase
-// stack or any DATABASE_URL: the cluster lives in a new temporary directory,
-// listens on 127.0.0.1 only, and is deleted at the end.
+// stack or any DATABASE_URL: the cluster lives in a new private directory
+// under /tmp, listens only on a Unix socket in that directory, and is
+// deleted at the end.
 //
 // Usage:
 //   pnpm test:db                 # every tests/db/*.test.sql
@@ -16,8 +17,6 @@
 //   PG_BIN=/usr/lib/postgresql/17/bin pnpm test:db
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = process.cwd();
@@ -62,27 +61,19 @@ function run(
   return result;
 }
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      server.close(() =>
-        address && typeof address === "object"
-          ? resolve(address.port)
-          : reject(new Error("Could not find a free port."))
-      );
-    });
-  });
-}
+// The port only names the socket file, which no other server shares.
+const PORT = 5432;
 
-type Cluster = { dir: string; dataDir: string; port: number };
+type Cluster = { dir: string; dataDir: string };
 
-async function startCluster(): Promise<Cluster> {
-  const dir = mkdtempSync(join(tmpdir(), "glitter-test-db-"));
+function startCluster(): Cluster {
+  // The superuser needs no password, so the server takes connections only
+  // through a Unix socket in this directory, which mkdtemp makes private to
+  // the current user: no other user, and nothing on TCP, can reach it. /tmp
+  // rather than the per-user temporary directory keeps the socket's path
+  // under macOS's 103-byte limit.
+  const dir = mkdtempSync("/tmp/glitter-test-db-");
   const dataDir = join(dir, "data");
-  const port = await freePort();
 
   const init = run(bin("initdb"), [
     "-D",
@@ -98,15 +89,13 @@ async function startCluster(): Promise<Cluster> {
     throw new Error(`initdb failed:\n${init.stderr || init.stdout}`);
   }
 
-  // No Unix socket: its path would sit in the temporary directory, which can
-  // exceed the 103-byte limit on macOS.
   const start = run(bin("pg_ctl"), [
     "-D",
     dataDir,
     "-l",
     join(dir, "postgres.log"),
     "-o",
-    `-p ${port} -c listen_addresses=127.0.0.1 -c unix_socket_directories='' -c fsync=off`,
+    `-p ${PORT} -c listen_addresses='' -c unix_socket_directories='${dir}' -c fsync=off`,
     "-w",
     "start",
   ]);
@@ -115,7 +104,7 @@ async function startCluster(): Promise<Cluster> {
     throw new Error(`pg_ctl start failed:\n${start.stderr || start.stdout}`);
   }
 
-  return { dir, dataDir, port };
+  return { dir, dataDir };
 }
 
 function stopCluster(cluster: Cluster) {
@@ -132,9 +121,9 @@ function psql(cluster: Cluster, file: string, showNotices = false) {
       "-v",
       "ON_ERROR_STOP=1",
       "-h",
-      "127.0.0.1",
+      cluster.dir,
       "-p",
-      String(cluster.port),
+      String(PORT),
       "-U",
       "postgres",
       "-d",
@@ -144,8 +133,6 @@ function psql(cluster: Cluster, file: string, showNotices = false) {
     ],
     {
       ...POSTGRES_ENV,
-      // The throwaway server has no TLS, whatever the shell's default is.
-      PGSSLMODE: "disable",
       PGOPTIONS: `-c client_min_messages=${showNotices ? "notice" : "warning"}`,
     }
   );
@@ -207,7 +194,7 @@ async function main() {
   }
 
   const version = run(bin("postgres"), ["--version"]).stdout.trim();
-  const cluster = await startCluster();
+  const cluster = startCluster();
   let stopped = false;
   const stop = () => {
     if (stopped) {
@@ -217,7 +204,7 @@ async function main() {
     if (keep) {
       console.log(
         `\nThe cluster is still running:\n` +
-          `  psql -h 127.0.0.1 -p ${cluster.port} -U postgres postgres\n` +
+          `  psql -h ${cluster.dir} -p ${PORT} -U postgres postgres\n` +
           `Stop and delete it with:\n` +
           `  pg_ctl -D ${cluster.dataDir} stop && rm -rf ${cluster.dir}`
       );

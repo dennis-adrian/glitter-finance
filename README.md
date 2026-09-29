@@ -96,8 +96,10 @@ conflicts, member and tenant checks, device timestamps); and the triggers
 revoke-only invitations). Run it after changing `lib/db/schema.ts`, a
 migration or a file in `supabase/manual/`. CI does not run it yet.
 
-It creates a throwaway PostgreSQL cluster in a temporary directory, listening
-on 127.0.0.1 only, and deletes it afterwards. It applies
+It creates a throwaway PostgreSQL cluster in a new directory under `/tmp` that
+only your user can open, and deletes it afterwards. The cluster's superuser
+has no password, so the server listens only on a Unix socket in that
+directory, never on TCP. It applies
 `tests/db/supabase-stubs.sql` (the parts of Supabase the SQL relies on: API
 roles and grants, `auth.users`, `auth.uid()`, Storage tables), the migrations,
 every `supabase/manual/` file twice (each must be safe to re-run) and
