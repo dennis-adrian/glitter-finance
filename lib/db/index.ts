@@ -15,15 +15,19 @@ const globalForDb = globalThis as unknown as {
 
 // Supabase's pooler does not support prepared statements in transaction mode.
 // The pool is small on purpose: each serverless instance gets its own, and
-// the transaction pooler multiplexes them onto the database. Five covers the
-// home page's parallel reads. Idle connections close after 20 s instead of
-// being held for the instance's lifetime.
+// the transaction pooler multiplexes them onto the database. Six covers the
+// reads '/' starts at once (loadTenantData in app/page.tsx): members,
+// products, the sales history transaction, opening stock, recent movements
+// and the invitation. Without prepared statements postgres.js cannot pipeline
+// a query that has parameters, so each of them holds a connection of its own
+// and a smaller pool makes the rest wait. Idle connections close after 20 s
+// instead of being held for the instance's lifetime.
 // The global cache avoids opening new clients on every Next.js dev hot reload.
 export const client =
   globalForDb.glitterPostgres ??
   postgres(connectionString, {
     prepare: false,
-    max: 5,
+    max: 6,
     idle_timeout: 20,
     connect_timeout: 10,
   });

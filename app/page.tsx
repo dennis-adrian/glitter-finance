@@ -25,6 +25,8 @@ async function loadTenantData(tenantId: string) {
   const recentHistoryStart = new Date(
     Date.now() - RECENT_HISTORY_DAYS * DAY_MS
   );
+  // Six reads run at once, each on its own pooled connection; lib/db sizes
+  // the pool for them, so keep its count in step when adding one.
   const members = getTenantMembersForTenant(tenantId);
 
   const [products, sales, tenantMembers, inventory, activeInvitation] =
