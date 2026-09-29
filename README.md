@@ -150,7 +150,7 @@ instead (for up to a day, removed at logout).
 **Staging / production:** set `NEXT_PUBLIC_POWERSYNC_URL` to the PowerSync Cloud
 instance URL for that environment (see [PowerSync setup](#powersync-setup) below).
 
-`DATABASE_URL` should point at the Supabase Transaction Pooler (port `6543`). The runtime Drizzle client in `lib/db/index.ts` is configured with `prepare: false` to be compatible with it, and keeps a small pool (5 connections, closed after 20 s idle) per server instance.
+`DATABASE_URL` should point at the Supabase Transaction Pooler (port `6543`). The runtime Drizzle client in `lib/db/index.ts` is configured with `prepare: false` to be compatible with it, and keeps a small pool (6 connections, enough for the reads `/` starts at once, closed after 20 s idle) per server instance.
 
 ## Cloud environments
 
