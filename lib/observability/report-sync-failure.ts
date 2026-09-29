@@ -186,6 +186,35 @@ export function reportDiscardedSyncFailure(input: {
 }
 
 /**
+ * The whole unsynced queue, discarded from the local data recovery panel
+ * because it could neither be uploaded nor resolved in its own tenant (a
+ * tenant the user lost access to, or work nobody can be named for). Only
+ * the counts leave the device; the user downloads the payload first.
+ */
+export function reportDiscardedUnsyncedWork(input: {
+  /** The recovery panel's block reason. */
+  reason: string;
+  pendingUploadCount: number;
+  unresolvedFailureCount: number;
+}): void {
+  Sentry.withScope((scope) => {
+    scope.setLevel("warning");
+    scope.setTag("component", "powersync_upload");
+    scope.setTag("sync_failure", "discarded-queue");
+    scope.setTag("recovery_reason", input.reason);
+    scope.setFingerprint(["powersync-discarded-unsynced-work", input.reason]);
+    scope.setContext("sync", {
+      pending_upload_count: input.pendingUploadCount,
+      unresolved_failure_count: input.unresolvedFailureCount,
+    });
+    Sentry.captureMessage(
+      `PowerSync unsynced work discarded on the device (${input.reason})`,
+      "warning"
+    );
+  });
+}
+
+/**
  * Give the browser transport a short chance to send permanent-sync telemetry
  * before identity cleanup removes caches and disconnects PowerSync. Cleanup
  * must never be blocked by telemetry delivery.

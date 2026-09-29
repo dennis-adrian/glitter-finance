@@ -1,7 +1,7 @@
 "use server";
 
 import { toActionResult, UserFacingError } from "@/lib/action-result";
-import { createTenantWithOwner } from "@/lib/auth/memberships";
+import { createTenantWithOwner, hasMembership } from "@/lib/auth/memberships";
 import { getDisplayName, parseTenantId } from "@/lib/auth/tenant-context";
 import {
   assertUserIsMember,
@@ -33,6 +33,34 @@ export async function switchTenant(tenantId: string) {
 
     await assertUserIsMember(user.id, normalizedTenantId);
     await setActiveTenantClaim(user, normalizedTenantId);
+  });
+}
+
+/**
+ * Switches back to the tenant this device still holds unsynced work for (the
+ * local data recovery panel). A membership removed meanwhile is an answer,
+ * not an error: the panel then offers its other ways out, since that
+ * tenant's work can no longer be uploaded or resolved there.
+ */
+export async function returnToTenant(tenantId: string) {
+  return toActionResult(async (): Promise<"switched" | "no-access"> => {
+    const normalizedTenantId = parseTenantId(tenantId);
+    const user = await getAuthenticatedUser();
+
+    if (!user) {
+      throw new UserFacingError(NOT_SIGNED_IN_MESSAGE);
+    }
+
+    if (
+      !(await hasMembership(db, {
+        tenantId: normalizedTenantId,
+        userId: user.id,
+      }))
+    ) {
+      return "no-access";
+    }
+    await setActiveTenantClaim(user, normalizedTenantId);
+    return "switched";
   });
 }
 

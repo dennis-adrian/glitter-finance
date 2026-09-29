@@ -41,6 +41,7 @@ import {
   formatDateTimeInBolivia,
   formatDateTimeLabelInBolivia,
 } from "@/lib/dates";
+import { downloadJsonFile } from "@/lib/download-json";
 import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import {
   discardSyncFailure,
@@ -107,20 +108,7 @@ function readDeviceInfoSync(): DeviceInfo {
 
 /** Saves the diagnostic as a file, for when the clipboard is unavailable. */
 function downloadDiagnostic(json: string) {
-  const url = URL.createObjectURL(
-    new Blob([json], { type: "application/json" })
-  );
-  try {
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `diagnostico-${formatDateInputInBolivia()}.json`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-  } finally {
-    // Some browsers read the blob after click() returns.
-    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-  }
+  downloadJsonFile(json, `diagnostico-${formatDateInputInBolivia()}.json`);
 }
 
 type DiagnosticsScreenProps = {

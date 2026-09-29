@@ -34,7 +34,7 @@ import {
 } from "@/components/providers/local-data-panel";
 import {
   LocalDataRecoveryPanel,
-  type LocalDataRecovery,
+  type LocalDataRecoveryControls,
 } from "@/components/providers/local-data-recovery-panel";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
@@ -46,11 +46,20 @@ import {
 } from "@/lib/powersync/sync-status";
 import { SyncStatusStoreProvider } from "@/lib/powersync/use-sync-status";
 import { reportClientFailure } from "@/lib/observability/report-client-failure";
-import { flushPendingSyncFailureTelemetry } from "@/lib/observability/report-sync-failure";
 import {
+  flushPendingSyncFailureTelemetry,
+  reportDiscardedUnsyncedWork,
+} from "@/lib/observability/report-sync-failure";
+import {
+  canDiscardUnsyncedWork,
+  exportUnsyncedLocalWork,
   planIdentityMismatch,
   waitForUploadQueueToDrain,
 } from "@/lib/powersync/identity-mismatch";
+import {
+  drainingRecovery,
+  type LocalDataRecovery,
+} from "@/lib/powersync/local-data-recovery";
 import {
   LocalDataTeardownError,
   localDataIdentityMatches,
@@ -59,6 +68,7 @@ import {
   saveLocalDataIdentity,
   teardownLocalUserData,
   type LocalDataIdentity,
+  type UnsyncedLocalWork,
 } from "@/lib/powersync/local-data-teardown";
 
 const OptionalPowerSyncContext =
@@ -134,6 +144,10 @@ export function PowerSyncProvider({
   const exposedDbRef = useRef<AbstractPowerSyncDatabase | null>(null);
   const teardownPromiseRef = useRef<Promise<void> | null>(null);
   const localDataWasJustClearedRef = useRef(false);
+  // The recovery panel's actions on the database the current initialization
+  // holds, and the identity whose unsynced work the user chose to discard.
+  const recoveryControlsRef = useRef<LocalDataRecoveryControls | null>(null);
+  const confirmedDiscardRef = useRef<LocalDataIdentity | null>(null);
 
   useEffect(() => {
     const currentIdentity: LocalDataIdentity = {
@@ -143,6 +157,7 @@ export function PowerSyncProvider({
     };
     let cancelled = false;
     let instance: AbstractPowerSyncDatabase | null = null;
+    let recoveryControls: LocalDataRecoveryControls | null = null;
 
     async function init() {
       setLocalDataReadyIdentity(null);
@@ -221,59 +236,86 @@ export function PowerSyncProvider({
       // identity that can upload it comes back.
       const storedIdentity = readLocalDataIdentity();
       if (!localDataIdentityMatches(storedIdentity, currentIdentity)) {
-        const planMismatch = async () =>
+        recoveryControls = {
+          exportUnsyncedWork: () =>
+            exportUnsyncedLocalWork(db, {
+              owner: storedIdentity,
+              session: currentIdentity,
+            }),
+          discardUnsyncedWork: () => {
+            confirmedDiscardRef.current = currentIdentity;
+            setInitializationAttempt((attempt) => attempt + 1);
+          },
+        };
+        recoveryControlsRef.current = recoveryControls;
+        const discardConfirmed = localDataIdentityMatches(
+          confirmedDiscardRef.current,
+          currentIdentity
+        );
+        confirmedDiscardRef.current = null;
+
+        const planMismatch = (unsynced: UnsyncedLocalWork) =>
           planIdentityMismatch({
             stored: storedIdentity,
             current: currentIdentity,
-            unsynced: await readUnsyncedLocalWork(db),
+            unsynced,
           });
-        let plan = await planMismatch();
+        let unsynced = await readUnsyncedLocalWork(db);
+        let plan = planMismatch(unsynced);
         if (cancelled) return;
 
         if (plan.action === "drain") {
-          setRecovery({
-            kind: "draining",
-            pendingUploadCount: null,
-            uploadHold: null,
-          });
+          const { previousTenantId } = plan;
+          setRecovery(drainingRecovery(previousTenantId, null));
           connectorRef.current = connector;
           await db.connect(connector);
           const outcome = await waitForUploadQueueToDrain(db, {
             isCancelled: () => cancelled,
-            onPending: (pendingUploadCount, uploadHold) => {
+            onProgress: (progress) => {
               if (!cancelled) {
-                setRecovery({
-                  kind: "draining",
-                  pendingUploadCount,
-                  uploadHold,
-                });
+                setRecovery(drainingRecovery(previousTenantId, progress));
               }
             },
           });
           if (outcome === "cancelled") return;
           await db.disconnect();
-          plan = await planMismatch();
+          unsynced = await readUnsyncedLocalWork(db);
+          plan = planMismatch(unsynced);
           if (cancelled) return;
           if (plan.action === "drain") {
             throw new Error("The upload queue did not drain.");
           }
         }
 
-        if (plan.action === "block") {
-          setRecovery({ kind: "blocked", block: plan.block });
+        // The user saw this work stuck, downloaded a copy if they wanted
+        // one, and confirmed discarding it (LocalDataRecoveryPanel).
+        const discarding = discardConfirmed && canDiscardUnsyncedWork(plan);
+        if (plan.action === "block" && !discarding) {
+          setRecovery({
+            kind: "blocked",
+            block: plan.block,
+            pendingUploadCount: unsynced.pendingUploadCount,
+          });
           return;
         }
 
         setRecovery(null);
+        if (discarding && plan.action === "block") {
+          reportDiscardedUnsyncedWork({
+            reason: plan.block.reason,
+            pendingUploadCount: unsynced.pendingUploadCount,
+            unresolvedFailureCount: unsynced.unresolvedFailureCount,
+          });
+        }
         // disconnectAndClear can remove browser-backed transport state. Give
         // the permanent-upload report a bounded chance to leave the device
         // first; failure must not prevent privacy cleanup or cancellation.
         await flushPendingSyncFailureTelemetry();
-        // Re-checks the queue right before the wipe.
+        // Otherwise re-checks the queue right before the wipe.
         await teardownLocalUserData({
           db,
           powerSyncRequired: true,
-          refuseWhenUnsynced: true,
+          refuseWhenUnsynced: !discarding,
         });
       }
 
@@ -338,6 +380,9 @@ export function PowerSyncProvider({
 
     return () => {
       cancelled = true;
+      if (recoveryControlsRef.current === recoveryControls) {
+        recoveryControlsRef.current = null;
+      }
       // The next identity render gates this instance immediately; clearing it
       // here also prevents a closing instance from remaining in this context.
       setDb((currentDb) => (currentDb === instance ? null : currentDb));
@@ -453,6 +498,20 @@ export function PowerSyncProvider({
     };
   });
 
+  // Stable for the provider's lifetime, like `controls`: it reaches the
+  // current initialization's database through the ref when a button runs.
+  const [recoveryPanelControls] = useState<LocalDataRecoveryControls>(() => ({
+    exportUnsyncedWork: async () => {
+      const current = recoveryControlsRef.current;
+      if (!current) {
+        throw new Error("The local database is not open for recovery.");
+      }
+      return current.exportUnsyncedWork();
+    },
+    discardUnsyncedWork: () =>
+      recoveryControlsRef.current?.discardUnsyncedWork(),
+  }));
+
   function renderLocalDataPanel() {
     if (localDataError) {
       return (
@@ -493,7 +552,11 @@ export function PowerSyncProvider({
 
     if (recovery) {
       return (
-        <LocalDataRecoveryPanel layout={loadingLayout} recovery={recovery} />
+        <LocalDataRecoveryPanel
+          layout={loadingLayout}
+          recovery={recovery}
+          controls={recoveryPanelControls}
+        />
       );
     }
 

@@ -560,7 +560,13 @@ writer) so the actions and the existing bootstrap share one implementation.
   pending uploads are uploaded first (uploads are authorized by membership, not
   by the claim), a sync failure keeps the data and offers to switch back to the
   previous tenant, and another user's work is kept until that account signs in
-  again.
+  again. Every recovery panel can sign out, which keeps the work. An upload
+  that stops advancing for 30 seconds (offline, a server error, a device clock
+  that was ahead) offers the way back to the previous tenant too, whose local
+  data still matches and works offline. When that tenant is out of reach (the
+  user's membership was removed), the panel downloads a copy of the stuck work
+  and, once the user confirms, discards it and continues in the current tenant
+  (`LocalDataRecoveryPanel`).
 - **Active tenant switched on another device** (user switched on device A;
   device B still renders the old tenant) → the claim is one per account, not
   per device, so B's server reads already see A's choice. B's tenant-scoped
