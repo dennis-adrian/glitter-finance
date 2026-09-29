@@ -89,6 +89,7 @@ import { powerSyncDraftCartStorage } from "@/lib/powersync/draft-cart";
 import { browserDraftCartStorage } from "@/lib/browser-draft-cart";
 import type { DraftCartStorage } from "@/lib/draft-cart";
 import { onLocalDataEvent } from "@/lib/powersync/local-data-teardown";
+import { keepAppShellForOfflineLaunch } from "@/lib/pwa/keep-app-shell";
 import {
   mergeLocalRowsOverServer,
   watchLocalTables,
@@ -322,6 +323,13 @@ export function GlitterPosApp({
     [inventoryMovements, sales, stockOpening]
   );
   const activeTenantId = tenantContext.tenant?.id ?? null;
+
+  // This only mounts once the local data is ready for the signed-in identity
+  // (PowerSyncProvider), after any teardown that deleted the previous
+  // session's saved app shell. Saving this one lets the next launch open
+  // Sell Mode offline, even with no online launch after a sign-in or a
+  // tenant change.
+  useEffect(() => keepAppShellForOfflineLaunch(), []);
 
   // Teardown is initiated from Settings, outside this component's local React
   // state. Clear every tenant-derived value immediately so a failed navigation

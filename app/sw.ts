@@ -18,9 +18,12 @@ import type {
 } from "serwist";
 import {
   applyAppShellRefresh,
+  cacheAppShell,
+  isCacheAppShellMessage,
   prepareAppShellRefresh,
 } from "../lib/pwa/app-shell";
 import {
+  APP_SHELL_URL,
   OFFLINE_PAGE_URL,
   PAGE_CACHE_NAME,
   POWERSYNC_WASM_CACHE_NAME,
@@ -206,6 +209,25 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(applyAppShellRefresh({ caches: self.caches }));
+});
+
+// The signed-in app asks for its shell once its local data is ready
+// (lib/pwa/keep-app-shell.ts), since neither a password sign-in nor the
+// teardown after a sign-in or tenant change leaves one in the page cache.
+// Fetched here: the page's own fetch of "/" is no navigation, so the rules
+// above would store it in one of defaultCache's caches, not the page cache.
+self.addEventListener("message", (event) => {
+  if (!isCacheAppShellMessage(event.data)) return;
+  event.waitUntil(
+    cacheAppShell({
+      caches: self.caches,
+      fetch: self.fetch.bind(self),
+      url: new URL(APP_SHELL_URL, self.location.origin).href,
+    }).catch((error: unknown) => {
+      // Offline or a failed render: the next "online" event asks again.
+      console.warn("[sw] could not save the app shell", error);
+    })
+  );
 });
 
 serwist.addEventListeners();

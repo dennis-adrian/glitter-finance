@@ -4,9 +4,10 @@ import {
 } from "@/components/templates/status-screen";
 
 // The service worker precaches this page and shows it for a navigation it
-// cannot answer offline (app/sw.ts): the first launch, the login screen, or
-// after logout cleared the saved app. Once the app has been opened online,
-// an offline launch opens Sell Mode instead.
+// cannot answer offline (app/sw.ts): before the app was ever opened signed
+// in, the login screen, or after logout cleared the saved app. Once the
+// signed-in app has loaded its local data online, which saves the app shell
+// (lib/pwa/keep-app-shell.ts), an offline launch opens Sell Mode instead.
 export default function OfflinePage() {
   return (
     <StatusScreen

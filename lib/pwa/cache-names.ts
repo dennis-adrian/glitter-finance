@@ -1,5 +1,6 @@
 // Cache Storage names and URLs shared by the service worker (app/sw.ts,
-// lib/pwa/app-shell.ts), the route that builds it and the local data
+// lib/pwa/app-shell.ts), the route that builds it, the page that asks it to
+// save the app shell (lib/pwa/keep-app-shell.ts) and the local data
 // teardown (lib/powersync/local-data-teardown.ts). This file has no imports
 // because the service worker bundle includes it.
 
@@ -12,7 +13,15 @@ export const SW_CACHE_ID = "glitter-pos";
  */
 export const OFFLINE_PAGE_URL = "/~offline";
 
-/** Navigations: the app shell, rendered with the signed-in user's data. */
+/** The app shell: the page that opens Sell Mode, online or offline. */
+export const APP_SHELL_URL = "/";
+
+/**
+ * Navigations: the app shell, rendered with the signed-in user's data. The
+ * local data teardown deletes it, and only the signed-in app creates it
+ * again (lib/pwa/keep-app-shell.ts), or a navigation that got a complete
+ * page.
+ */
 export const PAGE_CACHE_NAME = "glitter-pos-pages";
 
 /**

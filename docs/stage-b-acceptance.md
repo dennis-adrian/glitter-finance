@@ -103,6 +103,26 @@ Expected:
   shell. After disabling airplane mode, "Reintentar" opens the login screen.
 - First-ever offline login is not required and remains out of scope.
 
+## Offline Relaunch Right After Signing In
+
+Run on a PWA that is signed out, so no app shell is saved yet. Never relaunch
+it online between signing in (or switching accounts) and the airplane mode
+relaunch that follows.
+
+1. In the installed PWA, sign in with email and password. Wait for synced
+   state and leave Sell Mode on screen for a few seconds.
+2. Close the PWA, enable airplane mode and relaunch it.
+3. Disable airplane mode and open the PWA. In Settings, under "Tus cuentas",
+   switch to another account (or create one) and wait for synced state.
+4. Close the PWA, enable airplane mode and relaunch it.
+5. Sign out, then repeat steps 1 and 2 signing in with Google.
+
+Expected:
+
+- Steps 2, 4 and 5 open Sell Mode offline for the account just signed in or
+  switched to, not the "Sin conexión" screen. The PWA saves its app shell
+  once the local data is ready, so no online relaunch is needed first.
+
 ## Offline Relaunch After An Update
 
 1. Launch the installed PWA online and wait for synced state. Leave it open.
