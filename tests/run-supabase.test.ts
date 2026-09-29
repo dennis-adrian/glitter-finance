@@ -121,6 +121,44 @@ test("refuses to push seed.sql to the linked project", () => {
   );
 });
 
+// The CLI also reads `--flag=<value>`, `--flag <value>` and `--no-flag`, and
+// targets the linked project whenever `--linked` is written at all.
+test("reads every spelling of a bool flag", () => {
+  for (const args of [
+    ["db", "reset", "--linked=true"],
+    ["db", "reset", "--linked=false"],
+    ["db", "reset", "--no-linked"],
+    ["db", "reset", "--linked", "--no-seed=false"],
+    ["db", "reset", "--linked", "--no-seed", "false"],
+    ["db", "reset", "--linked", "--no-no-seed"],
+    ["seed", "buckets", "--linked=1"],
+    ["seed", "buckets", "--linked=yes"],
+    ["db", "push", "--include-seed=true"],
+    ["db", "push", "--include-seed", "false"],
+    ["db", "push", "--local=false", "--include-seed"],
+    ["db", "push", "--no-local", "--include-seed"],
+    ["db", "push", "--local", "--local=off", "--include-seed"],
+  ]) {
+    const run = runSupabase(args);
+    assert.equal(run.status, 1, args.join(" "));
+    assert.equal(run.cliArgs, null, args.join(" "));
+  }
+
+  for (const args of [
+    ["db", "reset", "--linked=true", "--no-seed"],
+    ["db", "reset", "--linked", "--no-seed=yes"],
+    ["db", "reset", "--linked", "--no-seed", "true"],
+    ["db", "push", "--include-seed=false"],
+    ["db", "push", "--no-include-seed"],
+    ["db", "push", "--local=true", "--include-seed"],
+    ["db", "push", "--local", "true", "--include-seed"],
+  ]) {
+    const run = runSupabase(args);
+    assert.equal(run.status, 0, `${args.join(" ")}: ${run.stderr}`);
+    assert.deepEqual(run.cliArgs, args);
+  }
+});
+
 test("an explicit flag lets a remote seed through, without the flag", () => {
   const run = runSupabase([
     "seed",

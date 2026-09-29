@@ -62,16 +62,61 @@ function checkCliVersion() {
   }
 }
 
-/** The value of `--flag value` or `--flag=value`, if present. */
-function flagValue(args, flag) {
-  const index = args.findIndex(
-    (arg) => arg === flag || arg.startsWith(`${flag}=`)
-  );
-  if (index === -1) {
-    return null;
-  }
-  const arg = args[index];
-  return arg === flag ? (args[index + 1] ?? "") : arg.slice(flag.length + 1);
+/** Every value given as `--flag value` or `--flag=value`. */
+function flagValues(args, flag) {
+  return args.flatMap((arg, index) => {
+    if (arg === flag) {
+      return [args[index + 1] ?? ""];
+    }
+    return arg.startsWith(`${flag}=`) ? [arg.slice(flag.length + 1)] : [];
+  });
+}
+
+// The values the CLI takes for a bool flag, in `--flag=<value>` and, when the
+// next argument is one of them, `--flag <value>`.
+const TRUE_VALUES = ["true", "yes", "on", "1", "y"];
+const FALSE_VALUES = ["false", "no", "off", "0", "n"];
+
+/**
+ * How each mention of the bool flag `--name` reads: true, false, or null when
+ * CLI versions disagree. `--name false` is false to the current CLI but a bare
+ * flag plus a stray argument to older ones, and a value outside the lists
+ * above is an error to one and may be true to another.
+ */
+function boolFlagReadings(args, name) {
+  const read = (value) =>
+    TRUE_VALUES.includes(value)
+      ? true
+      : FALSE_VALUES.includes(value)
+        ? false
+        : null;
+  return args.flatMap((arg, index) => {
+    if (arg === `--${name}`) {
+      return [FALSE_VALUES.includes(args[index + 1]) ? null : true];
+    }
+    if (arg.startsWith(`--${name}=`)) {
+      return [read(arg.slice(name.length + 3))];
+    }
+    if (arg === `--no-${name}`) {
+      return [false];
+    }
+    if (arg.startsWith(`--no-${name}=`)) {
+      const value = read(arg.slice(name.length + 6));
+      return [value === null ? null : !value];
+    }
+    return [];
+  });
+}
+
+/** Whether every reading of the bool flag `--name` sets it. */
+function surelySet(args, name) {
+  const readings = boolFlagReadings(args, name);
+  return readings.length > 0 && readings.every((value) => value === true);
+}
+
+/** Whether any reading of the bool flag `--name` may set it. */
+function maybeSet(args, name) {
+  return boolFlagReadings(args, name).some((value) => value !== false);
 }
 
 function isLocalDbUrl(url) {
@@ -85,16 +130,18 @@ function isLocalDbUrl(url) {
 
 // Whether the command writes to a hosted database rather than the local
 // stack. `db push` targets the linked project unless told otherwise; the
-// other commands target the local stack by default.
+// other commands target the local stack by default. The CLI picks the linked
+// project whenever `--linked` is written, whatever its value (`--linked=false`
+// and `--no-linked` included), so any mention of it counts.
 function targetsHostedProject(args, defaultHosted) {
-  if (args.includes("--linked")) {
+  if (boolFlagReadings(args, "linked").length > 0) {
     return true;
   }
-  const dbUrl = flagValue(args, "--db-url");
-  if (dbUrl !== null) {
-    return !isLocalDbUrl(dbUrl);
+  const dbUrls = flagValues(args, "--db-url");
+  if (dbUrls.length > 0) {
+    return !dbUrls.every(isLocalDbUrl);
   }
-  return defaultHosted && !args.includes("--local");
+  return defaultHosted && !surelySet(args, "local");
 }
 
 /**
@@ -105,7 +152,6 @@ function targetsHostedProject(args, defaultHosted) {
  */
 function remoteSeedRefusal(args) {
   const [command, subcommand] = args;
-  const has = (flag) => args.includes(flag);
 
   if (
     command === "seed" &&
@@ -117,7 +163,7 @@ function remoteSeedRefusal(args) {
   if (
     command === "db" &&
     subcommand === "reset" &&
-    !has("--no-seed") &&
+    !surelySet(args, "no-seed") &&
     targetsHostedProject(args, false)
   ) {
     return "`supabase db reset` on a hosted project also runs supabase/seed.sql, which creates a demo account with a known password. Add --no-seed.";
@@ -125,7 +171,7 @@ function remoteSeedRefusal(args) {
   if (
     command === "db" &&
     subcommand === "push" &&
-    has("--include-seed") &&
+    maybeSet(args, "include-seed") &&
     targetsHostedProject(args, true)
   ) {
     return "`supabase db push --include-seed` would run supabase/seed.sql, which creates a demo account with a known password, on a hosted project. Drop --include-seed.";
