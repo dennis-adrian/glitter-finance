@@ -57,6 +57,7 @@ import {
   mergeTenantMembersFromWatch,
   type LocalTenantUserRow,
 } from "@/lib/powersync/tenant-users-from-local";
+import { createProductEditorSessions } from "@/lib/product-editor-sessions";
 import { createScrollMemory } from "@/lib/scroll-memory";
 import { usePosStore } from "@/lib/store";
 import { useSalesRangeState } from "@/lib/use-sales-range";
@@ -217,13 +218,13 @@ export function GlitterPosApp({
   // running would repeat it, and a repeated create adds a duplicate product.
   const [productWrite, setProductWrite] = useState<ProductWrite | null>(null);
   const productWriteRef = useRef<ProductWrite | null>(null);
-  // The product this editor session already created. When a later step of
-  // the save fails (the initial count or the photo), saving again updates
-  // it instead of adding another one.
-  const createdProductRef = useRef<Pick<
-    Product,
-    "id" | "tracksInventory"
-  > | null>(null);
+  // Each opening of the product editor is a session. A save that finishes
+  // after its editor closed does not leave the editor opened since, and a
+  // product a save created is updated by a retry in that session only, never
+  // by a save in a later one.
+  const [editorSessions] = useState(() =>
+    createProductEditorSessions<Pick<Product, "id" | "tracksInventory">>()
+  );
   // The server-action checkout's sale id, kept while the same checkout is
   // retried (see handlePayment).
   const checkoutAttemptRef = useRef<{ key: string; saleId: string } | null>(
@@ -352,7 +353,7 @@ export function GlitterPosApp({
       setQuery("");
       setCatalogQuery("");
       setEditingProduct(null);
-      createdProductRef.current = null;
+      editorSessions.next();
       setSelectedSaleId(null);
       setIsCheckingOut(false);
       setActiveInvitationState(null);
@@ -370,7 +371,7 @@ export function GlitterPosApp({
       resumeTenantWork();
       clearTenantState();
     };
-  }, [tenantWork]);
+  }, [editorSessions, tenantWork]);
 
   useEffect(() => {
     initialTenantMembersRef.current = initialTenantMembers;
@@ -861,8 +862,13 @@ export function GlitterPosApp({
   function openEditor(product: Product | null) {
     setPreviousView(view === "editor" ? "products" : view);
     setEditingProduct(product);
-    createdProductRef.current = null;
+    editorSessions.next();
     setView("editor");
+  }
+
+  function closeEditor(nextView: View) {
+    editorSessions.next();
+    setView(nextView);
   }
 
   async function runProductWrite(
@@ -894,7 +900,8 @@ export function GlitterPosApp({
     imageFile,
     initialStock,
   }: ProductEditorSaveInput) {
-    const existingProduct = editingProduct ?? createdProductRef.current;
+    const session = editorSessions.current();
+    const existingProduct = editingProduct ?? editorSessions.createdIn(session);
 
     // The initial count to write with the product, if any
     // (resolveInitialStockDelta). A new product has none yet.
@@ -945,10 +952,10 @@ export function GlitterPosApp({
                 })
               ).productId;
           if (!editingProduct) {
-            createdProductRef.current = {
+            editorSessions.rememberCreated(session, {
               id: productId,
               tracksInventory: productInput.tracksInventory,
-            };
+            });
           }
 
           if (!imageFile) {
@@ -993,7 +1000,7 @@ export function GlitterPosApp({
             addInventoryMovementToState(saved.initialMovement);
           }
           if (!editingProduct) {
-            createdProductRef.current = product;
+            editorSessions.rememberCreated(session, product);
           }
 
           if (imageFile) {
@@ -1031,7 +1038,10 @@ export function GlitterPosApp({
         editingProduct ? "info" : "success"
       );
     }
-    setView("products");
+    // An editor opened while the save ran keeps what was typed in it.
+    if (editorSessions.current() === session) {
+      closeEditor("products");
+    }
   }
 
   function handleArchiveProduct(productId: string) {
@@ -1041,6 +1051,7 @@ export function GlitterPosApp({
   }
 
   async function archiveProduct(productId: string) {
+    const session = editorSessions.current();
     const archived = await runTenantWriteWithToast(
       "No se pudo archivar el producto",
       {
@@ -1064,7 +1075,9 @@ export function GlitterPosApp({
       return;
     }
     showToast("Producto archivado", "info");
-    setView("products");
+    if (editorSessions.current() === session) {
+      closeEditor("products");
+    }
   }
 
   function handleRestoreProduct(productId: string) {
@@ -1426,7 +1439,7 @@ export function GlitterPosApp({
         initialMovement={editorInitialMovementState}
         onInventoryMovement={handleInventoryMovement}
         back={() =>
-          setView(previousView === "sell" ? "products" : previousView)
+          closeEditor(previousView === "sell" ? "products" : previousView)
         }
         pendingWrite={
           productWrite?.kind === "save" || productWrite?.kind === "archive"
