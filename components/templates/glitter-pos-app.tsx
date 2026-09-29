@@ -113,6 +113,7 @@ import {
   initialMovementStateLocal,
 } from "@/lib/powersync/write-inventory";
 import { formatBs } from "@/lib/money";
+import { randomUuid } from "@/lib/uuid";
 import {
   reportClientFailure,
   type ClientFailureComponent,
@@ -1201,7 +1202,7 @@ export function GlitterPosApp({
           if (checkoutAttemptRef.current?.key !== checkoutKey) {
             checkoutAttemptRef.current = {
               key: checkoutKey,
-              saleId: crypto.randomUUID(),
+              saleId: randomUuid(),
             };
           }
           const { saleId } = checkoutAttemptRef.current;
