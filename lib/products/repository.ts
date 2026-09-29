@@ -39,6 +39,11 @@ export async function createProductForTenant(
   tenantId: string,
   input: ProductInput
 ): Promise<Product> {
+  // Stamped by this server's clock, like every later update here, instead of
+  // Postgres' now(): Postgres keeps a column's newer edit, so an image
+  // attached right after the insert would be dropped if this clock ran behind
+  // the database's.
+  const now = new Date();
   const [product] = await db
     .insert(products)
     .values({
@@ -52,6 +57,8 @@ export async function createProductForTenant(
       imagePath: encodePlaceholderImagePath(input.imageTone),
       tracksInventory: input.tracksInventory ?? false,
       lowStockThreshold: input.lowStockThreshold ?? null,
+      createdAt: now,
+      updatedAt: now,
     })
     .returning();
 
