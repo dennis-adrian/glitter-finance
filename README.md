@@ -377,9 +377,15 @@ must appear in that JWKS response. The connector (`lib/powersync/connector.ts`)
 only hands PowerSync a token whose `app_metadata.tenant_id` is the tenant the
 device's local data belongs to. Otherwise it refreshes the session once, and
 if the claim still differs it logs a console warning ("Supabase session claims
-another tenant than the local data") and PowerSync retries later; Diagnostics
-then shows "La sesión todavía no corresponde al puesto de este dispositivo" as
-the download error, which a reload fixes.
+another tenant than the local data") and PowerSync retries later. When the
+refreshed token names another tenant, the account's active tenant changed on
+another device and only a reload moves this device to it: the sync pill reads
+**Puesto cambiado** and reloads when tapped, Settings, More, the join page and
+Diagnostics say to reload and offer a button for it, and the download error is
+"Tu puesto activo cambió en otro dispositivo". Sign-out and tenant changes wait
+for that reload, which uploads pending work first. When the refresh failed or
+the claim is missing, Diagnostics shows "La sesión todavía no corresponde al
+puesto de este dispositivo" instead, which a reload also fixes.
 
 The app logs nothing else about the token: not the endpoint, nor the JWT's
 `alg`, `kid`, `iss` or `aud`. When PowerSync rejects a token (`PSYNC_S2101`,

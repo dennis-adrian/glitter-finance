@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   getLocalDataChangeBlocker,
   pendingUploadsBlockerMessage,
+  tenantChangedBlockerMessage,
 } from "@/lib/powersync/local-data-gate";
 
 const settled = {
@@ -42,6 +43,24 @@ test("an unsettled sync blocks clearing, including before the db is ready", () =
       "not-synced"
     );
   }
+});
+
+test("a tenant changed on another device asks for a reload, not a wait", () => {
+  const changed = { ...settled, syncState: "tenant-changed" as const };
+  assert.equal(getLocalDataChangeBlocker(changed), "tenant-changed");
+  // The reload uploads the pending work first.
+  assert.equal(
+    getLocalDataChangeBlocker({ ...changed, pendingCount: 2 }),
+    "tenant-changed"
+  );
+  assert.equal(
+    getLocalDataChangeBlocker({ ...changed, failureCount: 1 }),
+    "sync-failures"
+  );
+  assert.equal(
+    tenantChangedBlockerMessage("cerrar sesión"),
+    "Tu puesto activo cambió en otro dispositivo. Recarga la app antes de cerrar sesión."
+  );
 });
 
 test("without PowerSync there is no queue to protect", () => {

@@ -473,15 +473,18 @@ button {
   animation: sync-pulse 1.2s ease-in-out infinite;
 }
 
-/* Uploads wait for the server clock (lib/powersync/upload-holds.ts); shown
-   like offline, since nothing reaches the server either. */
+/* Uploads wait for the server clock (lib/powersync/upload-holds.ts), or
+   nothing downloads until a reload after the active tenant changed on
+   another device; both shown like offline. */
 .sync-pill-offline,
-.sync-pill-held {
+.sync-pill-held,
+.sync-pill-tenant-changed {
   background: rgba(180, 90, 30, 0.92);
 }
 
 .sync-pill-offline .sync-pill-dot,
-.sync-pill-held .sync-pill-dot {
+.sync-pill-held .sync-pill-dot,
+.sync-pill-tenant-changed .sync-pill-dot {
   background: #f59e0b;
   box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22);
 }

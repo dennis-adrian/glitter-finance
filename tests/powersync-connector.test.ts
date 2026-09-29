@@ -13,9 +13,13 @@ import {
 } from "@/lib/observability/report-sync-failure";
 import {
   SupabaseConnector,
-  TenantClaimMismatchError,
   UnappliedUpdateError,
 } from "@/lib/powersync/connector";
+import {
+  ActiveTenantChangedError,
+  isActiveTenantChangedError,
+  TenantClaimMismatchError,
+} from "@/lib/powersync/tenant-claim";
 
 function operation(input: {
   clientId: number;
@@ -1183,4 +1187,76 @@ test("does not compare claims when the user has no active tenant", async () => {
 
   assert.equal(credentials?.token, token);
   assert.deepEqual(events, []);
+});
+
+test("reports an active tenant changed on another device, on every retry", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const connector = new SupabaseConnector(
+    authSupabase({
+      token: accessToken("tenant-2"),
+      refreshedToken: accessToken("tenant-2"),
+      events,
+    }),
+    "tenant-1"
+  );
+
+  const error = await connector.fetchCredentials().then(
+    () => assert.fail("handed over a token for another tenant"),
+    (rejection: unknown) => rejection
+  );
+  assert.ok(error instanceof ActiveTenantChangedError);
+  assert.ok(error instanceof TenantClaimMismatchError);
+  // PowerSync's shared worker passes only the name and message on.
+  const serialized = { name: error.name, message: error.message };
+  assert.ok(isActiveTenantChangedError(serialized));
+  // Not due for another refresh: still the change, not a plain mismatch.
+  await assert.rejects(connector.fetchCredentials(), ActiveTenantChangedError);
+  assert.deepEqual(events, ["refresh"]);
+});
+
+test("a claim missing after a refresh is not a tenant change", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const connector = new SupabaseConnector(
+    authSupabase({
+      token: accessToken(null),
+      refreshedToken: accessToken(null),
+      events,
+    }),
+    "tenant-1"
+  );
+
+  const error = await connector.fetchCredentials().then(
+    () => assert.fail("handed over a token without the tenant claim"),
+    (rejection: unknown) => rejection
+  );
+  assert.ok(error instanceof TenantClaimMismatchError);
+  assert.equal(isActiveTenantChangedError(error as Error), false);
+});
+
+test("stops reporting the change once the session claims this tenant again", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const auth = {
+    token: accessToken("tenant-2"),
+    refreshedToken: accessToken("tenant-2"),
+    events,
+  };
+  const connector = new SupabaseConnector(authSupabase(auth), "tenant-1");
+  await assert.rejects(connector.fetchCredentials(), ActiveTenantChangedError);
+
+  // The other device switched back, and the browser refreshed its token.
+  auth.token = accessToken("tenant-1");
+  const credentials = await connector.fetchCredentials();
+  assert.equal(credentials?.token, auth.token);
+
+  // A later mismatch, before a refresh is due, is a plain one again.
+  auth.token = accessToken("tenant-2");
+  const error = await connector.fetchCredentials().then(
+    () => assert.fail("handed over a token for another tenant"),
+    (rejection: unknown) => rejection
+  );
+  assert.ok(error instanceof TenantClaimMismatchError);
+  assert.equal(error instanceof ActiveTenantChangedError, false);
 });

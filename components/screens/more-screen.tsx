@@ -10,6 +10,7 @@ import {
   Settings,
 } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
+import { ReloadAppButton } from "@/components/molecules/reload-app-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +21,7 @@ import {
 import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import {
   pendingUploadsBlockerMessage,
+  tenantChangedBlockerMessage,
   type LocalDataChangeBlocker,
 } from "@/lib/powersync/local-data-gate";
 import type { UploadHold } from "@/lib/powersync/upload-holds";
@@ -38,6 +40,8 @@ function describeBlocker(
   switch (blocker) {
     case "sync-failures":
       return "Hay operaciones que no llegaron a la nube. Abre Diagnósticos desde Ajustes antes de cambiar de puesto o cerrar sesión.";
+    case "tenant-changed":
+      return tenantChangedBlockerMessage("cambiar de puesto o cerrar sesión");
     case "pending-uploads":
       return pendingUploadsBlockerMessage(
         pendingCount,
@@ -280,6 +284,9 @@ export function MoreScreen({
         >
           {describeBlocker(gate.blocker, gate.pendingCount, gate.uploadHold)}
         </p>
+      ) : null}
+      {gate.blocker === "tenant-changed" ? (
+        <ReloadAppButton className="mt-2" />
       ) : null}
 
       {actionError ? (

@@ -11,10 +11,13 @@
 // and a confirmed "Descartar operación" action, the way out when retrying
 // cannot succeed (see lib/powersync/discard-sync-failure.ts). A transaction the
 // server only defers until its clock catches up (lib/powersync/upload-holds.ts)
-// is explained instead: it needs no action and cannot be discarded.
+// is explained instead: it needs no action and cannot be discarded. After the
+// active tenant changed on another device, reconnecting cannot help, so the
+// screen explains that and offers the reload that can.
 
 import {
   AlertTriangle,
+  ArrowLeftRight,
   Clock,
   RefreshCw,
   ClipboardCopy,
@@ -28,6 +31,7 @@ import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { BackButton } from "@/components/atoms/back-button";
 import { Header } from "@/components/atoms/header";
 import { DiscardSyncFailureDialog } from "@/components/molecules/discard-sync-failure-dialog";
+import { ReloadAppButton } from "@/components/molecules/reload-app-button";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -344,6 +348,21 @@ export function DiagnosticsScreen({
             : fuerza la sincronización cuando el problema esté corregido, o
             descarta la operación si la nube la sigue rechazando.
           </span>
+        </div>
+      ) : sync.state === "tenant-changed" ? (
+        <div
+          className="mt-3 grid gap-2 rounded-xl border border-[var(--amber)]/35 bg-[var(--amber-surface)] p-3 text-sm text-[var(--amber)]"
+          role="status"
+        >
+          <span className="flex gap-2">
+            <ArrowLeftRight className="mt-0.5 size-4.25 shrink-0" />
+            <span>
+              Tu puesto activo cambió en otro dispositivo. Este dispositivo no
+              sincroniza hasta que recargues la app; al recargar, sube primero
+              lo pendiente y después abre el puesto activo.
+            </span>
+          </span>
+          <ReloadAppButton />
         </div>
       ) : sync.uploadHold ? (
         <div

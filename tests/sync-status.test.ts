@@ -4,8 +4,13 @@ import type { AbstractPowerSyncDatabase, SyncStatus } from "@powersync/web";
 import {
   createSyncStatusStore,
   deriveSyncState,
+  snapshotFromStatus,
   syncErrorText,
 } from "@/lib/powersync/sync-status";
+import {
+  ActiveTenantChangedError,
+  TenantClaimMismatchError,
+} from "@/lib/powersync/tenant-claim";
 
 const idleFlags = {
   connected: true,
@@ -14,6 +19,7 @@ const idleFlags = {
   downloading: false,
   failureCount: 0,
   uploadHeld: false,
+  activeTenantChanged: false,
 };
 
 test("derives one sync state, with failures first", () => {
@@ -34,6 +40,54 @@ test("a held upload queue is shown as held while online", () => {
   assert.equal(deriveSyncState({ ...held, uploading: true }), "held");
   assert.equal(deriveSyncState({ ...held, connected: false }), "offline");
   assert.equal(deriveSyncState({ ...held, failureCount: 1 }), "blocked");
+});
+
+test("a tenant changed on another device is not shown as offline", () => {
+  const changed = { ...idleFlags, connected: false, activeTenantChanged: true };
+  assert.equal(deriveSyncState(changed), "tenant-changed");
+  assert.equal(deriveSyncState({ ...changed, failureCount: 1 }), "blocked");
+  // Connected again: the error PowerSync still holds is from before.
+  assert.equal(deriveSyncState({ ...changed, connected: true }), "synced");
+});
+
+function disconnectedStatus(downloadError: object | undefined) {
+  return {
+    connected: false,
+    hasSynced: true,
+    lastSyncedAt: new Date("2026-09-27T12:00:00.000Z"),
+    dataFlowStatus: { uploading: false, downloading: false, downloadError },
+  } as unknown as SyncStatus;
+}
+
+test("the connector's tenant change error sets the state, as sent by the worker too", () => {
+  const counts = { pendingCount: 0, failureCount: 0, uploadHold: null };
+  const error = new ActiveTenantChangedError();
+
+  for (const downloadError of [
+    error,
+    // PowerSync's shared sync worker serializes it to a plain object.
+    { name: error.name, message: error.message, stack: error.stack },
+  ]) {
+    const snapshot = snapshotFromStatus(
+      disconnectedStatus(downloadError),
+      counts
+    );
+    assert.equal(snapshot.state, "tenant-changed");
+    assert.equal(snapshot.downloadError, error.message);
+  }
+
+  assert.equal(
+    snapshotFromStatus(
+      disconnectedStatus(new TenantClaimMismatchError()),
+      counts
+    ).state,
+    "offline"
+  );
+  assert.equal(
+    snapshotFromStatus(disconnectedStatus(new Error("fetch failed")), counts)
+      .state,
+    "offline"
+  );
 });
 
 test("sync errors are shown by their message", () => {

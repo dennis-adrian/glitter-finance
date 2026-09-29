@@ -14,6 +14,7 @@ import {
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
 import { InviteTeamCard } from "@/components/molecules/invite-team-card";
+import { ReloadAppButton } from "@/components/molecules/reload-app-button";
 import { SettingsItem } from "@/components/molecules/settings-item";
 import { ThemePicker } from "@/components/molecules/theme-picker";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,10 @@ import {
   type TenantSessionCopy,
 } from "@/lib/auth/use-tenant-session-actions";
 import type { UserTenantContext } from "@/lib/auth/tenant-context";
-import { pendingUploadsBlockerMessage } from "@/lib/powersync/local-data-gate";
+import {
+  pendingUploadsBlockerMessage,
+  tenantChangedBlockerMessage,
+} from "@/lib/powersync/local-data-gate";
 import type { TenantInvitation, TenantMember } from "@/lib/types";
 import { cn, initialsOf } from "@/lib/utils";
 
@@ -89,15 +93,17 @@ export function SettingsScreen({
   const signOutBlockedExplanation =
     gate.blocker === "sync-failures"
       ? syncFailureExplanation
-      : gate.blocker === "pending-uploads"
-        ? pendingUploadsBlockerMessage(
-            gate.pendingCount,
-            "cerrar sesión",
-            gate.uploadHold
-          )
-        : gate.blocker === "not-synced"
-          ? "Espera a que termine la sincronización antes de cerrar sesión."
-          : null;
+      : gate.blocker === "tenant-changed"
+        ? tenantChangedBlockerMessage("cerrar sesión")
+        : gate.blocker === "pending-uploads"
+          ? pendingUploadsBlockerMessage(
+              gate.pendingCount,
+              "cerrar sesión",
+              gate.uploadHold
+            )
+          : gate.blocker === "not-synced"
+            ? "Espera a que termine la sincronización antes de cerrar sesión."
+            : null;
 
   const switchOverlayLabel = creatingTenant
     ? "Creando tu cuenta…"
@@ -143,6 +149,13 @@ export function SettingsScreen({
             La sincronización requiere recuperación. Abre Diagnósticos antes de
             cambiar de cuenta o cerrar sesión.
           </p>
+        ) : gate.blocker === "tenant-changed" ? (
+          <div className="mb-3 grid gap-2">
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {tenantChangedBlockerMessage("cambiar de cuenta")}
+            </p>
+            <ReloadAppButton />
+          </div>
         ) : gate.blocker === "pending-uploads" ? (
           <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
             {pendingUploadsBlockerMessage(
@@ -350,6 +363,9 @@ export function SettingsScreen({
           >
             {signOutBlockedExplanation}
           </p>
+        ) : null}
+        {gate.blocker === "tenant-changed" ? (
+          <ReloadAppButton className="mb-3" />
         ) : null}
         {signOutError ? (
           <p className="mb-3 text-sm text-destructive" role="alert">

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { acceptInvitation } from "@/app/invitations/actions";
+import { ReloadAppButton } from "@/components/molecules/reload-app-button";
 import { Button } from "@/components/ui/button";
 import { usePowerSyncControls } from "@/components/providers/powersync-provider";
 import { unwrapActionResult } from "@/lib/action-result";
@@ -12,6 +13,7 @@ import {
 } from "@/lib/auth/identity-change";
 import {
   pendingUploadsBlockerMessage,
+  tenantChangedBlockerMessage,
   type LocalDataChangeBlocker,
 } from "@/lib/powersync/local-data-gate";
 import { isUnsyncedLocalDataRefusal } from "@/lib/powersync/local-data-teardown";
@@ -30,6 +32,8 @@ function describeBlocker(
   switch (blocker) {
     case "sync-failures":
       return "Hay operaciones que no llegaron a la nube. Abre Diagnósticos en Ajustes antes de unirte.";
+    case "tenant-changed":
+      return tenantChangedBlockerMessage("unirte");
     case "pending-uploads":
       return pendingUploadsBlockerMessage(pendingCount, "unirte", uploadHold);
     case "not-synced":
@@ -99,6 +103,9 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
         >
           {describeBlocker(gate.blocker, gate.pendingCount, gate.uploadHold)}
         </p>
+      ) : null}
+      {gate.blocker === "tenant-changed" ? (
+        <ReloadAppButton className="mb-3" />
       ) : null}
       {error ? (
         <p role="alert" className="mb-3 text-sm text-destructive">

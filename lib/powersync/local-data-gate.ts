@@ -7,10 +7,13 @@ import {
 /**
  * Why an action that clears the local data (sign-out, switching, creating or
  * joining a tenant) must wait. Clearing empties the upload queue, so it is only
- * allowed once the device is fully synced with nothing left to upload.
+ * allowed once the device is fully synced with nothing left to upload. After
+ * the active tenant changed on another device the device never syncs again
+ * until it reloads, so it says to reload instead of to wait.
  */
 export type LocalDataChangeBlocker =
   | "sync-failures"
+  | "tenant-changed"
   | "pending-uploads"
   | "not-synced";
 
@@ -26,6 +29,11 @@ export function getLocalDataChangeBlocker(input: {
   if (input.failureCount > 0 || input.syncState === "blocked") {
     return "sync-failures";
   }
+  // Ahead of pending uploads: the reload uploads them before it moves the
+  // device to the active tenant.
+  if (input.syncState === "tenant-changed") {
+    return "tenant-changed";
+  }
   if (input.pendingCount > 0) {
     return "pending-uploads";
   }
@@ -39,6 +47,11 @@ export function describePendingUploads(count: number) {
   return count === 1
     ? "Hay 1 operación sin subir a la nube."
     : `Hay ${count} operaciones sin subir a la nube.`;
+}
+
+/** `action` completes "antes de …", e.g. "cerrar sesión". */
+export function tenantChangedBlockerMessage(action: string) {
+  return `Tu puesto activo cambió en otro dispositivo. Recarga la app antes de ${action}.`;
 }
 
 /**

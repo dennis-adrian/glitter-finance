@@ -7,7 +7,7 @@
 //   Client Auth panel). The token's `app_metadata.tenant_id` claim is what
 //   the sync streams use to scope each device's data, so a token whose claim
 //   is not the tenant this device's local data belongs to is never handed
-//   over (see TenantClaimMismatchError).
+//   over (see lib/powersync/tenant-claim.ts).
 //
 // - uploadData: drains PowerSync's local CRUD queue. Sale, void, and refund
 //   transactions go through authenticated Postgres RPCs so the remote commit is
@@ -47,6 +47,10 @@ import {
   recordSyncFailure,
   resolveSyncFailure,
 } from "@/lib/powersync/sync-failures";
+import {
+  ActiveTenantChangedError,
+  TenantClaimMismatchError,
+} from "@/lib/powersync/tenant-claim";
 import {
   DEVICE_CLOCK_AHEAD_CODE,
   recordUploadHold,
@@ -211,24 +215,6 @@ function readTenantIdFromAccessToken(token: string): string | null {
   }
 }
 
-/**
- * The session's tenant claim is not the tenant this device's local data
- * belongs to, even after a refresh. Handing that token to PowerSync would
- * sync another tenant's rows into this database, so fetchCredentials throws
- * instead, and PowerSync retries with backoff. It fixes itself when the
- * refreshed claim catches up (right after a switch or a join); when the
- * active tenant changed on another device, reloading the app moves this
- * device to it.
- */
-export class TenantClaimMismatchError extends Error {
-  constructor() {
-    super(
-      "La sesión todavía no corresponde al puesto de este dispositivo. Si no se corrige sola, recarga la app."
-    );
-    this.name = "TenantClaimMismatchError";
-  }
-}
-
 // PowerSync retries fetchCredentials every few seconds while it throws. A
 // device left on the previous tenant would otherwise refresh its session on
 // every retry until it reloads.
@@ -241,6 +227,11 @@ const HELD_UPLOAD_REPORT_AFTER_MS = 10 * 60_000;
 
 export class SupabaseConnector implements PowerSyncBackendConnector {
   private lastClaimRefreshAt: number | null = null;
+  // The last refresh returned a session that claims another tenant: the
+  // account's active tenant changed on another device. Kept until a token
+  // claims this device's tenant again, so the retries in between (not due for
+  // a refresh, or offline) keep reporting it.
+  private activeTenantChanged = false;
   // The transaction the server is deferring, and since when, by the monotonic
   // clock: the device clock may be corrected while the upload waits.
   private heldUpload: { transactionId?: number; since: number } | null = null;
@@ -275,7 +266,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         this.lastClaimRefreshAt !== null &&
         now - this.lastClaimRefreshAt < CLAIM_REFRESH_INTERVAL_MS
       ) {
-        throw new TenantClaimMismatchError();
+        throw this.claimMismatchError();
       }
       this.lastClaimRefreshAt = now;
       const refreshed = await this.supabase.auth.refreshSession();
@@ -284,17 +275,23 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
           "[PowerSync] Supabase session refresh failed",
           refreshed.error?.message ?? "no session"
         );
-        throw new TenantClaimMismatchError();
+        throw this.claimMismatchError();
       }
       session = refreshed.data.session;
       if (!this.claimsExpectedTenant(session.access_token)) {
+        // A refreshed token carries the Auth server's current app_metadata,
+        // so its claim is the account's active tenant now. A missing claim
+        // is not a change to another tenant; it stays a plain mismatch.
+        this.activeTenantChanged =
+          readTenantIdFromAccessToken(session.access_token) !== null;
         console.warn(
           "[PowerSync] Supabase session claims another tenant than the local data"
         );
-        throw new TenantClaimMismatchError();
+        throw this.claimMismatchError();
       }
     }
 
+    this.activeTenantChanged = false;
     return {
       endpoint: getPublicEnv().powersyncUrl,
       token: session.access_token,
@@ -309,6 +306,12 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
       this.expectedTenantId === null ||
       readTenantIdFromAccessToken(accessToken) === this.expectedTenantId
     );
+  }
+
+  private claimMismatchError(): TenantClaimMismatchError {
+    return this.activeTenantChanged
+      ? new ActiveTenantChangedError()
+      : new TenantClaimMismatchError();
   }
 
   async uploadData(database: AbstractPowerSyncDatabase): Promise<void> {

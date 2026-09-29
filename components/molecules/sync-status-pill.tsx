@@ -5,7 +5,9 @@
 // every screen without interfering with screen-specific layouts.
 //
 // Collapsed by default (dot + label). Tap to expand pending/failure counts
-// or last successful sync timestamp.
+// or last successful sync timestamp. After the active tenant changed on
+// another device, a tap reloads the app instead: that is the only way this
+// device syncs again.
 //
 // PRD §9: "A small persistent indicator shows pending mutation count and
 // last successful sync timestamp."
@@ -22,6 +24,7 @@ const stateLabels: Record<SyncState, string> = {
   syncing: "Sincronizando…",
   synced: "Sincronizado",
   held: "Hora adelantada",
+  "tenant-changed": "Puesto cambiado",
   blocked: "Error de sincronización",
 };
 
@@ -64,6 +67,21 @@ export function SyncStatusPill() {
   }
 
   const isExpanded = expanded && hasMeta;
+
+  if (state === "tenant-changed") {
+    return (
+      <button
+        type="button"
+        className="sync-pill sync-pill-tenant-changed"
+        aria-label="Tu puesto activo cambió en otro dispositivo. Recargar la app"
+        onClick={() => window.location.reload()}
+      >
+        <span className="sync-pill-dot" />
+        <span className="sync-pill-label">{stateLabels[state]}</span>
+        <span className="sync-pill-meta">· Recargar</span>
+      </button>
+    );
+  }
 
   if (!hasMeta) {
     return (

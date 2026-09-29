@@ -578,9 +578,14 @@ writer) so the actions and the existing bootstrap share one implementation.
   server actions pass the tenant B renders and are refused with "Tu puesto
   activo cambió en otro dispositivo. Recarga la app para continuar." rather
   than writing into A's tenant. B's PowerSync connector refuses a token that
-  claims the other tenant, so B stops syncing (Diagnostics says to reload)
-  instead of mixing tenants in its database. Reloading B re-resolves the
-  active tenant (§5.3); its unsynced work is uploaded first (see above).
+  claims the other tenant, so B stops syncing instead of mixing tenants in its
+  database. Once a refreshed token confirms the other tenant, B shows it
+  instead of looking offline: the sync pill reads "Puesto cambiado" and
+  reloads when tapped, and Settings, More, the join page and Diagnostics say
+  to reload, with a button for it. Sign-out, switching, creating and joining
+  wait for that reload. Local writes still upload in the meantime (uploads are
+  authorized by membership). Reloading B re-resolves the active tenant (§5.3);
+  its unsynced work is uploaded first (see above).
 - **Creator's auth user deleted** → `created_by_user_id` / invitation
   `created_by_user_id` go `NULL` (SET NULL); tenant and memberships are
   unaffected; tenant invitations are removed only when the **tenant** is deleted

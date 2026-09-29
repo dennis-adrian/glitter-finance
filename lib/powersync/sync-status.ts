@@ -11,6 +11,7 @@ import {
   getUnresolvedSyncFailureCount,
   reconcileSyncFailures,
 } from "@/lib/powersync/sync-failures";
+import { isActiveTenantChangedError } from "@/lib/powersync/tenant-claim";
 import {
   getUploadHold,
   sameUploadHold,
@@ -25,6 +26,10 @@ export type SyncState =
   // The server defers the head of the queue until its clock catches up with
   // the device time the rows were recorded with (lib/powersync/upload-holds.ts).
   | "held"
+  // The account's active tenant changed on another device, so nothing
+  // downloads until a reload moves this device to it
+  // (lib/powersync/tenant-claim.ts).
+  | "tenant-changed"
   | "blocked";
 
 export type SyncStatusSnapshot = {
@@ -66,9 +71,14 @@ export function deriveSyncState(input: {
   downloading: boolean;
   failureCount: number;
   uploadHeld: boolean;
+  activeTenantChanged: boolean;
 }): SyncState {
   if (input.failureCount > 0) return "blocked";
-  if (!input.connected) return "offline";
+  // Once connected again (the other device switched back), the error is
+  // stale: PowerSync only clears it when the next sync completes.
+  if (!input.connected) {
+    return input.activeTenantChanged ? "tenant-changed" : "offline";
+  }
   // Uploads are attempted and deferred in turn, so the flags below would
   // alternate between syncing and synced while nothing reaches the server.
   if (input.uploadHeld) return "held";
@@ -111,6 +121,9 @@ export function snapshotFromStatus(
       ...flags,
       failureCount: counts.failureCount,
       uploadHeld: uploadHold !== null,
+      activeTenantChanged: isActiveTenantChangedError(
+        status?.dataFlowStatus.downloadError
+      ),
     }),
     ...flags,
     lastSyncedAt: status?.lastSyncedAt ?? null,
