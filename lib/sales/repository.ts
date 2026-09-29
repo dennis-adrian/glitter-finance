@@ -350,34 +350,62 @@ function salesHistoryFilters(tenantId: string, since: Date | undefined) {
   };
 }
 
+/**
+ * The sales, their lines and the refunds selected by `filters`, all read from
+ * one snapshot. A sale commits together with its lines, and a refund after
+ * its sale, but separate statements each see the database as of their own
+ * start, and pooled connections start them in no fixed order: a sale could
+ * load without the lines committed with it, or a refund without its sale.
+ * One repeatable-read transaction reads all three as of its first statement,
+ * on a single connection.
+ */
+function loadSalesHistoryRows(
+  tenantId: string,
+  filters: ReturnType<typeof salesHistoryFilters>,
+  since: Date | undefined
+) {
+  return db.transaction(
+    (tx) =>
+      Promise.all([
+        tx
+          .select()
+          .from(sales)
+          .where(filters.sales)
+          .orderBy(desc(sales.createdAt)),
+        // The lines of the sales loaded above.
+        tx
+          .select()
+          .from(saleLines)
+          .where(
+            since
+              ? and(
+                  eq(saleLines.tenantId, tenantId),
+                  inArray(
+                    saleLines.saleId,
+                    tx.select({ id: sales.id }).from(sales).where(filters.sales)
+                  )
+                )
+              : eq(saleLines.tenantId, tenantId)
+          )
+          .orderBy(asc(saleLines.createdAt)),
+        tx
+          .select()
+          .from(refunds)
+          .where(filters.refunds)
+          .orderBy(desc(refunds.createdAt)),
+      ]),
+    { isolationLevel: "repeatable read", accessMode: "read only" }
+  );
+}
+
 export async function getSalesForTenant(
   tenantId: string,
   { since, members }: GetSalesForTenantOptions = {}
 ): Promise<Sale[]> {
   const filters = salesHistoryFilters(tenantId, since);
-  const [saleRows, lineRows, refundRows, userNameById] = await Promise.all([
-    db.select().from(sales).where(filters.sales).orderBy(desc(sales.createdAt)),
-    // The lines of the sales loaded above.
-    db
-      .select()
-      .from(saleLines)
-      .where(
-        since
-          ? and(
-              eq(saleLines.tenantId, tenantId),
-              inArray(
-                saleLines.saleId,
-                db.select({ id: sales.id }).from(sales).where(filters.sales)
-              )
-            )
-          : eq(saleLines.tenantId, tenantId)
-      )
-      .orderBy(asc(saleLines.createdAt)),
-    db
-      .select()
-      .from(refunds)
-      .where(filters.refunds)
-      .orderBy(desc(refunds.createdAt)),
+  const [[saleRows, lineRows, refundRows], userNameById] = await Promise.all([
+    loadSalesHistoryRows(tenantId, filters, since),
+    // Names need no snapshot: a seller missing from them reads "Vendedor".
     members
       ? Promise.resolve(members).then(
           (loaded) =>
