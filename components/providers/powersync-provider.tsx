@@ -52,12 +52,14 @@ import {
 } from "@/lib/observability/report-sync-failure";
 import {
   canDiscardUnsyncedWork,
+  canUploadUnsyncedWork,
   exportUnsyncedLocalWork,
   planIdentityMismatch,
+  readUnsyncedWorkOwner,
   waitForUploadQueueToDrain,
 } from "@/lib/powersync/identity-mismatch";
 import {
-  drainingRecovery,
+  localDataRecoveryFor,
   type LocalDataRecovery,
 } from "@/lib/powersync/local-data-recovery";
 import {
@@ -232,16 +234,22 @@ export function PowerSyncProvider({
       // tenant. An absent identity is deliberately treated as untrusted (for
       // upgrades from before this marker existed), so stale rows never render:
       // the app stays hidden until the database is cleared. Unsynced work is
-      // never cleared with it; it is uploaded first, or kept until the
-      // identity that can upload it comes back.
+      // never cleared with it unless the user discards it; it is uploaded
+      // first, or kept until the identity that can upload it comes back.
       const storedIdentity = readLocalDataIdentity();
       if (!localDataIdentityMatches(storedIdentity, currentIdentity)) {
+        // Without a marker, the queue itself names whose work it is.
+        const owner = storedIdentity ?? (await readUnsyncedWorkOwner(db));
+        let connectedForUploads = false;
         recoveryControls = {
+          retryUpload: async () => {
+            if (!connectedForUploads || cancelled) return;
+            await db.disconnect();
+            if (!connectedForUploads || cancelled) return;
+            await db.connect(connector);
+          },
           exportUnsyncedWork: () =>
-            exportUnsyncedLocalWork(db, {
-              owner: storedIdentity,
-              session: currentIdentity,
-            }),
+            exportUnsyncedLocalWork(db, { owner, session: currentIdentity }),
           discardUnsyncedWork: () => {
             confirmedDiscardRef.current = currentIdentity;
             setInitializationAttempt((attempt) => attempt + 1);
@@ -255,48 +263,51 @@ export function PowerSyncProvider({
         confirmedDiscardRef.current = null;
 
         const planMismatch = (unsynced: UnsyncedLocalWork) =>
-          planIdentityMismatch({
-            stored: storedIdentity,
-            current: currentIdentity,
-            unsynced,
-          });
+          planIdentityMismatch({ owner, current: currentIdentity, unsynced });
         let unsynced = await readUnsyncedLocalWork(db);
         let plan = planMismatch(unsynced);
         if (cancelled) return;
 
-        if (plan.action === "drain") {
-          const { previousTenantId } = plan;
-          setRecovery(drainingRecovery(previousTenantId, null));
+        // The user saw this work stuck, downloaded a copy if they wanted
+        // one, and confirmed discarding it (LocalDataRecoveryPanel).
+        const discarding = discardConfirmed && canDiscardUnsyncedWork(plan);
+        if (plan.action !== "clear" && !discarding) {
+          const initialProgress = {
+            ...unsynced,
+            uploadError: null,
+            stalled: false,
+          };
+          setRecovery(localDataRecoveryFor(plan, initialProgress));
+          if (!canUploadUnsyncedWork(plan)) {
+            // Another account's work: never uploaded with this session.
+            return;
+          }
+
+          // This user's work, or work nobody can be named for: upload what
+          // the server accepts. A blocked upload stays connected, so it goes
+          // through once its cause is fixed, and the queue then drains.
           connectorRef.current = connector;
           await db.connect(connector);
+          connectedForUploads = true;
           const outcome = await waitForUploadQueueToDrain(db, {
             isCancelled: () => cancelled,
             onProgress: (progress) => {
               if (!cancelled) {
-                setRecovery(drainingRecovery(previousTenantId, progress));
+                setRecovery(
+                  localDataRecoveryFor(planMismatch(progress), progress)
+                );
               }
             },
           });
           if (outcome === "cancelled") return;
+          connectedForUploads = false;
           await db.disconnect();
           unsynced = await readUnsyncedLocalWork(db);
           plan = planMismatch(unsynced);
           if (cancelled) return;
-          if (plan.action === "drain") {
+          if (plan.action !== "clear") {
             throw new Error("The upload queue did not drain.");
           }
-        }
-
-        // The user saw this work stuck, downloaded a copy if they wanted
-        // one, and confirmed discarding it (LocalDataRecoveryPanel).
-        const discarding = discardConfirmed && canDiscardUnsyncedWork(plan);
-        if (plan.action === "block" && !discarding) {
-          setRecovery({
-            kind: "blocked",
-            block: plan.block,
-            pendingUploadCount: unsynced.pendingUploadCount,
-          });
-          return;
         }
 
         setRecovery(null);
@@ -501,6 +512,9 @@ export function PowerSyncProvider({
   // Stable for the provider's lifetime, like `controls`: it reaches the
   // current initialization's database through the ref when a button runs.
   const [recoveryPanelControls] = useState<LocalDataRecoveryControls>(() => ({
+    retryUpload: async () => {
+      await recoveryControlsRef.current?.retryUpload();
+    },
     exportUnsyncedWork: async () => {
       const current = recoveryControlsRef.current;
       if (!current) {

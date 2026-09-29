@@ -25,6 +25,8 @@ import { describeUploadHold } from "@/lib/powersync/upload-holds";
 
 /** What the panel asks of the provider, which holds the local database. */
 export type LocalDataRecoveryControls = {
+  /** Reconnects, so the rejected upload is sent again right away. */
+  retryUpload: () => Promise<void>;
   /** The unsynced work as JSON, for the user to keep before discarding it. */
   exportUnsyncedWork: () => Promise<string>;
   /** Clears the unsynced work and starts over with the session's identity. */
@@ -34,15 +36,14 @@ export type LocalDataRecoveryControls = {
 const SWITCH_BACK_FAILED_MESSAGE = "No se pudo volver al puesto anterior.";
 const EXPORT_FAILED_MESSAGE =
   "No se pudo descargar la copia. Inténtalo de nuevo.";
+const RETRY_FAILED_MESSAGE =
+  "No se pudo reintentar la subida. Revisa la conexión e inténtalo de nuevo.";
 const KEPT_ON_DEVICE = "las operaciones se conservan en este dispositivo";
 
-function drainingMessage(pendingUploadCount: number | null) {
-  if (pendingUploadCount === 1) {
-    return "Subiendo 1 operación pendiente antes de continuar…";
-  }
-  return pendingUploadCount
-    ? `Subiendo ${pendingUploadCount} operaciones pendientes antes de continuar…`
-    : "Subiendo las operaciones pendientes antes de continuar…";
+function drainingMessage(pendingUploadCount: number) {
+  return pendingUploadCount === 1
+    ? "Subiendo 1 operación pendiente antes de continuar…"
+    : `Subiendo ${pendingUploadCount} operaciones pendientes antes de continuar…`;
 }
 
 function drainingDetail(
@@ -97,8 +98,9 @@ function useOnline() {
  * Shown instead of the app while this device holds unsynced work of another
  * identity than the session's. Every state has a way out that keeps the
  * work: going back to the tenant it belongs to, or signing out (which clears
- * nothing). Only when that tenant is out of reach can the user download a
- * copy of the work and, after confirming, discard it.
+ * nothing). Only when no such tenant is within reach (access lost, or work
+ * nobody can be named for) can the user retry the rejected upload, download
+ * a copy of the work and, after confirming, discard it.
  */
 export function LocalDataRecoveryPanel({
   layout,
@@ -111,7 +113,7 @@ export function LocalDataRecoveryPanel({
 }) {
   const online = useOnline();
   const [pending, setPending] = useState<
-    "switch-back" | "sign-out" | "discard" | null
+    "switch-back" | "sign-out" | "retry" | "discard" | null
   >(null);
   const busy = pending !== null;
   const [error, setError] = useState<string | null>(null);
@@ -201,6 +203,19 @@ export function LocalDataRecoveryPanel({
     }
   }
 
+  async function handleRetry() {
+    setPending("retry");
+    setError(null);
+    try {
+      await controls.retryUpload();
+    } catch (retryError) {
+      console.error("[local-data-recovery] retry failed", retryError);
+      setError(RETRY_FAILED_MESSAGE);
+    } finally {
+      setPending(null);
+    }
+  }
+
   function handleDiscard() {
     setPending("discard");
     // The provider starts over and replaces this panel.
@@ -275,9 +290,13 @@ export function LocalDataRecoveryPanel({
       <LocalDataPanel
         layout={layout}
         tone="alert"
-        message={`¿Descartar las operaciones sin subir? ${describePendingUploads(
-          recovery.pendingUploadCount
-        )}`}
+        message={
+          recovery.pendingUploadCount > 0
+            ? `¿Descartar las operaciones sin subir? ${describePendingUploads(
+                recovery.pendingUploadCount
+              )}`
+            : "¿Descartar las operaciones sin subir?"
+        }
         detail={
           error ??
           `Se borrarán de este dispositivo y nunca llegarán a la nube. ${
@@ -314,16 +333,31 @@ export function LocalDataRecoveryPanel({
         layout={layout}
         tone="alert"
         message={
-          previousTenantAccess === "lost"
-            ? "Ya no tienes acceso al puesto de estas operaciones, y la nube no las acepta."
-            : "Hay operaciones tuyas que no llegaron a la nube, y no hay un puesto al que volver para revisarlas."
+          block.reason === "unattributed"
+            ? "Este dispositivo tiene operaciones sin subir que la nube rechaza, y no se sabe de qué cuenta son."
+            : previousTenantAccess === "lost"
+              ? "Ya no tienes acceso al puesto de estas operaciones, y la nube no las acepta."
+              : "Hay operaciones tuyas que la nube rechaza, y no hay un puesto al que volver para revisarlas."
         }
         detail={
           error ??
-          `Descarga una copia para registrarlas de nuevo y descártalas para continuar. Hasta entonces, ${KEPT_ON_DEVICE}.`
+          `${
+            recovery.uploadError
+              ? `La nube responde: ${recovery.uploadError}. `
+              : ""
+          }La subida se reintenta mientras la app esté abierta. Si la nube las sigue rechazando, descarga una copia para registrarlas de nuevo y descártalas para continuar. Hasta entonces, ${KEPT_ON_DEVICE}.`
         }
       >
+        {actions.retry ? (
+          <LocalDataPanelButton
+            disabled={busy}
+            onClick={() => void handleRetry()}
+          >
+            {pending === "retry" ? "Reintentando…" : "Reintentar subida"}
+          </LocalDataPanelButton>
+        ) : null}
         <LocalDataPanelButton
+          variant={actions.retry ? "secondary" : "primary"}
           disabled={busy}
           onClick={() => void handleDownload()}
         >

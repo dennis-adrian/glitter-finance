@@ -3,8 +3,11 @@ import test from "node:test";
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import {
   canDiscardUnsyncedWork,
+  canUploadUnsyncedWork,
   exportUnsyncedLocalWork,
   planIdentityMismatch,
+  readUnsyncedWorkOwner,
+  unsyncedWorkOwner,
   waitForUploadQueueToDrain,
   type UploadQueueProgress,
 } from "@/lib/powersync/identity-mismatch";
@@ -27,13 +30,13 @@ const failed = {
 };
 
 test("a mismatch with nothing unsynced clears the device", () => {
-  for (const stored of [
+  for (const owner of [
     null,
     { userId: "user-a", tenantId: "tenant-a" },
     { userId: "user-z", tenantId: "tenant-z" },
   ]) {
     assert.deepEqual(
-      planIdentityMismatch({ stored, current, unsynced: nothingUnsynced }),
+      planIdentityMismatch({ owner, current, unsynced: nothingUnsynced }),
       { action: "clear" }
     );
   }
@@ -42,7 +45,7 @@ test("a mismatch with nothing unsynced clears the device", () => {
 test("the same user's pending uploads for another tenant drain first", () => {
   assert.deepEqual(
     planIdentityMismatch({
-      stored: { userId: "user-a", tenantId: "tenant-a" },
+      owner: { userId: "user-a", tenantId: "tenant-a" },
       current,
       unsynced: pendingOnly,
     }),
@@ -53,7 +56,7 @@ test("the same user's pending uploads for another tenant drain first", () => {
 test("a sync failure in the previous tenant blocks and points back to it", () => {
   assert.deepEqual(
     planIdentityMismatch({
-      stored: { userId: "user-a", tenantId: "tenant-a" },
+      owner: { userId: "user-a", tenantId: "tenant-a" },
       current,
       unsynced: failed,
     }),
@@ -66,31 +69,88 @@ test("a sync failure in the previous tenant blocks and points back to it", () =>
 
 test("another user's unsynced work is never cleared or uploaded", () => {
   for (const unsynced of [pendingOnly, failed]) {
-    assert.deepEqual(
-      planIdentityMismatch({
-        stored: {
-          userId: "user-z",
-          tenantId: "tenant-z",
-          email: "ana@example.com",
-        },
-        current,
-        unsynced,
-      }),
-      {
-        action: "block",
-        block: { reason: "other-account", accountEmail: "ana@example.com" },
-      }
-    );
+    const plan = planIdentityMismatch({
+      owner: {
+        userId: "user-z",
+        tenantId: "tenant-z",
+        email: "ana@example.com",
+      },
+      current,
+      unsynced,
+    });
+    assert.deepEqual(plan, {
+      action: "block",
+      block: { reason: "other-account", accountEmail: "ana@example.com" },
+    });
+    assert.equal(canUploadUnsyncedWork(plan), false);
   }
 });
 
-test("unattributed pending uploads drain, and block once they fail", () => {
+test("work nobody can be named for drains, and blocks as unattributed once it fails", () => {
+  const draining = planIdentityMismatch({
+    owner: null,
+    current,
+    unsynced: pendingOnly,
+  });
+  assert.deepEqual(draining, { action: "drain", previousTenantId: null });
+  assert.equal(canUploadUnsyncedWork(draining), true);
+
+  const blocked = planIdentityMismatch({
+    owner: null,
+    current,
+    unsynced: failed,
+  });
+  assert.deepEqual(blocked, {
+    action: "block",
+    block: { reason: "unattributed" },
+  });
+  // Any account used to reach this block before; now the upload keeps being
+  // retried and the user can discard the work.
+  assert.equal(canUploadUnsyncedWork(blocked), true);
+  assert.equal(canDiscardUnsyncedWork(blocked), true);
+});
+
+test("without a marker, the owner the queue names gets its own path", () => {
+  // The owner signs in on another tenant: the same-user path, with its way
+  // back.
   assert.deepEqual(
-    planIdentityMismatch({ stored: null, current, unsynced: pendingOnly }),
-    { action: "drain", previousTenantId: null }
+    planIdentityMismatch({
+      owner: unsyncedWorkOwner([sale("user-a", "tenant-a")]),
+      current,
+      unsynced: failed,
+    }),
+    {
+      action: "block",
+      block: { reason: "previous-tenant", previousTenantId: "tenant-a" },
+    }
+  );
+  // The queue names the session's own tenant: nothing to go back to.
+  assert.deepEqual(
+    planIdentityMismatch({
+      owner: unsyncedWorkOwner([sale("user-a", "tenant-b")]),
+      current,
+      unsynced: failed,
+    }),
+    {
+      action: "block",
+      block: { reason: "previous-tenant", previousTenantId: null },
+    }
   );
   assert.deepEqual(
-    planIdentityMismatch({ stored: null, current, unsynced: failed }),
+    planIdentityMismatch({
+      owner: unsyncedWorkOwner([sale("user-a", "tenant-b")]),
+      current,
+      unsynced: pendingOnly,
+    }),
+    { action: "drain", previousTenantId: null }
+  );
+  // Another user signs in: blocked before any upload is rejected.
+  assert.deepEqual(
+    planIdentityMismatch({
+      owner: unsyncedWorkOwner([sale("user-z", "tenant-z")]),
+      current,
+      unsynced: pendingOnly,
+    }),
     {
       action: "block",
       block: { reason: "other-account", accountEmail: null },
@@ -99,8 +159,8 @@ test("unattributed pending uploads drain, and block once they fail", () => {
 });
 
 test("only this user's own stuck work can be discarded", () => {
-  const plan = (stored: { userId: string; tenantId: string } | null) =>
-    planIdentityMismatch({ stored, current, unsynced: failed });
+  const plan = (owner: { userId: string; tenantId: string } | null) =>
+    planIdentityMismatch({ owner, current, unsynced: failed });
 
   assert.equal(
     canDiscardUnsyncedWork(plan({ userId: "user-a", tenantId: "tenant-a" })),
@@ -113,13 +173,98 @@ test("only this user's own stuck work can be discarded", () => {
   assert.equal(
     canDiscardUnsyncedWork(
       planIdentityMismatch({
-        stored: { userId: "user-a", tenantId: "tenant-a" },
+        owner: { userId: "user-a", tenantId: "tenant-a" },
         current,
         unsynced: pendingOnly,
       })
     ),
     false
   );
+});
+
+function sale(userId: string, tenantId: string) {
+  return {
+    table: "sales",
+    data: { id: "sale-1", tenant_id: tenantId, user_id: userId },
+  };
+}
+
+test("the queue names its owner by the user its writes carry", () => {
+  assert.deepEqual(
+    unsyncedWorkOwner([
+      sale("user-a", "tenant-a"),
+      { table: "sale_lines", data: { tenant_id: "tenant-a" } },
+      {
+        table: "refunds",
+        data: { tenant_id: "tenant-a", user_id: "user-a" },
+      },
+      {
+        table: "inventory_movements",
+        data: { tenant_id: "tenant-a", user_id: "user-a" },
+      },
+    ]),
+    { userId: "user-a", tenantId: "tenant-a", email: null }
+  );
+  // A void only carries who voided it, not the tenant.
+  assert.deepEqual(
+    unsyncedWorkOwner([
+      {
+        table: "sales",
+        data: {
+          voided_at: "2026-09-28T12:00:00.000Z",
+          voided_by_user_id: "user-a",
+        },
+      },
+    ]),
+    { userId: "user-a", tenantId: null, email: null }
+  );
+  assert.deepEqual(
+    unsyncedWorkOwner([sale("user-a", "tenant-a"), sale("user-a", "tenant-c")]),
+    { userId: "user-a", tenantId: null, email: null }
+  );
+});
+
+test("a queue that names no user, or several, has no owner", () => {
+  assert.equal(
+    unsyncedWorkOwner([
+      { table: "products", data: { tenant_id: "tenant-a", name: "Aretes" } },
+      { table: "products", data: { price_cents: 1500 } },
+      // Not a column that names who recorded the write.
+      { table: "tenant_users", data: { user_id: "user-z" } },
+    ]),
+    null
+  );
+  assert.equal(
+    unsyncedWorkOwner([sale("user-a", "tenant-a"), sale("user-z", "tenant-a")]),
+    null
+  );
+});
+
+test("the owner is read from the upload queue rows", async () => {
+  const db = {
+    getAll: async (sql: string) =>
+      /FROM ps_crud/.test(sql)
+        ? [
+            {
+              id: 1,
+              tx_id: 1,
+              data: JSON.stringify({
+                op: "PUT",
+                type: "sales",
+                id: "sale-1",
+                data: { tenant_id: "tenant-a", user_id: "user-a" },
+              }),
+            },
+            { id: 2, tx_id: 2, data: "not json" },
+          ]
+        : [],
+  } as unknown as AbstractPowerSyncDatabase;
+
+  assert.deepEqual(await readUnsyncedWorkOwner(db), {
+    userId: "user-a",
+    tenantId: "tenant-a",
+    email: null,
+  });
 });
 
 function queueDb(
@@ -286,19 +431,29 @@ test("draining re-checks as soon as the sync status changes", async () => {
   assert.equal(await drained, "drained");
 });
 
-test("draining stops when a permanent failure blocks the queue", async () => {
+test("a permanent failure keeps the drain waiting until a retry goes through", async () => {
   const { db } = queueDb([
     { pending: 1, failures: 0 },
     { pending: 1, failures: 1 },
+    { pending: 1, failures: 1 },
+    { pending: 0, failures: 0 },
   ]);
+  const progress: Array<[number, boolean]> = [];
 
   assert.equal(
     await waitForUploadQueueToDrain(db, {
       isCancelled: () => false,
+      onProgress: ({ unresolvedFailureCount, stalled }) =>
+        progress.push([unresolvedFailureCount, stalled]),
       pollIntervalMs: 1,
     }),
-    "failed"
+    "drained"
   );
+  assert.deepEqual(progress, [
+    [0, false],
+    [1, true],
+    [1, true],
+  ]);
 });
 
 test("draining stops when the provider unmounts", async () => {

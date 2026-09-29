@@ -18,9 +18,19 @@ export type IdentityMismatchBlock =
       accountEmail: string | null;
     }
   | {
-      /** This user's writes for another tenant, stuck on a sync failure. */
+      /**
+       * This user's writes stuck on a sync failure, with the tenant they were
+       * recorded in when it is another one than the session's.
+       */
       reason: "previous-tenant";
       previousTenantId: string | null;
+    }
+  | {
+      /**
+       * Writes that name no user, from a device without an identity marker,
+       * stuck on a sync failure.
+       */
+      reason: "unattributed";
     };
 
 export type IdentityMismatchPlan =
@@ -40,11 +50,15 @@ export type IdentityMismatchPlan =
  * Clearing is only allowed once nothing is left to upload.
  */
 export function planIdentityMismatch(input: {
-  stored: LocalDataIdentity | null;
+  /**
+   * Whose work the device holds: its identity marker, or without one the
+   * owner its queue names (readUnsyncedWorkOwner).
+   */
+  owner: LocalDataIdentity | null;
   current: LocalDataIdentity;
   unsynced: UnsyncedLocalWork;
 }): IdentityMismatchPlan {
-  const { stored, current, unsynced } = input;
+  const { owner, current, unsynced } = input;
   if (
     unsynced.pendingUploadCount === 0 &&
     unsynced.unresolvedFailureCount === 0
@@ -52,31 +66,50 @@ export function planIdentityMismatch(input: {
     return { action: "clear" };
   }
 
-  if (stored?.userId === current.userId) {
-    // RPCs and RLS authorize uploads by membership, not by the active-tenant
-    // claim, so the same user can still upload the previous tenant's queue.
-    if (unsynced.unresolvedFailureCount === 0) {
-      return { action: "drain", previousTenantId: stored.tenantId };
-    }
-    // A failed transaction stays at the head of the queue; only that
-    // tenant's Diagnostics screen can resolve it.
+  if (!owner) {
+    // Nobody can be named for the work: the server decides who may upload
+    // it, and a rejected upload is kept as a sync failure.
+    return unsynced.unresolvedFailureCount === 0
+      ? { action: "drain", previousTenantId: null }
+      : { action: "block", block: { reason: "unattributed" } };
+  }
+
+  if (owner.userId !== current.userId) {
+    // The financial RPCs and RLS only accept a user's writes from that user.
     return {
       action: "block",
-      block: { reason: "previous-tenant", previousTenantId: stored.tenantId },
+      block: { reason: "other-account", accountEmail: owner.email ?? null },
     };
   }
 
-  // No marker (a device upgraded from before it existed): the server decides
-  // who may upload, and a rejected upload is kept as a sync failure, which
-  // blocks on the next plan instead of being lost.
-  if (!stored && unsynced.unresolvedFailureCount === 0) {
-    return { action: "drain", previousTenantId: null };
+  // RPCs and RLS authorize uploads by membership, not by the active-tenant
+  // claim, so the same user can still upload the previous tenant's queue.
+  // Without a marker, the queue can name the session's own tenant, which is
+  // no tenant to go back to.
+  const previousTenantId =
+    owner.tenantId !== current.tenantId ? owner.tenantId : null;
+  if (unsynced.unresolvedFailureCount === 0) {
+    return { action: "drain", previousTenantId };
   }
-
+  // A failed transaction stays at the head of the queue; that tenant's
+  // Diagnostics screen can resolve it.
   return {
     action: "block",
-    block: { reason: "other-account", accountEmail: stored?.email ?? null },
+    block: { reason: "previous-tenant", previousTenantId },
   };
+}
+
+/**
+ * Whether the session may upload the work: its own, or work nobody can be
+ * named for, which the server accepts or rejects. Such a plan keeps the
+ * database connected even while blocked, so an upload rejected for a cause
+ * fixed meanwhile on the server (SQL applied late) goes through on a retry.
+ */
+export function canUploadUnsyncedWork(plan: IdentityMismatchPlan): boolean {
+  return (
+    plan.action === "drain" ||
+    (plan.action === "block" && plan.block.reason !== "other-account")
+  );
 }
 
 /**
@@ -104,13 +137,14 @@ export type UploadQueueProgress = UnsyncedLocalWork & {
   stalled: boolean;
 };
 
-export type UploadQueueDrainOutcome = "drained" | "failed" | "cancelled";
+export type UploadQueueDrainOutcome = "drained" | "cancelled";
 
 /**
- * Waits, on a connected database, until the upload queue is empty or a
- * permanent failure blocks it. Re-checks on every status change and at least
- * every `pollIntervalMs`; transient failures (offline) keep waiting, and are
- * reported through `onProgress` as a stalled wait.
+ * Waits, on a connected database, until the upload queue is empty and no sync
+ * failure is left. Re-checks on every status change and at least every
+ * `pollIntervalMs`. A failure, or a transient error (offline), keeps it
+ * waiting, since PowerSync retries the upload while connected; it is reported
+ * through `onProgress` as a stalled wait.
  */
 export async function waitForUploadQueueToDrain(
   db: AbstractPowerSyncDatabase,
@@ -132,8 +166,12 @@ export async function waitForUploadQueueToDrain(
     if (options.isCancelled()) return "cancelled";
     const unsynced = await readUnsyncedLocalWork(db);
     if (options.isCancelled()) return "cancelled";
-    if (unsynced.unresolvedFailureCount > 0) return "failed";
-    if (unsynced.pendingUploadCount === 0) return "drained";
+    if (
+      unsynced.pendingUploadCount === 0 &&
+      unsynced.unresolvedFailureCount === 0
+    ) {
+      return "drained";
+    }
     if (unsynced.pendingUploadCount < fewestPending) {
       fewestPending = unsynced.pendingUploadCount;
       lastUploadAt = now();
@@ -145,6 +183,7 @@ export async function waitForUploadQueueToDrain(
       ...unsynced,
       uploadError,
       stalled:
+        unsynced.unresolvedFailureCount > 0 ||
         uploadError !== null ||
         unsynced.uploadHold !== null ||
         now() - lastUploadAt >= stallAfterMs,
@@ -210,6 +249,52 @@ function parseQueuedOperation(row: QueuedOperationRow): QueuedOperation | null {
 function readQueueRows(db: AbstractPowerSyncDatabase) {
   return db.getAll<QueuedOperationRow>(
     `SELECT id, tx_id, data FROM ps_crud ORDER BY id`
+  );
+}
+
+// The columns that name the user who recorded a queued write: the seller of a
+// sale or refund, whoever voided a sale, whoever counted stock. The financial
+// RPCs and the inventory_movements RLS policy accept them only from that user.
+const OWNER_COLUMNS: Record<string, readonly string[]> = {
+  sales: ["user_id", "voided_by_user_id"],
+  refunds: ["user_id"],
+  inventory_movements: ["user_id"],
+};
+
+/**
+ * Whose work a queue holds, for a device without an identity marker: the one
+ * user its writes name, with the one tenant they name (null when they name
+ * none or several). Null when the writes name no user (product edits only)
+ * or several.
+ */
+export function unsyncedWorkOwner(
+  operations: readonly Pick<QueuedOperation, "table" | "data">[]
+): LocalDataIdentity | null {
+  const userIds = new Set<string>();
+  const tenantIds = new Set<string>();
+  for (const { table, data } of operations) {
+    for (const column of OWNER_COLUMNS[table] ?? []) {
+      const userId = data?.[column];
+      if (typeof userId === "string" && userId) userIds.add(userId);
+    }
+    const tenantId = data?.tenant_id;
+    if (typeof tenantId === "string" && tenantId) tenantIds.add(tenantId);
+  }
+  if (userIds.size !== 1) return null;
+  return {
+    userId: [...userIds][0],
+    tenantId: tenantIds.size === 1 ? [...tenantIds][0] : null,
+    email: null,
+  };
+}
+
+/** The owner the upload queue names (unsyncedWorkOwner). */
+export async function readUnsyncedWorkOwner(
+  db: AbstractPowerSyncDatabase
+): Promise<LocalDataIdentity | null> {
+  const rows = await readQueueRows(db);
+  return unsyncedWorkOwner(
+    rows.flatMap((row) => parseQueuedOperation(row) ?? [])
   );
 }
 

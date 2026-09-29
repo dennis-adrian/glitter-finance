@@ -6,6 +6,7 @@
 
 import type {
   IdentityMismatchBlock,
+  IdentityMismatchPlan,
   UploadQueueProgress,
 } from "@/lib/powersync/identity-mismatch";
 import type { UploadHold } from "@/lib/powersync/upload-holds";
@@ -13,7 +14,7 @@ import type { UploadHold } from "@/lib/powersync/upload-holds";
 export type LocalDataRecovery =
   | {
       kind: "draining";
-      pendingUploadCount: number | null;
+      pendingUploadCount: number;
       uploadHold: UploadHold | null;
       uploadError: string | null;
       stalled: boolean;
@@ -24,19 +25,30 @@ export type LocalDataRecovery =
       kind: "blocked";
       block: IdentityMismatchBlock;
       pendingUploadCount: number;
+      /** The last upload attempt's error, while uploads keep being retried. */
+      uploadError: string | null;
     };
 
-export function drainingRecovery(
-  previousTenantId: string | null,
-  progress: UploadQueueProgress | null
+/** The panel for a plan that is not "clear", as the upload queue stands. */
+export function localDataRecoveryFor(
+  plan: IdentityMismatchPlan,
+  progress: UploadQueueProgress
 ): LocalDataRecovery {
+  if (plan.action === "block") {
+    return {
+      kind: "blocked",
+      block: plan.block,
+      pendingUploadCount: progress.pendingUploadCount,
+      uploadError: progress.uploadError,
+    };
+  }
   return {
     kind: "draining",
-    pendingUploadCount: progress?.pendingUploadCount ?? null,
-    uploadHold: progress?.uploadHold ?? null,
-    uploadError: progress?.uploadError ?? null,
-    stalled: progress?.stalled ?? false,
-    previousTenantId,
+    pendingUploadCount: progress.pendingUploadCount,
+    uploadHold: progress.uploadHold,
+    uploadError: progress.uploadError,
+    stalled: progress.stalled,
+    previousTenantId: plan.action === "drain" ? plan.previousTenantId : null,
   };
 }
 
@@ -50,6 +62,8 @@ export type LocalDataRecoveryActions = {
   /** "Volver al puesto anterior": the tenant to switch back to. */
   switchBackTo: string | null;
   signOut: boolean;
+  /** Reconnect, so the rejected upload is sent again right away. */
+  retry: boolean;
   /** Download a copy of the work and, once confirmed, discard it. */
   discard: boolean;
 };
@@ -57,6 +71,7 @@ export type LocalDataRecoveryActions = {
 const noActions: LocalDataRecoveryActions = {
   switchBackTo: null,
   signOut: false,
+  retry: false,
   discard: false,
 };
 
@@ -84,12 +99,18 @@ export function localDataRecoveryActions(
     return { ...noActions, signOut: true };
   }
 
-  const switchBackTo = reachable(block.previousTenantId);
+  const switchBackTo =
+    block.reason === "previous-tenant"
+      ? reachable(block.previousTenantId)
+      : null;
+  // In its own tenant, Diagnostics resolves or discards each failure
+  // precisely; these are for when no such tenant is within reach. Without
+  // access to it, the server rejects the retry too.
+  const stuck = switchBackTo === null;
   return {
     switchBackTo,
     signOut: true,
-    // In its own tenant, Diagnostics resolves or discards each failure
-    // precisely; this is for when that tenant is out of reach.
-    discard: switchBackTo === null,
+    retry: stuck && previousTenantAccess !== "lost",
+    discard: stuck,
   };
 }
