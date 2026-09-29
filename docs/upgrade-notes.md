@@ -287,6 +287,9 @@ When they pass, repeat steps 1–8 on production.
   error, and a void that loses to a refund is reverted at the next sync.
   Nothing is lost.
 - Signing out now signs out only the current device.
+- Confirming an email address no longer signs in. The link opens the sign-in
+  screen with "Tu correo está confirmado", and the user signs in with the
+  password they chose.
 - A device whose clock runs more than 5 minutes ahead no longer uploads
   future-dated sales. Its sync pill reads "Hora adelantada" and its uploads
   wait until real time reaches the time they were recorded with; correcting

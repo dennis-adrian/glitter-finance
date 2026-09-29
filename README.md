@@ -226,8 +226,18 @@ PKCE code exchange that needs a cookie only the browser that asked for the
 email has, so it failed when the email was opened in the installed iOS app, an
 email app's browser or another device. `next` carries the redirect URL the app
 sent (`/auth/callback?next=…`), and the confirm route continues to that URL's
-`next` path, such as an invitation link. A recovery link always continues to
-`/auth/update-password`, where the user sets the new password. The app keeps
+`next` path, such as an invitation link. The route accepts only `type=email`
+and `type=recovery`.
+
+Because a link works in any browser, whoever holds one can also open it in
+someone else's. So a confirmation link does not sign in: the route verifies it
+with a client that keeps the session to itself and revokes it, leaves the
+browser's cookies (and any session in them) alone, and opens the sign-in
+screen with "Tu correo está confirmado", which then continues to `next`.
+Otherwise anyone could create an account, keep its unused link, and send it
+to a seller whose browser would record sales into that account. A recovery
+link does sign in, since the password form needs the session, and always
+continues to `/auth/update-password`, which names the account. The app keeps
 sending the callback URL as the redirect URL, so the redirect allow list needs
 no new entry. `/auth/callback` still serves Google sign-in and emails that use
 the default link.

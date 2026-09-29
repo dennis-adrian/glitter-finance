@@ -4,16 +4,20 @@ import {
   buildEmailLinkTemplate,
   EMAIL_LINK_PATH,
   parseEmailLinkType,
+  resolveEmailLinkDestination,
   resolveEmailLinkNext,
 } from "@/lib/auth/email-link";
 import { buildAuthCallbackUrl } from "@/lib/auth/oauth";
 
 const ORIGIN = "http://localhost:3000";
 
-test("accepts only Supabase email link types", () => {
+test("accepts only the link types the email templates send", () => {
   assert.equal(parseEmailLinkType("email"), "email");
   assert.equal(parseEmailLinkType("recovery"), "recovery");
-  assert.equal(parseEmailLinkType("signup"), "signup");
+  // GoTrue verifies these too, but no email of this app links to them.
+  for (const type of ["signup", "magiclink", "invite", "email_change"]) {
+    assert.equal(parseEmailLinkType(type), null, type);
+  }
   assert.equal(parseEmailLinkType("sms"), null);
   assert.equal(parseEmailLinkType("Email"), null);
   assert.equal(parseEmailLinkType(""), null);
@@ -70,6 +74,26 @@ test("an email link never redirects off this site", () => {
     assert.equal(new URL(resolved, ORIGIN).origin, ORIGIN, next);
     assert.ok(!resolved.startsWith("//"), next);
   }
+});
+
+test("a confirmed email opens sign-in, which continues to next", () => {
+  assert.equal(
+    resolveEmailLinkDestination("email", "/join/invite-123", ORIGIN),
+    "/login?mode=signin&message=email_confirmed&next=%2Fjoin%2Finvite-123"
+  );
+  assert.equal(
+    resolveEmailLinkDestination("email", "/", ORIGIN),
+    "/login?mode=signin&message=email_confirmed"
+  );
+  // Signing in never lands on the password form.
+  assert.equal(
+    resolveEmailLinkDestination(
+      "email",
+      "/auth/update-password?next=%2Fsales",
+      ORIGIN
+    ),
+    "/login?mode=signin&message=email_confirmed&next=%2Fsales"
+  );
 });
 
 function fillTemplate(

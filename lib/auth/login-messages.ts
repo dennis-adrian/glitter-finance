@@ -22,6 +22,8 @@ export const LOGIN_ERROR_MESSAGES = {
 export const LOGIN_STATUS_MESSAGES = {
   signup_check_email:
     "Cuenta creada. Revisa tu correo electrónico para confirmarla y luego inicia sesión.",
+  email_confirmed:
+    "Tu correo está confirmado. Iniciá sesión con tu contraseña.",
   // The same text whether or not the account exists, so the form does not
   // tell anyone which emails have an account.
   password_reset_requested:

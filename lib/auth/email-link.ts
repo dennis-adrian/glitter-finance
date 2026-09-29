@@ -1,7 +1,9 @@
 import type { EmailOtpType } from "@supabase/supabase-js";
+import { buildLoginRedirectPath } from "@/lib/auth/oauth";
 import {
   buildUpdatePasswordPath,
   isUpdatePasswordPath,
+  skipPasswordForm,
 } from "@/lib/auth/password-reset";
 import { sanitizeRedirectPath } from "@/lib/auth/redirect";
 import { isAbsoluteHttpUrl } from "@/lib/invitations/validation";
@@ -9,22 +11,24 @@ import { isAbsoluteHttpUrl } from "@/lib/invitations/validation";
 /**
  * Where the links in Supabase's auth emails land (app/auth/confirm).
  *
- * The link carries a token hash that verifyOtp exchanges for a session, so
- * it works in any browser: the installed iOS PWA (which has its own cookie
- * jar), an email app's in-app browser or another device. Supabase's default
+ * The link carries a token hash that verifyOtp checks, so it works in any
+ * browser: the installed iOS PWA (which has its own cookie jar), an email
+ * app's in-app browser or another device. Supabase's default
  * {{ .ConfirmationURL }} goes through a PKCE code exchange instead, which
  * needs the code verifier cookie that only the browser that asked for the
  * email has.
+ *
+ * Working in any browser also means that whoever holds a link can open it in
+ * someone else's, so only a recovery link signs in (see
+ * resolveEmailLinkDestination).
  */
 export const EMAIL_LINK_PATH = "/auth/confirm";
 
+// The types the templates in emails/ send. GoTrue accepts others (signup,
+// magiclink, invite, email_change) that this app never links to.
 const EMAIL_LINK_TYPES = [
   "email",
-  "signup",
   "recovery",
-  "invite",
-  "magiclink",
-  "email_change",
 ] as const satisfies readonly EmailOtpType[];
 
 export type EmailLinkType = (typeof EMAIL_LINK_TYPES)[number];
@@ -77,14 +81,29 @@ export function resolveEmailLinkNext(
 }
 
 /**
- * Where a verified link goes. A recovery link always reaches the password
- * form, whatever its `next` says, and the form continues to that `next`.
+ * Where a verified link goes.
+ *
+ * A confirmation link only confirms the address; app/auth/confirm does not
+ * keep its session. Anyone can create an account, keep its unused link and
+ * send it to someone else: if the link signed in, it would silently sign
+ * that person's browser into the sender's account, and their sales would be
+ * recorded there. So the link opens sign-in, which then continues to
+ * `next`.
+ *
+ * A recovery link signs in, because the password form needs the session,
+ * and always reaches that form, whatever its `next` says. The form names the
+ * account, and continues to `next` once the password is saved.
  */
 export function resolveEmailLinkDestination(
   type: EmailLinkType,
-  next: string
+  next: string,
+  origin: string
 ): string {
-  return type === "recovery" && !isUpdatePasswordPath(next)
-    ? buildUpdatePasswordPath(next)
-    : next;
+  if (type === "email") {
+    return buildLoginRedirectPath(
+      { message: "email_confirmed", mode: "signin" },
+      skipPasswordForm(next, origin)
+    );
+  }
+  return isUpdatePasswordPath(next) ? next : buildUpdatePasswordPath(next);
 }

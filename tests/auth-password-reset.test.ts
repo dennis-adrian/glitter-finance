@@ -47,23 +47,20 @@ test("the password form never continues to itself or off the site", () => {
 
 test("a verified recovery link always opens the password form", () => {
   assert.equal(
-    resolveEmailLinkDestination("recovery", "/"),
+    resolveEmailLinkDestination("recovery", "/", ORIGIN),
     UPDATE_PASSWORD_PATH
   );
   assert.equal(
-    resolveEmailLinkDestination("recovery", "/join/invite-123"),
+    resolveEmailLinkDestination("recovery", "/join/invite-123", ORIGIN),
     "/auth/update-password?next=%2Fjoin%2Finvite-123"
   );
   assert.equal(
     resolveEmailLinkDestination(
       "recovery",
-      "/auth/update-password?next=%2Fjoin%2Finvite-123"
+      "/auth/update-password?next=%2Fjoin%2Finvite-123",
+      ORIGIN
     ),
     "/auth/update-password?next=%2Fjoin%2Finvite-123"
-  );
-  assert.equal(
-    resolveEmailLinkDestination("email", "/join/invite-123"),
-    "/join/invite-123"
   );
 });
 
@@ -86,7 +83,8 @@ test("the recovery email leads to the form, then to the original next", () => {
 
   const destination = resolveEmailLinkDestination(
     "recovery",
-    resolveEmailLinkNext(link.searchParams.get("next"), link.origin)
+    resolveEmailLinkNext(link.searchParams.get("next"), link.origin),
+    link.origin
   );
   assert.equal(destination, "/auth/update-password?next=%2Fjoin%2Finvite-123");
 
