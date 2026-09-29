@@ -84,8 +84,9 @@ explicitly rejected.
 
 Sales and refunds are append-only with client-generated UUIDs, so two devices
 never collide: each sale is a brand-new row. But **product edits use
-last-write-wins** (parent §9; the upload connector at
-`lib/powersync/connector.ts` PATCHes changed columns with no merge). A stock
+last-write-wins** (parent §9): for each column, Postgres keeps the change with
+the newer `updated_at`
+(`supabase/manual/20260926130100_products_last_write_wins.sql`). A stock
 counter is a mutable field mutated concurrently by multiple offline writers,
 which is exactly what last-write-wins destroys:
 

@@ -85,6 +85,13 @@
       "when": 1790520344970,
       "tag": "20260927144544_products_name_category_length_checks",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790640066070,
+      "tag": "20260929000106_products_field_updated_at",
+      "breakpoints": true
     }
   ]
 }

@@ -71,36 +71,100 @@ SELECT tests.throws(
 );
 
 -- ---------------------------------------------------------------------------
--- Product edits: the newer updated_at wins
+-- Product edits: per column, the newer updated_at wins
 -- ---------------------------------------------------------------------------
 
-SELECT tests.is(
-  tests.affected_rows(format(
-    'UPDATE public.products SET name = %L, updated_at = now() - interval %L WHERE id = %L',
-    'Edición vieja', '1 minute', :'product_a'
-  )),
-  1,
-  'a stale product edit still matches its row, so the uploader moves on'
-);
-SELECT tests.is(
-  (SELECT name FROM public.products WHERE id = :'product_a'),
-  'Sticker',
-  'the stale edit does not overwrite the newer one'
-);
-SELECT tests.is(
-  tests.affected_rows(format(
-    'UPDATE public.products SET name = %L WHERE id = %L',
-    'Mismo momento', :'product_a'
-  )),
-  1,
-  'an edit with the same updated_at applies'
-);
-UPDATE public.products SET name = 'Edición nueva', updated_at = now() + interval '1 second'
+\set product_b a2000000-0000-4000-8000-000000000002
+\set product_c a2000000-0000-4000-8000-000000000003
+\set product_d a2000000-0000-4000-8000-000000000004
+\set image_1 a1000000-0000-4000-8000-000000000001/products/a2000000-0000-4000-8000-000000000002/a4000000-0000-4000-8000-000000000001.jpg
+\set image_2 a1000000-0000-4000-8000-000000000001/products/a2000000-0000-4000-8000-000000000002/a4000000-0000-4000-8000-000000000002.png
+
+SELECT tests.create_product(:'product_b', :'tenant_a');
+SELECT tests.create_product(:'product_c', :'tenant_a');
+
+UPDATE public.products SET name = 'Edición nueva', updated_at = now() + interval '2 seconds'
 WHERE id = :'product_a';
 SELECT tests.is(
   (SELECT name FROM public.products WHERE id = :'product_a'),
   'Edición nueva',
   'a newer edit applies'
+);
+SELECT tests.is(
+  tests.affected_rows(format(
+    'UPDATE public.products SET name = %L, price_cents = 2500, updated_at = now() + interval %L WHERE id = %L',
+    'Edición vieja', '1 second', :'product_a'
+  )),
+  1,
+  'a late product edit still matches its row, so the uploader moves on'
+);
+SELECT tests.is(
+  (SELECT name FROM public.products WHERE id = :'product_a'),
+  'Edición nueva',
+  'a late edit does not overwrite a column a newer edit changed'
+);
+SELECT tests.is(
+  (SELECT price_cents FROM public.products WHERE id = :'product_a'),
+  2500,
+  'a late edit still applies to the columns no newer edit changed'
+);
+SELECT tests.is(
+  (SELECT updated_at FROM public.products WHERE id = :'product_a'),
+  now() + interval '2 seconds',
+  'a late edit does not move updated_at back'
+);
+SELECT tests.is(
+  (SELECT field_updated_at FROM public.products WHERE id = :'product_a'),
+  jsonb_build_object(
+    'name', now() + interval '2 seconds',
+    'price_cents', now() + interval '1 second'
+  ),
+  'each changed column records the time of the edit that changed it'
+);
+UPDATE public.products SET name = 'Mismo momento', updated_at = now() + interval '2 seconds'
+WHERE id = :'product_a';
+SELECT tests.is(
+  (SELECT name FROM public.products WHERE id = :'product_a'),
+  'Mismo momento',
+  'an edit with the same time as the stored one applies'
+);
+UPDATE public.products SET category = 'Mantenimiento' WHERE id = :'product_a';
+SELECT tests.is(
+  (SELECT category FROM public.products WHERE id = :'product_a'),
+  'Mantenimiento',
+  'a write that leaves updated_at unchanged applies'
+);
+UPDATE public.products SET cost_cents = 100, updated_at = now() - interval '1 minute'
+WHERE id = :'product_a';
+SELECT tests.is(
+  (SELECT cost_cents FROM public.products WHERE id = :'product_a'),
+  NULL::integer,
+  'an edit older than the product''s creation does not apply'
+);
+UPDATE public.products
+SET field_updated_at = jsonb_build_object('name', now() + interval '4 minutes')
+WHERE id = :'product_a';
+UPDATE public.products SET name = 'Después', updated_at = now() + interval '3 seconds'
+WHERE id = :'product_a';
+SELECT tests.is(
+  (SELECT name FROM public.products WHERE id = :'product_a'),
+  'Después',
+  'edit times sent by a client are ignored'
+);
+SELECT tests.is(
+  (SELECT field_updated_at FROM public.products WHERE id = :'product_b'),
+  '{}'::jsonb,
+  'a new product starts without edit times'
+);
+INSERT INTO public.products (id, tenant_id, name, price_cents, category, field_updated_at)
+VALUES (
+  :'product_d', :'tenant_a', 'Con tiempos', 100, 'Stickers',
+  jsonb_build_object('name', now() + interval '4 minutes')
+);
+SELECT tests.is(
+  (SELECT field_updated_at FROM public.products WHERE id = :'product_d'),
+  '{}'::jsonb,
+  'a new product ignores edit times sent by a client'
 );
 SELECT tests.throws(
   format(
@@ -113,10 +177,51 @@ SELECT tests.throws(
 SELECT tests.throws(
   format(
     'UPDATE public.products SET archived_at = now() + interval %L, updated_at = now() + interval %L WHERE id = %L',
-    '1 hour', '2 seconds', :'product_a'
+    '1 hour', '4 seconds', :'product_a'
   ),
   '55000',
   'an archive time an hour ahead is retried later'
+);
+
+-- Images
+
+UPDATE public.products SET name = 'Renombrado', updated_at = now() + interval '2 seconds'
+WHERE id = :'product_b';
+UPDATE public.products SET image_path = :'image_1', updated_at = now() + interval '1 second'
+WHERE id = :'product_b';
+SELECT tests.is(
+  (SELECT image_path FROM public.products WHERE id = :'product_b'),
+  :'image_1',
+  'a late image applies when the newer edit did not change the image'
+);
+UPDATE public.products SET image_path = :'image_2', updated_at = now() + interval '500 milliseconds'
+WHERE id = :'product_b';
+SELECT tests.is(
+  (SELECT image_path FROM public.products WHERE id = :'product_b'),
+  :'image_1',
+  'an image older than the stored image is dropped'
+);
+
+-- A product last written by a device clock far ahead, before device times
+-- were bounded.
+SET LOCAL session_replication_role = replica;
+UPDATE public.products
+SET updated_at = now() + interval '1 year',
+    field_updated_at = jsonb_build_object('name', now() + interval '1 year')
+WHERE id = :'product_c';
+SET LOCAL session_replication_role = origin;
+
+UPDATE public.products SET name = 'Corregido', updated_at = now() + interval '3 seconds'
+WHERE id = :'product_c';
+SELECT tests.is(
+  (SELECT name FROM public.products WHERE id = :'product_c'),
+  'Corregido',
+  'an edit applies over times from a clock far ahead'
+);
+SELECT tests.is(
+  (SELECT updated_at FROM public.products WHERE id = :'product_c'),
+  now() + interval '3 seconds',
+  'the edit brings updated_at back from a clock far ahead'
 );
 
 -- ---------------------------------------------------------------------------

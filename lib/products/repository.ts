@@ -67,7 +67,8 @@ export async function updateProductForTenant(
   productId: string,
   input: ProductInput
 ): Promise<Product> {
-  // Every update sets updatedAt: Postgres keeps the newer of two edits by it
+  // Every update sets updatedAt: Postgres keeps, column by column, the newer
+  // of two edits by it
   // (supabase/manual/20260926130100_products_last_write_wins.sql).
   const updates: {
     name: string;

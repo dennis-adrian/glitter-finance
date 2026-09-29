@@ -77,9 +77,10 @@ const FINANCIAL_RPC = {
  * without this the edit would be dropped silently and reverted at the next
  * checkpoint. Carries 42501 so it is classified like other RLS denials.
  *
- * A stale product edit does not end up here: the last-write-wins trigger
- * keeps the newer stored row, so the UPDATE still returns it, the upload
- * completes, and the device receives the newer row at the next checkpoint.
+ * A late product edit does not end up here: the last-write-wins trigger
+ * keeps the stored value of each column a newer edit changed and applies the
+ * rest, so the UPDATE still returns the row, the upload completes, and the
+ * device receives the merged row at the next checkpoint.
  */
 export class UnappliedUpdateError extends Error {
   readonly code = "42501";
@@ -571,7 +572,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
 
   /**
    * A products PATCH that changes image_path. Once Postgres has applied it,
-   * the uploaded image it replaced is deleted from Storage. When a newer edit
+   * the uploaded image it replaced is deleted from Storage. When a newer image
    * from another device wins instead (last-write-wins), the image this device
    * uploaded is the one nothing references, so that one is deleted. Removal
    * is best-effort and never fails the upload.

@@ -168,9 +168,11 @@ export function isProductImageObjectPath(
 /**
  * The uploaded image that no longer belongs to the product after a write that
  * set products.image_path to `requestedPath`. Postgres keeps the newer of two
- * edits (supabase/manual/20260926130100_products_last_write_wins.sql), so:
+ * image edits (supabase/manual/20260926130100_products_last_write_wins.sql),
+ * so:
  * - the write applied (`storedPath` is `requestedPath`): the image it replaced;
- * - a newer edit won: the image this write uploaded, which nothing references.
+ * - a newer image edit won: the image this write uploaded, which nothing
+ *   references.
  */
 export function unreferencedProductImagePaths(input: {
   tenantId: string;

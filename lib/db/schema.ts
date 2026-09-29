@@ -5,6 +5,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -127,6 +128,18 @@ export const products = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // When each column last changed, by the updated_at of the edit that
+    // changed it: { "<column>": "<timestamptz>" }. Edits are last-write-wins
+    // per column, so a late offline edit still applies to the columns no
+    // newer edit touched. Only the products_keep_latest_edit trigger writes
+    // it (supabase/manual/20260926130100_products_last_write_wins.sql); a
+    // column missing from it last changed when the product was created.
+    // Server-only: devices never read or send it, so the client schema has
+    // no mirror (tests/schema-parity.test.ts).
+    fieldUpdatedAt: jsonb("field_updated_at")
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
   },
   (table) => [
     // Leading tenant_id also serves tenant_id-only lookups and the tenants FK.

@@ -1,0 +1,1 @@
+ALTER TABLE "products" ADD COLUMN "field_updated_at" jsonb DEFAULT '{}'::jsonb NOT NULL;

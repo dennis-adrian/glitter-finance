@@ -14,8 +14,8 @@ README and empty this file for the release after.
 | Area                  | Change                                                                                                                                                                                      |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | App environment       | The server refuses to start while a required variable is missing, `INVITATION_SECRET_KEY` included. Browser Sentry reports only from Vercel production and preview deployments.             |
-| Database schema       | Two Drizzle migrations: stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, new and dropped indexes, and name and category length caps. |
-| Hand-written SQL      | Three new `supabase/manual/` files: upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, and last-write-wins product edits.                 |
+| Database schema       | Three Drizzle migrations: stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times. |
+| Hand-written SQL      | Three new `supabase/manual/` files: upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, and per-field last-write-wins product edits.       |
 | PowerSync             | The sync streams also require a `tenant_users` membership, so they must be redeployed.                                                                                                      |
 | Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                         |
 | Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                            |
@@ -144,6 +144,9 @@ keeps working with them.
      creation is not concurrent; that is fine at current table sizes.
    - `supabase/migrations/20260927144544_products_name_category_length_checks.sql`:
      product names up to 120 characters and categories up to 60.
+   - `supabase/migrations/20260929000106_products_field_updated_at.sql`:
+     `products.field_updated_at`, the per-column edit times that file 3 of
+     step 5 keeps. Existing products start with none.
 2. Deploy this release's app build immediately after, never before. Vercel
    deploys on push: every Preview deployment of this release's branch already
    talks to staging, and a merge into the production branch deploys
@@ -159,7 +162,8 @@ keeps working with them.
 
    The new server actions (checkout now sends a client-generated sale id, and
    tenant-scoped actions take the tenant id the screen shows) do not match the
-   old app's calls either.
+   old app's calls either, and the new app reads `products.field_updated_at`,
+   so its product screens fail on a database without it.
 
 PowerSync applies the new client-side indexes on each device when the app
 starts; nothing else is needed for them.
@@ -181,8 +185,10 @@ this order. Each one is idempotent and safe to re-run.
    this file: do **not** use `supabase seed buckets --linked`, which would also
    upload the local seed images.
 3. [`supabase/manual/20260926130100_products_last_write_wins.sql`](../supabase/manual/20260926130100_products_last_write_wins.sql):
-   product edits keep the newer `updated_at`, so a late offline upload no
-   longer overwrites a newer edit. It must run after file 1.
+   product edits are last-write-wins by `updated_at`, column by column, so a
+   late offline upload no longer overwrites a newer change to the same field
+   and still applies its other changes. It must run after file 1 and after the
+   `db:push` of step 4, which adds the column it keeps.
 
 An environment that has not had every older `supabase/manual/` file must run
 those first, in order (see
@@ -281,6 +287,9 @@ When they pass, repeat steps 1–8 on production.
   future-dated sales. Its sync pill reads "Hora adelantada" and its uploads
   wait until real time reaches the time they were recorded with; correcting
   the clock only helps what is recorded afterwards.
+- A product edited offline on two devices keeps, for each field, the change
+  made last. Before, the upload that arrived last overwrote every field it
+  carried.
 - Turning stock tracking back on for a product asks for a count again. A
   count entered becomes the new starting point; left blank, the earlier count
   goes on, less everything sold since.

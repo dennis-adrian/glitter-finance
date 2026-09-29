@@ -18,6 +18,11 @@
 //
 // Not yet synced:
 // - tenants — single row per tenant; not worth a sync bucket.
+//
+// Server-only columns (the sync rules send them, the local views leave them
+// out):
+// - products.field_updated_at — per-column edit times, kept by the
+//   last-write-wins trigger in Postgres.
 
 import type { Column, Table } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";

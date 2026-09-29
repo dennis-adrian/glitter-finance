@@ -20,12 +20,18 @@ const syncedTables: [Table, Table][] = [
   [server.inventoryMovements, client.inventoryMovements],
 ];
 
-function columnShape(table: Table) {
+// Postgres columns that devices neither read nor write. The sync rules still
+// send them, and PowerSync leaves them out of the local views.
+const serverOnlyColumns: Record<string, string[]> = {
+  // Per-column edit times, kept by the last-write-wins trigger.
+  products: ["field_updated_at"],
+};
+
+function columnShape(table: Table, omit: string[] = []) {
   return Object.fromEntries(
-    Object.values(getTableColumns(table)).map((column) => [
-      column.name,
-      { notNull: column.notNull },
-    ])
+    Object.values(getTableColumns(table))
+      .filter((column) => !omit.includes(column.name))
+      .map((column) => [column.name, { notNull: column.notNull }])
   );
 }
 
@@ -43,11 +49,16 @@ test("every table in the sync rules has a client-schema mirror", () => {
 
 test("client schema mirrors the synced Postgres columns and nullability", () => {
   for (const [serverTable, clientTable] of syncedTables) {
-    assert.equal(getTableName(clientTable), getTableName(serverTable));
+    const name = getTableName(serverTable);
+    const serverOnly = serverOnlyColumns[name] ?? [];
+    assert.equal(getTableName(clientTable), name);
+    for (const column of serverOnly) {
+      assert.ok(column in columnShape(serverTable), `${name}.${column}`);
+    }
     assert.deepEqual(
       columnShape(clientTable),
-      columnShape(serverTable),
-      getTableName(serverTable)
+      columnShape(serverTable, serverOnly),
+      name
     );
   }
 });
