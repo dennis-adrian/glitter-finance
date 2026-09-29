@@ -291,6 +291,16 @@ The Sell Mode tile (`components/molecules/product-tile.tsx`):
 - Sale discount presets are on the payment screen: `2 Bs`, `5 Bs`, `10 Bs`, plus **Otro** for a custom amount or percentage, in a four-column row of outline buttons; the applied one is filled.
 - Figma: a bottom sheet with collapsed (“Ver detalle”) and expanded states, the discount presets inside it, and a Bold 16px total.
 
+### Sign-in screens
+
+`/login` and `/auth/update-password` (`components/templates/auth-page-shell.tsx`, the `auth-*` molecules and `google-sign-in-button.tsx`) follow the approved Login design, in token colors so they follow the theme:
+
+- An app-width card on `--background`, the whole screen on phones, surrounded by `bg-foreground/5` on wider screens.
+- Supporting text is `text-foreground/70`, which matches the design's `#5A6B68`, not `--muted-foreground`; the “o” between Google and email sign-in is `text-foreground/60`.
+- Sign-in actions use the primary and outline button colors. The Google button (a `--card` fill) and the back button have neutral `--input` tints for their fills.
+- Error notices have a `--secondary` edge on a 10% `--secondary` fill; status notices a `--primary` edge on `--muted`.
+- Three light colors have no token and stay as hex until the design is reconciled, each with a token in dark mode: the error notice text `#8A3329` (dark: `--destructive`), the status notice text `#005F58` (dark: `--foreground`) and the pending submit button's fill `#B4C2BF` (dark: `--muted`).
+
 ## Icons and imagery
 
 - Use Lucide for interface icons; standard size is 24px, compact size 16–20px.

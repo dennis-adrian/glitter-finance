@@ -118,6 +118,15 @@ less battery on OLED phones.
 - Amber "cost incomplete" boxes in `reports-screen.tsx` and
   `sale-detail-screen.tsx` use `var(--amber-surface)`, which has a `.dark`
   override in `globals.css`.
+- Login and the password screens (`AuthPageShell` and the `auth-*`
+  molecules) use the semantic tokens instead of a light-only hex palette, so
+  their card matches the `theme-color` in both modes. DESIGN.md ("Sign-in
+  screens") lists the three light values that stay hex, each with a dark
+  token.
+- `app/global-error.tsx`, which replaces the root layout, imports
+  `globals.css` and applies the stored or system theme itself
+  (`ClientThemeProvider` with the layout's options from
+  `lib/theme-options.ts`), including `theme-color`.
 
 **Already fine in both modes:** toasts are Sonner
 (`components/ui/sonner.tsx`) on the `--popover`, `--popover-foreground` and
