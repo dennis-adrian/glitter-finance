@@ -302,27 +302,32 @@ Notes:
 
 #### Atomic financial uploads
 
-Before deploying an app build containing the atomic PowerSync uploader, run
-[`supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql`](supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql)
-and then
-[`supabase/manual/20260926120000_powersync_upload_convergence.sql`](supabase/manual/20260926120000_powersync_upload_convergence.sql)
-in the target Supabase SQL editor. Apply them to staging first, run
-[`docs/sync-atomicity-acceptance.md`](docs/sync-atomicity-acceptance.md), then
-repeat against production before deploying the app there.
+Sales, voids and refunds reach Postgres only through RPCs that two
+`supabase/manual/` files install. Run them in the target Supabase SQL editor,
+each at its own point of the deploy:
 
-The SQL installs authenticated RPCs for sale + lines, void, and refund; revokes
-direct authenticated writes to those financial tables; and adds triggers that
-enforce the void window and "never both voided and refunded" in Postgres. It
-also bounds device timestamps and makes cross-device void/refund conflicts
-converge (see the PRD, §9 "Timestamps and conflicts"). Deploying the app first
-is safe from data loss: a missing RPC is recorded as a sync failure and the
-transaction stays queued, but checkout uploads remain blocked until the SQL is
-installed.
+1. **Before** deploying an app build containing the atomic PowerSync uploader:
+   [`supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql`](supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql).
+   It installs authenticated RPCs for sale + lines, void, and refund; revokes
+   direct authenticated writes to those financial tables; and adds triggers
+   that enforce the void window and "never both voided and refunded" in
+   Postgres. Deploying the app first is safe from data loss: a missing RPC is
+   recorded as a sync failure and the transaction stays queued, but checkout
+   uploads remain blocked until the SQL is installed.
+2. **After** deploying the app build that reverts local rows when a void or
+   refund loses a conflict:
+   [`supabase/manual/20260926120000_powersync_upload_convergence.sql`](supabase/manual/20260926120000_powersync_upload_convergence.sql).
+   It replaces those functions to bound device timestamps and make
+   cross-device void/refund conflicts converge (see the PRD, §9 "Timestamps
+   and conflicts"): the call that loses a conflict returns `NULL`, which only
+   that build handles. An older installed PWA whose refund loses to a void
+   keeps retrying that upload until it updates; nothing is lost.
 
-`20260926120000_powersync_upload_convergence.sql` is best applied after the app
-build that reverts local rows when a void or refund loses a conflict. An older
-installed PWA whose refund loses to a void keeps retrying that upload until it
-updates; nothing is lost.
+Do staging first and run
+[`docs/sync-atomicity-acceptance.md`](docs/sync-atomicity-acceptance.md)
+there, then repeat the same order on production.
+[`docs/upgrade-notes.md`](docs/upgrade-notes.md) gives the complete order for
+the next release, with the migrations and sync streams around these steps.
 
 Permanent upload errors remain in the PowerSync CRUD queue and are also stored
 in the device-local `sync_failures` table. The sync pill turns red, tenant
@@ -659,7 +664,9 @@ below:
 6. [`20260926120000_powersync_upload_convergence.sql`](supabase/manual/20260926120000_powersync_upload_convergence.sql):
    replaces the functions from file 5 with device-timestamp bounds, void/refund
    conflict convergence and whole-number payload checks, and adds the refund
-   trigger. Every environment, after file 5.
+   trigger. Every environment, after file 5 and after the app build that
+   handles its `NULL` conflict results (see
+   [Atomic financial uploads](#atomic-financial-uploads)).
 7. [`20260926130000_product_images_storage_rules.sql`](supabase/manual/20260926130000_product_images_storage_rules.sql):
    `product-images` bucket limits (JPEG and PNG, 5 MiB) and the Storage upload
    and delete policies by tenant folder. Every environment. Hosted buckets get

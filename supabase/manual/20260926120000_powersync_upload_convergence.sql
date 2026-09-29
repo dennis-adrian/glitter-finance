@@ -1,6 +1,8 @@
--- Apply after `pnpm db:push` and after
--- 20260808235900_powersync_atomic_financial_mutations.sql, in the Supabase SQL
--- editor. Every statement is idempotent, so the file can be re-run.
+-- Apply after `pnpm db:push`, after
+-- 20260808235900_powersync_atomic_financial_mutations.sql and after deploying
+-- the app build whose uploader handles the NULL results below (older builds
+-- keep retrying a refund that lost), in the Supabase SQL editor. Every
+-- statement is idempotent, so the file can be re-run.
 --
 -- PowerSync devices upload their queue in order, and a transaction that fails
 -- with a data or constraint error (Class 22/23) stays at the head of the queue

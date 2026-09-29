@@ -1,9 +1,12 @@
 # Sync Atomicity Acceptance
 
-Run on staging after applying
-`supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql` and
-`supabase/manual/20260926120000_powersync_upload_convergence.sql`, and before
-deploying the same set to production.
+Run on staging once it has, in this order,
+`supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql`, the
+app build with the atomic uploader, and
+`supabase/manual/20260926120000_powersync_upload_convergence.sql`, which goes
+after that app build (see
+[Atomic financial uploads](../README.md#atomic-financial-uploads)). When it
+passes, repeat the same order on production.
 
 ## Baseline
 
