@@ -43,3 +43,32 @@ export function createProductEditorSessions<T>(): ProductEditorSessions<T> {
     },
   };
 }
+
+/**
+ * A product save or archive, with the editor session it was started from, or
+ * a restore from the catalog. One runs at a time.
+ */
+export type ProductWrite =
+  | {
+      kind: "save" | "archive";
+      productId: string | null;
+      editorSession: number;
+    }
+  | { kind: "restore"; productId: string };
+
+/**
+ * What the open editor shows for the product write in progress: its own
+ * save or archive, or "busy" for any other (a restore from the catalog, or a
+ * save from an editor closed since), which its buttons wait for as well.
+ */
+export function editorPendingWrite(
+  write: ProductWrite | null,
+  editorSession: number
+): "save" | "archive" | "busy" | null {
+  if (!write) {
+    return null;
+  }
+  return write.kind !== "restore" && write.editorSession === editorSession
+    ? write.kind
+    : "busy";
+}

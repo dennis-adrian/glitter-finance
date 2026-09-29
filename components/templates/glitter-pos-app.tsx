@@ -57,7 +57,11 @@ import {
   mergeTenantMembersFromWatch,
   type LocalTenantUserRow,
 } from "@/lib/powersync/tenant-users-from-local";
-import { createProductEditorSessions } from "@/lib/product-editor-sessions";
+import {
+  createProductEditorSessions,
+  editorPendingWrite,
+  type ProductWrite,
+} from "@/lib/product-editor-sessions";
 import { createScrollMemory } from "@/lib/scroll-memory";
 import { usePosStore } from "@/lib/store";
 import { useSalesRangeState } from "@/lib/use-sales-range";
@@ -149,11 +153,6 @@ type TenantWrite<T> = {
   pending?: (pending: boolean) => void;
 };
 
-type ProductWrite = {
-  kind: "save" | "archive" | "restore";
-  productId: string | null;
-};
-
 const noLocalLedgerLoaded = { movements: false, sales: false };
 
 type GlitterPosAppProps = {
@@ -225,6 +224,9 @@ export function GlitterPosApp({
   const [editorSessions] = useState(() =>
     createProductEditorSessions<Pick<Product, "id" | "tracksInventory">>()
   );
+  // The open session's number, for rendering: set with each editorSessions
+  // change.
+  const [editorSession, setEditorSession] = useState(editorSessions.current);
   // The server-action checkout's sale id, kept while the same checkout is
   // retried (see handlePayment).
   const checkoutAttemptRef = useRef<{ key: string; saleId: string } | null>(
@@ -353,7 +355,7 @@ export function GlitterPosApp({
       setQuery("");
       setCatalogQuery("");
       setEditingProduct(null);
-      editorSessions.next();
+      setEditorSession(editorSessions.next());
       setSelectedSaleId(null);
       setIsCheckingOut(false);
       setActiveInvitationState(null);
@@ -862,12 +864,12 @@ export function GlitterPosApp({
   function openEditor(product: Product | null) {
     setPreviousView(view === "editor" ? "products" : view);
     setEditingProduct(product);
-    editorSessions.next();
+    setEditorSession(editorSessions.next());
     setView("editor");
   }
 
   function closeEditor(nextView: View) {
-    editorSessions.next();
+    setEditorSession(editorSessions.next());
     setView(nextView);
   }
 
@@ -876,6 +878,9 @@ export function GlitterPosApp({
     run: () => Promise<void>
   ) {
     if (productWriteRef.current) {
+      // Its buttons wait for the write in progress, but say so if a tap
+      // still gets here instead of dropping it silently.
+      showToast("Espera a que termine el cambio en curso", "info");
       return;
     }
     productWriteRef.current = write;
@@ -890,7 +895,11 @@ export function GlitterPosApp({
 
   function handleSaveProduct(input: ProductEditorSaveInput) {
     return runProductWrite(
-      { kind: "save", productId: editingProduct?.id ?? null },
+      {
+        kind: "save",
+        productId: editingProduct?.id ?? null,
+        editorSession: editorSessions.current(),
+      },
       () => saveProduct(input)
     );
   }
@@ -1045,8 +1054,13 @@ export function GlitterPosApp({
   }
 
   function handleArchiveProduct(productId: string) {
-    return runProductWrite({ kind: "archive", productId }, () =>
-      archiveProduct(productId)
+    return runProductWrite(
+      {
+        kind: "archive",
+        productId,
+        editorSession: editorSessions.current(),
+      },
+      () => archiveProduct(productId)
     );
   }
 
@@ -1441,11 +1455,7 @@ export function GlitterPosApp({
         back={() =>
           closeEditor(previousView === "sell" ? "products" : previousView)
         }
-        pendingWrite={
-          productWrite?.kind === "save" || productWrite?.kind === "archive"
-            ? productWrite.kind
-            : null
-        }
+        pendingWrite={editorPendingWrite(productWrite, editorSession)}
         save={handleSaveProduct}
         archive={handleArchiveProduct}
       />

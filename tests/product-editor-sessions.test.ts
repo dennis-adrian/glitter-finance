@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createProductEditorSessions } from "@/lib/product-editor-sessions";
+import {
+  createProductEditorSessions,
+  editorPendingWrite,
+} from "@/lib/product-editor-sessions";
 
 type Created = { id: string };
 
@@ -36,4 +39,29 @@ test("a product created in one session is forgotten once the editor opens again"
   const second = sessions.next();
   assert.equal(sessions.createdIn(second), null);
   assert.equal(sessions.createdIn(first), null);
+});
+
+test("the editor waits for every product write, and names only its own", () => {
+  assert.equal(editorPendingWrite(null, 3), null);
+  assert.equal(
+    editorPendingWrite({ kind: "save", productId: null, editorSession: 3 }, 3),
+    "save"
+  );
+  assert.equal(
+    editorPendingWrite(
+      { kind: "archive", productId: "a", editorSession: 3 },
+      3
+    ),
+    "archive"
+  );
+  // A restore tapped in the catalog just before this editor opened.
+  assert.equal(
+    editorPendingWrite({ kind: "restore", productId: "x" }, 3),
+    "busy"
+  );
+  // The save of an editor closed since.
+  assert.equal(
+    editorPendingWrite({ kind: "save", productId: null, editorSession: 1 }, 3),
+    "busy"
+  );
 });

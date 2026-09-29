@@ -88,8 +88,12 @@ type ProductEditorProps = {
   inventoryStockReady: boolean;
   /** Whether the product already has its initial count. */
   initialMovement: InitialMovementState;
-  /** A save or archive still running; both buttons wait for it. */
-  pendingWrite: "save" | "archive" | null;
+  /**
+   * A product write still running: this editor's save or archive, or
+   * another one ("busy"), such as a restore from the catalog or a save from
+   * an editor closed since. One runs at a time, so both buttons wait for it.
+   */
+  pendingWrite: "save" | "archive" | "busy" | null;
   back: () => void;
   save: (input: ProductEditorSaveInput) => Promise<void>;
   onInventoryMovement: (input: {
@@ -783,7 +787,11 @@ export function ProductEditor({
           });
         }}
       >
-        {pendingWrite === "save" ? "Guardando…" : "GUARDAR CAMBIOS"}
+        {pendingWrite === "save"
+          ? "Guardando…"
+          : pendingWrite === "busy"
+            ? "Espera…"
+            : "GUARDAR CAMBIOS"}
       </Button>
     </section>
   );
