@@ -430,14 +430,27 @@ puesto de este dispositivo" instead, which a reload also fixes.
 The app logs nothing else about the token: not the endpoint, nor the JWT's
 `alg`, `kid`, `iss` or `aud`. When PowerSync rejects a token (`PSYNC_S2101`,
 `PSYNC_S2105`), check those yourself. In the browser's developer tools, copy
-the value of the `sb-<project-ref>-auth-token` cookie (when it is split into
-`.0`, `.1`… cookies, join their values in order). It holds the session, and
-its access token is a live credential, so decode it locally rather than on a
-website:
+the value of the `sb-<project-ref>-auth-token` cookie to the clipboard (when
+it is split into `.0`, `.1`… cookies, the `.0` one is enough: the access token
+comes first). The cookie holds the whole session, refresh token included, so
+decode it locally rather than on a website, and never type or paste it into a
+command line, where the shell saves it to its history file. This reads it
+from the clipboard instead (on Linux, replace `pbpaste` with `wl-paste` or
+`xclip -selection clipboard -o`) and prints only the access token's parts:
 
 ```bash
-node -e 'const session = JSON.parse(Buffer.from(process.argv[1].replace(/^base64-/, ""), "base64url")); for (const part of session.access_token.split(".").slice(0, 2)) console.log(JSON.parse(Buffer.from(part, "base64url")))' '<cookie value>'
+pbpaste | node -e '
+const value = require("fs").readFileSync(0, "utf8").trim().replace(/^base64-/, "");
+const session = Buffer.from(value, "base64url").toString();
+const token = /"access_token":"([^"]+)"/.exec(session)?.[1];
+if (!token) throw new Error("No access token found: copy the cookie value, or its .0 part.");
+for (const part of token.split(".").slice(0, 2))
+  console.log(JSON.parse(Buffer.from(part, "base64url")));
+'
 ```
+
+Copy something else afterwards, so the session does not stay in the clipboard
+(or a clipboard manager's history).
 
 The first object is the JWT header, the second its claims. Compare the
 header's `kid` and `alg` with the keys at the JWKS URI, `iss` with
