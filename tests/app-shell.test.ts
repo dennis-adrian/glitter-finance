@@ -170,6 +170,48 @@ test("a page that no longer exists is dropped instead of kept stale", async () =
   }
 });
 
+test("a page saved while the update installs is kept on activation", async () => {
+  // Signed in during the update: the app shell was saved after the install
+  // listed the page cache, from the network, so from the new build.
+  const storage = new FakeCacheStorage();
+  storage.caches.set(PAGE_CACHE_NAME, new FakeCache());
+  await install(storage, fetchFrom({}).fetch);
+  await saveShell(storage, fetchFrom({ [home]: page("new build") }).fetch);
+
+  await activate(storage);
+
+  assert.deepEqual(storage.pages(), { [home]: "new build" });
+  assert.equal(storage.pages(NEXT_PAGE_CACHE_NAME), null);
+
+  // The same for a page the install refreshed and a navigation stored
+  // again meanwhile, and for one dropped beside it.
+  const refreshed = storageWithPages({
+    [home]: "old build",
+    [homeWithQuery]: "old build",
+  });
+  await install(
+    refreshed,
+    fetchFrom({
+      [home]: page("new build"),
+      [homeWithQuery]: { status: 404, type: "basic", body: "" },
+    }).fetch
+  );
+  await (
+    await refreshed.open(PAGE_CACHE_NAME)
+  ).put(new Request(home), page("navigation") as unknown as Response);
+  const other = "https://pos.example/?source=share";
+  await (
+    await refreshed.open(PAGE_CACHE_NAME)
+  ).put(new Request(other), page("navigation") as unknown as Response);
+
+  await activate(refreshed);
+
+  assert.deepEqual(refreshed.pages(), {
+    [home]: "new build",
+    [other]: "navigation",
+  });
+});
+
 test("a failed, refused or redirected refresh fails the install and changes nothing", async () => {
   for (const failure of [
     new TypeError("Failed to fetch"),

@@ -126,13 +126,25 @@ export async function prepareAppShellRefresh(input: {
   if (!(await input.caches.has(PAGE_CACHE_NAME))) return;
   const next = await input.caches.open(NEXT_PAGE_CACHE_NAME);
   for (const { request, response, outcome } of refreshed) {
-    if (outcome === "store") {
-      await next.put(request, response);
-    }
+    await next.put(
+      request,
+      outcome === "store"
+        ? response
+        : new Response(null, { status: DROPPED_PAGE_STATUS })
+    );
   }
 }
 
-/** For the activate event: the refreshed pages replace the cached ones. */
+// Stands in NEXT_PAGE_CACHE_NAME for a page to remove on activation; a page
+// to keep is always a 200.
+const DROPPED_PAGE_STATUS = 410;
+
+/**
+ * For the activate event: the refreshed pages replace the cached ones, and
+ * the dropped ones are removed. A page saved after the install listed the
+ * cache (a navigation, or cacheAppShell) is kept: it came from the network
+ * during the update, so from the new build.
+ */
 export async function applyAppShellRefresh(input: {
   caches: ShellCacheStorage;
 }): Promise<void> {
@@ -140,16 +152,12 @@ export async function applyAppShellRefresh(input: {
   const next = await input.caches.open(NEXT_PAGE_CACHE_NAME);
   if (await input.caches.has(PAGE_CACHE_NAME)) {
     const pages = await input.caches.open(PAGE_CACHE_NAME);
-    const nextRequests = await next.keys();
-    const nextUrls = new Set(nextRequests.map((request) => request.url));
-    for (const request of await pages.keys()) {
-      if (!nextUrls.has(request.url)) {
-        await pages.delete(request);
-      }
-    }
-    for (const request of nextRequests) {
+    for (const request of await next.keys()) {
       const response = await next.match(request);
-      if (response) {
+      if (!response) continue;
+      if (response.status === DROPPED_PAGE_STATUS) {
+        await pages.delete(request);
+      } else {
         await pages.put(request, response);
       }
     }
