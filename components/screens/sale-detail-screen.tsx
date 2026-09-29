@@ -134,6 +134,10 @@ export function SaleDetailScreen({
           />
         ) : null}
         <DetailRow label="Registró" value={sale.userName} />
+        {sale.refundOfSaleUserName ? (
+          // The seller Reports nets this refund against.
+          <DetailRow label="Vendió" value={sale.refundOfSaleUserName} />
+        ) : null}
         <DetailRow
           label="Estado"
           value={saleStatusLabel(sale, saleIndex)}

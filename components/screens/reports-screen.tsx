@@ -286,7 +286,11 @@ export function ReportsScreen({
       ) : null}
 
       <section className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-        <h2 className="mb-3.5 text-lg font-semibold">Por vendedor</h2>
+        <h2 className="mb-1.5 text-lg font-semibold">Por vendedor</h2>
+        <p className="mb-2.5 text-sm text-muted-foreground">
+          Ingreso neto de las ventas de cada vendedor. Un reembolso se le resta
+          a quien hizo la venta, aunque lo haya registrado otra persona.
+        </p>
         <ReportList
           empty="Aún no hay vendedores con ventas en este rango."
           rows={userTotals.map((item) => ({
