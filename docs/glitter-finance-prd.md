@@ -286,7 +286,7 @@ A sale is never blocked by a stock disagreement: selling a tracked product with 
 
 ### 11.2 Warehouse / global inventory
 
-A tenant-level global stock of products, adjustable with journaled reasons (received, lost, gifted, correction), from which event inventory is later drawn. Meaningful once inventory tracking exists.
+A tenant-level global stock of products, adjustable with journaled reasons (received, lost, gifted, correction), from which event inventory is later drawn. Builds on per-product inventory tracking, which has shipped (§11.1); its append-only movement ledger is the model this extends (inventory PRD, §14). What remains is the tenant-level pool that events draw from.
 
 ### 11.3 Events
 
@@ -298,7 +298,7 @@ Generating printable QR labels for products (the product's UUID encoded, client-
 
 ### 11.5 Bundles
 
-A priced combo that, when sold, decrements multiple component products. A bundle is essentially an inventory-decrement mechanism, so it arrives with inventory tracking. Until then, something like "5 stickers for 20 Bs" is modeled as its own product priced at 20.
+A priced combo that, when sold, decrements multiple component products. A bundle is essentially an inventory-decrement mechanism: it builds on per-product inventory tracking, which has shipped (§11.1), by writing one movement per component product for each bundle sold (inventory PRD, §14). Bundles themselves have not shipped, so something like "5 stickers for 20 Bs" is still modeled as its own product priced at 20, and selling it does not decrement the single sticker's stock.
 
 ### 11.6 Multi-user roles and refinements
 
