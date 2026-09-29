@@ -50,7 +50,7 @@ export type TenantContextUser = {
 export const ACTIVE_TENANT_CHANGED_MESSAGE =
   "Tu puesto activo cambió en otro dispositivo. Recargá la app para continuar.";
 
-const INVALID_TENANT_ID_MESSAGE = "Identificador de cuenta inválido.";
+const INVALID_TENANT_ID_MESSAGE = "Identificador de puesto inválido.";
 
 export function parseTenantId(tenantId: unknown): string {
   return requireUuid(
@@ -106,7 +106,7 @@ export function getDisplayName(user: {
 
 /** The name of the tenant the bootstrap creates on a first sign-in. */
 export function personalTenantName(displayName: string) {
-  return `Cuenta de ${displayName}`;
+  return `Puesto de ${displayName}`;
 }
 
 export function toUserTenantContext(

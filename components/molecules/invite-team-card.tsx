@@ -204,7 +204,7 @@ export function InviteTeamCard({
     try {
       await navigator.share({
         title: "Unite a mi equipo en Billetera Ferial",
-        text: "Te invito a registrar ventas en mi cuenta de Billetera Ferial:",
+        text: "Te invito a registrar ventas en mi puesto de Billetera Ferial:",
         url: inviteLink,
       });
     } catch (err) {

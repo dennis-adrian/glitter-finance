@@ -112,7 +112,7 @@ relaunch that follows.
 1. In the installed PWA, sign in with email and password. Wait for synced
    state and leave Sell Mode on screen for a few seconds.
 2. Close the PWA, enable airplane mode and relaunch it.
-3. Disable airplane mode and open the PWA. In Settings, under "Tus cuentas",
+3. Disable airplane mode and open the PWA. In Settings, under "Tus puestos",
    switch to another account (or create one) and wait for synced state.
 4. Close the PWA, enable airplane mode and relaunch it.
 5. Sign out, then repeat steps 1 and 2 signing in with Google.

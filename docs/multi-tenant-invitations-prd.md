@@ -261,7 +261,7 @@ list with no extra wiring (same mechanism as the inventory PRD §3.2).
 ### 5.4 Switching tenants
 
 In **Settings**, a tenant switcher lists the user's memberships with the active
-one marked, plus a "Crear nueva cuenta" entry.
+one marked, plus a "Crear nuevo puesto" entry.
 
 Selecting a different tenant runs, in this order
 (`changeIdentityAfterLocalTeardown` in `lib/auth/identity-change.ts`):
@@ -340,14 +340,14 @@ personal tenant for them:
 
 ### 5.7 Creating an additional tenant
 
-"Crear nueva cuenta" in the switcher runs `createTenant(name)`:
+"Crear nuevo puesto" in the switcher runs `createTenant(name)`:
 
 - Insert a `tenants` row (`name`, `created_by_user_id = auth.uid()`) and a
   `tenant_users` membership for the creator (display name via `getDisplayName`),
   atomically (one transaction), then **switch active** to it (§5.4).
 - This is the explicit sibling of the implicit first-sign-in bootstrap; both set
   `created_by_user_id`.
-- A default name (e.g. "Cuenta de {displayName}" or a user-supplied booth name)
+- A default name (e.g. "Puesto de {displayName}" or a user-supplied booth name)
   is fine; naming UX is minor.
 
 ## 6. Data, Schema, and Security
@@ -510,7 +510,7 @@ writer) so the actions and the existing bootstrap share one implementation.
 ### 7.3 Settings UI (`components/screens/settings-screen.tsx`)
 
 - **Account header** → becomes the **tenant switcher**: list `tenantContext.tenants`,
-  mark the active one, each row switches on tap; a "Crear nueva cuenta" row at the
+  mark the active one, each row switches on tap; a "Crear nuevo puesto" row at the
   end.
 - **Equipo** section: keep the read-only member list; add the **invite-link
   card** (§5.1) above or below it.

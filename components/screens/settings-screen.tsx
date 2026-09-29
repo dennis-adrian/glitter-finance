@@ -33,8 +33,8 @@ import type { TenantInvitation, TenantMember } from "@/lib/types";
 import { cn, initialsOf } from "@/lib/utils";
 
 const tenantSessionCopy: TenantSessionCopy = {
-  switchFailed: "No se pudo cambiar de cuenta.",
-  createFailed: "No se pudo crear la cuenta.",
+  switchFailed: "No se pudo cambiar de puesto.",
+  createFailed: "No se pudo crear el puesto.",
 };
 
 type SettingsScreenProps = {
@@ -106,9 +106,9 @@ export function SettingsScreen({
             : null;
 
   const switchOverlayLabel = creatingTenant
-    ? "Creando tu cuenta…"
+    ? "Creando tu puesto…"
     : switchingTenantId
-      ? "Cambiando de cuenta…"
+      ? "Cambiando de puesto…"
       : null;
 
   return (
@@ -123,7 +123,7 @@ export function SettingsScreen({
             <Loader2 className="size-7 animate-spin text-primary" />
             <p className="text-sm font-medium">{switchOverlayLabel}</p>
             <p className="max-w-60 text-center text-xs text-muted-foreground">
-              Sincronizando los datos de esta cuenta.
+              Sincronizando los datos de este puesto.
             </p>
           </div>
         </div>
@@ -137,7 +137,7 @@ export function SettingsScreen({
             {initials}
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold">Tus cuentas</h2>
+            <h2 className="text-lg font-semibold">Tus puestos</h2>
             <p className="text-sm text-muted-foreground">
               {tenantContext.user.email ?? "Usuario autenticado"}
             </p>
@@ -147,12 +147,12 @@ export function SettingsScreen({
         {gate.blocker === "sync-failures" ? (
           <p className="mb-3 text-xs leading-relaxed text-destructive">
             La sincronización requiere recuperación. Abrí Diagnósticos antes de
-            cambiar de cuenta o cerrar sesión.
+            cambiar de puesto o cerrar sesión.
           </p>
         ) : gate.blocker === "tenant-changed" ? (
           <div className="mb-3 grid gap-2">
             <p className="text-xs leading-relaxed text-muted-foreground">
-              {tenantChangedBlockerMessage("cambiar de cuenta")}
+              {tenantChangedBlockerMessage("cambiar de puesto")}
             </p>
             <ReloadAppButton />
           </div>
@@ -160,13 +160,13 @@ export function SettingsScreen({
           <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
             {pendingUploadsBlockerMessage(
               gate.pendingCount,
-              "cambiar de cuenta o cerrar sesión",
+              "cambiar de puesto o cerrar sesión",
               gate.uploadHold
             )}
           </p>
         ) : gate.blocker === "not-synced" ? (
           <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-            Esperá a que termine la sincronización antes de cambiar de cuenta.
+            Esperá a que termine la sincronización antes de cambiar de puesto.
           </p>
         ) : null}
         {tenantActionError ? (
@@ -207,7 +207,7 @@ export function SettingsScreen({
           {showCreatePrompt ? (
             <div className="mt-2 grid gap-2 rounded-xl border border-border p-3">
               <Label className="grid gap-1.5 text-sm">
-                Nombre de la cuenta
+                Nombre del puesto
                 <Input
                   value={newTenantName}
                   onChange={(event) => setNewTenantName(event.target.value)}
@@ -249,7 +249,7 @@ export function SettingsScreen({
               className="mt-1 flex items-center gap-2 rounded-xl px-3 py-2.5 text-left text-primary hover:bg-muted disabled:opacity-50"
             >
               <Plus className="size-4" />
-              <span className="font-medium">Crear nueva cuenta</span>
+              <span className="font-medium">Crear nuevo puesto</span>
             </button>
           )}
         </div>
@@ -320,7 +320,7 @@ export function SettingsScreen({
               member.userId === tenantContext.tenant.createdByUserId;
             const roleLabel = isOwner
               ? "Propietario"
-              : "Vendedor en esta cuenta";
+              : "Vendedor en este puesto";
             const memberInitials = initialsOf(member.displayName);
             return (
               <div
@@ -345,7 +345,7 @@ export function SettingsScreen({
           })}
         </div>
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          Varios vendedores pueden registrar ventas en la misma cuenta desde sus
+          Varios vendedores pueden registrar ventas en el mismo puesto desde sus
           propios teléfonos. Compartí el enlace de invitación para agregar
           miembros al equipo.
         </p>

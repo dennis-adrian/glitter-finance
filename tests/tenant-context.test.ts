@@ -108,7 +108,7 @@ test("an action without an active tenant or a valid tenant id is refused", () =>
   for (const invalid of [undefined, "", "tenant-1", 42]) {
     assert.throws(() => requireExpectedTenant(empty, invalid, "Sin cuenta."), {
       name: "UserFacingError",
-      message: "Identificador de cuenta inválido.",
+      message: "Identificador de puesto inválido.",
     });
   }
 });

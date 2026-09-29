@@ -66,12 +66,12 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
         commit: async () => {
           await unwrapActionResult(
             () => acceptInvitation(token),
-            "No se pudo unir a esta cuenta."
+            "No se pudo unir a este puesto."
           );
           await refreshSessionForActiveTenant();
         },
         destination: "/",
-        failureMessage: "No se pudo unir a esta cuenta.",
+        failureMessage: "No se pudo unir a este puesto.",
         // This form is unmounted once the teardown succeeded.
         reportFailure: powerSyncControls.reportIdentityChangeFailure,
       });

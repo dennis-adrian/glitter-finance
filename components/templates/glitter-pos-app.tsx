@@ -142,7 +142,7 @@ function watchFailed(message: string, component: ClientFailureComponent) {
 
 type ToastTone = "success" | "info" | "danger";
 
-const NO_TENANT_MESSAGE = "Tu cuenta aún no está configurada.";
+const NO_TENANT_MESSAGE = "Tu puesto aún no está configurado.";
 
 /** What a write for the active tenant gets (see runTenantWrite). */
 type TenantWriteInput = {

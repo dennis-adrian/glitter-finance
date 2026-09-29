@@ -353,7 +353,7 @@ export function DiagnosticsScreen({
             {details.failures.length === 1
               ? "1 transacción no llegó a la nube."
               : `${details.failures.length} transacciones no llegaron a la nube.`}{" "}
-            Copiá este diagnóstico y no cierres sesión ni cambies de cuenta
+            Copiá este diagnóstico y no cierres sesión ni cambies de puesto
             hasta {details.failures.length === 1 ? "resolverla" : "resolverlas"}
             : forzá la sincronización cuando el problema esté corregido, o
             descartá la operación si la nube la sigue rechazando.
@@ -484,9 +484,9 @@ export function DiagnosticsScreen({
       ) : null}
 
       <DiagPanel title="Identidad">
-        <DiagRow label="Cuenta" value={tenantContext.tenant?.id ?? "—"} mono />
+        <DiagRow label="Puesto" value={tenantContext.tenant?.id ?? "—"} mono />
         <DiagRow
-          label="Nombre de la cuenta"
+          label="Nombre del puesto"
           value={tenantContext.tenant?.name ?? "—"}
         />
         <DiagRow label="Usuario" value={tenantContext.user.id} mono />

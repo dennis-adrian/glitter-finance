@@ -34,7 +34,7 @@ const PRODUCT_NOT_FOUND_MESSAGE = "No se encontró el producto.";
 async function requireTenant(expectedTenantId: string) {
   return requireExpectedTenantContext(
     expectedTenantId,
-    "Se requiere una cuenta para gestionar productos."
+    "Se requiere un puesto para gestionar productos."
   );
 }
 

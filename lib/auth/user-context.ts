@@ -57,13 +57,13 @@ export async function setActiveTenantClaim(user: User, tenantId: string) {
     app_metadata: { ...(user.app_metadata ?? {}), tenant_id: tenantId },
   });
   if (error) {
-    throw new Error("No se pudo actualizar la cuenta activa.");
+    throw new Error("No se pudo actualizar el puesto activo.");
   }
 }
 
 export async function assertUserIsMember(userId: string, tenantId: string) {
   if (!(await hasMembership(db, { tenantId, userId }))) {
-    throw new UserFacingError("No pertenecés a esta cuenta.");
+    throw new UserFacingError("No pertenecés a este puesto.");
   }
 }
 

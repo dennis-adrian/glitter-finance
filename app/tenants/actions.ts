@@ -15,7 +15,7 @@ const NOT_SIGNED_IN_MESSAGE = "No iniciaste sesión.";
 function parseTenantName(name: unknown): string {
   const trimmedName = typeof name === "string" ? name.trim() : "";
   if (!trimmedName) {
-    throw new UserFacingError("El nombre de la cuenta es obligatorio.");
+    throw new UserFacingError("El nombre del puesto es obligatorio.");
   }
   return trimmedName;
 }

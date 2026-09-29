@@ -322,6 +322,7 @@ The Sell Mode tile (`components/molecules/product-tile.tsx`):
 
 - Product language: Spanish for Bolivia.
 - Voice: address the user as vos, never tú or usted: “Revisá la conexión,” “Tocá productos,” “Si no podés esperar,” “Ya no tenés acceso.” An imperative with a pronoun attached has no accent (“Intentalo,” “Conectate,” “Copialo”). Negative commands and other subjunctives keep the common form (“no cierres sesión,” “hasta que lo revoques”). `tests/ui-copy-voice.test.ts` catches the usual tú forms.
+- A tenant is a **puesto** (“Tus puestos,” “Crear nuevo puesto,” “Nombre del puesto”). **Cuenta** is only the user's sign-in account (“Crear Cuenta,” “¿Ya tenés una cuenta?,” “Salí de tu cuenta”).
 - Currency: Bolivianos, written after the amount: `45 Bs`, `1.234,50 Bs` (`formatBs(cents, true)` in `lib/money.ts`). Whole amounts have no decimals, others two, with es-BO separators. The `Bs 45` form (`formatBs(cents)`) appears only inside validation messages.
 - Use short, action-oriented labels: “Cobrar,” “Crear nuevo puesto,” “Cerrar sesión.”
 - Keep explanatory text direct and operational; avoid decorative marketing copy during selling flows.

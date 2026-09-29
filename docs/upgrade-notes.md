@@ -324,7 +324,7 @@ Right After Signing In** on installed production PWAs as well.
 ## What users may notice
 
 - A tab left open across the deploy calls server actions that changed or no
-  longer exist, and gets "Identificador de cuenta inválido." or Next.js'
+  longer exist, and gets "Identificador de puesto inválido." or Next.js'
   "action not found" until it is reloaded.
 - An installed PWA keeps running the old build until it is closed and
   reopened online. Until then, after step 5's file 1, a refund it made that
@@ -335,8 +335,11 @@ Right After Signing In** on installed production PWAs as well.
   loses to a refund is reverted at the next sync. Nothing is lost.
 - Signing out now signs out only the current device.
 - The app now addresses users as vos on every screen (before, only the
-  sign-in screens and the More tab did). The auth emails did not change, so
-  their templates need no new export.
+  sign-in screens and the More tab did), and Settings calls a tenant a
+  "puesto", as the More tab already did. A tenant created on a first sign-in
+  is named "Puesto de <name>"; existing tenants keep their "Cuenta de <name>"
+  name. The auth emails did not change, so their templates need no new
+  export.
 - Confirming an email address no longer signs in. The link opens the sign-in
   screen with "Tu correo está confirmado", and the user signs in with the
   password they chose.

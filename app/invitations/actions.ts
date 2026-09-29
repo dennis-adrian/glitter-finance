@@ -25,7 +25,7 @@ function generateInviteToken() {
   return randomBytes(32).toString("base64url");
 }
 
-const NO_ACTIVE_TENANT_MESSAGE = "No se encontró una cuenta activa.";
+const NO_ACTIVE_TENANT_MESSAGE = "No se encontró un puesto activo.";
 
 // Expected failures come back as `{ ok: false, error }` (lib/action-result.ts).
 

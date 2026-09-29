@@ -86,7 +86,7 @@ export async function createTenantWithOwner(
     .returning({ id: tenants.id, name: tenants.name });
 
   if (!tenant) {
-    throw new Error("No se pudo crear la cuenta.");
+    throw new Error("No se pudo crear el puesto.");
   }
 
   const [membership] = await tx
@@ -99,7 +99,7 @@ export async function createTenantWithOwner(
     .returning({ id: tenantUsers.id });
 
   if (!membership) {
-    throw new Error("No se pudo crear la cuenta.");
+    throw new Error("No se pudo crear el puesto.");
   }
 
   return {

@@ -54,7 +54,7 @@ test("a failed server step after teardown is reported, not thrown", async () => 
     },
     commit: async () => {
       events.push("commit");
-      throw new Error("No pertenecés a esta cuenta.");
+      throw new Error("No pertenecés a este puesto.");
     },
   });
 
@@ -62,7 +62,7 @@ test("a failed server step after teardown is reported, not thrown", async () => 
   assert.deepEqual(events, [
     "teardown",
     "commit",
-    "report:No pertenecés a esta cuenta.",
+    "report:No pertenecés a este puesto.",
   ]);
 });
 

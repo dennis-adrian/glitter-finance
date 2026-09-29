@@ -41,10 +41,10 @@ test("the client gets the data or a message it can show", async (t) => {
   );
   await assert.rejects(
     unwrapActionResult(
-      async () => ({ ok: false, error: "No pertenecés a esta cuenta." }),
+      async () => ({ ok: false, error: "No pertenecés a este puesto." }),
       "No se pudo."
     ),
-    { name: "UserFacingError", message: "No pertenecés a esta cuenta." }
+    { name: "UserFacingError", message: "No pertenecés a este puesto." }
   );
   assert.equal(consoleError.mock.callCount(), 0);
 

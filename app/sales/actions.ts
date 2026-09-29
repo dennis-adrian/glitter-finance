@@ -28,7 +28,7 @@ export async function createSale(
   return toActionResult(async () => {
     const context = await requireExpectedTenantContext(
       expectedTenantId,
-      "Se requiere una cuenta para registrar una venta."
+      "Se requiere un puesto para registrar una venta."
     );
     const request = parseCheckoutRequest(input);
 
@@ -45,7 +45,7 @@ export async function voidSale(expectedTenantId: string, saleId: string) {
   return toActionResult(async () => {
     const context = await requireExpectedTenantContext(
       expectedTenantId,
-      "Se requiere una cuenta para anular una venta."
+      "Se requiere un puesto para anular una venta."
     );
 
     return voidSaleForTenant({
@@ -64,7 +64,7 @@ export async function refundSale(
   return toActionResult(async () => {
     const context = await requireExpectedTenantContext(
       expectedTenantId,
-      "Se requiere una cuenta para registrar un reembolso."
+      "Se requiere un puesto para registrar un reembolso."
     );
 
     return refundSaleForTenant({

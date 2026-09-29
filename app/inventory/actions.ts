@@ -28,7 +28,7 @@ export async function addInventoryMovement(
   return toActionResult(async () => {
     const context = await requireExpectedTenantContext(
       expectedTenantId,
-      "Se requiere una cuenta para ajustar el inventario."
+      "Se requiere un puesto para ajustar el inventario."
     );
     const request: Partial<AddInventoryMovementActionInput> =
       input && typeof input === "object" ? input : {};
