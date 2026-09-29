@@ -22,9 +22,10 @@ export default function GlobalError({
     Sentry.captureException(error);
   }, [error]);
 
-  // Layout and colors stay inline: if the stylesheet is missing, the tokens
-  // are undefined and the page falls back to the browser's default colors,
-  // which are still readable.
+  // Layout, type and colors stay inline: if the stylesheet is missing, the
+  // tokens are undefined and the page falls back to the browser's default
+  // colors, which are still readable. When it loads, its reset zeroes margins
+  // and heading sizes, so the heading and paragraph set their own.
   return (
     <html lang="es-BO">
       <body
@@ -46,8 +47,10 @@ export default function GlobalError({
             {/* Replaces the root layout and its metadata; React hoists this
                 into <head>. */}
             <title>Error · Billetera Ferial</title>
-            <h1>Algo salió mal</h1>
-            <p>
+            <h1 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 8px" }}>
+              Algo salió mal
+            </h1>
+            <p style={{ margin: "0 0 20px" }}>
               El error fue registrado. Podés intentar cargar la aplicación otra
               vez.
             </p>
