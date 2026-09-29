@@ -13,7 +13,7 @@ README and empty this file for the release after.
 
 | Area                  | Change                                                                                                                                                                                      |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App environment       | The server refuses to start while a required variable is missing, `INVITATION_SECRET_KEY` included. Browser Sentry reports only from Vercel production and preview deployments.             |
+| App environment       | The server now checks at startup that the required variables, `INVITATION_SECRET_KEY` included, are set. Browser Sentry reports only from Vercel production and preview deployments.        |
 | Database schema       | Three Drizzle migrations: stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times. |
 | Hand-written SQL      | Three new `supabase/manual/` files: upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, and per-field last-write-wins product edits.       |
 | PowerSync             | The sync streams also require a `tenant_users` membership, so they must be redeployed.                                                                                                      |
@@ -30,8 +30,9 @@ README and empty this file for the release after.
 2. Install or upgrade the Supabase CLI to **2.115.0 or later**
    (`brew upgrade supabase`). The `pnpm db:*` scripts refuse older or missing
    CLIs.
-3. Add `INVITATION_SECRET_KEY` to `.env.local` (any long random string, for
-   example `openssl rand -base64 32`). The server does not start without it.
+3. Make sure `.env.local` has `INVITATION_SECRET_KEY`. The server no longer
+   starts without it. If it is already set, keep it; if not, add any long
+   random string (for example `openssl rand -base64 32`).
 4. Restart the local stack so it picks up the `supabase/config.toml` changes
    (password length 8, the confirmation and recovery templates, the manual SQL
    in `db reset`): `pnpm db:stop && pnpm db:start`, then `pnpm db:reset`. The
@@ -58,9 +59,17 @@ staging, Production for production, and Development too if anyone runs
    `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
    `SUPABASE_SECRET_KEY`, `INVITATION_SECRET_KEY` and `DATABASE_URL`. The
    server now refuses to start without any of them, and `/api/health` fails
-   too. Generate `INVITATION_SECRET_KEY` for this environment alone
-   (`openssl rand -base64 32`), and never change it afterwards: that
-   invalidates every open invitation link.
+   too.
+
+   `INVITATION_SECRET_KEY` is not new: invitations already needed it, so it
+   is set wherever they have been used. **If it is set, keep the existing
+   value.** Changing it invalidates every open invitation link: `/join/<token>`
+   links already shared with helpers stop working, and the **Equipo** card
+   quietly revokes its link and shows a new one. Only if it is missing,
+   generate one for this environment alone (`openssl rand -base64 32`). If
+   staging and production share a value, give only staging a new one, and
+   expect staging's open links to break.
+
 2. Keep **Settings → Environment Variables → Automatically expose System
    Environment Variables** on. Browser Sentry turns on only when
    `NEXT_PUBLIC_VERCEL_ENV` is `production` or `preview`, the offline page's

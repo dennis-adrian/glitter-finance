@@ -509,7 +509,8 @@ Before running Stage B acceptance on staging:
 
 - The staging app environment in Vercel has all five required server
   variables (see [Environment](#environment)), including an
-  `INVITATION_SECRET_KEY` generated for staging alone.
+  `INVITATION_SECRET_KEY` not shared with production. If it is already set,
+  keep it: changing it invalidates every open invitation link.
 - Supabase migrations are applied to `glitter-finance-staging`.
 - Every file in `supabase/manual/` has been run in order, and the verification
   queries under [Hand-written SQL](#hand-written-sql-supabasemanual) return the
