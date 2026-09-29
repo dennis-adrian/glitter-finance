@@ -1260,3 +1260,23 @@ test("stops reporting the change once the session claims this tenant again", asy
   assert.ok(error instanceof TenantClaimMismatchError);
   assert.equal(error instanceof ActiveTenantChangedError, false);
 });
+
+test("a forced reconnect checks the claim again without waiting", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const auth = {
+    token: accessToken("tenant-2"),
+    refreshedToken: accessToken("tenant-2"),
+    events,
+  };
+  const connector = new SupabaseConnector(authSupabase(auth), "tenant-1");
+  await assert.rejects(connector.fetchCredentials(), ActiveTenantChangedError);
+
+  // The other device switched back; the browser still holds the old token.
+  auth.refreshedToken = accessToken("tenant-1");
+  connector.recheckTenantClaim();
+  const credentials = await connector.fetchCredentials();
+
+  assert.equal(credentials?.token, auth.refreshedToken);
+  assert.deepEqual(events, ["refresh", "refresh"]);
+});

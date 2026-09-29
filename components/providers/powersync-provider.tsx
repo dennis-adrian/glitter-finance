@@ -24,10 +24,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type {
-  AbstractPowerSyncDatabase,
-  PowerSyncBackendConnector,
-} from "@powersync/web";
+import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import {
   LocalDataPanel,
   LocalDataPanelButton,
@@ -38,6 +35,7 @@ import {
 } from "@/components/providers/local-data-recovery-panel";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
+import type { SupabaseConnector } from "@/lib/powersync/connector";
 import { reconcileSyncFailures } from "@/lib/powersync/sync-failures";
 import {
   createSyncStatusStore,
@@ -79,8 +77,8 @@ const OptionalPowerSyncContext =
 type PowerSyncControls = {
   /**
    * Disconnects and re-connects the PowerSync client, which refreshes the
-   * Supabase JWT and kicks the upload queue. Surfaced via the Diagnostics
-   * screen's "Forzar sincronización" button.
+   * Supabase JWT, checks its tenant claim again and kicks the upload queue.
+   * Surfaced via the Diagnostics screen's "Forzar sincronización" button.
    */
   reconnect: () => Promise<void>;
   /**
@@ -142,7 +140,7 @@ export function PowerSyncProvider({
   );
   const [recovery, setRecovery] = useState<LocalDataRecovery | null>(null);
   const [initializationAttempt, setInitializationAttempt] = useState(0);
-  const connectorRef = useRef<PowerSyncBackendConnector | null>(null);
+  const connectorRef = useRef<SupabaseConnector | null>(null);
   const exposedDbRef = useRef<AbstractPowerSyncDatabase | null>(null);
   const teardownPromiseRef = useRef<Promise<void> | null>(null);
   const localDataWasJustClearedRef = useRef(false);
@@ -496,6 +494,7 @@ export function PowerSyncProvider({
         const activeDb = exposedDbRef.current;
         const connector = connectorRef.current;
         if (!activeDb || !connector) return;
+        connector.recheckTenantClaim();
         await activeDb.disconnect();
         await activeDb.connect(connector);
         await reconcileSyncFailures(activeDb);

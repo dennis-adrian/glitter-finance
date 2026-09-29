@@ -217,7 +217,8 @@ function readTenantIdFromAccessToken(token: string): string | null {
 
 // PowerSync retries fetchCredentials every few seconds while it throws. A
 // device left on the previous tenant would otherwise refresh its session on
-// every retry until it reloads.
+// every retry until it reloads. "Forzar sincronización" checks again at once
+// (recheckTenantClaim).
 const CLAIM_REFRESH_INTERVAL_MS = 30_000;
 
 // A deferred upload is reported once it has waited this long in this session.
@@ -299,6 +300,15 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         ? new Date(session.expires_at * 1000)
         : undefined,
     };
+  }
+
+  /**
+   * Lets the next fetchCredentials refresh the session even if it refreshed
+   * one moments ago. For a reconnect the user asked for, which should show
+   * whether the active tenant is still another one.
+   */
+  recheckTenantClaim(): void {
+    this.lastClaimRefreshAt = null;
   }
 
   private claimsExpectedTenant(accessToken: string): boolean {
