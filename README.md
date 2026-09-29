@@ -583,7 +583,12 @@ below:
 - **Fresh environment** (a new project, or after `supabase db reset --linked`):
   after `pnpm db:push`, run every file in order.
 - **Existing environment:** after `pnpm db:push`, run every file newer than the
-  last one it has had. Re-running an older file is harmless.
+  last one it has had, in order. When unsure, start from an earlier file and
+  run every file after it as well, in order. Never re-run an older file on its
+  own: some files replace what an earlier one installed, and running the
+  earlier one again puts the old version back. File 1 replaces file 7's upload
+  policy, and file 5 replaces file 6's upload RPCs and void trigger. The
+  verification query below shows both.
 - **Local stack:** `pnpm db:reset` runs all of them after the migrations and
   before `seed.sql`.
 
@@ -631,18 +636,41 @@ FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity;
 
--- A marker for each file that installs RLS, functions or triggers in public
--- (expect every column true):
+-- A marker for each file that installs RLS, functions, triggers or Storage
+-- rules. Each checks what the file leaves in place, so it also turns false
+-- when an older file was re-run over it (expect every column true):
 SELECT
   (SELECT relrowsecurity FROM pg_class
     WHERE oid = 'public.inventory_movements'::regclass) AS "20260626170000",
   to_regprocedure('public.powersync_create_sale(jsonb,jsonb)') IS NOT NULL
     AS "20260808235900",
-  to_regprocedure('public.check_upload_timestamp(timestamptz,text)') IS NOT NULL
-    AS "20260926120000",
-  to_regprocedure('public.product_image_tenant_id(text)') IS NOT NULL
+  -- File 5's versions of these do not bound device timestamps.
+  (SELECT bool_and(coalesce(
+      pg_get_functiondef(to_regprocedure(f)) LIKE '%check_upload_timestamp%',
+      false))
+    FROM unnest(ARRAY[
+      'public.powersync_create_sale(jsonb,jsonb)',
+      'public.powersync_void_sale(uuid,uuid,timestamptz)',
+      'public.powersync_create_refund(jsonb)',
+      'public.sales_enforce_void_transition()'
+    ]) AS f) AS "20260926120000",
+  -- File 1's upload policy checks only the tenant folder.
+  (SELECT count(*) = 2 FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects'
+      AND policyname IN ('tenant members can upload product images',
+        'tenant members can delete product images')
+      AND coalesce(with_check, qual) LIKE '%product_image_tenant_id%')
+    AND EXISTS (SELECT 1 FROM storage.buckets
+      WHERE id = 'product-images' AND file_size_limit = 5242880
+        AND allowed_mime_types @> ARRAY['image/jpeg', 'image/png']
+        AND allowed_mime_types <@ ARRAY['image/jpeg', 'image/png'])
     AS "20260926130000",
-  EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'products_keep_latest_edit')
+  coalesce(pg_get_functiondef(
+      to_regprocedure('public.products_keep_latest_edit()')
+    ) LIKE '%field_updated_at%', false)
+    AND EXISTS (SELECT 1 FROM pg_trigger
+      WHERE tgname = 'products_keep_latest_edit'
+        AND tgrelid = 'public.products'::regclass)
     AS "20260926130100";
 ```
 

@@ -171,7 +171,9 @@ starts; nothing else is needed for them.
 ### 5. Hand-written SQL
 
 After the app is deployed, run these files in the project's SQL editor, in
-this order. Each one is idempotent and safe to re-run.
+this order. Each one is idempotent. To re-run one, run every later one after
+it as well: an older file run on its own can put back what a newer one
+replaced.
 
 1. [`supabase/manual/20260926120000_powersync_upload_convergence.sql`](../supabase/manual/20260926120000_powersync_upload_convergence.sql):
    rejects device timestamps more than 5 minutes ahead (retryable `55000`),
@@ -202,7 +204,8 @@ In the SQL editor:
 1. Run the verification queries under
    [Hand-written SQL](../README.md#hand-written-sql-supabasemanual): no public
    table without RLS, and every marker column `true`. A `false` marker names a
-   file that has not been run; run the missing files in order.
+   file that has not been run, or that an older file run after it undid; run
+   that file and every later one, in order.
 2. Check the upload RPC grants. The first query must return `false`, the
    second `true`:
 
