@@ -216,6 +216,14 @@ below, set the subject and paste the HTML from `supabase/templates/`:
 | Confirm signup    | `Confirmá tu correo \| Billetera Ferial`        | `account-confirmation.html` |
 | Reset Password    | `Creá una contraseña nueva \| Billetera Ferial` | `password-recovery.html`    |
 
+Paste them into a hosted project only once the deploy that includes
+`app/auth/confirm` and `app/auth/update-password` is live there (staging
+first, then production). The templates link to those routes, so pasted
+earlier, every sign-up and reset email sent in between links to a page the
+running build does not have, and the address stays unconfirmed. Until the
+deploy, keep the old templates: `/auth/callback` still handles
+`{{ .ConfirmationURL }}` links, so deploying first is safe.
+
 Resend remains the configured SMTP provider; no Auth Hook is required.
 
 The buttons link to
