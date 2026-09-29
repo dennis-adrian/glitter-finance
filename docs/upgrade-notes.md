@@ -338,8 +338,9 @@ Right After Signing In** on installed production PWAs as well.
   sign-in screens and the More tab did), and Settings calls a tenant a
   "puesto", as the More tab already did. A tenant created on a first sign-in
   is named "Puesto de <name>"; existing tenants keep their "Cuenta de <name>"
-  name. The auth emails did not change, so their templates need no new
-  export.
+  name. The auth emails already used vos, and their "cuenta" is the user's
+  own account, so this wording change leaves them as they are: step 7's
+  templates, pasted once, already carry it.
 - Confirming an email address no longer signs in. The link opens the sign-in
   screen with "Tu correo está confirmado", and the user signs in with the
   password they chose.
