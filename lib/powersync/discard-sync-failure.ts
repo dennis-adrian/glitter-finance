@@ -344,6 +344,12 @@ export type DiscardSyncFailureResult = {
  * next transaction in the upload queue, which a permanent failure always is,
  * since nothing behind it uploads. A marker without a transaction id whose
  * operations are no longer queued is only marked discarded.
+ *
+ * Run it while uploads are paused (lib/powersync/pause-uploads.ts). PowerSync
+ * keeps retrying the failed transaction, and a retry in flight that gets
+ * through after the dequeue would reach the server although the device
+ * reports it discarded. Paused, that retry finishes first, and the
+ * reconciliation below then finds nothing left to discard.
  */
 export async function discardSyncFailure(
   db: AbstractPowerSyncDatabase,

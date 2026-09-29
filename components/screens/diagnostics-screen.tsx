@@ -256,12 +256,16 @@ export function DiagnosticsScreen({
   }
 
   async function handleDiscard(failure: SyncFailure) {
-    if (!db) {
+    if (!db || !controls) {
       throw new Error("La base local no está disponible en este momento.");
     }
     let result: DiscardSyncFailureResult;
     try {
-      result = await discardSyncFailure(db, failure.id);
+      // With uploads paused, a retry of this transaction still in flight
+      // finishes first; if it got through, there is nothing to discard.
+      result = await controls.withUploadsPaused((activeDb) =>
+        discardSyncFailure(activeDb, failure.id)
+      );
     } catch (error) {
       if (error instanceof SyncFailureDiscardError) throw error;
       console.error("[Diagnostics] discard failed", error);
@@ -451,7 +455,7 @@ export function DiagnosticsScreen({
                 size="sm"
                 className="mt-2 text-destructive"
                 onClick={() => setDiscarding(failure)}
-                disabled={!db}
+                disabled={!db || !controls || reconnecting}
               >
                 <Trash2 className="size-4" />
                 Descartar operación

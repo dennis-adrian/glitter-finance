@@ -16,6 +16,7 @@ import {
   SYNCED_TABLE_NAMES,
   type RevertOperation,
 } from "@/lib/powersync/discard-sync-failure";
+import { withUploadsPaused } from "@/lib/powersync/pause-uploads";
 import {
   getDiscardedSyncFailures,
   getUnresolvedSyncFailures,
@@ -289,7 +290,15 @@ function discardDb(input: {
     writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
       callback(tx),
   } as unknown as AbstractPowerSyncDatabase;
-  return { db, events, rowWrites, marker: () => marker };
+  /** The connector's upload of the head got through (resolveSyncFailure). */
+  function uploadHead() {
+    headQueued = false;
+    if (marker && !marker.resolved_at) {
+      marker.resolved_at = "2026-09-27T12:06:00.000Z";
+      marker.discarded_at = null;
+    }
+  }
+  return { db, events, rowWrites, marker: () => marker, uploadHead };
 }
 
 const saleOperationsJson = JSON.stringify([
@@ -426,15 +435,12 @@ test("a decision left by an interrupted discard is carried through", async () =>
 });
 
 test("a transaction that uploaded while it was discarded is not reported discarded", async () => {
-  const { db, events, rowWrites } = discardDb({
+  const fake = discardDb({
     marker: saleMarker,
     head: saleHead,
-    // resolveSyncFailure, after the upload in flight got through.
-    duringComplete: (current) => {
-      current.resolved_at = "2026-09-27T12:06:00.000Z";
-      current.discarded_at = null;
-    },
+    duringComplete: () => fake.uploadHead(),
   });
+  const { db, events, rowWrites } = fake;
 
   await assert.rejects(
     discardSyncFailure(db, "transaction:9"),
@@ -533,4 +539,75 @@ test("a marker whose operations left the queue is only marked discarded", async 
   });
   assert.deepEqual(events, ["decide", "resolve"]);
   assert.ok(marker()?.discarded_at && marker()?.resolved_at);
+});
+
+test("a paused discard waits for the upload in flight and keeps what it uploaded", async () => {
+  const fake = discardDb({ marker: saleMarker, head: saleHead });
+  const steps: string[] = [];
+  let finishUpload = () => {};
+  const upload = new Promise<void>((resolve) => {
+    finishUpload = resolve;
+  });
+  // PowerSync's disconnect() returns once the upload loop has stopped.
+  const db = Object.assign(fake.db, {
+    disconnect: async () => {
+      await upload;
+      steps.push("disconnected");
+    },
+  });
+
+  const discarding = withUploadsPaused(
+    db,
+    async () => {
+      steps.push("resumed");
+    },
+    () => {
+      steps.push("discard");
+      return discardSyncFailure(db, "transaction:9");
+    }
+  );
+  // The retry in flight gets through once the server-side cause is fixed.
+  fake.uploadHead();
+  finishUpload();
+
+  await assert.rejects(
+    discarding,
+    (error: Error) => error.message === SYNC_FAILURE_NOT_PENDING_MESSAGE
+  );
+  assert.deepEqual(steps, ["disconnected", "discard", "resumed"]);
+  assert.deepEqual(fake.events, []);
+  assert.equal((await getDiscardedSyncFailures(db)).length, 0);
+});
+
+test("uploads resume whether the paused work succeeds or fails", async () => {
+  let resumed = 0;
+  const resume = async () => {
+    resumed += 1;
+  };
+  const connected = { disconnect: async () => {} };
+
+  assert.equal(await withUploadsPaused(connected, resume, async () => 1), 1);
+  await assert.rejects(
+    withUploadsPaused(connected, resume, async () => {
+      throw new Error("discard failed");
+    }),
+    /discard failed/
+  );
+  let ran = false;
+  await assert.rejects(
+    withUploadsPaused(
+      {
+        disconnect: async () => {
+          throw new Error("disconnect failed");
+        },
+      },
+      resume,
+      async () => {
+        ran = true;
+      }
+    ),
+    /disconnect failed/
+  );
+  assert.equal(ran, false);
+  assert.equal(resumed, 3);
 });

@@ -324,7 +324,8 @@ automatically. When the server will never accept it, **Descartar operación**
 (confirmed) removes the transaction from the queue, puts the rows it changed
 back to the last server version on the device, keeps the record and payload
 as discarded (listed and exported until sign-out), and sends a Sentry event
-with metadata only. Do not clear browser/PWA storage while a failure is
+with metadata only. It pauses sync while it runs, so a retry already in
+flight finishes first; if that retry got through, nothing is discarded. Do not clear browser/PWA storage while a failure is
 unresolved.
 
 A device whose identity changed (another tenant or account is active) never

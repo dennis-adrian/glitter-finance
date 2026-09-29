@@ -36,6 +36,7 @@ import {
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
 import type { SupabaseConnector } from "@/lib/powersync/connector";
+import { withUploadsPaused } from "@/lib/powersync/pause-uploads";
 import { reconcileSyncFailures } from "@/lib/powersync/sync-failures";
 import {
   createSyncStatusStore,
@@ -81,6 +82,14 @@ type PowerSyncControls = {
    * Surfaced via the Diagnostics screen's "Forzar sincronización" button.
    */
   reconnect: () => Promise<void>;
+  /**
+   * Runs `task` on the database while it uploads nothing, then connects it
+   * again. An upload already in flight finishes first. Diagnostics discards
+   * a failed transaction this way (lib/powersync/pause-uploads.ts).
+   */
+  withUploadsPaused: <T>(
+    task: (db: AbstractPowerSyncDatabase) => Promise<T>
+  ) => Promise<T>;
   /**
    * Disconnects from sync and wipes the local SQLite store + upload queue so
    * the next user on this device doesn't read stale rows that belong to the
@@ -502,6 +511,33 @@ export function PowerSyncProvider({
         await activeDb.disconnect();
         await activeDb.connect(connector);
         await reconcileSyncFailures(activeDb);
+      },
+      withUploadsPaused: async (task) => {
+        const activeDb = exposedDbRef.current;
+        const connector = connectorRef.current;
+        if (!activeDb || !connector) {
+          throw new Error("The local database is not open.");
+        }
+        return withUploadsPaused(
+          activeDb,
+          async () => {
+            // A teardown or a new initialization owns the database now.
+            if (
+              exposedDbRef.current !== activeDb ||
+              connectorRef.current !== connector
+            ) {
+              return;
+            }
+            try {
+              await activeDb.connect(connector);
+            } catch (error) {
+              console.error("[PowerSync] reconnect after a pause failed", {
+                error,
+              });
+            }
+          },
+          () => task(activeDb)
+        );
       },
       teardownForLogout: () => teardown("logout"),
       teardownForTenantChange: () => teardown("tenant-change"),
