@@ -350,6 +350,30 @@ export function computeProductTotals(sales: Sale[]) {
     .sort((a, b) => b.quantity - a.quantity || b.total - a.total);
 }
 
+/**
+ * Who a sale counts for in the seller breakdown: whoever made it. A refund
+ * record counts for the seller of the sale it returns, not for whoever
+ * recorded the refund. Both loaders (lib/sales/repository.ts,
+ * lib/powersync/sales-from-local.ts) set that seller on every refund record,
+ * since they only build one once the refunded sale is loaded; a record
+ * without it counts for whoever recorded it, the only user it names.
+ */
+function creditedSeller(sale: Sale) {
+  return sale.refundOfSaleUserId
+    ? {
+        userId: sale.refundOfSaleUserId,
+        userName: sale.refundOfSaleUserName ?? "Vendedor",
+      }
+    : { userId: sale.userId, userName: sale.userName };
+}
+
+/**
+ * Each seller's net: their sales less the refunds of those sales, whoever
+ * recorded the refunds, so the rows add up to the net revenue. A seller's
+ * transactionCount is the sales they made in the set, refunded later or not,
+ * like SalesMetrics.transactionCount; a set that holds the refund of an
+ * earlier sale can show its seller with a negative total and no sales.
+ */
 export function computeUserTotals(sales: Sale[]) {
   const totals = new Map<
     string,
@@ -362,15 +386,15 @@ export function computeUserTotals(sales: Sale[]) {
   >();
 
   for (const sale of accountableSales(sales)) {
-    const current = totals.get(sale.userId) ?? {
-      userId: sale.userId,
-      userName: sale.userName,
+    const seller = creditedSeller(sale);
+    const current = totals.get(seller.userId) ?? {
+      ...seller,
       transactionCount: 0,
       total: 0,
     };
 
-    totals.set(sale.userId, {
-      userId: sale.userId,
+    totals.set(seller.userId, {
+      userId: seller.userId,
       userName: current.userName,
       transactionCount:
         current.transactionCount + (sale.refundOfSaleId ? 0 : 1),

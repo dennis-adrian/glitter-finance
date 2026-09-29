@@ -67,6 +67,13 @@ export type Sale = {
   voidedAt?: string;
   voidedByUserId?: string;
   refundOfSaleId?: string;
+  /**
+   * On a refund record, who made the refunded sale; userId and userName
+   * are whoever recorded the refund. The seller breakdown in Reports nets
+   * the refund against this seller.
+   */
+  refundOfSaleUserId?: string;
+  refundOfSaleUserName?: string;
   refundedAt?: string;
   refundReason?: string;
 };

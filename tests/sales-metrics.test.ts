@@ -66,7 +66,8 @@ const voided = sale({
   status: "voided",
   lines: [line("sticker", 5, 1000, 300)],
 });
-// A refund repeats the original's lines and payment method.
+// A refund repeats the original's lines and payment method. Ana records the
+// refund of Bea's sale.
 const refund: Sale = {
   ...qr,
   id: "r1",
@@ -74,6 +75,8 @@ const refund: Sale = {
   userName: "Ana",
   status: "refunded",
   refundOfSaleId: "s2",
+  refundOfSaleUserId: "bea",
+  refundOfSaleUserName: "Bea",
 };
 const sales = [mixed, qr, voided, refund];
 
@@ -140,9 +143,34 @@ test("report breakdowns net refunds against their sales", () => {
     { productId: "sticker", productName: "Sticker", quantity: 2, total: 1674 },
     { productId: "print", productName: "Print", quantity: 1, total: 2326 },
   ]);
+  // The refund Ana recorded nets against Bea, who made the sale.
   assert.deepEqual(computeUserTotals(sales), [
-    { userId: "ana", userName: "Ana", transactionCount: 1, total: 3000 },
-    { userId: "bea", userName: "Bea", transactionCount: 1, total: 1000 },
+    { userId: "ana", userName: "Ana", transactionCount: 1, total: 4000 },
+    { userId: "bea", userName: "Bea", transactionCount: 1, total: 0 },
+  ]);
+});
+
+test("the seller breakdown nets a refund against whoever made the sale", () => {
+  // Bea's sale from before the set, refunded by Ana within it.
+  const earlierRefund: Sale = {
+    ...refund,
+    id: "r-early",
+    refundOfSaleId: "earlier",
+  };
+  assert.deepEqual(computeUserTotals([mixed, earlierRefund]), [
+    { userId: "ana", userName: "Ana", transactionCount: 1, total: 4000 },
+    { userId: "bea", userName: "Bea", transactionCount: 0, total: -1000 },
+  ]);
+
+  // A refund record that does not name the seller counts for whoever
+  // recorded it.
+  const unattributed: Sale = {
+    ...earlierRefund,
+    refundOfSaleUserId: undefined,
+    refundOfSaleUserName: undefined,
+  };
+  assert.deepEqual(computeUserTotals([unattributed]), [
+    { userId: "ana", userName: "Ana", transactionCount: 0, total: -1000 },
   ]);
 });
 

@@ -192,6 +192,8 @@ function mapRefundRows(
         clientCreatedAt: toIso(refund.clientCreatedAt),
         status: "refunded",
         refundOfSaleId: original.id,
+        refundOfSaleUserId: original.userId,
+        refundOfSaleUserName: original.userName,
         refundedAt: toIso(refund.createdAt),
         refundReason: refund.reason ?? undefined,
       },

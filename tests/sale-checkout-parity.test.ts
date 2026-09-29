@@ -18,7 +18,7 @@ import {
 import { buildSalesFromLocal } from "@/lib/powersync/sales-from-local";
 import { createSaleLocal } from "@/lib/powersync/write-sales";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
-import { computeCategoryTotals } from "@/lib/sales";
+import { computeCategoryTotals, computeUserTotals } from "@/lib/sales";
 import type { Product } from "@/lib/types";
 
 type Row = Record<string, unknown>;
@@ -364,4 +364,104 @@ test("loaded sales take seller names from the members they are given", async () 
     queried.map((sale) => sale.userName),
     ["Vendedor", "Vendedor"]
   );
+});
+
+test("both loaders net a refund against the seller of the refunded sale", async () => {
+  const { createSaleForTenant, getSalesForTenant } = await loadRepository();
+  const saleId = crypto.randomUUID();
+  // 38 Bs: without the sale discount, which would take it to zero.
+  await createSaleForTenant({
+    ...serverSale(saleId),
+    saleDiscountCents: 0,
+    saleDiscountReason: null,
+  });
+  const [sale] = fake.tables.get(sales)!;
+  const refundUserId = "00000000-0000-4000-8000-000000000004";
+  const refund = {
+    id: crypto.randomUUID(),
+    tenantId: TENANT_ID,
+    originalSaleId: saleId,
+    userId: refundUserId,
+    reason: null,
+    createdAt: new Date(Date.now() + 60_000),
+    clientCreatedAt: new Date(Date.now() + 60_000),
+  };
+  fake.tables.get(refunds)!.push(refund);
+  const names = new Map([
+    [USER_ID, "Ana"],
+    [refundUserId, "Beto"],
+  ]);
+
+  const serverSales = await getSalesForTenant(TENANT_ID, {
+    members: [...names].map(([userId, displayName]) => ({
+      id: userId,
+      userId,
+      displayName,
+      createdAt: "",
+    })),
+  });
+  const localSales = buildSalesFromLocal(
+    [
+      {
+        id: saleId,
+        tenant_id: TENANT_ID,
+        user_id: USER_ID,
+        payment_method: String(sale.paymentMethod),
+        sale_discount_cents: Number(sale.saleDiscountCents),
+        sale_discount_reason: sale.saleDiscountReason as string | null,
+        voided_at: null,
+        voided_by_user_id: null,
+        created_at: (sale.createdAt as Date).toISOString(),
+        client_created_at: (sale.clientCreatedAt as Date).toISOString(),
+      },
+    ],
+    fake.tables.get(saleLines)!.map((line) => ({
+      id: String(line.id),
+      sale_id: String(line.saleId),
+      tenant_id: TENANT_ID,
+      product_id: String(line.productId),
+      product_name: String(line.productName),
+      category: String(line.category),
+      quantity: Number(line.quantity),
+      unit_price_cents: Number(line.unitPriceCents),
+      unit_cost_cents: line.unitCostCents as number | null,
+      line_discount_cents: Number(line.lineDiscountCents),
+      line_discount_reason: line.lineDiscountReason as string | null,
+      line_total_cents: Number(line.lineTotalCents),
+      created_at: (sale.createdAt as Date).toISOString(),
+    })),
+    [
+      {
+        id: refund.id,
+        tenant_id: TENANT_ID,
+        original_sale_id: saleId,
+        user_id: refundUserId,
+        reason: null,
+        created_at: refund.createdAt.toISOString(),
+        client_created_at: refund.clientCreatedAt.toISOString(),
+      },
+    ],
+    (userId) => names.get(userId) ?? "Vendedor"
+  );
+
+  for (const loaded of [serverSales, localSales]) {
+    const refundRecord = loaded.find((item) => item.refundOfSaleId);
+    // The refund still names who recorded it.
+    assert.deepEqual(
+      [
+        refundRecord?.userName,
+        refundRecord?.refundOfSaleUserId,
+        refundRecord?.refundOfSaleUserName,
+      ],
+      ["Beto", USER_ID, "Ana"]
+    );
+    // Ana's sale and its refund cancel out; Beto sold nothing.
+    assert.deepEqual(computeUserTotals(loaded), [
+      { userId: USER_ID, userName: "Ana", transactionCount: 1, total: 0 },
+    ]);
+    // A range that holds only the refund takes it off Ana too.
+    assert.deepEqual(computeUserTotals([refundRecord!]), [
+      { userId: USER_ID, userName: "Ana", transactionCount: 0, total: -3800 },
+    ]);
+  }
 });

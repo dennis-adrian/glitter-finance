@@ -91,6 +91,8 @@ export function buildSalesFromLocal(
         clientCreatedAt: row.client_created_at,
         status: "refunded",
         refundOfSaleId: original.id,
+        refundOfSaleUserId: original.userId,
+        refundOfSaleUserName: original.userName,
         refundedAt: row.created_at,
         refundReason: row.reason ?? undefined,
       },
