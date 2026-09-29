@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   archiveProduct as archiveProductAction,
   createProduct,
@@ -381,12 +388,25 @@ export function GlitterPosApp({
     setTeamSyncConfirmed(initialTenantMembers.length === 0);
   }, [initialTenantMembers]);
 
-  useEffect(() => {
+  // The store starts empty, and a passive effect runs after the browser has
+  // painted: the first frame would show the empty catalog's first-product
+  // prompt to a vendor with a full catalog. A layout effect installs the
+  // server rows before that paint.
+  useLayoutEffect(() => {
     initialProductsRef.current = initialProducts;
     initialSalesRef.current = initialSales;
     initialInventoryRef.current = initialInventory;
     hydrateProducts(initialProducts);
     hydrateSales(initialSales);
+  }, [
+    hydrateProducts,
+    hydrateSales,
+    initialProducts,
+    initialSales,
+    initialInventory,
+  ]);
+
+  useEffect(() => {
     setTenantMembers(initialTenantMembers);
     setInventoryMovements(initialInventory?.movements ?? []);
     setOpeningStock(initialInventory?.opening ?? null);
@@ -403,9 +423,9 @@ export function GlitterPosApp({
       userId: tenantContext.user.id,
       tenantId: activeTenantId,
     });
+    // New server data (the products and sales installed above) puts the
+    // ledger back to it as well.
   }, [
-    hydrateProducts,
-    hydrateSales,
     initialProducts,
     initialSales,
     initialTenantMembers,
