@@ -7,6 +7,7 @@ export type View =
   | "saleDetail"
   | "products"
   | "editor"
+  | "categories"
   | "reports"
   | "more"
   | "settings"
@@ -30,6 +31,7 @@ export function primaryViewFor(view: View): PrimaryView {
       return "sales";
     case "products":
     case "editor":
+    case "categories":
       return "products";
     case "reports":
       return "reports";
@@ -56,6 +58,8 @@ export function isPrimaryView(view: View) {
 // `/`: the service worker caches one navigation entry and offline reloads of
 // any screen still resolve.
 const NEW_PRODUCT_SEGMENT = "nuevo";
+// Product ids are UUIDs, so these fixed segments can't collide with them.
+const CATEGORIES_SEGMENT = "categorias";
 
 export function parseRouteHash(hash: string): AppRoute {
   const segments = hash
@@ -84,6 +88,7 @@ export function parseRouteHash(hash: string): AppRoute {
       return id ? { view: "saleDetail", id } : { view: "sales" };
     case "catalogo":
       if (!id) return { view: "products" };
+      if (id === CATEGORIES_SEGMENT) return { view: "categories" };
       return id === NEW_PRODUCT_SEGMENT
         ? { view: "editor" }
         : { view: "editor", id };
@@ -120,6 +125,8 @@ export function formatRouteHash(route: AppRoute): string {
       return "#/catalogo";
     case "editor":
       return `#/catalogo/${id ?? NEW_PRODUCT_SEGMENT}`;
+    case "categories":
+      return `#/catalogo/${CATEGORIES_SEGMENT}`;
     case "reports":
       return "#/reportes";
     case "more":

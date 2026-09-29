@@ -1,26 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deriveCategories, resolveCategoryName } from "@/lib/products";
+import { categoriesInUse } from "@/lib/products";
 
-test("categories come from products, deduplicated and sorted", () => {
+test("filter chips only list categories that have products", () => {
   assert.deepEqual(
-    deriveCategories([
-      { category: "Pines" },
-      { category: "llaveros" },
-      { category: "Accesorios" },
-      { category: "Llaveros" },
-      { category: "Nanduti" },
-      { category: "  " },
-      { category: "Ñandutí" },
-    ]),
-    ["Accesorios", "llaveros", "Nanduti", "Pines"]
+    categoriesInUse(
+      ["Accesorios", "Llaveros", "Pines", "Prints"],
+      [{ category: "Pines" }, { category: "Accesorios" }, { category: "Pines" }]
+    ),
+    ["Accesorios", "Pines"]
   );
-});
-
-test("typed categories reuse existing spellings", () => {
-  const existing = ["Llaveros", "Láminas"];
-  assert.equal(resolveCategoryName("  llaveros ", existing), "Llaveros");
-  assert.equal(resolveCategoryName("laminas", existing), "Láminas");
-  assert.equal(resolveCategoryName("Tote   bags", existing), "Tote bags");
-  assert.equal(resolveCategoryName("x".repeat(60), existing).length, 40);
+  assert.deepEqual(categoriesInUse(["Pines"], []), []);
 });

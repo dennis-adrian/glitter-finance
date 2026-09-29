@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { FormField } from "@/components/atoms/form-field";
 import { ProductArt } from "@/components/atoms/product-art";
+import { CategoryFormDrawer } from "@/components/molecules/category-form-drawer";
 import { CategoryPicker } from "@/components/molecules/category-picker";
 import { ConfirmDialog } from "@/components/molecules/confirm-dialog";
 import { ScreenHeader } from "@/components/molecules/screen-header";
@@ -31,9 +32,8 @@ import {
   productImageMaxBytes,
   productImageMimeTypes,
 } from "@/lib/product-image-config";
-import { emptyProduct, resolveCategoryName } from "@/lib/products";
-import { canonicalizeCategory } from "@/lib/sample-data";
-import type { Product } from "@/lib/types";
+import { emptyProduct } from "@/lib/products";
+import type { Category, Product } from "@/lib/types";
 import {
   hasValidProductForm,
   parsePositiveInteger,
@@ -42,10 +42,11 @@ import {
 
 type ProductEditorProps = {
   product: Product | null;
-  /** Categories already used by this vendor's products. */
-  categories: string[];
+  /** The puesto's managed categories. */
+  categories: Category[];
   /** Preselected category for new products. */
   defaultCategory?: string;
+  createCategory: (name: string) => Promise<Category>;
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
   hasInitialMovement: boolean;
@@ -87,19 +88,19 @@ const STOCK_CORRECTIONS: Record<
   adjustment: {
     label: "Ajuste",
     hint: "Corregí el conteo: un número positivo suma, uno negativo resta.",
-    placeholder: "±2",
+    placeholder: "Ej. -2 o +3",
     action: "Registrar ajuste",
   },
   loss: {
     label: "Pérdida",
     hint: "Unidades dañadas, perdidas o robadas.",
-    placeholder: "2",
+    placeholder: "Ej. 2",
     action: "Registrar pérdida",
   },
   gift: {
     label: "Regalo",
     hint: "Unidades entregadas sin cobrar.",
-    placeholder: "1",
+    placeholder: "Ej. 1",
     action: "Registrar regalo",
   },
 };
@@ -124,6 +125,7 @@ export function ProductEditor({
   inventoryStockReady,
   hasInitialMovement,
   back,
+  createCategory,
   save,
   onInventoryMovement,
   archive,
@@ -134,9 +136,7 @@ export function ProductEditor({
     name: product?.name ?? "",
     price: product ? String(product.priceCents / 100) : "",
     cost: product?.costCents == null ? "" : String(product.costCents / 100),
-    category: product
-      ? canonicalizeCategory(product.category)
-      : defaultCategory,
+    category: product?.category ?? defaultCategory,
     imageTone: product?.imageTone ?? "violet",
     tracksInventory: product?.tracksInventory ?? false,
   }));
@@ -165,10 +165,10 @@ export function ProductEditor({
   const [saving, setSaving] = useState(false);
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
+  const [categoryDrawerOpen, setCategoryDrawerOpen] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const resolvedCategory = resolveCategoryName(category, categories);
   const canSave =
-    hasValidProductForm(name, price) && Boolean(resolvedCategory) && !saving;
+    hasValidProductForm(name, price) && Boolean(category) && !saving;
   const trackingPersisted = product?.tracksInventory ?? false;
   const trackingDirty =
     Boolean(product) && tracksInventory !== trackingPersisted;
@@ -187,7 +187,7 @@ export function ProductEditor({
     name !== initial.name ||
     price !== initial.price ||
     cost !== initial.cost ||
-    resolvedCategory !== resolveCategoryName(initial.category, categories) ||
+    category !== initial.category ||
     imageTone !== initial.imageTone ||
     tracksInventory !== initial.tracksInventory ||
     Boolean(imageFile) ||
@@ -329,7 +329,7 @@ export function ProductEditor({
         name: name.trim(),
         priceCents: parseBolivianos(price),
         costCents: cost.trim() ? parseBolivianos(cost) : null,
-        category: resolvedCategory,
+        category,
         imageTone,
         imagePath: product?.imagePath ?? null,
         imageFile,
@@ -478,7 +478,7 @@ export function ProductEditor({
               <MoneyInput
                 value={price}
                 onChange={(event) => setPrice(event.target.value)}
-                placeholder="15"
+                placeholder="Ej. 15"
               />
             </FormField>
             <FormField label="Costo unitario" hint="Opcional">
@@ -502,8 +502,15 @@ export function ProductEditor({
               value={category}
               onChange={setCategory}
               categories={categories}
+              legacyCategory={product?.category}
+              onCreate={() => setCategoryDrawerOpen(true)}
               labelledBy="product-category-label"
             />
+            {!category ? (
+              <p className="text-sm text-muted-foreground">
+                Elegí o creá una categoría para poder guardar el producto.
+              </p>
+            ) : null}
           </div>
 
           <section className="mt-6 rounded-3xl bg-card p-4 ring-1 ring-foreground/10">
@@ -532,7 +539,7 @@ export function ProductEditor({
                     setInventoryActionError(null);
                   }}
                   inputMode="numeric"
-                  placeholder="10"
+                  placeholder="Ej. 10"
                 />
               </FormField>
             ) : null}
@@ -567,7 +574,7 @@ export function ProductEditor({
                       value={restockAmount}
                       onChange={(event) => setRestockAmount(event.target.value)}
                       inputMode="numeric"
-                      placeholder="+5"
+                      placeholder="Ej. +5"
                       className="flex-1"
                     />
                     <Button
@@ -697,6 +704,16 @@ export function ProductEditor({
         cancelLabel="Seguir editando"
         confirmLabel="Descartar"
         onConfirm={back}
+      />
+      <CategoryFormDrawer
+        open={categoryDrawerOpen}
+        existingNames={categories.map((item) => item.name)}
+        onOpenChange={setCategoryDrawerOpen}
+        onSave={async (categoryName) => {
+          const created = await createCategory(categoryName);
+          setCategory(created.name);
+          return created;
+        }}
       />
       {product ? (
         <ConfirmDialog

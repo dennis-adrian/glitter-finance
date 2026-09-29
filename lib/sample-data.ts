@@ -1,18 +1,5 @@
 import type { Product } from "@/lib/types";
 
-const legacyCategoryMap: Record<string, string> = {
-  Pegatina: "Stickers",
-  Pegatinas: "Stickers",
-  Lámina: "Prints",
-  Láminas: "Prints",
-  Pins: "Pines",
-};
-
-/** Normaliza categorías históricas para que coincidan con los filtros actuales. */
-export function canonicalizeCategory(category: string) {
-  return legacyCategoryMap[category] ?? category;
-}
-
 const now = new Date().toISOString();
 
 export const starterProducts: Product[] = [

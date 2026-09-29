@@ -18,6 +18,7 @@ test("route hashes round-trip for every screen", () => {
     { view: "products" },
     { view: "editor" },
     { view: "editor", id: "prod-1" },
+    { view: "categories" },
     { view: "reports" },
     { view: "more" },
     { view: "settings" },
@@ -39,5 +40,6 @@ test("sub-screens keep their section active in the navigation", () => {
   assert.equal(primaryViewFor("checkout"), "sell");
   assert.equal(primaryViewFor("saleDetail"), "sales");
   assert.equal(primaryViewFor("editor"), "products");
+  assert.equal(primaryViewFor("categories"), "products");
   assert.equal(primaryViewFor("diagnostics"), "more");
 });

@@ -6,6 +6,7 @@ import {
   PackagePlus,
   Plus,
   Search,
+  Tags,
   TriangleAlert,
 } from "lucide-react";
 import { ProductArt } from "@/components/atoms/product-art";
@@ -25,7 +26,7 @@ import {
 } from "@/lib/inventory";
 import { useSearchShortcut } from "@/lib/hooks/use-search-shortcut";
 import { formatBs } from "@/lib/money";
-import { deriveCategories, isSameCategory } from "@/lib/products";
+import { categoriesInUse } from "@/lib/products";
 import type { Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +34,8 @@ type CatalogStatus = "active" | "archived";
 
 type ProductsScreenProps = {
   products: Product[];
+  /** The puesto's category names (managed ones first). */
+  categories: string[];
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
   category: string;
@@ -41,12 +44,13 @@ type ProductsScreenProps = {
   setQuery: (value: string) => void;
   openEditor: (product: Product | null) => void;
   restoreProduct: (productId: string) => void;
+  openCategories: () => void;
 };
 
 /**
  * Catalog management. Phones and tablets show image cards; desktop shows a
- * table with category, price, cost, and stock. Categories are the vendor's
- * own (derived from their products).
+ * table with category, price, cost, and stock. Categories are managed in
+ * their own screen (Categorías).
  */
 export function ProductsScreen(props: ProductsScreenProps) {
   const [status, setStatus] = useState<CatalogStatus>("active");
@@ -59,18 +63,16 @@ export function ProductsScreen(props: ProductsScreenProps) {
     (product) => product.archivedAt
   );
   const inStatus = status === "active" ? activeProducts : archivedProducts;
-  const categories = deriveCategories(inStatus);
-  // A category can disappear (last product archived); fall back to all.
-  const activeCategory =
-    props.category !== "Todos" &&
-    categories.some((category) => isSameCategory(category, props.category))
-      ? props.category
-      : "Todos";
+  // Only categories with products in this tab; fall back to all when the
+  // selected one has none here.
+  const categories = categoriesInUse(props.categories, inStatus);
+  const activeCategory = categories.includes(props.category)
+    ? props.category
+    : "Todos";
   const normalizedQuery = props.query.trim().toLowerCase();
   const filtered = inStatus.filter((product) => {
     const matchesCategory =
-      activeCategory === "Todos" ||
-      isSameCategory(product.category, activeCategory);
+      activeCategory === "Todos" || product.category === activeCategory;
     const matchesQuery = product.name.toLowerCase().includes(normalizedQuery);
     return matchesCategory && matchesQuery;
   });
@@ -86,6 +88,26 @@ export function ProductsScreen(props: ProductsScreenProps) {
           title="Catálogo"
           actions={
             <>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                className="md:hidden"
+                onClick={props.openCategories}
+                aria-label="Categorías"
+              >
+                <Tags className="size-4.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="hidden md:inline-flex"
+                onClick={props.openCategories}
+              >
+                <Tags className="size-4" />
+                Categorías
+              </Button>
               <Button
                 type="button"
                 size="icon-sm"

@@ -20,11 +20,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { TABLET_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
 import { useSearchShortcut } from "@/lib/hooks/use-search-shortcut";
-import { deriveCategories, isSameCategory } from "@/lib/products";
+import { categoriesInUse } from "@/lib/products";
 import type { Product } from "@/lib/types";
 
 type SellScreenProps = {
   products: Product[];
+  /** The puesto's category names (managed ones first). */
+  categories: string[];
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
   category: string;
@@ -53,18 +55,16 @@ export function SellScreen(props: SellScreenProps) {
   const quantities = new Map(
     order.lines.map((line) => [line.productId, line.quantity])
   );
-  const categories = deriveCategories(props.products);
-  // A category can disappear (its last product archived); fall back to all.
-  const activeCategory =
-    props.category !== "Todos" &&
-    categories.some((category) => isSameCategory(category, props.category))
-      ? props.category
-      : "Todos";
+  // Only categories with something to sell; if the selected one empties
+  // (last product archived or category deleted), fall back to all.
+  const categories = categoriesInUse(props.categories, props.products);
+  const activeCategory = categories.includes(props.category)
+    ? props.category
+    : "Todos";
   const normalizedQuery = props.query.trim().toLowerCase();
   const filtered = props.products.filter((product) => {
     const matchesCategory =
-      activeCategory === "Todos" ||
-      isSameCategory(product.category, activeCategory);
+      activeCategory === "Todos" || product.category === activeCategory;
     const matchesQuery = product.name.toLowerCase().includes(normalizedQuery);
     return matchesCategory && matchesQuery;
   });

@@ -2,7 +2,6 @@
 
 import { create } from "zustand";
 import { clampDiscount } from "@/lib/money";
-import { starterProducts } from "@/lib/sample-data";
 import type { CartLine, Product, ProductInput, Sale } from "@/lib/types";
 
 const draftCartMaxAgeMs = 24 * 60 * 60 * 1000;
@@ -25,6 +24,7 @@ type PosState = {
   updateProduct: (id: string, input: ProductInput) => void;
   archiveProduct: (id: string) => void;
   restoreProduct: (id: string) => void;
+  renameProductCategory: (currentName: string, nextName: string) => void;
   addToCart: (productId: string) => void;
   decrementCart: (productId: string) => void;
   removeFromCart: (productId: string) => void;
@@ -58,7 +58,7 @@ function id(prefix: string) {
 }
 
 export const usePosStore = create<PosState>()((set) => ({
-  products: starterProducts,
+  products: [],
   cart: [],
   cartUpdatedAt: null,
   cartRevision: 0,
@@ -188,6 +188,14 @@ export const usePosStore = create<PosState>()((set) => ({
     set((state) => ({
       products: state.products.map((product) =>
         product.id === productId ? { ...product, archivedAt: null } : product
+      ),
+    })),
+  renameProductCategory: (currentName, nextName) =>
+    set((state) => ({
+      products: state.products.map((product) =>
+        product.category === currentName
+          ? { ...product, category: nextName, updatedAt: nowIso() }
+          : product
       ),
     })),
   addToCart: (productId) =>

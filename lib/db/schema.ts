@@ -43,10 +43,46 @@ export const tenants = pgTable("tenants", {
 export const tenantsRelations = relations(tenants, ({ many }) => ({
   users: many(tenantUsers),
   invitations: many(tenantInvitations),
+  categories: many(categories),
   products: many(products),
   sales: many(sales),
   refunds: many(refunds),
   inventoryMovements: many(inventoryMovements),
+}));
+
+export const categories = pgTable(
+  "categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("categories_tenant_id_idx").on(table.tenantId),
+    uniqueIndex("categories_tenant_name_unique").on(
+      table.tenantId,
+      sql`lower(${table.name})`
+    ),
+    check(
+      "categories_name_valid_check",
+      sql`btrim(${table.name}) <> '' AND char_length(${table.name}) <= 40`
+    ),
+  ]
+);
+
+export const categoriesRelations = relations(categories, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [categories.tenantId],
+    references: [tenants.id],
+  }),
 }));
 
 export const tenantInvitations = pgTable(

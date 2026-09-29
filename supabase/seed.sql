@@ -19,6 +19,9 @@ WHERE "tenant_id" = '70000000-0000-4000-8000-000000000001'
 DELETE FROM "public"."products"
 WHERE "tenant_id" = '70000000-0000-4000-8000-000000000001';
 
+DELETE FROM "public"."categories"
+WHERE "tenant_id" = '70000000-0000-4000-8000-000000000001';
+
 DELETE FROM "public"."tenant_users"
 WHERE "tenant_id" = '70000000-0000-4000-8000-000000000001'
   OR "user_id" = '60000000-0000-4000-8000-000000000001';
@@ -115,6 +118,43 @@ VALUES (
   'Demo Vendedora',
   now()
 );
+
+INSERT INTO "public"."categories" (
+  "id",
+  "tenant_id",
+  "name",
+  "created_at",
+  "updated_at"
+)
+VALUES
+  (
+    '72000000-0000-4000-8000-000000000001',
+    '70000000-0000-4000-8000-000000000001',
+    'Stickers',
+    now(),
+    now()
+  ),
+  (
+    '72000000-0000-4000-8000-000000000002',
+    '70000000-0000-4000-8000-000000000001',
+    'Prints',
+    now(),
+    now()
+  ),
+  (
+    '72000000-0000-4000-8000-000000000003',
+    '70000000-0000-4000-8000-000000000001',
+    'Pines',
+    now(),
+    now()
+  ),
+  (
+    '72000000-0000-4000-8000-000000000004',
+    '70000000-0000-4000-8000-000000000001',
+    'Accesorios',
+    now(),
+    now()
+  );
 
 INSERT INTO "public"."products" (
   "id",
