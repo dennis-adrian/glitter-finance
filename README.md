@@ -309,6 +309,15 @@ as discarded (listed and exported until sign-out), and sends a Sentry event
 with metadata only. Do not clear browser/PWA storage while a failure is
 unresolved.
 
+A device whose identity changed (another tenant or account is active) never
+clears unsynced work by itself: it uploads it first, or keeps it and shows a
+recovery panel that can go back to the previous tenant or sign out. Only when
+no tenant is within reach to resolve a failure (the user's membership was
+removed, or the queue names no user) does the panel offer to download a copy
+and, once confirmed, discard the whole queue; Sentry then gets a
+`PowerSync unsynced work discarded on the device` warning with the counts
+only.
+
 Two rejections are retried without a failure marker, because they fix
 themselves: a permission error while the device has no Supabase session (it
 uploads again after sign-in), and a device timestamp more than 5 minutes ahead
