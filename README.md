@@ -106,10 +106,18 @@ every `supabase/manual/` file twice (each must be safe to re-run) and
 `supabase/seed.sql`, then runs each `tests/db/*.test.sql` in a transaction
 that it rolls back. It needs neither Docker nor the Supabase stack, and never
 reads `DATABASE_URL`. It does need the PostgreSQL server binaries (`initdb`,
-`pg_ctl`, `postgres`, `psql`), found through `pg_config` or in `PG_BIN`: for
-example `brew install postgresql@17`, or
-`PG_BIN=/usr/lib/postgresql/17/bin pnpm test:db` on Debian or Ubuntu. It is
-tested with PostgreSQL 18; hosted Supabase projects run 17.
+`pg_ctl`, `postgres`, `psql`): it looks in `PG_BIN` if set, then in the
+directory `pg_config --bindir` reports, then on `PATH`. Homebrew's
+versioned formulas such as `postgresql@17` put nothing on `PATH`, so point
+`PG_BIN` at the formula:
+
+```bash
+brew install postgresql@17
+PG_BIN="$(brew --prefix postgresql@17)/bin" pnpm test:db
+```
+
+On Debian or Ubuntu, run `PG_BIN=/usr/lib/postgresql/17/bin pnpm test:db`. It
+is tested with PostgreSQL 18; hosted Supabase projects run 17.
 
 To add a check, write SQL in a new or existing `tests/db/*.test.sql` file with
 the helpers in `tests/db/test-helpers.sql`: `tests.authenticate(user_id)` acts

@@ -5,7 +5,8 @@
 // financial RPCs and the triggers.
 //
 // Needs the PostgreSQL server binaries (initdb, pg_ctl, postgres and psql) on
-// PATH, or their directory in PG_BIN. It does not use Docker, the Supabase
+// PATH, or their directory in PG_BIN; Homebrew's versioned formulas such as
+// postgresql@17 put nothing on PATH. It does not use Docker, the Supabase
 // stack or any DATABASE_URL: the cluster lives in a new private directory
 // under /tmp, listens only on a Unix socket in that directory, and is
 // deleted at the end.
@@ -14,6 +15,7 @@
 //   pnpm test:db                 # every tests/db/*.test.sql
 //   pnpm test:db -- rls          # only files whose name contains "rls"
 //   pnpm test:db -- --keep       # leave the cluster running to explore it
+//   PG_BIN="$(brew --prefix postgresql@17)/bin" pnpm test:db
 //   PG_BIN=/usr/lib/postgresql/17/bin pnpm test:db
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
