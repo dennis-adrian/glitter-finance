@@ -320,8 +320,14 @@ each at its own point of the deploy:
    It replaces those functions to bound device timestamps and make
    cross-device void/refund conflicts converge (see the PRD, §9 "Timestamps
    and conflicts"): the call that loses a conflict returns `NULL`, which only
-   that build handles. An older installed PWA whose refund loses to a void
-   keeps retrying that upload until it updates; nothing is lost.
+   that build handles. An installed PWA keeps running the build it started
+   with until it is closed and reopened online. On an older build, a refund
+   that loses to a void keeps retrying its upload with a generic error and no
+   failure to discard, and every later upload from that device, sales
+   included, stays pending behind it until the app is reopened on the new
+   build. Nothing is lost, but have vendors close and reopen their installed
+   apps (and reload open tabs) after the deploy, before running this file
+   where possible.
 
 Do staging first and run
 [`docs/sync-atomicity-acceptance.md`](docs/sync-atomicity-acceptance.md)

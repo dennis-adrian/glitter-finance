@@ -179,17 +179,29 @@ starts; nothing else is needed for them.
 
 ### 5. Hand-written SQL
 
-After the app is deployed, run these files in the project's SQL editor, in
-this order. Each one is idempotent. To re-run one, run every later one after
-it as well: an older file run on its own can put back what a newer one
-replaced.
+First, once the app is deployed, ask vendors to close their installed app
+completely (swipe it away in the app switcher) and reopen it with a working
+connection, and to reload any browser tab they sell from. An app keeps
+running the build it started with until then, and only the new build handles
+the `NULL` results of file 1 below. On a device still running the old build,
+a refund that loses to a void from another device fails its upload with a
+generic error once file 1 is in place, leaves no failure to discard, and
+every later upload from that device (sales included) stays pending behind it:
+the sync pill shows pending operations, not a failure. Nothing is lost, and
+reopening the app on the new build reverts the refund and sends the rest. So
+get as many devices as you can onto the new build before file 1; you do not
+have to wait for every one.
+
+Then run these files in the project's SQL editor, in this order. Each one is
+idempotent. To re-run one, run every later one after it as well: an older
+file run on its own can put back what a newer one replaced.
 
 1. [`supabase/manual/20260926120000_powersync_upload_convergence.sql`](../supabase/manual/20260926120000_powersync_upload_convergence.sql):
    rejects device timestamps more than 5 minutes ahead (retryable `55000`),
    makes cross-device void/refund conflicts converge (the losing call returns
    `NULL` and the new app reverts it on the device), checks whole-number
-   payloads, and adds the refund trigger. It is best applied after the app,
-   which handles the `NULL` results.
+   payloads, and adds the refund trigger. It goes after the app deploy, since
+   only the new app handles the `NULL` results.
 2. [`supabase/manual/20260926130000_product_images_storage_rules.sql`](../supabase/manual/20260926130000_product_images_storage_rules.sql):
    the `product-images` bucket limits (JPEG and PNG, 5 MiB) and the upload and
    delete policies by tenant folder. Hosted buckets get their limits only from
@@ -291,10 +303,13 @@ When they pass, repeat steps 1–8 on production.
 - A tab left open across the deploy calls server actions that changed or no
   longer exist, and gets "Identificador de cuenta inválido." or Next.js'
   "action not found" until it is reloaded.
-- Installed PWAs update on their own schedule. Until one does, a refund that
+- An installed PWA keeps running the old build until it is closed and
+  reopened online. Until then, after step 5's file 1, a refund it made that
   loses to a void on another device keeps retrying its upload with a generic
-  error, and a void that loses to a refund is reverted at the next sync.
-  Nothing is lost.
+  error, and every later upload from that device, sales included, stays
+  pending on it behind that refund, with no failure to discard. Reopening the
+  app on the new build reverts the refund and sends the rest. A void that
+  loses to a refund is reverted at the next sync. Nothing is lost.
 - Signing out now signs out only the current device.
 - Confirming an email address no longer signs in. The link opens the sign-in
   screen with "Tu correo está confirmado", and the user signs in with the
