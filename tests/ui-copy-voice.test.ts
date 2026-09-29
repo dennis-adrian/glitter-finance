@@ -4,9 +4,10 @@ import path from "node:path";
 import test from "node:test";
 
 // User-facing Spanish speaks to the user as vos ("Revisá", "tenés"), never
-// as tú (DESIGN.md, "Content conventions"). These catch the tú forms that
-// have no vos reading; "te", "tu" and subjunctives such as "no cierres" are
-// shared by both and stay.
+// as tú, and calls a tenant a "puesto", never a "cuenta" (DESIGN.md,
+// "Content conventions"). These catch the tú forms that have no vos reading;
+// "te", "tu" and subjunctives such as "no cierres" are shared by both and
+// stay.
 
 const root = process.cwd();
 const copyDirectories = ["app", "components", "lib", "emails"];
@@ -56,6 +57,25 @@ test("user-facing copy uses vos, not tú", () => {
       ) {
         offending.push(`${file}:${index + 1}: ${line.trim()}`);
       }
+    }
+  }
+  assert.deepEqual(offending, []);
+});
+
+// "Cuenta" is only the user's sign-in account ("Salí de tu cuenta", "Crear
+// Cuenta"). A user has one of those, and it has no name, so these phrases can
+// only mean the tenant, which is a "puesto" ("Tus puestos", "Crear nuevo
+// puesto", "Nombre del puesto"). Words may wrap across JSX lines.
+const tenantAsCuenta =
+  /(?<!\p{L})(?:(?:tus\s+cuentas|nueva\s+cuenta|nombre\s+de\s+la\s+cuenta|identificador\s+de\s+cuenta|cuenta\s+activa|unir(?:te|se|me)?\s+a\s+(?:esta|la|una|tu|mi)\s+cuenta)(?!\p{L})|cuenta\s+de\s+\$\{)/giu;
+
+test("user-facing copy calls a tenant a puesto, not a cuenta", () => {
+  const offending: string[] = [];
+  for (const file of sourceFiles()) {
+    const source = withoutComments(readFileSync(path.join(root, file), "utf8"));
+    for (const match of source.matchAll(tenantAsCuenta)) {
+      const line = source.slice(0, match.index).split("\n").length;
+      offending.push(`${file}:${line}: ${match[0].replace(/\s+/g, " ")}`);
     }
   }
   assert.deepEqual(offending, []);
