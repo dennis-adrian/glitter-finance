@@ -201,6 +201,30 @@ SELECT tests.is(
   :'image_1',
   'an image older than the stored image is dropped'
 );
+UPDATE public.products
+SET image_path = 'placeholder:coral', name = 'Con tono', updated_at = now() + interval '5 seconds'
+WHERE id = :'product_b';
+SELECT tests.is(
+  (SELECT image_path || ' ' || name FROM public.products WHERE id = :'product_b'),
+  :'image_1' || ' Con tono',
+  'a newer placeholder tone does not replace an uploaded image, and the rest of the edit applies'
+);
+UPDATE public.products SET image_path = NULL, updated_at = now() + interval '6 seconds'
+WHERE id = :'product_b';
+SELECT tests.is(
+  (SELECT image_path FROM public.products WHERE id = :'product_b'),
+  :'image_1',
+  'an uploaded image is never cleared'
+);
+UPDATE public.products SET image_path = 'placeholder:violet', updated_at = now() + interval '1 second'
+WHERE id = :'product_c';
+UPDATE public.products SET image_path = 'placeholder:coral', updated_at = now() + interval '2 seconds'
+WHERE id = :'product_c';
+SELECT tests.is(
+  (SELECT image_path FROM public.products WHERE id = :'product_c'),
+  'placeholder:coral',
+  'a placeholder tone replaces another placeholder'
+);
 
 -- A product last written by a device clock far ahead, before device times
 -- were bounded.

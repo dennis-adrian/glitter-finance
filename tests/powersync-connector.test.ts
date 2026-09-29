@@ -1019,6 +1019,38 @@ test("keeps seed images and placeholders when the image path changes", async () 
   assert.ok(events.includes("complete"));
 });
 
+for (const [label, storedAfter] of [
+  ["Postgres keeps the image", oldImage],
+  [
+    "a server without the placeholder rule stores the tone",
+    "placeholder:coral",
+  ],
+] as const) {
+  test(`a stale placeholder tone never deletes an uploaded image (${label})`, async () => {
+    // Another device uploaded oldImage while this device still showed a
+    // placeholder and then picked another tone.
+    const events: string[] = [];
+    const removed: string[][] = [];
+    const supabase = imageSupabase({
+      storedBefore: oldImage,
+      storedAfter,
+      events,
+      removed,
+    });
+    const db = recordingDb({
+      crud: imagePatch("placeholder:coral"),
+      transactionId: 44,
+      events,
+      localWrites: [],
+    });
+
+    await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+    assert.deepEqual(removed, []);
+    assert.ok(events.includes("complete"));
+  });
+}
+
 function accessToken(tenantId: string | null) {
   const encode = (value: unknown) =>
     Buffer.from(JSON.stringify(value)).toString("base64url");

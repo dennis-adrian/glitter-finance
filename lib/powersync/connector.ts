@@ -574,8 +574,9 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
    * A products PATCH that changes image_path. Once Postgres has applied it,
    * the uploaded image it replaced is deleted from Storage. When a newer image
    * from another device wins instead (last-write-wins), the image this device
-   * uploaded is the one nothing references, so that one is deleted. Removal
-   * is best-effort and never fails the upload.
+   * uploaded is the one nothing references, so that one is deleted. A
+   * placeholder tone never deletes an image. Removal is best-effort and never
+   * fails the upload.
    */
   private async uploadProductImagePatch(op: CrudEntry): Promise<void> {
     const data = op.opData ?? {};

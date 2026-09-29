@@ -91,7 +91,8 @@ export async function updateProductForTenant(
   // tone, which applies while the row still shows a placeholder. Uploaded
   // images change only through updateProductImageForTenant, so an editor
   // opened before another device replaced the image cannot restore the old,
-  // deleted one.
+  // deleted one. Postgres also keeps an uploaded image over a placeholder,
+  // whoever writes it (products_keep_latest_edit).
   if (isPlaceholderImagePath(input.imagePath)) {
     updates.imagePath = sql`CASE
       WHEN ${products.imagePath} IS NULL

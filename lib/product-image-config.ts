@@ -173,6 +173,10 @@ export function isProductImageObjectPath(
  * - the write applied (`storedPath` is `requestedPath`): the image it replaced;
  * - a newer image edit won: the image this write uploaded, which nothing
  *   references.
+ *
+ * A placeholder never frees an image. Postgres keeps an uploaded image over a
+ * placeholder, but a server without that rule would store the placeholder;
+ * the image then stays in Storage and can still be restored.
  */
 export function unreferencedProductImagePaths(input: {
   tenantId: string;
@@ -181,6 +185,7 @@ export function unreferencedProductImagePaths(input: {
   previousPath: string | null | undefined;
   storedPath: string | null | undefined;
 }): string[] {
+  if (isPlaceholderImagePath(input.requestedPath)) return [];
   const unreferenced =
     input.storedPath === input.requestedPath
       ? input.previousPath

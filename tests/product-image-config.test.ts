@@ -234,6 +234,29 @@ test("placeholders, seed images and unchanged paths are never freed", () => {
   );
 });
 
+test("a placeholder that replaced an uploaded image does not free it", () => {
+  // Only a server without the placeholder rule stores this; the image must
+  // stay in Storage so it can be restored.
+  assert.deepEqual(
+    unreferencedProductImagePaths({
+      ...owner,
+      requestedPath: "placeholder:warm",
+      previousPath: imageA,
+      storedPath: "placeholder:warm",
+    }),
+    []
+  );
+  assert.deepEqual(
+    unreferencedProductImagePaths({
+      ...owner,
+      requestedPath: null,
+      previousPath: imageA,
+      storedPath: null,
+    }),
+    []
+  );
+});
+
 test("a product edit never writes the editor's copy of an uploaded image", async () => {
   const writes: { sql: string; params: unknown[] }[] = [];
   const db = {

@@ -32,13 +32,23 @@
 --    product until real time caught up. A stored time beyond the bound was
 --    written before it existed, by such a device, and is ignored; otherwise
 --    that product would ignore every edit until real time caught up.
--- 4. Only this trigger writes field_updated_at: a value sent by a client is
+-- 4. A placeholder (or NULL) never replaces an uploaded image, whatever the
+--    times: images change only through uploads, and the app has no way to
+--    remove one. A device whose copy of the row is stale can still send a
+--    placeholder tone over an image another device uploaded; the tone is
+--    dropped, and the uploader then sees that the image stayed and deletes
+--    nothing.
+-- 5. Only this trigger writes field_updated_at: a value sent by a client is
 --    ignored, and a new product starts with none.
 --
 -- Rules mirrored in TypeScript (keep them in step):
 --   every product UPDATE sets updated_at -> lib/powersync/write-products.ts,
 --                                           lib/products/repository.ts
 --   55000 is retryable                   -> lib/powersync/connector.ts
+--   placeholders never replace images    -> updateProductLocal,
+--                                           updateProductForTenant and
+--                                           unreferencedProductImagePaths
+--   the 'placeholder:' prefix            -> lib/product-image-config.ts
 
 CREATE OR REPLACE FUNCTION public.products_keep_latest_edit()
 RETURNS trigger
@@ -65,6 +75,13 @@ BEGIN
 
   IF NEW.archived_at IS DISTINCT FROM OLD.archived_at THEN
     PERFORM public.check_upload_timestamp(NEW.archived_at, 'archived_at');
+  END IF;
+
+  -- Rule 4: a placeholder never replaces an uploaded image.
+  IF (NEW.image_path IS NULL OR NEW.image_path LIKE 'placeholder:%')
+     AND OLD.image_path IS NOT NULL
+     AND OLD.image_path NOT LIKE 'placeholder:%' THEN
+    NEW.image_path := OLD.image_path;
   END IF;
 
   old_row := to_jsonb(OLD);

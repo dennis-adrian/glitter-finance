@@ -144,6 +144,9 @@ export async function updateProductLocal(
   // placeholder, and an uploaded image is never rewritten here: the editor's
   // copy of image_path can be older than an image another device uploaded
   // meanwhile, and writing it back would restore a replaced (deleted) image.
+  // This device's row can be stale too, so the tone may still reach the
+  // server over an image another device uploaded; Postgres keeps the image
+  // (products_keep_latest_edit), and the connector deletes nothing.
   const product = normalizeProductInput(input.product);
   const placeholderPath = isPlaceholderImagePath(product.imagePath)
     ? encodePlaceholderImagePath(product.imageTone)

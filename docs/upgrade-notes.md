@@ -187,8 +187,9 @@ this order. Each one is idempotent and safe to re-run.
 3. [`supabase/manual/20260926130100_products_last_write_wins.sql`](../supabase/manual/20260926130100_products_last_write_wins.sql):
    product edits are last-write-wins by `updated_at`, column by column, so a
    late offline upload no longer overwrites a newer change to the same field
-   and still applies its other changes. It must run after file 1 and after the
-   `db:push` of step 4, which adds the column it keeps.
+   and still applies its other changes, and a placeholder tone never replaces
+   an uploaded image. It must run after file 1 and after the `db:push` of
+   step 4, which adds the column it keeps.
 
 An environment that has not had every older `supabase/manual/` file must run
 those first, in order (see

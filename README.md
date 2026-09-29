@@ -618,8 +618,9 @@ below:
 8. [`20260926130100_products_last_write_wins.sql`](supabase/manual/20260926130100_products_last_write_wins.sql):
    product edits are last-write-wins by `updated_at`, column by column: a late
    offline upload no longer overwrites a newer change to the same field, and
-   its changes to other fields still apply. Every environment, after file 6
-   and after the `pnpm db:push` that adds `products.field_updated_at`.
+   its changes to other fields still apply. A placeholder tone never replaces
+   an uploaded image. Every environment, after file 6 and after the
+   `pnpm db:push` that adds `products.field_updated_at`.
 
 To check an environment, run in its SQL editor:
 
