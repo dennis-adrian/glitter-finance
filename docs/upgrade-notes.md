@@ -76,12 +76,17 @@ staging, Production for production, and Development too if anyone runs
    revision uses `VERCEL_GIT_COMMIT_SHA`, and preview invite links use
    `VERCEL_BRANCH_URL`. A deployment outside Vercel must set
    `NEXT_PUBLIC_SENTRY_DSN` to report to Sentry at all.
-3. Make sure the build installs with the pnpm that `packageManager` pins
-   (`pnpm@11.21.0`, through Corepack), not an older auto-detected pnpm: the
-   `catalog:` version of postcss needs pnpm 9.5 or later, and the install must
-   load `.pnpmfile.cjs` for the lockfile checksum to match. Keep the Build
-   Command at the default `pnpm build`, whose `prebuild` step copies the
-   PowerSync assets that the service worker precaches.
+3. Make the build install with the pnpm that `packageManager` pins
+   (`pnpm@11.21.0`), not the pnpm 9 or 10 that Vercel picks from the
+   lockfile otherwise: the `catalog:` version of postcss needs pnpm 9.5 or
+   later, and the install must load `.pnpmfile.cjs` for the lockfile checksum
+   to match. Vercel reads `packageManager` only through Corepack, so under
+   **Settings → Environment Variables** add `ENABLE_EXPERIMENTAL_COREPACK`
+   with the value `1` for this environment, unless it is already there. Leave
+   the Install Command at its default. Keep the Build Command at the default
+   `pnpm build`, whose `prebuild` step copies the PowerSync assets that the
+   service worker precaches. After the deploy in step 4, open the deployment's
+   build logs and check that the install step reports pnpm 11.21.0.
 
 ### 2. Database pre-checks
 

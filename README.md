@@ -189,6 +189,17 @@ run after the deploy.
 
 After relinking, update `.env.local` so `NEXT_PUBLIC_SUPABASE_URL`, the publishable and secret keys, and `DATABASE_URL` all match the now-linked project; otherwise the running app and the CLI will talk to different backends.
 
+### Vercel builds
+
+Vercel installs with the pnpm that `packageManager` pins (`pnpm@11.21.0`)
+only when Corepack is on; otherwise it picks pnpm 9 or 10 from the lockfile.
+Builds should use the pinned version, the one the lockfile and its
+`.pnpmfile.cjs` checksum come from (`catalog:` versions alone need pnpm 9.5
+or later). In the Vercel project, under **Settings → Environment Variables**,
+set `ENABLE_EXPERIMENTAL_COREPACK` to `1` for Production and Preview, and
+leave the Install Command and the Build Command (`pnpm build`) at their
+defaults. A deployment's build logs show which pnpm version installed it.
+
 ### Auth settings
 
 `supabase/config.toml` configures only the local stack. Set these by hand in
@@ -535,6 +546,8 @@ Before running Stage B acceptance on staging:
   variables (see [Environment](#environment)), including an
   `INVITATION_SECRET_KEY` not shared with production. If it is already set,
   keep it: changing it invalidates every open invitation link.
+- The Vercel project has `ENABLE_EXPERIMENTAL_COREPACK=1` for Preview, and
+  the staging build logs show pnpm 11.21.0 (see [Vercel builds](#vercel-builds)).
 - Supabase migrations are applied to `glitter-finance-staging`.
 - Every file in `supabase/manual/` has been run in order, and the verification
   queries under [Hand-written SQL](#hand-written-sql-supabasemanual) return the
