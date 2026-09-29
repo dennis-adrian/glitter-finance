@@ -3,7 +3,12 @@
 import { and, asc, eq, type SQL, sql } from "drizzle-orm";
 import { UserFacingError } from "@/lib/action-result";
 import { db } from "@/lib/db";
-import { products } from "@/lib/db/schema";
+import { inventoryMovements, products } from "@/lib/db/schema";
+import {
+  normalizeInventoryMovement,
+  type InventoryMovement,
+} from "@/lib/inventory";
+import { mapDbInventoryMovement } from "@/lib/inventory/mapper";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
 import {
   encodePlaceholderImagePath,
@@ -37,45 +42,118 @@ export async function findProductForTenant(
   return product ? mapDbProductToProduct(product) : null;
 }
 
+type ProductsTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * The count a product is saved with, recorded as an `initial` movement in the
+ * same transaction as the product write, like createProductLocal and
+ * updateProductLocal do on a PowerSync device: a failed save leaves neither,
+ * so tracking is never switched on without the count it was entered with
+ * (stock would then count every earlier sale against the product).
+ */
+export type InitialStockForTenant = { userId: string; delta: number };
+
+export type SavedProduct = {
+  product: Product;
+  /** The `initial` movement saved with the product, if it got a count. */
+  initialMovement: InventoryMovement | null;
+};
+
+/** Checked before the transaction, with the PowerSync writer's rules. */
+function prepareInitialStock(initialStock: InitialStockForTenant | undefined) {
+  return initialStock
+    ? {
+        userId: initialStock.userId,
+        ...normalizeInventoryMovement({
+          delta: initialStock.delta,
+          reason: "initial",
+        }),
+      }
+    : null;
+}
+
+async function insertInitialStock(
+  tx: ProductsTransaction,
+  input: {
+    tenantId: string;
+    productId: string;
+    initialStock: NonNullable<ReturnType<typeof prepareInitialStock>>;
+    createdAt: Date;
+  }
+): Promise<InventoryMovement> {
+  const [row] = await tx
+    .insert(inventoryMovements)
+    .values({
+      tenantId: input.tenantId,
+      productId: input.productId,
+      ...input.initialStock,
+      createdAt: input.createdAt,
+      clientCreatedAt: input.createdAt,
+    })
+    .returning();
+
+  if (!row) {
+    throw new Error("No se pudo registrar el stock inicial.");
+  }
+
+  return mapDbInventoryMovement(row);
+}
+
 export async function createProductForTenant(
   tenantId: string,
-  input: ProductInput
-): Promise<Product> {
+  input: ProductInput,
+  initialStock?: InitialStockForTenant
+): Promise<SavedProduct> {
+  const initial = prepareInitialStock(initialStock);
   // Stamped by this server's clock, like every later update here, instead of
   // Postgres' now(): Postgres keeps a column's newer edit, so an image
   // attached right after the insert would be dropped if this clock ran behind
   // the database's.
   const now = new Date();
-  const [product] = await db
-    .insert(products)
-    .values({
-      tenantId,
-      name: input.name,
-      priceCents: input.priceCents,
-      costCents: input.costCents,
-      category: input.category,
-      // A new product starts with a placeholder. An image is attached after
-      // the insert, by updateProductImageForTenant.
-      imagePath: encodePlaceholderImagePath(input.imageTone),
-      tracksInventory: input.tracksInventory ?? false,
-      lowStockThreshold: input.lowStockThreshold ?? null,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning();
+  return db.transaction(async (tx) => {
+    const [product] = await tx
+      .insert(products)
+      .values({
+        tenantId,
+        name: input.name,
+        priceCents: input.priceCents,
+        costCents: input.costCents,
+        category: input.category,
+        // A new product starts with a placeholder. An image is attached after
+        // the insert, by updateProductImageForTenant.
+        imagePath: encodePlaceholderImagePath(input.imageTone),
+        tracksInventory: input.tracksInventory ?? false,
+        lowStockThreshold: input.lowStockThreshold ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
 
-  if (!product) {
-    throw new Error("No se pudo crear el producto.");
-  }
+    if (!product) {
+      throw new Error("No se pudo crear el producto.");
+    }
 
-  return mapDbProductToProduct(product);
+    return {
+      product: mapDbProductToProduct(product),
+      initialMovement: initial
+        ? await insertInitialStock(tx, {
+            tenantId,
+            productId: product.id,
+            initialStock: initial,
+            createdAt: now,
+          })
+        : null,
+    };
+  });
 }
 
 export async function updateProductForTenant(
   tenantId: string,
   productId: string,
-  input: ProductInput
-): Promise<Product> {
+  input: ProductInput,
+  initialStock?: InitialStockForTenant
+): Promise<SavedProduct> {
+  const initial = prepareInitialStock(initialStock);
   // Every update sets updatedAt: Postgres keeps, column by column, the newer
   // of two edits by it
   // (supabase/manual/20260926130100_products_last_write_wins.sql).
@@ -118,17 +196,29 @@ export async function updateProductForTenant(
     updates.lowStockThreshold = input.lowStockThreshold ?? null;
   }
 
-  const [product] = await db
-    .update(products)
-    .set(updates)
-    .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))
-    .returning();
+  return db.transaction(async (tx) => {
+    const [product] = await tx
+      .update(products)
+      .set(updates)
+      .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))
+      .returning();
 
-  if (!product) {
-    throw new UserFacingError("No se encontró el producto.");
-  }
+    if (!product) {
+      throw new UserFacingError("No se encontró el producto.");
+    }
 
-  return mapDbProductToProduct(product);
+    return {
+      product: mapDbProductToProduct(product),
+      initialMovement: initial
+        ? await insertInitialStock(tx, {
+            tenantId,
+            productId: product.id,
+            initialStock: initial,
+            createdAt: updates.updatedAt,
+          })
+        : null,
+    };
+  });
 }
 
 export async function updateProductImageForTenant(

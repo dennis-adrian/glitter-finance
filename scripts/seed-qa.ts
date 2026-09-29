@@ -164,42 +164,41 @@ async function resetTenantData() {
 async function seedData(userId: string) {
   // A product with stock tracking, so the QA account also covers stock
   // badges and the movement history. Its sales below take stock from it.
-  const sticker = await createProductForTenant(QA_TENANT_ID, {
-    name: "QA Sticker Pack",
-    priceCents: 2000,
-    costCents: 600,
-    category: "Stickers",
-    tracksInventory: true,
-    lowStockThreshold: 5,
+  const { product: sticker } = await createProductForTenant(
+    QA_TENANT_ID,
+    {
+      name: "QA Sticker Pack",
+      priceCents: 2000,
+      costCents: 600,
+      category: "Stickers",
+      tracksInventory: true,
+      lowStockThreshold: 5,
+    },
+    { userId, delta: 20 }
+  );
+  const restockedAt = new Date();
+  await db.insert(inventoryMovements).values({
+    tenantId: QA_TENANT_ID,
+    productId: sticker.id,
+    userId,
+    delta: 10,
+    reason: "restock",
+    createdAt: restockedAt,
+    clientCreatedAt: restockedAt,
   });
-  for (const [delta, reason] of [
-    [20, "initial"],
-    [10, "restock"],
-  ] as const) {
-    const createdAt = new Date();
-    await db.insert(inventoryMovements).values({
-      tenantId: QA_TENANT_ID,
-      productId: sticker.id,
-      userId,
-      delta,
-      reason,
-      createdAt,
-      clientCreatedAt: createdAt,
-    });
-  }
-  const print = await createProductForTenant(QA_TENANT_ID, {
+  const { product: print } = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Art Print A4",
     priceCents: 5000,
     costCents: 1500,
     category: "Prints",
   });
-  const pin = await createProductForTenant(QA_TENANT_ID, {
+  const { product: pin } = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Enamel Pin",
     priceCents: 3500,
     costCents: null, // cost unknown — exercises the upper-bound net-earnings flag
     category: "Pines",
   });
-  const tote = await createProductForTenant(QA_TENANT_ID, {
+  const { product: tote } = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Tote Bag",
     priceCents: 8000,
     costCents: 3000,
@@ -207,7 +206,7 @@ async function seedData(userId: string) {
   });
 
   // An archived product to exercise catalog archive/restore views.
-  const keychain = await createProductForTenant(QA_TENANT_ID, {
+  const { product: keychain } = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Keychain (archivado)",
     priceCents: 1500,
     costCents: 500,

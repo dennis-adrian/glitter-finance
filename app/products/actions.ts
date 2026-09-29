@@ -31,35 +31,53 @@ const PRODUCT_NOT_FOUND_MESSAGE = "No se encontró el producto.";
 // Arguments come from the browser, so they are checked before any database
 // work, with the same rules as the PowerSync writers (normalizeProductInput).
 // Expected failures come back as `{ ok: false, error }` (lib/action-result.ts).
-async function requireTenantId(expectedTenantId: string) {
-  const context = await requireExpectedTenantContext(
+async function requireTenant(expectedTenantId: string) {
+  return requireExpectedTenantContext(
     expectedTenantId,
     "Se requiere una cuenta para gestionar productos."
   );
+}
+
+async function requireTenantId(expectedTenantId: string) {
+  const context = await requireTenant(expectedTenantId);
   return context.tenant.id;
 }
 
+// `initialStock` is the `initial` count to record with the product, if any
+// (resolveInitialStockDelta): saved in the product write's own transaction,
+// so tracking is never switched on without it. The repository checks it.
 export async function createProduct(
   expectedTenantId: string,
-  input: ProductInput
+  input: ProductInput,
+  initialStock?: number | null
 ) {
   return toActionResult(async () => {
-    const tenantId = await requireTenantId(expectedTenantId);
-    return createProductForTenant(tenantId, normalizeProductInput(input));
+    const context = await requireTenant(expectedTenantId);
+    return createProductForTenant(
+      context.tenant.id,
+      normalizeProductInput(input),
+      initialStock == null
+        ? undefined
+        : { userId: context.user.id, delta: initialStock }
+    );
   });
 }
 
 export async function updateProduct(
   expectedTenantId: string,
   productId: string,
-  input: ProductInput
+  input: ProductInput,
+  initialStock?: number | null
 ) {
   return toActionResult(async () => {
-    const tenantId = await requireTenantId(expectedTenantId);
+    const context = await requireTenant(expectedTenantId);
     return updateProductForTenant(
-      tenantId,
+      context.tenant.id,
       requireUuid(productId, PRODUCT_NOT_FOUND_MESSAGE),
-      normalizeProductInput(input)
+      normalizeProductInput(input),
+      initialStock == null
+        ? undefined
+        : { userId: context.user.id, delta: initialStock }
     );
   });
 }

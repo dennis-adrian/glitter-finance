@@ -973,36 +973,27 @@ export function GlitterPosApp({
         server: async ({ tenant, work }) => {
           const initialStockDelta = await initialStockDeltaToWrite(null, work);
           let uploadFailed = false;
-          let product = await unwrapActionResult(
+          // The initial count is written in the product's own transaction.
+          const saved = await unwrapActionResult(
             () =>
               existingProduct
                 ? updateProductAction(
                     tenant.id,
                     existingProduct.id,
-                    productInput
+                    productInput,
+                    initialStockDelta
                   )
-                : createProduct(tenant.id, productInput),
+                : createProduct(tenant.id, productInput, initialStockDelta),
             "No se pudo guardar el producto"
           );
           work.assertCurrent();
+          let product = saved.product;
           upsertProduct(product);
+          if (saved.initialMovement) {
+            addInventoryMovementToState(saved.initialMovement);
+          }
           if (!editingProduct) {
             createdProductRef.current = product;
-          }
-
-          if (initialStockDelta != null) {
-            const productId = product.id;
-            const movement = await unwrapActionResult(
-              () =>
-                addInventoryMovementAction(tenant.id, {
-                  productId,
-                  delta: initialStockDelta,
-                  reason: "initial",
-                }),
-              "No se pudo guardar el stock inicial"
-            );
-            work.assertCurrent();
-            addInventoryMovementToState(movement);
           }
 
           if (imageFile) {

@@ -457,7 +457,10 @@ check the row with `normalizeInventoryMovement` (`lib/inventory.ts`).
 Local-only mode (no PowerSync) records the same movements through the
 `addInventoryMovement` server action (`app/inventory/actions.ts`, backed by
 `addInventoryMovementForTenant` in `lib/inventory/repository.ts`), with the
-same checks, and adds the returned row to the in-memory ledger.
+same checks, and adds the returned row to the in-memory ledger. Its initial
+count goes with the `createProduct` / `updateProduct` actions instead, which
+write it in the product's own transaction (`createProductForTenant` /
+`updateProductForTenant` take an `initialStock`), as the PowerSync path does.
 
 ### 7.2 Derivation
 

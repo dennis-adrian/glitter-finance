@@ -2,7 +2,6 @@ import "server-only";
 
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { UserFacingError } from "@/lib/action-result";
-import { toIso } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { inventoryMovements, products } from "@/lib/db/schema";
 import {
@@ -10,22 +9,7 @@ import {
   type InventoryMovement,
   type InventorySnapshot,
 } from "@/lib/inventory";
-
-function mapDbInventoryMovement(
-  row: typeof inventoryMovements.$inferSelect
-): InventoryMovement {
-  return {
-    id: row.id,
-    tenantId: row.tenantId,
-    productId: row.productId,
-    userId: row.userId,
-    delta: row.delta,
-    reason: row.reason,
-    note: row.note,
-    createdAt: toIso(row.createdAt),
-    clientCreatedAt: toIso(row.clientCreatedAt),
-  };
-}
+import { mapDbInventoryMovement } from "@/lib/inventory/mapper";
 
 type OpeningStockRow = {
   product_id: string;

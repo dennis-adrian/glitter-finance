@@ -15,10 +15,45 @@ stubModule("server-only", {});
 
 const TENANT_ID = "70000000-0000-4000-8000-000000000001";
 
-const writes: { kind: "insert" | "update"; values: Record<string, unknown> }[] =
-  [];
+type Write = {
+  kind: "insert" | "update";
+  table: "products" | "inventory_movements";
+  values: Record<string, unknown>;
+};
 
-function returningRow(values: Record<string, unknown>) {
+// Committed writes. A transaction's writes land here only once its callback
+// resolves, as in Postgres.
+const writes: Write[] = [];
+let transactions = 0;
+let failMovementInsert = false;
+
+function tableName(table: unknown): Write["table"] {
+  return (table as Record<symbol, string>)[Symbol.for("drizzle:Name")] ===
+    "inventory_movements"
+    ? "inventory_movements"
+    : "products";
+}
+
+function returningRow(table: Write["table"], values: Record<string, unknown>) {
+  if (table === "inventory_movements") {
+    return {
+      returning: async () => {
+        if (failMovementInsert) {
+          throw new Error("connection lost");
+        }
+        return [
+          {
+            id: "90000000-0000-4000-8000-000000000001",
+            note: null,
+            ...values,
+          },
+        ];
+      },
+    };
+  }
+  // An update's image path can be an SQL expression, which Postgres would
+  // resolve: the row keeps its stored path.
+  const { imagePath, ...columns } = values;
   return {
     returning: async () => [
       {
@@ -33,26 +68,48 @@ function returningRow(values: Record<string, unknown>) {
         archivedAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
-        ...values,
+        ...columns,
+        ...(typeof imagePath === "string" ? { imagePath } : {}),
       },
     ],
   };
 }
 
+function fakeDatabase(log: Write[]) {
+  return {
+    insert: (table: unknown) => ({
+      values: (values: Record<string, unknown>) => {
+        log.push({ kind: "insert", table: tableName(table), values });
+        return returningRow(tableName(table), values);
+      },
+    }),
+    update: (table: unknown) => ({
+      set: (values: Record<string, unknown>) => {
+        log.push({ kind: "update", table: tableName(table), values });
+        return { where: () => returningRow(tableName(table), values) };
+      },
+    }),
+  };
+}
+
 const fakeDb = {
-  insert: () => ({
-    values: (values: Record<string, unknown>) => {
-      writes.push({ kind: "insert", values });
-      return returningRow(values);
-    },
-  }),
-  update: () => ({
-    set: (values: Record<string, unknown>) => {
-      writes.push({ kind: "update", values });
-      return { where: () => returningRow(values) };
-    },
-  }),
+  ...fakeDatabase(writes),
+  transaction: async <T>(
+    run: (tx: ReturnType<typeof fakeDatabase>) => Promise<T>
+  ) => {
+    transactions += 1;
+    const pending: Write[] = [];
+    const result = await run(fakeDatabase(pending));
+    writes.push(...pending);
+    return result;
+  },
 };
+
+function reset() {
+  writes.length = 0;
+  transactions = 0;
+  failMovementInsert = false;
+}
 
 async function repository() {
   // lib/db reads its Drizzle instance from this global when one is set.
@@ -70,15 +127,16 @@ async function repository() {
 test("a new product is stamped by the app server's clock, like its updates", async () => {
   const { createProductForTenant, updateProductImageForTenant } =
     await repository();
-  writes.length = 0;
+  reset();
 
   const before = Date.now();
-  const product = await createProductForTenant(TENANT_ID, {
+  const { product, initialMovement } = await createProductForTenant(TENANT_ID, {
     name: "Print",
     priceCents: 4000,
     costCents: null,
     category: "Prints",
   });
+  assert.equal(initialMovement, null);
   await updateProductImageForTenant(
     TENANT_ID,
     product.id,
@@ -96,4 +154,115 @@ test("a new product is stamped by the app server's clock, like its updates", asy
   assert.equal(update?.kind, "update");
   assert.ok(update.values.updatedAt instanceof Date);
   assert.ok((update.values.updatedAt as Date).getTime() >= createdAt);
+});
+
+const USER_ID = "a0000000-0000-4000-8000-000000000001";
+const PRODUCT_ID = "80000000-0000-4000-8000-000000000001";
+const trackedProduct = {
+  name: "Print",
+  priceCents: 4000,
+  costCents: null,
+  category: "Prints",
+  tracksInventory: true,
+};
+
+test("a product saved with a count records it in the same transaction", async () => {
+  const { createProductForTenant } = await repository();
+  reset();
+
+  const { product, initialMovement } = await createProductForTenant(
+    TENANT_ID,
+    trackedProduct,
+    { userId: USER_ID, delta: 0 }
+  );
+
+  assert.equal(transactions, 1);
+  assert.deepEqual(
+    writes.map((write) => [write.kind, write.table]),
+    [
+      ["insert", "products"],
+      ["insert", "inventory_movements"],
+    ]
+  );
+  const [insert, movement] = writes;
+  assert.deepEqual(
+    {
+      tenantId: movement?.values.tenantId,
+      productId: movement?.values.productId,
+      userId: movement?.values.userId,
+      delta: movement?.values.delta,
+      reason: movement?.values.reason,
+    },
+    {
+      tenantId: TENANT_ID,
+      productId: product.id,
+      userId: USER_ID,
+      delta: 0,
+      reason: "initial",
+    }
+  );
+  // Stamped with the product's time, by the same clock.
+  assert.equal(movement?.values.createdAt, insert?.values.createdAt);
+  assert.equal(movement?.values.clientCreatedAt, insert?.values.createdAt);
+  assert.equal(initialMovement?.productId, product.id);
+  assert.equal(initialMovement?.delta, 0);
+  assert.equal(initialMovement?.reason, "initial");
+});
+
+test("switching tracking on records the count with the product update", async () => {
+  const { updateProductForTenant } = await repository();
+  reset();
+
+  const { initialMovement } = await updateProductForTenant(
+    TENANT_ID,
+    PRODUCT_ID,
+    trackedProduct,
+    { userId: USER_ID, delta: 12 }
+  );
+
+  assert.equal(transactions, 1);
+  assert.deepEqual(
+    writes.map((write) => [write.kind, write.table]),
+    [
+      ["update", "products"],
+      ["insert", "inventory_movements"],
+    ]
+  );
+  const [update, movement] = writes;
+  assert.equal(update?.values.tracksInventory, true);
+  assert.equal(movement?.values.createdAt, update?.values.updatedAt);
+  assert.equal(initialMovement?.delta, 12);
+});
+
+test("a count that is not recorded leaves the product unchanged", async () => {
+  const { updateProductForTenant } = await repository();
+  reset();
+  failMovementInsert = true;
+
+  await assert.rejects(
+    updateProductForTenant(TENANT_ID, PRODUCT_ID, trackedProduct, {
+      userId: USER_ID,
+      delta: 12,
+    }),
+    /connection lost/
+  );
+  // Tracking was not switched on without its count.
+  assert.deepEqual(writes, []);
+});
+
+test("an invalid count is refused before anything is written", async () => {
+  const { createProductForTenant } = await repository();
+  reset();
+
+  for (const delta of [-1, 1.5, Number.NaN, "5" as unknown as number]) {
+    await assert.rejects(
+      createProductForTenant(TENANT_ID, trackedProduct, {
+        userId: USER_ID,
+        delta,
+      }),
+      { name: "UserFacingError" }
+    );
+  }
+  assert.equal(transactions, 0);
+  assert.deepEqual(writes, []);
 });
