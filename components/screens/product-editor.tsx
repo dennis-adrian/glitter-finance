@@ -254,7 +254,7 @@ export function ProductEditor({
     }
     if (!product.tracksInventory) {
       setInventoryActionError(
-        "Guarda el producto con inventario activado antes de ajustar stock."
+        "Guardá el producto con inventario activado antes de ajustar stock."
       );
       return;
     }
@@ -501,7 +501,7 @@ export function ProductEditor({
 
         {trackingDirty ? (
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Guarda los cambios para activar los ajustes de inventario.
+            Guardá los cambios para activar los ajustes de inventario.
           </p>
         ) : null}
 
@@ -790,7 +790,7 @@ export function ProductEditor({
         {pendingWrite === "save"
           ? "Guardando…"
           : pendingWrite === "busy"
-            ? "Espera…"
+            ? "Esperá…"
             : "GUARDAR CAMBIOS"}
       </Button>
     </section>

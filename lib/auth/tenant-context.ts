@@ -48,7 +48,7 @@ export type TenantContextUser = {
 };
 
 export const ACTIVE_TENANT_CHANGED_MESSAGE =
-  "Tu puesto activo cambió en otro dispositivo. Recarga la app para continuar.";
+  "Tu puesto activo cambió en otro dispositivo. Recargá la app para continuar.";
 
 const INVALID_TENANT_ID_MESSAGE = "Identificador de cuenta inválido.";
 

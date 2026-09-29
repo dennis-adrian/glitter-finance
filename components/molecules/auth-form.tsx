@@ -167,7 +167,7 @@ export function AuthForm({
             <p className="text-center text-sm text-foreground/70">
               ¿Ya tenés una cuenta?{" "}
               <Link href={alternateHref} className={authLinkClassName}>
-                Iniciá Sesión
+                Iniciá sesión
               </Link>
             </p>
           </div>

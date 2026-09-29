@@ -12,7 +12,7 @@ export default function OfflinePage() {
   return (
     <StatusScreen
       title="Sin conexión"
-      description="Esta pantalla aún no está guardada en este dispositivo. Abre Billetera Ferial una vez con internet para poder vender sin conexión."
+      description="Esta pantalla aún no está guardada en este dispositivo. Abrí Billetera Ferial una vez con internet para poder vender sin conexión."
     >
       {/* A full page load, not a client-side <Link> transition, so the
           service worker answers it again with the network or the saved app. */}

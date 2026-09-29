@@ -35,9 +35,9 @@ export type LocalDataRecoveryControls = {
 
 const SWITCH_BACK_FAILED_MESSAGE = "No se pudo volver al puesto anterior.";
 const EXPORT_FAILED_MESSAGE =
-  "No se pudo descargar la copia. Inténtalo de nuevo.";
+  "No se pudo descargar la copia. Intentalo de nuevo.";
 const RETRY_FAILED_MESSAGE =
-  "No se pudo reintentar la subida. Revisa la conexión e inténtalo de nuevo.";
+  "No se pudo reintentar la subida. Revisá la conexión e intentalo de nuevo.";
 const KEPT_ON_DEVICE = "las operaciones se conservan en este dispositivo";
 
 function drainingMessage(pendingUploadCount: number) {
@@ -55,11 +55,11 @@ function drainingDetail(
   }
 ) {
   const keepOpen =
-    "Mantén la app abierta; se subirán antes de mostrar los datos de esta sesión.";
+    "Mantené la app abierta; se subirán antes de mostrar los datos de esta sesión.";
   if (!recovery.stalled) {
     return recovery.uploadHold
       ? `${describeUploadHold(recovery.uploadHold)} ${keepOpen}`
-      : "Este dispositivo tiene operaciones que aún no llegaron a la nube. Mantén la app abierta y conectada a internet; se subirán antes de mostrar los datos de esta sesión.";
+      : "Este dispositivo tiene operaciones que aún no llegaron a la nube. Mantené la app abierta y conectada a internet; se subirán antes de mostrar los datos de esta sesión.";
   }
 
   const cause = recovery.uploadHold
@@ -70,10 +70,10 @@ function drainingDetail(
         ? `La nube todavía no las acepta (${recovery.uploadError}); la subida se reintenta sola.`
         : "La subida está tardando más de lo normal; se sigue reintentando.";
   const exits = input.canSwitchBack
-    ? `Si no puedes esperar, vuelve al puesto anterior o cierra sesión: ${KEPT_ON_DEVICE}.`
-    : `Si no puedes esperar, cierra sesión: ${KEPT_ON_DEVICE}.`;
+    ? `Si no podés esperar, volvé al puesto anterior o cerrá sesión: ${KEPT_ON_DEVICE}.`
+    : `Si no podés esperar, cerrá sesión: ${KEPT_ON_DEVICE}.`;
   return input.previousTenantAccess === "lost"
-    ? `${cause} Ya no tienes acceso al puesto anterior. ${exits}`
+    ? `${cause} Ya no tenés acceso al puesto anterior. ${exits}`
     : `${cause} ${exits}`;
 }
 
@@ -275,7 +275,7 @@ export function LocalDataRecoveryPanel({
         }
         detail={
           error ??
-          "Para no perderlas, cierra esta sesión y vuelve a entrar con esa cuenta. Se subirán en cuanto haya conexión."
+          "Para no perderlas, cerrá esta sesión y volvé a entrar con esa cuenta. Se subirán en cuanto haya conexión."
         }
       >
         <LocalDataPanelButton disabled={busy} onClick={handleSignOut}>
@@ -301,8 +301,8 @@ export function LocalDataRecoveryPanel({
           error ??
           `Se borrarán de este dispositivo y nunca llegarán a la nube. ${
             downloaded
-              ? "Guarda la copia que descargaste para registrarlas de nuevo."
-              : "Descarga una copia antes para poder registrarlas de nuevo."
+              ? "Guardá la copia que descargaste para registrarlas de nuevo."
+              : "Descargá una copia antes para poder registrarlas de nuevo."
           }`
         }
       >
@@ -336,7 +336,7 @@ export function LocalDataRecoveryPanel({
           block.reason === "unattributed"
             ? "Este dispositivo tiene operaciones sin subir que la nube rechaza, y no se sabe de qué cuenta son."
             : previousTenantAccess === "lost"
-              ? "Ya no tienes acceso al puesto de estas operaciones, y la nube no las acepta."
+              ? "Ya no tenés acceso al puesto de estas operaciones, y la nube no las acepta."
               : "Hay operaciones tuyas que la nube rechaza, y no hay un puesto al que volver para revisarlas."
         }
         detail={
@@ -345,7 +345,7 @@ export function LocalDataRecoveryPanel({
             recovery.uploadError
               ? `La nube responde: ${recovery.uploadError}. `
               : ""
-          }La subida se reintenta mientras la app esté abierta. Si la nube las sigue rechazando, descarga una copia para registrarlas de nuevo y descártalas para continuar. Hasta entonces, ${KEPT_ON_DEVICE}.`
+          }La subida se reintenta mientras la app esté abierta. Si la nube las sigue rechazando, descargá una copia para registrarlas de nuevo y descartalas para continuar. Hasta entonces, ${KEPT_ON_DEVICE}.`
         }
       >
         {actions.retry ? (
@@ -382,7 +382,7 @@ export function LocalDataRecoveryPanel({
       message="Hay operaciones de tu puesto anterior que no llegaron a la nube."
       detail={
         error ??
-        "Para no perderlas, vuelve a ese puesto y revisa Diagnósticos en Ajustes antes de cambiar."
+        "Para no perderlas, volvé a ese puesto y revisá Diagnósticos en Ajustes antes de cambiar."
       }
     >
       {switchBackButton}

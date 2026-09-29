@@ -202,7 +202,7 @@ export function priceSale(
       (product.costCents != null && !isValidCents(product.costCents, INT4_MAX))
     ) {
       throw new UserFacingError(
-        `El precio o el costo de ${product.name} no es válido. Edita el producto antes de venderlo.`
+        `El precio o el costo de ${product.name} no es válido. Editá el producto antes de venderlo.`
       );
     }
 

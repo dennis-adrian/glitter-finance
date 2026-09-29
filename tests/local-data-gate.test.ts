@@ -59,7 +59,7 @@ test("a tenant changed on another device asks for a reload, not a wait", () => {
   );
   assert.equal(
     tenantChangedBlockerMessage("cerrar sesión"),
-    "Tu puesto activo cambió en otro dispositivo. Recarga la app antes de cerrar sesión."
+    "Tu puesto activo cambió en otro dispositivo. Recargá la app antes de cerrar sesión."
   );
 });
 
@@ -77,11 +77,11 @@ test("without PowerSync there is no queue to protect", () => {
 test("the pending uploads message agrees in number", () => {
   assert.equal(
     pendingUploadsBlockerMessage(1, "cerrar sesión"),
-    "Hay 1 operación sin subir a la nube. Conéctate y espera a que se sincronice antes de cerrar sesión."
+    "Hay 1 operación sin subir a la nube. Conectate y esperá a que se sincronice antes de cerrar sesión."
   );
   assert.equal(
     pendingUploadsBlockerMessage(3, "unirte"),
-    "Hay 3 operaciones sin subir a la nube. Conéctate y espera a que se sincronicen antes de unirte."
+    "Hay 3 operaciones sin subir a la nube. Conectate y esperá a que se sincronicen antes de unirte."
   );
 });
 
@@ -90,12 +90,12 @@ test("the pending uploads message explains a queue the server defers", () => {
     pendingUploadsBlockerMessage(1, "cerrar sesión", {
       heldUntil: "2999-01-01T00:00:00.000Z",
     }),
-    /^Hay 1 operación sin subir a la nube\. Se registraron operaciones con la hora del dispositivo adelantada\. .* Espera a que se suba antes de cerrar sesión\.$/
+    /^Hay 1 operación sin subir a la nube\. Se registraron operaciones con la hora del dispositivo adelantada\. .* Esperá a que se suba antes de cerrar sesión\.$/
   );
   const stillAhead = pendingUploadsBlockerMessage(2, "unirte", {
     heldUntil: null,
   });
   assert.match(stillAhead, /La hora de este dispositivo está adelantada/);
-  assert.match(stillAhead, /Espera a que se suban antes de unirte\.$/);
-  assert.doesNotMatch(stillAhead, /Conéctate/);
+  assert.match(stillAhead, /Esperá a que se suban antes de unirte\.$/);
+  assert.doesNotMatch(stillAhead, /Conectate/);
 });

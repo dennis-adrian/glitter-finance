@@ -101,12 +101,12 @@ export function DiscardSyncFailureDialog({
         >
           <p>
             La nube rechazó esta operación, y mientras la siga rechazando, lo
-            que vino después tampoco puede subirse. Si la descartas, se quita de
+            que vino después tampoco puede subirse. Si la descartás, se quita de
             la cola de este dispositivo y sus cambios se deshacen aquí.
           </p>
           <p>
             Sus datos quedan en el diagnóstico hasta que cierres sesión. Si los
-            necesitas, copia el diagnóstico antes.
+            necesitás, copiá el diagnóstico antes.
           </p>
         </div>
 

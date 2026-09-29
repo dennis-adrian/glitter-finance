@@ -93,7 +93,7 @@ export async function acceptInvitation(token: string) {
     // can surface the error instead of racing a server redirect against its
     // own post-accept navigation.
     if (!user) {
-      throw new UserFacingError("Tu sesión expiró. Vuelve a iniciar sesión.");
+      throw new UserFacingError("Tu sesión expiró. Volvé a iniciar sesión.");
     }
 
     // Links carry a 43-character base64url token; anything else is no

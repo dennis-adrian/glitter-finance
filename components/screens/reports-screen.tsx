@@ -307,7 +307,7 @@ export function ReportsScreen({
           <div>
             <h2 className="text-lg font-semibold">Registro de ventas</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Consulta, anula o reembolsa ventas desde su propio registro.
+              Consultá, anulá o reembolsá ventas desde su propio registro.
             </p>
           </div>
           <Button type="button" variant="outline" onClick={openSales}>

@@ -120,7 +120,7 @@ export async function createSaleLocal(
  * its way, not missing.
  */
 export const SALE_NOT_ON_DEVICE_MESSAGE =
-  "Esta venta todavía se está sincronizando en este dispositivo. Inténtalo de nuevo en un momento.";
+  "Esta venta todavía se está sincronizando en este dispositivo. Intentalo de nuevo en un momento.";
 
 const SALE_NOT_FOUND_MESSAGE = "No se encontró la venta.";
 

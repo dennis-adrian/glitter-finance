@@ -171,7 +171,7 @@ export function resolveSalesRange(
     if (!start || !end) {
       return {
         bounds: null,
-        error: "Elige una fecha de inicio y una fecha final.",
+        error: "Elegí una fecha de inicio y una fecha final.",
       };
     }
 

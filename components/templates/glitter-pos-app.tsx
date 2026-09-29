@@ -900,7 +900,7 @@ export function GlitterPosApp({
     if (productWriteRef.current) {
       // Its buttons wait for the write in progress, but say so if a tap
       // still gets here instead of dropping it silently.
-      showToast("Espera a que termine el cambio en curso", "info");
+      showToast("Esperá a que termine el cambio en curso", "info");
       return;
     }
     productWriteRef.current = write;

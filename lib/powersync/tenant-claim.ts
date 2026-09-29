@@ -13,7 +13,7 @@ import { ACTIVE_TENANT_CHANGED_MESSAGE } from "@/lib/auth/tenant-context";
  */
 export class TenantClaimMismatchError extends Error {
   constructor(
-    message = "La sesión todavía no corresponde al puesto de este dispositivo. Si no se corrige sola, recarga la app."
+    message = "La sesión todavía no corresponde al puesto de este dispositivo. Si no se corrige sola, recargá la app."
   ) {
     super(message);
     this.name = "TenantClaimMismatchError";

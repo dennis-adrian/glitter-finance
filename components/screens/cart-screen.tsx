@@ -56,7 +56,7 @@ export function CartScreen(props: CartScreenProps) {
         <EmptyState
           icon={<ShoppingBag size={46} />}
           title="Carrito vacío"
-          body="Toca productos para empezar una venta."
+          body="Tocá productos para empezar una venta."
         />
       ) : null}
       <CartSummary

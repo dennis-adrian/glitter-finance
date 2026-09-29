@@ -63,7 +63,7 @@ export async function setActiveTenantClaim(user: User, tenantId: string) {
 
 export async function assertUserIsMember(userId: string, tenantId: string) {
   if (!(await hasMembership(db, { tenantId, userId }))) {
-    throw new UserFacingError("No perteneces a esta cuenta.");
+    throw new UserFacingError("No pertenecés a esta cuenta.");
   }
 }
 

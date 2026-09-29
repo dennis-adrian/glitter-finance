@@ -150,5 +150,5 @@ export function describeUploadHold(
       hold.heldUntil
     )}; hasta entonces, lo registrado después también espera.`;
   }
-  return "La hora de este dispositivo está adelantada y la nube todavía no acepta sus operaciones. Activa la fecha y hora automáticas; lo ya registrado con la hora adelantada se subirá cuando la hora real la alcance.";
+  return "La hora de este dispositivo está adelantada y la nube todavía no acepta sus operaciones. Activá la fecha y hora automáticas; lo ya registrado con la hora adelantada se subirá cuando la hora real la alcance.";
 }

@@ -334,6 +334,9 @@ Right After Signing In** on installed production PWAs as well.
   app on the new build reverts the refund and sends the rest. A void that
   loses to a refund is reverted at the next sync. Nothing is lost.
 - Signing out now signs out only the current device.
+- The app now addresses users as vos on every screen (before, only the
+  sign-in screens and the More tab did). The auth emails did not change, so
+  their templates need no new export.
 - Confirming an email address no longer signs in. The link opens the sign-in
   screen with "Tu correo está confirmado", and the user signs in with the
   password they chose.

@@ -31,13 +31,13 @@ function describeBlocker(
 ) {
   switch (blocker) {
     case "sync-failures":
-      return "Hay operaciones que no llegaron a la nube. Abre Diagnósticos en Ajustes antes de unirte.";
+      return "Hay operaciones que no llegaron a la nube. Abrí Diagnósticos en Ajustes antes de unirte.";
     case "tenant-changed":
       return tenantChangedBlockerMessage("unirte");
     case "pending-uploads":
       return pendingUploadsBlockerMessage(pendingCount, "unirte", uploadHold);
     case "not-synced":
-      return "Espera a que termine la sincronización antes de unirte.";
+      return "Esperá a que termine la sincronización antes de unirte.";
   }
 }
 
@@ -83,8 +83,8 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
         isUnsyncedLocalDataRefusal(err)
           ? err.message
           : err instanceof Error
-            ? `${err.message} Reintenta la limpieza segura antes de unirte.`
-            : "No se pudieron limpiar los datos locales. Reintenta antes de unirte."
+            ? `${err.message} Reintentá la limpieza segura antes de unirte.`
+            : "No se pudieron limpiar los datos locales. Reintentá antes de unirte."
       );
       setJoining(false);
     }

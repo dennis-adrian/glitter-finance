@@ -71,7 +71,7 @@ test("the explanation depends on whether the device clock was corrected", () => 
     now
   );
   assert.match(stillAhead, /La hora de este dispositivo está adelantada/);
-  assert.match(stillAhead, /Activa la fecha y hora automáticas/);
+  assert.match(stillAhead, /Activá la fecha y hora automáticas/);
   assert.equal(describeUploadHold({ heldUntil: null }, now), stillAhead);
 });
 

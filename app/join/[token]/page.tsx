@@ -23,7 +23,7 @@ function InvalidInvitationScreen() {
   return (
     <StatusScreen
       title="Esta invitación ya no es válida"
-      description="El enlace puede haber caducado o haber sido revocado. Pide un enlace nuevo a quien te invitó."
+      description="El enlace puede haber caducado o haber sido revocado. Pedí un enlace nuevo a quien te invitó."
     >
       <Link href="/" className={statusScreenActionClassName}>
         Ir a Billetera Ferial

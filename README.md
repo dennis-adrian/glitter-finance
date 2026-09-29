@@ -281,7 +281,7 @@ open <http://127.0.0.1:54324>. Links in the emails use the local `site_url`,
   **¿Olvidaste tu contraseña?** and open it from Mailpit.
 - **Signup confirmation** is off locally (`enable_confirmations = false` under
   `[auth.email]` in `supabase/config.toml`), so a new account signs in at once
-  and the "Revisa tu correo" path never runs. To try it, set
+  and the "Revisá tu correo" path never runs. To try it, set
   `enable_confirmations = true`, restart the stack (`pnpm db:stop`, then
   `pnpm db:start`) and sign up again. Set it back to `false` before
   committing.

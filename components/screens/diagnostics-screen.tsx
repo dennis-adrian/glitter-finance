@@ -248,7 +248,7 @@ export function DiagnosticsScreen({
     } catch (error) {
       console.error("[Diagnostics] reconnect failed", error);
       toast.error(
-        "No se pudo reconectar. Revisa la conexión e inténtalo de nuevo."
+        "No se pudo reconectar. Revisá la conexión e intentalo de nuevo."
       );
     } finally {
       setReconnecting(false);
@@ -270,7 +270,7 @@ export function DiagnosticsScreen({
       if (error instanceof SyncFailureDiscardError) throw error;
       console.error("[Diagnostics] discard failed", error);
       reportClientFailure("powersync_sync_failure_discard", error);
-      throw new Error("No se pudo descartar la operación. Inténtalo de nuevo.");
+      throw new Error("No se pudo descartar la operación. Intentalo de nuevo.");
     } finally {
       setDetailsVersion((version) => version + 1);
       void syncStatusStore.refresh();
@@ -323,7 +323,7 @@ export function DiagnosticsScreen({
       console.error("[Diagnostics] copy failed", error);
       setCopyFallback(json);
       toast.error(
-        "No se pudo copiar el diagnóstico. Cópialo desde abajo o descárgalo."
+        "No se pudo copiar el diagnóstico. Copialo desde abajo o descargalo."
       );
     }
   }
@@ -334,7 +334,7 @@ export function DiagnosticsScreen({
     } catch (error) {
       console.error("[Diagnostics] download failed", error);
       toast.error(
-        "No se pudo descargar el diagnóstico. Selecciona el texto y cópialo."
+        "No se pudo descargar el diagnóstico. Seleccioná el texto y copialo."
       );
     }
   }
@@ -353,10 +353,10 @@ export function DiagnosticsScreen({
             {details.failures.length === 1
               ? "1 transacción no llegó a la nube."
               : `${details.failures.length} transacciones no llegaron a la nube.`}{" "}
-            Copia este diagnóstico y no cierres sesión ni cambies de cuenta
+            Copiá este diagnóstico y no cierres sesión ni cambies de cuenta
             hasta {details.failures.length === 1 ? "resolverla" : "resolverlas"}
-            : fuerza la sincronización cuando el problema esté corregido, o
-            descarta la operación si la nube la sigue rechazando.
+            : forzá la sincronización cuando el problema esté corregido, o
+            descartá la operación si la nube la sigue rechazando.
           </span>
         </div>
       ) : sync.state === "tenant-changed" ? (
@@ -531,8 +531,8 @@ export function DiagnosticsScreen({
       {copyFallback ? (
         <DiagPanel title="Diagnóstico">
           <p className="mb-2.5 text-xs leading-relaxed text-muted-foreground">
-            No se pudo copiar automáticamente. Selecciona todo el texto y
-            cópialo, o descárgalo como archivo.
+            No se pudo copiar automáticamente. Seleccioná todo el texto y
+            copialo, o descargalo como archivo.
           </p>
           <Textarea
             ref={copyFallbackRef}

@@ -51,7 +51,7 @@ export function describePendingUploads(count: number) {
 
 /** `action` completes "antes de …", e.g. "cerrar sesión". */
 export function tenantChangedBlockerMessage(action: string) {
-  return `Tu puesto activo cambió en otro dispositivo. Recarga la app antes de ${action}.`;
+  return `Tu puesto activo cambió en otro dispositivo. Recargá la app antes de ${action}.`;
 }
 
 /**
@@ -64,12 +64,12 @@ export function pendingUploadsBlockerMessage(
   uploadHold: Pick<UploadHold, "heldUntil"> | null = null
 ) {
   if (uploadHold) {
-    const wait = count === 1 ? "Espera a que se suba" : "Espera a que se suban";
+    const wait = count === 1 ? "Esperá a que se suba" : "Esperá a que se suban";
     return `${describePendingUploads(count)} ${describeUploadHold(uploadHold)} ${wait} antes de ${action}.`;
   }
   const wait =
     count === 1
-      ? "Conéctate y espera a que se sincronice"
-      : "Conéctate y espera a que se sincronicen";
+      ? "Conectate y esperá a que se sincronice"
+      : "Conectate y esperá a que se sincronicen";
   return `${describePendingUploads(count)} ${wait} antes de ${action}.`;
 }

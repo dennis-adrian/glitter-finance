@@ -62,7 +62,7 @@ test("returning needs a session", async () => {
 
   assert.deepEqual(await returnToTenant(TENANT_ID), {
     ok: false,
-    error: "No has iniciado sesión.",
+    error: "No iniciaste sesión.",
   });
   assert.deepEqual(claims, []);
 });

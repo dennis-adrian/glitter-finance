@@ -203,7 +203,7 @@ export function InviteTeamCard({
     }
     try {
       await navigator.share({
-        title: "Únete a mi equipo en Billetera Ferial",
+        title: "Unite a mi equipo en Billetera Ferial",
         text: "Te invito a registrar ventas en mi cuenta de Billetera Ferial:",
         url: inviteLink,
       });
@@ -227,7 +227,7 @@ export function InviteTeamCard({
       </div>
       <p className="mb-4 text-sm leading-snug text-muted-foreground">
         Cualquiera con este enlace puede unirse hasta que lo revoques o caduque.
-        Compártelo por WhatsApp, correo electrónico o el canal que prefieras.
+        Compartilo por WhatsApp, correo electrónico o el canal que prefieras.
       </p>
       {error ? <p className="mb-3 text-sm text-destructive">{error}</p> : null}
       {isShareable && invitation ? (

@@ -101,7 +101,7 @@ async function uploadProductImageForTenant(
   const image = formData instanceof FormData ? formData.get("image") : null;
 
   if (!(image instanceof File)) {
-    throw new UserFacingError("Selecciona una imagen del producto.");
+    throw new UserFacingError("Seleccioná una imagen del producto.");
   }
 
   const imageError = productImageFileError(image);

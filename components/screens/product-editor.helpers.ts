@@ -46,7 +46,7 @@ export function validateProductForm(form: {
   const priceCents = form.price.trim() ? parseBolivianos(form.price) : null;
   if (form.price.trim()) {
     if (priceCents == null) {
-      errors.price = "Escribe el precio como 15 o 15,50.";
+      errors.price = "Escribí el precio como 15 o 15,50.";
     } else if (priceCents === 0) {
       errors.price = "El precio debe ser mayor que 0.";
     } else if (!isValidCents(priceCents)) {
@@ -58,7 +58,7 @@ export function validateProductForm(form: {
   if (form.cost.trim()) {
     if (costCents == null) {
       errors.cost =
-        "Escribe el costo como 8 o 8,50, o déjalo vacío si no lo sabes.";
+        "Escribí el costo como 8 o 8,50, o dejalo vacío si no lo sabés.";
     } else if (!isValidCents(costCents)) {
       errors.cost = `El costo no puede superar ${MAX_PRICE_LABEL}.`;
     }
@@ -115,15 +115,15 @@ export function initialStockHint(input: {
   initialMovement: InitialMovementState;
 }) {
   if (input.wasTrackingInventory) {
-    return "Unidades que tienes ahora.";
+    return "Unidades que tenés ahora.";
   }
   switch (input.initialMovement) {
     case "none":
-      return "Unidades que tienes ahora. Si lo dejas vacío, empieza en 0.";
+      return "Unidades que tenés ahora. Si lo dejás vacío, empieza en 0.";
     case "recorded":
-      return "Unidades que tienes ahora. Si lo dejas vacío, sigue el conteo anterior y descuenta lo vendido desde entonces.";
+      return "Unidades que tenés ahora. Si lo dejás vacío, sigue el conteo anterior y descuenta lo vendido desde entonces.";
     case "unknown":
-      return "Unidades que tienes ahora. Escríbelas para que no se descuenten ventas anteriores.";
+      return "Unidades que tenés ahora. Escribilas para que no se descuenten ventas anteriores.";
   }
 }
 
@@ -138,10 +138,10 @@ export function stockAmountError(value: string, signed = false) {
   }
   if (signed) {
     return parseSignedInteger(value) == null
-      ? `Usa un número entero distinto de cero, de -${MAX_QUANTITY_LABEL} a ${MAX_QUANTITY_LABEL}.`
+      ? `Usá un número entero distinto de cero, de -${MAX_QUANTITY_LABEL} a ${MAX_QUANTITY_LABEL}.`
       : null;
   }
   return parsePositiveInteger(value) == null
-    ? `Usa un número entero de 1 a ${MAX_QUANTITY_LABEL}, sin decimales ni texto extra.`
+    ? `Usá un número entero de 1 a ${MAX_QUANTITY_LABEL}, sin decimales ni texto extra.`
     : null;
 }

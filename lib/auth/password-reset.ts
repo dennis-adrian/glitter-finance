@@ -8,7 +8,7 @@ import { weakPasswordMessage } from "@/lib/auth/signup-error";
 export const UPDATE_PASSWORD_PATH = "/auth/update-password";
 
 export const PASSWORD_RESET_ORIGIN_UNAVAILABLE_MESSAGE =
-  "No se pudo determinar la URL pública de la app. Configura NEXT_PUBLIC_APP_URL o APP_URL en el servidor para recuperar contraseñas.";
+  "No se pudo determinar la URL pública de la app. Configurá NEXT_PUBLIC_APP_URL o APP_URL en el servidor para recuperar contraseñas.";
 
 export const PASSWORD_UPDATE_FALLBACK_MESSAGE =
   "No se pudo guardar la contraseña. Intentá de nuevo.";

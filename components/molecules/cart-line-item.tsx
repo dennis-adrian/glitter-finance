@@ -65,7 +65,7 @@ export function CartLineItem({
   function applyDiscount() {
     const value = parseDiscountInput(discountInput, lineSubtotal);
     if (value == null) {
-      setDiscountError("Escribe un monto (5 o 5,50) o un porcentaje (10%).");
+      setDiscountError("Escribí un monto (5 o 5,50) o un porcentaje (10%).");
       return;
     }
     setDiscountError(null);

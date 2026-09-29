@@ -48,7 +48,7 @@ export default function GlobalError({
             <title>Error · Billetera Ferial</title>
             <h1>Algo salió mal</h1>
             <p>
-              El error fue registrado. Puedes intentar cargar la aplicación otra
+              El error fue registrado. Podés intentar cargar la aplicación otra
               vez.
             </p>
             {/* retry() fetches the page from the server again; reset() would

@@ -5,9 +5,9 @@ import { createClient } from "@/lib/supabase/client";
 export const LOCAL_TEARDOWN_UNAVAILABLE_MESSAGE =
   "La limpieza local aún no está disponible.";
 export const SESSION_REFRESH_FAILED_MESSAGE =
-  "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página.";
+  "La sesión no se actualizó. Cerrá sesión y volvé a entrar, o recargá la página.";
 export const SIGN_OUT_FAILED_MESSAGE =
-  "No se pudo cerrar la sesión. Revisa tu conexión y vuelve a intentarlo.";
+  "No se pudo cerrar la sesión. Revisá tu conexión y volvé a intentarlo.";
 
 /**
  * Runs an account change (sign-out, or switching, creating or joining a

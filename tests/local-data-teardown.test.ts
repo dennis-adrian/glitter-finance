@@ -380,7 +380,7 @@ test("a refusal says when uploads the server deferred will go through", async ()
         assert.ok(isUnsyncedLocalDataRefusal(error));
         assert.equal(error.stage, "pending-uploads");
         assert.match(error.message, /hora del dispositivo adelantada/);
-        assert.match(error.message, /Espera a que se suban antes de continuar/);
+        assert.match(error.message, /Esperá a que se suban antes de continuar/);
         return true;
       }
     );

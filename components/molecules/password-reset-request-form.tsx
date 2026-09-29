@@ -59,7 +59,7 @@ export function PasswordResetRequestForm({
       <p className="pt-6 text-center text-sm text-foreground/70">
         ¿Te acordaste?{" "}
         <Link href={signInHref} className={authLinkClassName}>
-          Iniciá Sesión
+          Iniciá sesión
         </Link>
       </p>
     </form>

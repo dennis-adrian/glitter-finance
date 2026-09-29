@@ -39,7 +39,7 @@ function describeBlocker(
 ) {
   switch (blocker) {
     case "sync-failures":
-      return "Hay operaciones que no llegaron a la nube. Abre Diagnósticos desde Ajustes antes de cambiar de puesto o cerrar sesión.";
+      return "Hay operaciones que no llegaron a la nube. Abrí Diagnósticos desde Ajustes antes de cambiar de puesto o cerrar sesión.";
     case "tenant-changed":
       return tenantChangedBlockerMessage("cambiar de puesto o cerrar sesión");
     case "pending-uploads":
@@ -49,7 +49,7 @@ function describeBlocker(
         uploadHold
       );
     case "not-synced":
-      return "Espera a que termine la sincronización antes de cambiar de puesto o cerrar sesión.";
+      return "Esperá a que termine la sincronización antes de cambiar de puesto o cerrar sesión.";
   }
 }
 

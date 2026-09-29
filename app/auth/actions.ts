@@ -69,7 +69,7 @@ export async function signInWithPassword(
   if (error) {
     return {
       error:
-        "No se pudo iniciar sesión. Verifica tu correo electrónico y contraseña.",
+        "No se pudo iniciar sesión. Verificá tu correo electrónico y contraseña.",
     };
   }
 
@@ -149,7 +149,7 @@ export async function signUpWithPassword(
   const callbackUrl = origin ? buildAuthCallbackUrl(origin, next) : null;
 
   if (displayName.length < 2) {
-    return { error: "Escribe tu nombre completo para crear la cuenta." };
+    return { error: "Escribí tu nombre completo para crear la cuenta." };
   }
   const passwordError = newPasswordError(password, confirmPassword);
   if (passwordError) {

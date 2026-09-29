@@ -1,7 +1,7 @@
 import type { TenantInvitation } from "@/lib/types";
 
 export const INVITE_ORIGIN_UNAVAILABLE_MESSAGE =
-  "No se pudo determinar la URL pública de la app. Configura NEXT_PUBLIC_APP_URL o APP_URL en el servidor para compartir invitaciones.";
+  "No se pudo determinar la URL pública de la app. Configurá NEXT_PUBLIC_APP_URL o APP_URL en el servidor para compartir invitaciones.";
 
 // Pure invitation helpers safe to import from client components. Keep this
 // module free of server-only dependencies (db, supabase, node:crypto) so it

@@ -576,7 +576,7 @@ writer) so the actions and the existing bootstrap share one implementation.
   device B still renders the old tenant) → the claim is one per account, not
   per device, so B's server reads already see A's choice. B's tenant-scoped
   server actions pass the tenant B renders and are refused with "Tu puesto
-  activo cambió en otro dispositivo. Recarga la app para continuar." rather
+  activo cambió en otro dispositivo. Recargá la app para continuar." rather
   than writing into A's tenant. B's PowerSync connector refuses a token that
   claims the other tenant, so B stops syncing instead of mixing tenants in its
   database. Once a refreshed token confirms the other tenant, B shows it

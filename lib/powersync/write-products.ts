@@ -43,7 +43,7 @@ import type { ProductInput } from "@/lib/types";
  * dropped without a word.
  */
 export const PRODUCT_NOT_ON_DEVICE_MESSAGE =
-  "Este producto todavía se está sincronizando en este dispositivo. Inténtalo de nuevo en un momento.";
+  "Este producto todavía se está sincronizando en este dispositivo. Intentalo de nuevo en un momento.";
 
 async function assertProductOnDevice(
   db: Pick<Transaction, "getOptional">,

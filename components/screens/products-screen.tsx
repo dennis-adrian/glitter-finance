@@ -103,7 +103,7 @@ export function ProductsScreen(props: ProductsScreenProps) {
         <EmptyState
           icon={<Search size={46} />}
           title="No se encontraron productos"
-          body="Prueba con otra categoría o término de búsqueda."
+          body="Probá con otra categoría o término de búsqueda."
         />
       )}
       <Button

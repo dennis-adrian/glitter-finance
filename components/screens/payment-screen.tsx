@@ -41,7 +41,7 @@ export function PaymentScreen({
   // Never offer to charge an amount that cannot be recorded as a sale.
   const totalError =
     !Number.isSafeInteger(total) || total < 0
-      ? "No se pudo calcular el total. Vuelve al carrito y revisa los descuentos."
+      ? "No se pudo calcular el total. Volvé al carrito y revisá los descuentos."
       : !isWithinSaleLimit(subtotal)
         ? "El total supera el máximo que se puede registrar en una venta."
         : null;
@@ -55,7 +55,7 @@ export function PaymentScreen({
   function applyCustom() {
     const value = parseDiscountInput(custom, subtotal);
     if (value == null) {
-      setCustomError("Escribe un monto (7 o 7,50) o un porcentaje (10%).");
+      setCustomError("Escribí un monto (7 o 7,50) o un porcentaje (10%).");
       return;
     }
     setCustomError(null);

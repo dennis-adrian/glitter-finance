@@ -88,8 +88,8 @@ export function SettingsScreen({
     actionError?.action === "sign-out" ? actionError.message : null;
   const syncFailureExplanation =
     syncFailureCount === 1
-      ? "Hay una operación que no llegó a la nube. Abre Diagnósticos, copia el diagnóstico y resuélvela antes de cerrar sesión."
-      : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abre Diagnósticos, copia el diagnóstico y resuélvelas antes de cerrar sesión.`;
+      ? "Hay una operación que no llegó a la nube. Abrí Diagnósticos, copiá el diagnóstico y resolvela antes de cerrar sesión."
+      : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abrí Diagnósticos, copiá el diagnóstico y resolvelas antes de cerrar sesión.`;
   const signOutBlockedExplanation =
     gate.blocker === "sync-failures"
       ? syncFailureExplanation
@@ -102,7 +102,7 @@ export function SettingsScreen({
               gate.uploadHold
             )
           : gate.blocker === "not-synced"
-            ? "Espera a que termine la sincronización antes de cerrar sesión."
+            ? "Esperá a que termine la sincronización antes de cerrar sesión."
             : null;
 
   const switchOverlayLabel = creatingTenant
@@ -146,7 +146,7 @@ export function SettingsScreen({
 
         {gate.blocker === "sync-failures" ? (
           <p className="mb-3 text-xs leading-relaxed text-destructive">
-            La sincronización requiere recuperación. Abre Diagnósticos antes de
+            La sincronización requiere recuperación. Abrí Diagnósticos antes de
             cambiar de cuenta o cerrar sesión.
           </p>
         ) : gate.blocker === "tenant-changed" ? (
@@ -166,7 +166,7 @@ export function SettingsScreen({
           </p>
         ) : gate.blocker === "not-synced" ? (
           <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-            Espera a que termine la sincronización antes de cambiar de cuenta.
+            Esperá a que termine la sincronización antes de cambiar de cuenta.
           </p>
         ) : null}
         {tenantActionError ? (
@@ -308,7 +308,7 @@ export function SettingsScreen({
         <h2 className="mb-3 text-lg font-semibold">Equipo</h2>
         {teamSyncPending ? (
           <p className="mb-3 text-sm leading-snug text-muted-foreground">
-            Sincronizando el equipo… Si esto persiste, revisa la conexión en
+            Sincronizando el equipo… Si esto persiste, revisá la conexión en
             Diagnósticos.
           </p>
         ) : null}
@@ -336,7 +336,7 @@ export function SettingsScreen({
                   </strong>
                   <small className="block text-xs text-muted-foreground">
                     {isCurrentUser
-                      ? `Tú · ${roleLabel}${tenantContext.user.email ? ` · ${tenantContext.user.email}` : ""}`
+                      ? `Vos · ${roleLabel}${tenantContext.user.email ? ` · ${tenantContext.user.email}` : ""}`
                       : roleLabel}
                   </small>
                 </span>
@@ -346,7 +346,7 @@ export function SettingsScreen({
         </div>
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
           Varios vendedores pueden registrar ventas en la misma cuenta desde sus
-          propios teléfonos. Comparte el enlace de invitación para agregar
+          propios teléfonos. Compartí el enlace de invitación para agregar
           miembros al equipo.
         </p>
       </section>

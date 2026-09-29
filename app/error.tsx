@@ -23,7 +23,7 @@ export default function RouteError({
   return (
     <StatusScreen
       title="Algo salió mal"
-      description="El error fue registrado. Puedes intentar cargar esta pantalla otra vez."
+      description="El error fue registrado. Podés intentar cargar esta pantalla otra vez."
     >
       {/* retry() fetches the route from the server again; reset() would only
           re-render the payload that already failed. */}

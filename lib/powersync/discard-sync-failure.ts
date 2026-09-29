@@ -59,7 +59,7 @@ export class SyncFailureDiscardError extends Error {
 export const SYNC_FAILURE_NOT_PENDING_MESSAGE =
   "Esta operación ya no está pendiente.";
 export const SYNC_FAILURE_NOT_NEXT_MESSAGE =
-  "Esta operación todavía no es la siguiente en subirse. Fuerza la sincronización e inténtalo de nuevo.";
+  "Esta operación todavía no es la siguiente en subirse. Forzá la sincronización e intentalo de nuevo.";
 
 export type RevertOperation = {
   op: string;

@@ -226,7 +226,7 @@ export function SalesScreen({
       {rangeError ? (
         <EmptyState
           icon={<ReceiptText size={46} />}
-          title="Revisa el rango"
+          title="Revisá el rango"
           body={rangeError}
         />
       ) : groups.length ? (
@@ -274,7 +274,7 @@ export function SalesScreen({
         <EmptyState
           icon={<ReceiptText size={46} />}
           title="No hay ventas en este rango"
-          body="Prueba con otras fechas o registra una venta desde Vender."
+          body="Probá con otras fechas o registrá una venta desde POS Venta."
         />
       )}
 

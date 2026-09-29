@@ -75,7 +75,7 @@ export function SellScreen(props: SellScreenProps) {
       ) : props.products.length === 0 ? (
         <EmptyState
           icon={<PackagePlus size={42} />}
-          title="Agrega tu primer producto"
+          title="Agregá tu primer producto"
           body="Tu catálogo está vacío."
           action={
             <Button
@@ -92,7 +92,7 @@ export function SellScreen(props: SellScreenProps) {
         <EmptyState
           icon={<Search size={42} />}
           title="No se encontraron productos"
-          body="Prueba con otra categoría o término de búsqueda."
+          body="Probá con otra categoría o término de búsqueda."
         />
       )}
 

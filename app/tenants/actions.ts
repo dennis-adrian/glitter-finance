@@ -10,7 +10,7 @@ import {
 } from "@/lib/auth/user-context";
 import { db } from "@/lib/db";
 
-const NOT_SIGNED_IN_MESSAGE = "No has iniciado sesión.";
+const NOT_SIGNED_IN_MESSAGE = "No iniciaste sesión.";
 
 function parseTenantName(name: unknown): string {
   const trimmedName = typeof name === "string" ? name.trim() : "";

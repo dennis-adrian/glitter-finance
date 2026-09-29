@@ -588,7 +588,7 @@ export function PowerSyncProvider({
           layout={loadingLayout}
           tone="alert"
           message={identityChange.error}
-          detail="Los datos locales ya se borraron. Recarga la página, o vuelve para prepararlos de nuevo con la sesión actual."
+          detail="Los datos locales ya se borraron. Recargá la página, o volvé para prepararlos de nuevo con la sesión actual."
         >
           <LocalDataPanelButton onClick={() => window.location.reload()}>
             Recargar la página
