@@ -48,6 +48,12 @@ test("anything that is not an amount is null, never 0 or a guess", () => {
     "1,234.50",
     "12,345",
     "1.2345",
+    "0.500",
+    "0.250",
+    "00.500",
+    "012.345",
+    "0 500",
+    "Bs 0.250",
     "15 u",
     "99999999999999999999",
   ]) {
@@ -73,7 +79,16 @@ test("discounts accept amounts and percentages, and reject malformed ones", () =
   assert.equal(parseDiscountInput("33%", 1001), 330);
   assert.equal(parseDiscountInput("", 10_000), 0);
 
-  for (const input of ["%", "abc%", ",5%", "x", "150%", "-10%", "10%%"]) {
+  for (const input of [
+    "%",
+    "abc%",
+    ",5%",
+    "x",
+    "150%",
+    "-10%",
+    "10%%",
+    "0.500",
+  ]) {
     assert.equal(parseDiscountInput(input, 10_000), null, input);
   }
   assert.equal(parseDiscountInput("10%", Number.NaN), null);

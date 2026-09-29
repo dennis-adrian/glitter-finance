@@ -39,11 +39,12 @@ export function isValidCents(
 
 // An amount as vendors type it: "15", "15,50", "15.5", or with the es-BO
 // thousands grouping that formatBs displays, "1.500" or "1.234,50". A "." or a
-// space followed by exactly three digits groups thousands; a trailing "," or
-// "." with up to two digits is the decimal part. "1,500" is ambiguous (1,5 in
-// es-BO, 1500 in English) and rejected.
+// space followed by exactly three digits groups thousands, when the first
+// group does not start with 0; a trailing "," or "." with up to two digits is
+// the decimal part. "1,500" is ambiguous (1,5 in es-BO, 1500 in English) and
+// rejected, and so is "0.500", since no grouping starts with a 0.
 const PLAIN_AMOUNT_RE = /^\d+(?:[.,]\d{0,2})?$/;
-const GROUPED_AMOUNT_RE = /^\d{1,3}(?:[.\s]\d{3})+(?:[.,]\d{0,2})?$/;
+const GROUPED_AMOUNT_RE = /^[1-9]\d{0,2}(?:[.\s]\d{3})+(?:[.,]\d{0,2})?$/;
 const DECIMAL_PART_RE = /[.,](\d{0,2})$/;
 const CURRENCY_PREFIX_RE = /^bs\.?\s*/i;
 const CURRENCY_SUFFIX_RE = /\s*bs\.?$/i;
