@@ -8,8 +8,8 @@ Implemented now:
 
 - Mobile-first Next.js app shell, installable as a PWA, with an offline app shell through Serwist.
 - Sell Mode default landing screen: tap a product to add it, long-press to take one off.
-- Cart review screen, and a draft cart that survives a reload.
-- Payment screen with per-line and sale-level discounts (an amount or a percentage), cash and QR.
+- Cart review screen with quantity controls and per-line discounts (an amount or a percentage, with an optional reason), and a draft cart that survives a reload.
+- Payment screen with a sale-level discount (presets, or a custom amount or percentage), cash and QR.
 - Immutable sales with snapshotted product price, cost, category, and quantity.
 - A sales list with each sale's detail, voids within the void window, and refunds.
 - Reports over today, week, month, or a custom range: by category, payment method, product, and seller.
