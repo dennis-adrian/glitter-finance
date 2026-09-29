@@ -118,8 +118,10 @@ Expected:
 - Sell Mode opens offline with its normal styling and works (add to cart,
   record a cash sale), now running the new build.
 - If the update could not refresh the saved app shell (network lost during
-  the update), the previous build keeps working offline and updates on a
-  later launch.
+  the update, a 408/429/5xx, or "/" redirecting to the login screen because
+  Supabase Auth could not confirm the session), the previous build keeps
+  working offline and updates on a later launch. Only a 404 or 410 for "/"
+  removes the saved app shell.
 
 ## Diagnostics
 

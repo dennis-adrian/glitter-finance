@@ -6,7 +6,7 @@
 // it would load without them and Sell Mode would never start. So while the
 // new worker installs, every cached page is fetched again from the new build
 // into NEXT_PAGE_CACHE_NAME, and when it activates those pages replace the
-// cached ones. If the install fails (a network or server error here, or in
+// cached ones. If the install fails (a failed or refused fetch here, or in
 // the precache), nothing changed: the current worker, its precache and the
 // cached pages still match, and the browser retries the update later.
 
@@ -17,20 +17,21 @@ type ShellCacheStorage = Pick<CacheStorage, "delete" | "has" | "open">;
 /**
  * What a new build's response means for a cached page:
  * - "store": a complete page, which replaces the cached one;
- * - "drop": a redirect or client error (the session ended, the page is
- *   gone), so the cached page could no longer start and is removed;
- * - "retry": a server error, which fails the install.
+ * - "drop": 404 or 410, the page no longer exists, so it is removed;
+ * - "retry": anything else, which fails the install and keeps the cached
+ *   page. That includes a redirect: "/" redirects to /login whenever the
+ *   server cannot confirm the session, which an Auth outage or rate limit
+ *   causes as well as a lapsed session, and a transient refusal such as 408
+ *   or 429. Neither says the cached page is wrong, and dropping it would
+ *   leave an offline launch without Sell Mode. Logout deletes the page cache
+ *   itself (clearUserDataCaches).
  */
 export function shellRefreshOutcome(
   response: Pick<Response, "status" | "type">
 ): "store" | "drop" | "retry" {
-  if (response.type === "basic" && response.status === 200) return "store";
-  if (
-    response.type === "opaqueredirect" ||
-    (response.status >= 300 && response.status < 500)
-  ) {
-    return "drop";
-  }
+  if (response.type !== "basic") return "retry";
+  if (response.status === 200) return "store";
+  if (response.status === 404 || response.status === 410) return "drop";
   return "retry";
 }
 
@@ -54,7 +55,7 @@ export async function prepareAppShellRefresh(input: {
       const outcome = shellRefreshOutcome(response);
       if (outcome === "retry") {
         throw new Error(
-          `Could not refresh the cached page ${request.url} (${response.status}).`
+          `Could not refresh the cached page ${request.url} (${response.type} ${response.status}).`
         );
       }
       return { request, response, outcome };

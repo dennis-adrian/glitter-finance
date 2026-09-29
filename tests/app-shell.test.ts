@@ -102,12 +102,20 @@ function activate(storage: FakeCacheStorage) {
 
 test("classifies a new build's response for a cached page", () => {
   assert.equal(shellRefreshOutcome({ status: 200, type: "basic" }), "store");
+  // Only a page that no longer exists is dropped.
+  for (const status of [404, 410]) {
+    assert.equal(shellRefreshOutcome({ status, type: "basic" }), "drop");
+  }
+  // A redirect to /login also follows an Auth outage or rate limit, not only
+  // a lapsed session; 408 and 429 are transient; 5xx is a server error.
   assert.equal(
     shellRefreshOutcome({ status: 0, type: "opaqueredirect" }),
-    "drop"
+    "retry"
   );
-  assert.equal(shellRefreshOutcome({ status: 404, type: "basic" }), "drop");
-  assert.equal(shellRefreshOutcome({ status: 503, type: "basic" }), "retry");
+  for (const status of [307, 400, 401, 403, 408, 429, 500, 503]) {
+    assert.equal(shellRefreshOutcome({ status, type: "basic" }), "retry");
+  }
+  assert.equal(shellRefreshOutcome({ status: 0, type: "error" }), "retry");
 });
 
 test("a new build's pages replace the cached ones when it activates", async () => {
@@ -133,26 +141,33 @@ test("a new build's pages replace the cached ones when it activates", async () =
   assert.equal(storage.pages(NEXT_PAGE_CACHE_NAME), null);
 });
 
-test("a page that now redirects is dropped instead of kept stale", async () => {
-  const storage = storageWithPages({
-    [home]: "old build",
-    [homeWithQuery]: "old build",
-  });
-  const { fetch } = fetchFrom({
-    [home]: { status: 0, type: "opaqueredirect", body: "" },
-    [homeWithQuery]: page("new build"),
-  });
+test("a page that no longer exists is dropped instead of kept stale", async () => {
+  for (const status of [404, 410]) {
+    const storage = storageWithPages({
+      [home]: "old build",
+      [homeWithQuery]: "old build",
+    });
+    const { fetch } = fetchFrom({
+      [home]: { status, type: "basic", body: "" },
+      [homeWithQuery]: page("new build"),
+    });
 
-  await install(storage, fetch);
-  await activate(storage);
+    await install(storage, fetch);
+    await activate(storage);
 
-  assert.deepEqual(storage.pages(), { [homeWithQuery]: "new build" });
+    assert.deepEqual(storage.pages(), { [homeWithQuery]: "new build" });
+  }
 });
 
-test("a failed refresh fails the install and changes nothing", async () => {
+test("a failed, refused or redirected refresh fails the install and changes nothing", async () => {
   for (const failure of [
     new TypeError("Failed to fetch"),
     { status: 502, type: "basic" as const, body: "" },
+    { status: 408, type: "basic" as const, body: "" },
+    { status: 429, type: "basic" as const, body: "" },
+    // "/" -> /login: the server could not confirm the session, which an
+    // Auth outage causes as well as a lapsed session.
+    { status: 0, type: "opaqueredirect" as const, body: "" },
   ]) {
     const storage = storageWithPages({
       [home]: "old build",
