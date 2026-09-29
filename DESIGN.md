@@ -282,7 +282,7 @@ The Sell Mode tile (`components/molecules/product-tile.tsx`):
 
 - Two stacked full-width buttons on the payment screen, 48px tall: **Efectivo** (primary) and **QR** (secondary coral), each with a 24px icon before the label and a chevron after it.
 - Tapping one records the sale at once; there is no selected state and no confirm step (finance PRD §7.2).
-- Figma: a full-width segmented toggle, about 44px tall. The segmented pattern is used by the Sistema / Claro / Oscuro theme picker in Ajustes: three 52px buttons, the selected one filled, the others outlined.
+- Figma: a full-width segmented toggle, about 44px tall. The segmented pattern is used by the Sistema / Claro / Oscuro theme picker in Ajustes: three 56px buttons (the `lg` size with an `h-14` override), the selected one filled, the others outlined.
 
 ### Cart
 

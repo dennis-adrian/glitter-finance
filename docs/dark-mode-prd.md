@@ -181,7 +181,8 @@ OS; in Claro/Oscuro it's fixed.
   (icons: `Monitor` / `Sun` / `Moon` from lucide). Selecting applies instantly.
 - Built from shadcn primitives (e.g. a small segmented group of `Button`s, or a
   `ToggleGroup` if we add it). Meets the 44 px minimum touch target in
-  `DESIGN.md` (the picker uses the 52 px `lg` Button size).
+  `DESIGN.md` (the picker buttons are 56 px: the `lg` Button size with an
+  `h-14` override).
 - **Optional (decide in §10):** a quick Sun/Moon icon toggle in screen headers
   for one-tap switching without opening Settings. If included, it toggles
   between light/dark and implicitly leaves Sistema.
