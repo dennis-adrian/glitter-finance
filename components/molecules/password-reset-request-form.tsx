@@ -32,7 +32,7 @@ export function PasswordResetRequestForm({
 
       {state.error ? <AuthFormError>{state.error}</AuthFormError> : null}
 
-      <p className="pb-5 text-sm leading-snug text-[#5a6b68]">
+      <p className="pb-5 text-sm leading-snug text-foreground/70">
         Escribí el correo de tu cuenta y te enviamos un enlace para crear una
         contraseña nueva.
       </p>
@@ -56,7 +56,7 @@ export function PasswordResetRequestForm({
         <AuthSubmitButton label="Enviar enlace" pendingLabel="Enviando…" />
       </div>
 
-      <p className="pt-6 text-center text-sm text-[#5a6b68]">
+      <p className="pt-6 text-center text-sm text-foreground/70">
         ¿Te acordaste?{" "}
         <Link href={signInHref} className={authLinkClassName}>
           Iniciá Sesión

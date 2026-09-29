@@ -13,12 +13,18 @@ import {
 import { cn } from "@/lib/utils";
 
 // Building blocks shared by the sign-in, sign-up and password reset forms.
+//
+// Colors are theme tokens, tinted where that matches the approved sign-in
+// design: its supporting text is the main text at 70% (text-foreground/70),
+// not --muted-foreground. The three light colors no token matches stay as
+// hex, each with a token for dark mode (DESIGN.md, "Sign-in screens").
 
+// The Input defaults supply the border, fill, text and focus colors.
 export const authInputClassName =
-  "h-12! rounded-xl! border-[#e2dcd5] bg-white px-4 text-base text-[#1e2d2b] md:text-sm shadow-none placeholder:text-[#5a6b68] focus-visible:border-[#00786f] focus-visible:ring-[#00786f]/15";
+  "h-12! rounded-xl! px-4 text-base md:text-sm shadow-none placeholder:text-foreground/70 focus-visible:ring-ring/15";
 
 export const authLinkClassName =
-  "font-bold text-[#00786f] underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40";
+  "font-bold text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40";
 
 export function PasswordInput({
   id,
@@ -58,7 +64,7 @@ export function PasswordInput({
         onClick={() => setIsVisible((visible) => !visible)}
         aria-label={isVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
         aria-pressed={isVisible}
-        className="absolute inset-y-0 right-0 min-w-20.5 rounded-r-xl px-4 text-right text-[13px] font-bold text-[#00786f] uppercase transition-colors hover:text-[#0d564f] focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-[#00786f]/40"
+        className="absolute inset-y-0 right-0 min-w-20.5 rounded-r-xl px-4 text-right text-[13px] font-bold text-primary uppercase transition-colors hover:text-[var(--interactive-hover)] focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-ring/40"
       >
         {isVisible ? "Ocultar" : "Mostrar"}
       </button>
@@ -79,7 +85,7 @@ export function AuthSubmitButton({
     <Button
       type="submit"
       disabled={pending}
-      className="h-13! w-full rounded-2xl! border-0 bg-[#00786f] text-base font-bold text-white shadow-[0_4px_6px_rgba(0,120,111,0.15)] hover:bg-[#0d564f] disabled:bg-[#b4c2bf] disabled:text-white disabled:opacity-100 disabled:shadow-none"
+      className="h-13! w-full rounded-2xl! border-0 text-base font-bold shadow-[0_4px_6px] shadow-primary/15 disabled:bg-[#b4c2bf] disabled:opacity-100 disabled:shadow-none dark:disabled:bg-muted"
     >
       {pending ? (
         <>
@@ -104,7 +110,7 @@ export function AuthField({
 }) {
   return (
     <div className="grid gap-1.5">
-      <Label htmlFor={id} className="text-[13px] font-bold text-[#1e2d2b]">
+      <Label htmlFor={id} className="text-[13px] font-bold text-foreground">
         {label}
       </Label>
       {children}
@@ -123,7 +129,18 @@ export function AuthFormError({
     <div
       id={id}
       role="alert"
-      className="mb-4 rounded-xl border border-[#e8725a]/35 bg-[#fdf0ed] px-4 py-3 text-sm leading-snug text-[#8a3329]"
+      className="mb-4 rounded-xl border border-secondary/35 bg-secondary/10 px-4 py-3 text-sm leading-snug text-[#8a3329] dark:text-destructive"
+    >
+      {children}
+    </div>
+  );
+}
+
+export function AuthFormStatus({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      role="status"
+      className="mb-4 rounded-xl border border-primary/25 bg-muted px-4 py-3 text-sm leading-snug text-[#005f58] dark:text-foreground"
     >
       {children}
     </div>
@@ -160,7 +177,7 @@ export function PasswordStrengthMeter({ password }: { password: string }) {
             key={level}
             className={cn(
               "h-1 rounded-sm transition-colors",
-              strength >= level ? "bg-[#4caf50]" : "bg-[#e2dcd5]/50"
+              strength >= level ? "bg-[var(--green)]" : "bg-border/50"
             )}
           />
         ))}
@@ -168,7 +185,7 @@ export function PasswordStrengthMeter({ password }: { password: string }) {
       <span
         className={cn(
           "text-[11px]",
-          strength >= 3 ? "text-[#4caf50]" : "text-[#5a6b68]"
+          strength >= 3 ? "text-[var(--green)]" : "text-foreground/70"
         )}
       >
         {strengthLabel(strength)}

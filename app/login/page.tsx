@@ -2,6 +2,10 @@ import Link from "next/link";
 import { BarChart2, CheckCircle2, WifiOff } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { AuthForm } from "@/components/molecules/auth-form";
+import {
+  AuthFormError,
+  AuthFormStatus,
+} from "@/components/molecules/auth-form-fields";
 import { PasswordResetRequestForm } from "@/components/molecules/password-reset-request-form";
 import {
   AuthPageHeader,
@@ -38,19 +42,19 @@ const benefits = [
     icon: CheckCircle2,
     title: "Cobrá sin fricción",
     description: "Registrá pagos por efectivo o QR al instante",
-    tone: "bg-[#ecf6f5] text-[#00786f]",
+    tone: "bg-muted text-primary",
   },
   {
     icon: WifiOff,
     title: "Vendé incluso sin señal",
     description: "Modo offline que sincroniza cuando vuelve la conexión",
-    tone: "bg-[#fdf0ed] text-[#e8725a]",
+    tone: "bg-secondary/10 text-secondary",
   },
   {
     icon: BarChart2,
     title: "Mirá tus ventas al instante",
     description: "Reportes en tiempo real",
-    tone: "bg-[#ecf6f5] text-[#00786f]",
+    tone: "bg-muted text-primary",
   },
 ];
 
@@ -78,14 +82,14 @@ function WelcomeScreen({ next }: { next: string }) {
       <div>
         <header className="flex flex-col items-center gap-5 px-6 pt-[max(28px,env(safe-area-inset-top))] pb-5 text-center">
           <div className="flex flex-col items-center gap-3">
-            <span className="grid size-[88px] place-items-center rounded-3xl border border-[#00786f]/12 bg-[#ecf6f5] [&>img]:size-16!">
+            <span className="grid size-[88px] place-items-center rounded-3xl border border-primary/12 bg-muted [&>img]:size-16!">
               <BrandMark />
             </span>
-            <p className="font-heading text-[22px] leading-[26px] font-extrabold text-[#1a2e2c]">
+            <p className="font-heading text-[22px] leading-[26px] font-extrabold text-foreground">
               Billetera Ferial
             </p>
           </div>
-          <h1 className="font-heading max-w-[354px] text-[32px] leading-[1.15] font-extrabold text-[#1a2e2c]">
+          <h1 className="font-heading max-w-[354px] text-[32px] leading-[1.15] font-extrabold text-foreground">
             Tu punto de venta para cada feria
           </h1>
         </header>
@@ -102,10 +106,10 @@ function WelcomeScreen({ next }: { next: string }) {
                 <Icon aria-hidden="true" className="size-6" strokeWidth={1.8} />
               </span>
               <div className="min-w-0">
-                <p className="text-base leading-5 font-bold text-[#1a2e2c]">
+                <p className="text-base leading-5 font-bold text-foreground">
                   {title}
                 </p>
-                <p className="mt-0.5 text-sm leading-[18px] text-[#5a6b68]">
+                <p className="mt-0.5 text-sm leading-[18px] text-foreground/70">
                   {description}
                 </p>
               </div>
@@ -117,13 +121,13 @@ function WelcomeScreen({ next }: { next: string }) {
       <div className="grid gap-3 px-6 pt-6 pb-[max(24px,env(safe-area-inset-bottom))]">
         <Link
           href={authHref("signin", next)}
-          className="flex h-[52px] items-center justify-center rounded-2xl bg-[#00786f] text-base font-bold text-white shadow-[0_4px_6px_rgba(0,120,111,0.15)] transition-colors hover:bg-[#0d564f] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40"
+          className="flex h-[52px] items-center justify-center rounded-2xl bg-primary text-base font-bold text-primary-foreground shadow-[0_4px_6px] shadow-primary/15 transition-colors hover:bg-[var(--interactive-hover)] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40"
         >
           Iniciar Sesión
         </Link>
         <Link
           href={authHref("signup", next)}
-          className="flex h-[52px] items-center justify-center rounded-2xl border-[1.5px] border-[#00786f] text-base font-bold text-[#00786f] transition-colors hover:bg-[#ecf6f5] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#00786f]/40"
+          className="flex h-[52px] items-center justify-center rounded-2xl border-[1.5px] border-primary text-base font-bold text-primary transition-colors hover:bg-muted focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40"
         >
           Crear Cuenta
         </Link>
@@ -151,22 +155,8 @@ function AuthScreen({
       />
 
       <div className="flex flex-1 flex-col px-6">
-        {error ? (
-          <div
-            role="alert"
-            className="mb-4 rounded-xl border border-[#e8725a]/35 bg-[#fdf0ed] px-4 py-3 text-sm leading-snug text-[#8a3329]"
-          >
-            {error}
-          </div>
-        ) : null}
-        {message ? (
-          <div
-            role="status"
-            className="mb-4 rounded-xl border border-[#00786f]/25 bg-[#ecf6f5] px-4 py-3 text-sm leading-snug text-[#005f58]"
-          >
-            {message}
-          </div>
-        ) : null}
+        {error ? <AuthFormError>{error}</AuthFormError> : null}
+        {message ? <AuthFormStatus>{message}</AuthFormStatus> : null}
 
         {mode === "reset" ? (
           <PasswordResetRequestForm

@@ -81,9 +81,9 @@ export function AuthForm({
       </form>
 
       <div className="flex items-center gap-3 py-5" aria-hidden="true">
-        <span className="h-px flex-1 bg-[#e2dcd5]" />
-        <span className="text-xs font-semibold text-[#74817f]">o</span>
-        <span className="h-px flex-1 bg-[#e2dcd5]" />
+        <span className="h-px flex-1 bg-border" />
+        <span className="text-xs font-semibold text-foreground/60">o</span>
+        <span className="h-px flex-1 bg-border" />
       </div>
 
       <form
@@ -164,7 +164,7 @@ export function AuthForm({
         {isSignup ? (
           <div className="grid gap-4 pt-6">
             <SubmitButton mode={mode} />
-            <p className="text-center text-sm text-[#5a6b68]">
+            <p className="text-center text-sm text-foreground/70">
               ¿Ya tenés una cuenta?{" "}
               <Link href={alternateHref} className={authLinkClassName}>
                 Iniciá Sesión
@@ -177,7 +177,7 @@ export function AuthForm({
               <SubmitButton mode={mode} />
             </div>
 
-            <p className="pt-6 text-center text-sm text-[#5a6b68]">
+            <p className="pt-6 text-center text-sm text-foreground/70">
               ¿No tenés cuenta?{" "}
               <Link href={alternateHref} className={authLinkClassName}>
                 Registrate

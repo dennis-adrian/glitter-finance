@@ -42,10 +42,12 @@ export default async function UpdatePasswordPage({
         <AuthPageHeader title="Nueva Contraseña" />
 
         <div className="flex flex-1 flex-col px-6">
-          <p className="pb-5 text-sm leading-snug text-[#5a6b68]">
+          <p className="pb-5 text-sm leading-snug text-foreground/70">
             Elegí una contraseña nueva para{" "}
             {user.email ? (
-              <strong className="font-bold text-[#1e2d2b]">{user.email}</strong>
+              <strong className="font-bold text-foreground">
+                {user.email}
+              </strong>
             ) : (
               "tu cuenta"
             )}
