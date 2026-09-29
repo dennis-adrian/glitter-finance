@@ -160,7 +160,8 @@ keeps working with them.
      product names up to 120 characters and categories up to 60.
    - `supabase/migrations/20260929000106_products_field_updated_at.sql`:
      `products.field_updated_at`, the per-column edit times that file 3 of
-     step 5 keeps. Existing products start with none.
+     step 5 keeps. Existing products start with none. The sync streams send
+     the column and devices ignore it, so it needs no PowerSync change.
 2. Deploy this release's app build immediately after, never before. Vercel
    deploys on push: every Preview deployment of this release's branch already
    talks to staging, and a merge into the production branch deploys
@@ -211,13 +212,18 @@ file run on its own can put back what a newer one replaced.
    the `product-images` bucket limits (JPEG and PNG, 5 MiB) and the upload and
    delete policies by tenant folder. Hosted buckets get their limits only from
    this file: do **not** use `supabase seed buckets --linked`, which would also
-   upload the local seed images.
+   upload the local seed images. Without PowerSync, the app now uploads photos
+   with the user's session too, so it relies on an upload policy: this file's,
+   or the one the migrations already created. Removing replaced photos uses
+   `SUPABASE_SECRET_KEY` and is best effort.
 3. [`supabase/manual/20260926130100_products_last_write_wins.sql`](../supabase/manual/20260926130100_products_last_write_wins.sql):
    product edits are last-write-wins by `updated_at`, column by column, so a
    late offline upload no longer overwrites a newer change to the same field
    and still applies its other changes, and a placeholder tone never replaces
    an uploaded image. It must run after file 1 and after the `db:push` of
-   step 4, which adds the column it keeps.
+   step 4, which adds the column it keeps. If this environment ever ran an
+   earlier draft of this file (one that kept or dropped whole edits), run it
+   again; its step 6 marker stays `false` until then.
 
 An environment that has not had every older `supabase/manual/` file must run
 those first, in order (see
@@ -241,6 +247,12 @@ In the SQL editor:
    SELECT has_function_privilege(
      'authenticated', 'public.powersync_create_sale(jsonb,jsonb)', 'EXECUTE');
    ```
+
+Then, in the dashboard's database settings, look at the connection pooler's
+maximum client connections. Each server instance of the app now opens up to 6
+connections to the transaction pooler instead of 5 (`lib/db/index.ts`), so
+that maximum must stay well above 6 times the number of instances Vercel runs
+at once. No change is expected at current traffic.
 
 ### 7. Supabase Auth
 
@@ -276,8 +288,11 @@ configures the local stack):
    none carries query strings, `/join/<token>` paths or `DrizzleQueryError`
    parameters. Optionally add alerts for the new issue types: `client-failure`
    events (tagged by component, such as `powersync_init`) and the warning
-   "PowerSync upload discarded on the device" (tag `sync_failure=discarded`).
-   Browser events are now queued offline and sent on reconnect.
+   "PowerSync upload discarded on the device" (tag `sync_failure=discarded`),
+   and the warning "PowerSync upload held by the device clock" (tag
+   `sync_failure=held`, fingerprint `powersync-held-upload`), sent once for a
+   transaction a device clock ahead has held back for 10 minutes. Browser
+   events are now queued offline and sent on reconnect.
 3. **Installed PWA:** it stays the same app (the manifest `id` is `/`, which
    Chrome derived before), and Android launchers show the new maskable icon.
 4. **Product photos** still render. They are now requested with
@@ -294,14 +309,17 @@ On staging, run on installed iPhone Safari and Android Chrome PWAs:
 
 - [`docs/sync-atomicity-acceptance.md`](sync-atomicity-acceptance.md):
   **Discarding a failed operation**, **Cross-device conflicts**, **Device
-  clock ahead** and **Failure classification**.
+  clock ahead** (including the 12-hour case) and **Failure classification**.
 - [`docs/stage-b-acceptance.md`](stage-b-acceptance.md): **Offline PWA
   Relaunch** (including more than 24 hours offline and the signed-out
-  `/~offline` page) and **Offline Relaunch After An Update**. An installed app
-  must be opened online once after the deploy before `/` is cached for offline
-  starts.
+  `/~offline` page), **Offline Relaunch Right After Signing In** (password
+  sign-in, account switch and Google sign-in, each followed by an airplane
+  mode relaunch with no online relaunch in between: Sell Mode must open) and
+  **Offline Relaunch After An Update**. An installed app must be opened online
+  once after the deploy before `/` is cached for offline starts.
 
-When they pass, repeat steps 1–8 on production.
+When they pass, repeat steps 1–8 on production, then run **Offline Relaunch
+Right After Signing In** on installed production PWAs as well.
 
 ## What users may notice
 
