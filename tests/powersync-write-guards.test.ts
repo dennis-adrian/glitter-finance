@@ -10,7 +10,12 @@ import {
   updateProductLocal,
   uploadProductImageLocal,
 } from "@/lib/powersync/write-products";
-import { createSaleLocal } from "@/lib/powersync/write-sales";
+import {
+  createSaleLocal,
+  refundSaleLocal,
+  SALE_NOT_ON_DEVICE_MESSAGE,
+  voidSaleLocal,
+} from "@/lib/powersync/write-sales";
 import type { Product } from "@/lib/types";
 
 const cancelled = () => {
@@ -173,4 +178,42 @@ test("product edits refuse a product that is not on the device yet", async () =>
   }
   assert.equal(writes, 0);
   assert.equal(uploads, 0);
+});
+
+function saleDb(sale: { tenant_id: string } | null) {
+  let writes = 0;
+  const db = {
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        getAll: async (sql: string) =>
+          /FROM sales/.test(sql) && sale ? [sale] : [],
+        execute: async () => {
+          writes += 1;
+        },
+      } as unknown as Transaction),
+  } as unknown as AbstractPowerSyncDatabase;
+  return { db, writes: () => writes };
+}
+
+test("a void or refund of a sale not on the device yet says it is syncing", async () => {
+  const { db, writes } = saleDb(null);
+  const input = { saleId: "sale-1", userId: "user-1", tenantId: "tenant-1" };
+
+  for (const write of [voidSaleLocal(db, input), refundSaleLocal(db, input)]) {
+    await assert.rejects(write, (error: Error) => {
+      assert.equal(error.message, SALE_NOT_ON_DEVICE_MESSAGE);
+      return true;
+    });
+  }
+  assert.equal(writes(), 0);
+});
+
+test("a void or refund of another tenant's sale is refused as not found", async () => {
+  const { db, writes } = saleDb({ tenant_id: "tenant-2" });
+  const input = { saleId: "sale-1", userId: "user-1", tenantId: "tenant-1" };
+
+  for (const write of [voidSaleLocal(db, input), refundSaleLocal(db, input)]) {
+    await assert.rejects(write, /No se encontró la venta\./);
+  }
+  assert.equal(writes(), 0);
 });

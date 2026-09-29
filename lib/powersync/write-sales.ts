@@ -113,6 +113,31 @@ export async function createSaleLocal(
   return { saleId, totalCents: sale.totalCents };
 }
 
+/**
+ * Before the first sync completes, the local store holds only this device's
+ * own writes, while the sales screens also list the server-rendered sales.
+ * Voiding or refunding one of those finds no local row yet: that sale is on
+ * its way, not missing.
+ */
+export const SALE_NOT_ON_DEVICE_MESSAGE =
+  "Esta venta todavía se está sincronizando en este dispositivo. Inténtalo de nuevo en un momento.";
+
+const SALE_NOT_FOUND_MESSAGE = "No se encontró la venta.";
+
+/** The local sale row a void or refund acts on. */
+function assertSaleOnDevice<Row extends { tenant_id: string }>(
+  sale: Row | undefined,
+  tenantId: string
+): Row {
+  if (!sale) {
+    throw new Error(SALE_NOT_ON_DEVICE_MESSAGE);
+  }
+  if (sale.tenant_id !== tenantId) {
+    throw new Error(SALE_NOT_FOUND_MESSAGE);
+  }
+  return sale;
+}
+
 export type VoidSaleLocalInput = {
   saleId: string;
   userId: string;
@@ -139,10 +164,7 @@ export async function voidSaleLocal(
       `SELECT created_at, voided_at, tenant_id FROM sales WHERE id = ? LIMIT 1`,
       [input.saleId]
     );
-    const sale = rows[0];
-    if (!sale || sale.tenant_id !== input.tenantId) {
-      throw new Error("No se encontró la venta.");
-    }
+    const sale = assertSaleOnDevice(rows[0], input.tenantId);
     if (sale.voided_at) {
       throw new Error(SALE_ALREADY_VOIDED_MESSAGE);
     }
@@ -200,10 +222,7 @@ export async function refundSaleLocal(
     }>(`SELECT voided_at, tenant_id FROM sales WHERE id = ? LIMIT 1`, [
       input.saleId,
     ]);
-    const sale = saleRows[0];
-    if (!sale || sale.tenant_id !== input.tenantId) {
-      throw new Error("No se encontró la venta.");
-    }
+    const sale = assertSaleOnDevice(saleRows[0], input.tenantId);
     if (sale.voided_at) {
       throw new Error(VOIDED_SALE_REFUND_MESSAGE);
     }
