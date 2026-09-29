@@ -117,11 +117,11 @@ export function CategoriesScreen({
           </span>
           <div>
             <h2 className="font-heading text-base font-bold">
-              Ordena tu catálogo a tu manera
+              Ordená tu catálogo a tu manera
             </h2>
             <p className="mt-1 text-sm leading-5 text-muted-foreground">
-              Puedes crear y renombrar categorías. Para eliminar una, primero
-              mueve sus productos.
+              Podés crear y renombrar categorías. Para eliminar una, primero
+              mové sus productos.
             </p>
           </div>
         </div>
@@ -166,7 +166,7 @@ export function CategoriesScreen({
                   disabled={isUsed}
                   title={
                     isUsed
-                      ? "Mueve sus productos antes de eliminarla"
+                      ? "Mové sus productos antes de eliminarla"
                       : "Eliminar categoría"
                   }
                   onClick={() => {
@@ -184,12 +184,12 @@ export function CategoriesScreen({
       ) : (
         <EmptyState
           icon={<Tags size={46} />}
-          title="Crea tu primera categoría"
+          title="Creá tu primera categoría"
           body="Las categorías que crees aparecerán al agregar productos."
           action={
             <Button size="lg" onClick={openCreate}>
               <Plus />
-              CREAR CATEGORÍA
+              Crear categoría
             </Button>
           }
         />

@@ -22,7 +22,7 @@ export function validateInventoryMovement(
   reason: string
 ): asserts reason is InventoryMovementReason {
   if (!inventoryMovementReasons.some((item) => item === reason)) {
-    throw new Error("Selecciona un motivo de inventario válido.");
+    throw new Error("Seleccioná un motivo de inventario válido.");
   }
   if (!Number.isInteger(delta) || delta === 0) {
     throw new Error("La cantidad debe ser un número entero distinto de cero.");

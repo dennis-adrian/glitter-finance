@@ -52,7 +52,7 @@ async function resolveProductCategoryLocal(
     [tenantId, name]
   );
   if (!rows[0]) {
-    throw new Error("Selecciona una categoría válida.");
+    throw new Error("Seleccioná una categoría válida.");
   }
   return rows[0].name;
 }

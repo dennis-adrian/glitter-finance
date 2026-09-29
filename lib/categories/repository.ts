@@ -88,7 +88,7 @@ export async function resolveCategoryNameForTenant(
     .limit(1);
 
   if (!category) {
-    throw new Error("Selecciona una categoría válida.");
+    throw new Error("Seleccioná una categoría válida.");
   }
 
   return category.name;
@@ -196,7 +196,7 @@ export async function deleteCategoryForTenant(
 
     if ((usage?.value ?? 0) > 0) {
       throw new Error(
-        "Mueve los productos a otra categoría antes de eliminarla."
+        "Mové los productos a otra categoría antes de eliminarla."
       );
     }
 

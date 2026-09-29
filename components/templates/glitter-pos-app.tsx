@@ -976,7 +976,7 @@ export function GlitterPosApp({
   async function handleCreateCategory(name: string): Promise<Category> {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      throw new Error("Tu cuenta aún no está configurada.");
+      throw new Error("Tu puesto aún no está configurado.");
     }
 
     const work = beginTenantWork();
@@ -1005,7 +1005,7 @@ export function GlitterPosApp({
   ): Promise<Category> {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      throw new Error("Tu cuenta aún no está configurada.");
+      throw new Error("Tu puesto aún no está configurado.");
     }
     const currentCategory = categories.find((item) => item.id === categoryId);
     if (!currentCategory) {
@@ -1040,7 +1040,7 @@ export function GlitterPosApp({
   async function handleDeleteCategory(categoryId: string): Promise<void> {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      throw new Error("Tu cuenta aún no está configurada.");
+      throw new Error("Tu puesto aún no está configurado.");
     }
     const currentCategory = categories.find((item) => item.id === categoryId);
     if (!currentCategory) {

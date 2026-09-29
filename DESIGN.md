@@ -352,13 +352,15 @@ date presets, catalog status, and stock corrections.
 
 ### Categories
 
-- Categories belong to each vendor: they are the names their products use.
-  There is no fixed list.
-- Filters show **Todos** plus every category in use, and hide when there is
-  only one.
-- The product editor offers existing categories as chips plus **Nueva
-  categoría**. Typed names are trimmed and matched ignoring case and accents,
-  so they reuse an existing spelling instead of duplicating it.
+- Each puesto manages its own categories (the `categories` table); there is
+  no fixed list. **Catálogo › Categorías** (`#/catalogo/categorias`) creates,
+  renames (products follow), and deletes empty categories.
+- Filters show **Todos** plus the categories that have products in the
+  current list, and hide when there is only one.
+- The product editor shows the categories as chips plus **Nueva categoría**,
+  which opens the create form and selects the new category. A product's old,
+  unmanaged category still shows as a chip so saving never changes it
+  silently.
 
 ### Dialogs and confirmation
 

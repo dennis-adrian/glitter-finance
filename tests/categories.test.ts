@@ -24,7 +24,7 @@ test("normalizes category names and compares them without case", () => {
   assert.equal(normalizeCategoryName("  Arte   impreso  "), "Arte impreso");
   assert.equal(validateCategoryName("  Pines "), "Pines");
   assert.equal(categoryNamesMatch("STICKERS", "stickers"), true);
-  assert.throws(() => validateCategoryName("   "), /Escribe un nombre/);
+  assert.throws(() => validateCategoryName("   "), /Escribí un nombre/);
   assert.throws(() => validateCategoryName("x".repeat(41)), /40 caracteres/);
 });
 
@@ -100,7 +100,7 @@ test("does not delete a category used by any product", async () => {
       tenantId: "tenant-1",
       categoryId: "category-1",
     }),
-    /Mueve los productos/
+    /Mové los productos/
   );
   assert.equal(writes, 0);
 });

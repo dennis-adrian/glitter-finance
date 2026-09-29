@@ -144,7 +144,7 @@ export async function deleteCategoryLocal(
     );
     if (usedBy.length > 0) {
       throw new Error(
-        "Mueve los productos a otra categoría antes de eliminarla."
+        "Mové los productos a otra categoría antes de eliminarla."
       );
     }
 

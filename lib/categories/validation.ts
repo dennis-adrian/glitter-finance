@@ -8,7 +8,7 @@ export function validateCategoryName(value: string) {
   const name = normalizeCategoryName(value);
 
   if (!name) {
-    throw new Error("Escribe un nombre para la categoría.");
+    throw new Error("Escribí un nombre para la categoría.");
   }
   if (name.length > categoryNameMaxLength) {
     throw new Error(
