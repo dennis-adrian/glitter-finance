@@ -300,6 +300,7 @@ export function PowerSyncProvider({
           if (outcome === "cancelled") return;
           connectedForUploads = false;
           await db.disconnect();
+          if (cancelled) return;
           unsynced = await readUnsyncedLocalWork(db);
           plan = planMismatch(unsynced);
           if (cancelled) return;
@@ -320,6 +321,7 @@ export function PowerSyncProvider({
         // the permanent-upload report a bounded chance to leave the device
         // first; failure must not prevent privacy cleanup or cancellation.
         await flushPendingSyncFailureTelemetry();
+        if (cancelled) return;
         // Otherwise re-checks the queue right before the wipe.
         await teardownLocalUserData({
           db,
@@ -377,14 +379,16 @@ export function PowerSyncProvider({
     }
 
     init().catch((error) => {
+      // Cleanup closes the database under an initialization it cancelled, so
+      // a step still running then fails on the closed database. That is not
+      // a start-up failure: nothing failed for the user.
+      if (cancelled) return;
       console.error("[PowerSync] init failed", error);
       reportClientFailure("powersync_init", error);
-      if (!cancelled) {
-        setDb(null);
-        setLocalDataError(
-          "No se pudieron preparar los datos locales de forma segura."
-        );
-      }
+      setDb(null);
+      setLocalDataError(
+        "No se pudieron preparar los datos locales de forma segura."
+      );
     });
 
     return () => {
