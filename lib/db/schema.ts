@@ -67,6 +67,9 @@ export const categories = pgTable(
   },
   (table) => [
     index("categories_tenant_id_idx").on(table.tenantId),
+    // Target for the tenant-scoped composite FK on products.category_id.
+    // (id) is already unique as the PK; this pair makes the composite FK legal.
+    unique("categories_id_tenant_id_unique").on(table.id, table.tenantId),
     uniqueIndex("categories_tenant_name_unique").on(
       table.tenantId,
       sql`lower(${table.name})`
@@ -78,11 +81,12 @@ export const categories = pgTable(
   ]
 );
 
-export const categoriesRelations = relations(categories, ({ one }) => ({
+export const categoriesRelations = relations(categories, ({ one, many }) => ({
   tenant: one(tenants, {
     fields: [categories.tenantId],
     references: [tenants.id],
   }),
+  products: many(products),
 }));
 
 export const tenantInvitations = pgTable(
@@ -163,6 +167,12 @@ export const products = pgTable(
     name: text("name").notNull(),
     priceCents: integer("price_cents").notNull(),
     costCents: integer("cost_cents"),
+    // Source of truth for the product's category. Nullable while clients that
+    // only send a category name (v0.7.0 and older builds) can still upload;
+    // supabase/manual triggers resolve those names to an id.
+    categoryId: uuid("category_id"),
+    // Denormalized category name, kept in sync with category_id by triggers.
+    // Old clients read it, and it seeds sale-line category snapshots.
     category: text("category").notNull(),
     imagePath: text("image_path"),
     tracksInventory: boolean("tracks_inventory").notNull().default(false),
@@ -178,9 +188,21 @@ export const products = pgTable(
   (table) => [
     index("products_tenant_id_idx").on(table.tenantId),
     index("products_tenant_archived_idx").on(table.tenantId, table.archivedAt),
+    // Serves the category FK's RESTRICT check and the category-rename cascade.
+    index("products_tenant_category_idx").on(table.tenantId, table.categoryId),
     // Target for the tenant-scoped composite FK on sale_lines.product_id.
     // (id) is already unique as the PK; this pair makes the composite FK legal.
     unique("products_id_tenant_id_unique").on(table.id, table.tenantId),
+    // Composite FK so a product can only point at its own tenant's category.
+    // RESTRICT (not SET NULL): tenant_id is NOT NULL and cannot be half-nulled.
+    // MATCH SIMPLE (the default) skips rows whose category_id is still NULL.
+    // Generated after categories_id_tenant_id_unique on purpose: drizzle-kit
+    // emits FKs before new unique constraints within one migration.
+    foreignKey({
+      name: "products_category_id_tenant_id_categories_id_tenant_id_fk",
+      columns: [table.categoryId, table.tenantId],
+      foreignColumns: [categories.id, categories.tenantId],
+    }).onDelete("restrict"),
     check(
       "products_price_cents_nonnegative_check",
       sql`${table.priceCents} >= 0`
@@ -200,6 +222,10 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   tenant: one(tenants, {
     fields: [products.tenantId],
     references: [tenants.id],
+  }),
+  category: one(categories, {
+    fields: [products.categoryId],
+    references: [categories.id],
   }),
   inventoryMovements: many(inventoryMovements),
 }));
