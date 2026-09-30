@@ -250,6 +250,14 @@ file run on its own can put back what a newer one replaced.
    step 3, which adds the column it keeps. If this environment ever ran an
    earlier draft of this file (one that kept or dropped whole edits), run it
    again; its step 7 marker stays `false` until then.
+4. [`supabase/manual/20260930120000_category_triggers_follow_latest_edit.sql`](../supabase/manual/20260930120000_category_triggers_follow_latest_edit.sql):
+   replaces the category trigger functions of step 3. A rename now reaches a
+   product last edited by a device whose clock ran a few minutes ahead (file 3
+   kept such a product under the old name, a category that no longer exists),
+   and a category can no longer move to another puesto. It must run after
+   file 3 and after step 3's category files. Re-running step 3's
+   `20260814235910` puts the old functions back; run this file after it
+   again.
 
 An environment that has not had every older `supabase/manual/` file must run
 those first, in order (see

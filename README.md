@@ -668,9 +668,10 @@ below:
   last one it has had, in order. When unsure, start from an earlier file and
   run every file after it as well, in order. Never re-run an older file on its
   own: some files replace what an earlier one installed, and running the
-  earlier one again puts the old version back. File 1 replaces file 10's upload
-  policy, and file 5 replaces file 9's upload RPCs and void trigger. The
-  verification query below shows both.
+  earlier one again puts the old version back. File 10 replaces file 1's upload
+  policy, file 9 replaces file 5's upload RPCs and void trigger, and file 12
+  replaces file 7's category trigger functions. The verification query below
+  shows all three.
 - **Local stack:** `pnpm db:reset` runs all of them after the migrations and
   before `seed.sql`.
 
@@ -720,6 +721,11 @@ below:
     its changes to other fields still apply. A placeholder tone never replaces
     an uploaded image. Every environment, after file 9 and after the
     `pnpm db:push` that adds `products.field_updated_at`.
+12. [`20260930120000_category_triggers_follow_latest_edit.sql`](supabase/manual/20260930120000_category_triggers_follow_latest_edit.sql):
+    replaces file 7's trigger functions. A rename stamps the products with a
+    time file 11 never keeps an older edit over, so it reaches a product last
+    edited by a device whose clock ran ahead, and a category cannot move to
+    another tenant. Every environment, after files 7 and 11.
 
 To check an environment, run in its SQL editor:
 
@@ -771,7 +777,12 @@ SELECT
     AND EXISTS (SELECT 1 FROM pg_trigger
       WHERE tgname = 'products_keep_latest_edit'
         AND tgrelid = 'public.products'::regclass)
-    AS "20260926130100";
+    AS "20260926130100",
+  -- File 7's rename stamps the products with now().
+  coalesce(pg_get_functiondef(
+      to_regprocedure('public.sync_category_name_to_products()')
+    ) LIKE '%greatest(clock_timestamp(), updated_at)%', false)
+    AS "20260930120000";
 ```
 
 Confirm the publication with the queries under [PowerSync setup](#powersync-setup).
