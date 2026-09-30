@@ -1,6 +1,7 @@
 -- Tenant categories: who can read and write them through PostgREST, the
 -- checks on their names, and the triggers that keep the products that name a
--- category in step with it (renames follow, a used category stays).
+-- category in step with it (renames follow, products take the category's
+-- spelling, a used category stays).
 
 BEGIN;
 
@@ -13,6 +14,9 @@ BEGIN;
 \set product_a a2000000-0000-4000-8000-000000000001
 \set product_b b2000000-0000-4000-8000-000000000001
 \set sale_a a3000000-0000-4000-8000-000000000001
+\set category_sweets a5000000-0000-4000-8000-000000000003
+\set product_sweet a2000000-0000-4000-8000-000000000003
+\set product_misc a2000000-0000-4000-8000-000000000004
 
 SELECT tests.create_user(:'user_a', 'a@example.com');
 SELECT tests.create_user(:'user_b', 'b@example.com');
@@ -160,6 +164,93 @@ SELECT tests.throws(
   '23514',
   'a category cannot move to another tenant'
 );
+
+-- ---------------------------------------------------------------------------
+-- Products take the tenant's spelling of their category
+-- ---------------------------------------------------------------------------
+
+INSERT INTO public.categories (id, tenant_id, name)
+VALUES (:'category_sweets', :'tenant_a', 'Dulces');
+
+SELECT tests.authenticate(:'user_a');
+
+-- A device offline created 'dulces' and filed a product under it while
+-- another created 'Dulces'. The uploader dropped the create that arrived
+-- second, and the product still arrives with the first device's spelling.
+INSERT INTO public.products (id, tenant_id, name, price_cents, category)
+VALUES (:'product_sweet', :'tenant_a', 'Alfajor', 900, 'dulces');
+-- Filed under a category another device has since deleted.
+INSERT INTO public.products (id, tenant_id, name, price_cents, category)
+VALUES (:'product_misc', :'tenant_a', 'Llavero', 1200, 'Varios');
+
+SELECT tests.as_owner();
+
+SELECT tests.is(
+  (SELECT category FROM public.products WHERE id = :'product_sweet'),
+  'Dulces',
+  'a new product takes the tenant''s spelling of its category'
+);
+SELECT tests.is(
+  (SELECT category FROM public.products WHERE id = :'product_misc'),
+  'Varios',
+  'a product keeps a category the tenant does not have'
+);
+
+SELECT tests.authenticate(:'user_a');
+INSERT INTO public.categories (tenant_id, name) VALUES (:'tenant_a', 'VARIOS');
+SELECT tests.as_owner();
+
+SELECT tests.is(
+  (SELECT category FROM public.products WHERE id = :'product_misc'),
+  'VARIOS',
+  'a new category respells the products already under its name'
+);
+
+SELECT tests.authenticate(:'user_a');
+UPDATE public.products SET category = 'dulces', updated_at = now()
+WHERE id = :'product_misc';
+SELECT tests.as_owner();
+
+SELECT tests.is(
+  (SELECT category FROM public.products WHERE id = :'product_misc'),
+  'Dulces',
+  'a product moved to a category takes the tenant''s spelling of it'
+);
+
+SELECT tests.authenticate(:'user_a');
+UPDATE public.categories SET name = 'Golosinas', updated_at = now()
+WHERE id = :'category_sweets';
+SELECT tests.as_owner();
+
+SELECT tests.is(
+  (SELECT array_agg(category ORDER BY id) FROM public.products
+    WHERE id IN (:'product_sweet', :'product_misc')),
+  ARRAY['Golosinas', 'Golosinas'],
+  'a rename moves the products that arrived in another case'
+);
+
+-- The rename stamped the product with the clock at the time, later than
+-- now(), the start of this transaction.
+SELECT tests.authenticate(:'user_a');
+UPDATE public.products SET category = 'Varios', updated_at = clock_timestamp()
+WHERE id = :'product_misc';
+UPDATE public.categories SET name = 'varios', updated_at = now()
+WHERE tenant_id = :'tenant_a' AND name = 'VARIOS';
+SELECT tests.as_owner();
+
+SELECT tests.is(
+  (SELECT category FROM public.products WHERE id = :'product_misc'),
+  'varios',
+  'a rename in case only respells the category''s products'
+);
+
+SELECT tests.authenticate(:'user_a');
+SELECT tests.throws(
+  format('DELETE FROM public.categories WHERE id = %L', :'category_sweets'),
+  '23503',
+  'a category whose product arrived in another case cannot be deleted'
+);
+SELECT tests.as_owner();
 
 -- ---------------------------------------------------------------------------
 -- A category in use stays

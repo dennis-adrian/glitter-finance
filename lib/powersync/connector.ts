@@ -206,7 +206,9 @@ function isPrimaryKeyUniqueViolation(
  * later upload, sales included, until someone discards it. It is skipped
  * instead, like a void that lost to a refund: the next checkpoint gives the
  * device the server's categories back. The rest of its transaction still
- * uploads, so a rename's products move to the name it chose.
+ * uploads, so a rename's products move to the name it chose, and a product
+ * filed under a dropped create or rename takes the tenant's spelling of the
+ * name (supabase/manual/20260930130000_products_use_category_spelling.sql).
  *
  * An UPDATE also matches no row when RLS hides it from a user who is no
  * longer a member of the tenant. Skipping the category change then loses

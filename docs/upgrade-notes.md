@@ -11,16 +11,16 @@ README and empty this file for the release after.
 
 ## What changes for operators
 
-| Area                  | Change                                                                                                                                                                                                                                                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| App environment       | The server now checks at startup that the required variables, `INVITATION_SECRET_KEY` included, are set. Browser Sentry reports only from Vercel production and preview deployments.                                                                                                                                                 |
-| Product categories    | Each puesto now keeps its own categories (a new `categories` table), and a product must be filed under one of them. A puesto's existing product categories become its categories the first time it opens the app.                                                                                                                    |
-| Database schema       | Two Drizzle migrations: the `categories` table, then stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times.                                                                                                               |
-| Hand-written SQL      | Seven new `supabase/manual/` files: categories RLS, category rename and delete triggers, categories in the PowerSync publication, upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, per-field last-write-wins product edits, and category renames that win over those edit times. |
-| PowerSync             | The sync streams add `categories` and also require a `tenant_users` membership, so they must be redeployed once `categories` is published.                                                                                                                                                                                           |
-| Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                  |
-| Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                     |
-| Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                          |
+| Area                  | Change                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| App environment       | The server now checks at startup that the required variables, `INVITATION_SECRET_KEY` included, are set. Browser Sentry reports only from Vercel production and preview deployments.                                                                                                                                                                                                 |
+| Product categories    | Each puesto now keeps its own categories (a new `categories` table), and a product must be filed under one of them. A puesto's existing product categories become its categories the first time it opens the app.                                                                                                                                                                    |
+| Database schema       | Two Drizzle migrations: the `categories` table, then stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times.                                                                                                                                                               |
+| Hand-written SQL      | Eight new `supabase/manual/` files: categories RLS, category rename and delete triggers, categories in the PowerSync publication, upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, per-field last-write-wins product edits, category renames that win over those edit times, and products stored with their category's spelling. |
+| PowerSync             | The sync streams add `categories` and also require a `tenant_users` membership, so they must be redeployed once `categories` is published.                                                                                                                                                                                                                                           |
+| Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                  |
+| Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                                                                     |
+| Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                                                                          |
 
 ## Once, before the first environment
 
@@ -258,6 +258,14 @@ file run on its own can put back what a newer one replaced.
    file 3 and after step 3's category files. Re-running step 3's
    `20260814235910` puts the old functions back; run this file after it
    again.
+5. [`supabase/manual/20260930130000_products_use_category_spelling.sql`](../supabase/manual/20260930130000_products_use_category_spelling.sql):
+   a product whose category matches one of its puesto's categories ignoring
+   case is stored with that category's spelling, and the products already
+   stored otherwise are respelled. The rename and delete triggers match the
+   exact spelling, so without it a product uploaded after the uploader
+   dropped its category's create or rename (another device had taken the
+   name in another case) counted for no category: that category could be
+   renamed or deleted without it. It must run after files 3 and 4.
 
 An environment that has not had every older `supabase/manual/` file must run
 those first, in order (see
@@ -354,8 +362,10 @@ On staging, run on installed iPhone Safari and Android Chrome PWAs:
 - Categories, on two devices of one puesto: an existing puesto shows its
   products' categories under **Categorías**; a category created, renamed or
   deleted on one device shows on the other, online and after an offline
-  spell; a rename moves the products on both; a category a product uses
-  cannot be deleted; and Reports keep the category each sale was made under.
+  spell; a rename moves the products on both; the same name created offline
+  on both, in different case, ends as one category with the products of
+  both under it; a category a product uses cannot be deleted; and Reports
+  keep the category each sale was made under.
 
 When they pass, repeat steps 1–9 on production, then run **Offline Relaunch
 Right After Signing In** on installed production PWAs as well.
@@ -385,8 +395,9 @@ Right After Signing In** on installed production PWAs as well.
   deletes a category the other has just filed a product under, the change
   that reaches the server second is dropped at the next sync instead of
   holding back that device's uploads. So is a later rename of a category
-  whose create was dropped. A dropped rename still moves its products to the
-  name.
+  whose create was dropped. A dropped create or rename still files its
+  products under the name, spelled as the puesto's category when it has
+  one.
 - The app now addresses users as vos on every screen (before, only the
   sign-in screens and the More tab did), and Settings calls a tenant a
   "puesto", as the More tab already did. A tenant created on a first sign-in

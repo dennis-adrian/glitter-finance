@@ -726,6 +726,13 @@ below:
     time file 11 never keeps an older edit over, so it reaches a product last
     edited by a device whose clock ran ahead, and a category cannot move to
     another tenant. Every environment, after files 7 and 11.
+13. [`20260930130000_products_use_category_spelling.sql`](supabase/manual/20260930130000_products_use_category_spelling.sql):
+    a product whose category matches one of its tenant's categories ignoring
+    case is stored with that category's spelling, so the rename and delete
+    triggers, which match the exact spelling, find it. Covers products that
+    arrive after the uploader dropped their category's create or rename, and
+    respells the products already stored otherwise. Every environment, after
+    files 11 and 12.
 
 To check an environment, run in its SQL editor:
 
@@ -782,7 +789,13 @@ SELECT
   coalesce(pg_get_functiondef(
       to_regprocedure('public.sync_category_name_to_products()')
     ) LIKE '%greatest(clock_timestamp(), updated_at)%', false)
-    AS "20260930120000";
+    AS "20260930120000",
+  (SELECT count(*) = 2 FROM pg_trigger
+    WHERE (tgrelid = 'public.products'::regclass
+        AND tgname = 'products_use_category_spelling')
+      OR (tgrelid = 'public.categories'::regclass
+        AND tgname = 'categories_use_spelling_on_products'))
+    AS "20260930130000";
 ```
 
 Confirm the publication with the queries under [PowerSync setup](#powersync-setup).
