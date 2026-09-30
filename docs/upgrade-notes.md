@@ -11,15 +11,16 @@ README and empty this file for the release after.
 
 ## What changes for operators
 
-| Area                  | Change                                                                                                                                                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App environment       | The server now checks at startup that the required variables, `INVITATION_SECRET_KEY` included, are set. Browser Sentry reports only from Vercel production and preview deployments.        |
-| Database schema       | Three Drizzle migrations: stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times. |
-| Hand-written SQL      | Three new `supabase/manual/` files: upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, and per-field last-write-wins product edits.       |
-| PowerSync             | The sync streams also require a `tenant_users` membership, so they must be redeployed.                                                                                                      |
-| Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                         |
-| Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                            |
-| Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                 |
+| Area                  | Change                                                                                                                                                                                                                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| App environment       | The server now checks at startup that the required variables, `INVITATION_SECRET_KEY` included, are set. Browser Sentry reports only from Vercel production and preview deployments.                                                                                                                                                 |
+| Product categories    | Each puesto now keeps its own categories (a new `categories` table), and a product must be filed under one of them. A puesto's existing product categories become its categories the first time it opens the app.                                                                                                                    |
+| Database schema       | Two Drizzle migrations: the `categories` table, then stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times.                                                                                                               |
+| Hand-written SQL      | Seven new `supabase/manual/` files: categories RLS, category rename and delete triggers, categories in the PowerSync publication, upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, per-field last-write-wins product edits, and category renames that win over those edit times. |
+| PowerSync             | The sync streams add `categories` and also require a `tenant_users` membership, so they must be redeployed once `categories` is published.                                                                                                                                                                                           |
+| Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                  |
+| Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                     |
+| Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                          |
 
 ## Once, before the first environment
 
@@ -84,13 +85,13 @@ staging, Production for production, and Development too if anyone runs
    with the value `1` for this environment, unless it is already there. Leave
    the Install Command at its default. Keep the Build Command at the default
    `pnpm build`, whose `prebuild` step copies the PowerSync assets that the
-   service worker precaches. After the deploy in step 4, open the deployment's
+   service worker precaches. After the deploy in step 5, open the deployment's
    build logs and check that the install step reports pnpm 11.21.0.
 
 ### 2. Database pre-checks
 
-The first migration adds its constraints without `NOT VALID`, so `db:push`
-fails on any row that breaks them. In the project's SQL editor, run:
+The schema migration of step 3 adds its constraints without `NOT VALID`, so
+`db:push` fails on any row that breaks them. In the project's SQL editor, run:
 
 ```sql
 SELECT
@@ -129,60 +130,86 @@ WHERE char_length(name) > 120 OR char_length(category) > 60;
 Any other non-zero count means bad data in a financial or stock record: stop
 and investigate before pushing.
 
-### 3. PowerSync Sync Streams
+### 3. Migrations, then the category SQL
+
+1. Link the project and run `pnpm db:push`. It applies:
+   - `supabase/migrations/20260814135608_glorious_agent_zero.sql`: the
+     `categories` table, one row per category of each puesto, with names of
+     1 to 40 characters that are unique ignoring case.
+   - `supabase/migrations/20260930035820_schema_integrity_and_product_field_times.sql`:
+     `CHECK` constraints for blank names, sale line totals and the stock
+     movement sign rules (an `initial` count may now be 0), product names up
+     to 120 characters and categories up to 60, `NOT NULL` on
+     `sale_lines.product_id`, index changes (3 dropped, 6 created) and
+     `products.field_updated_at`, the per-column edit times that file 3 of
+     step 6 keeps. Existing products start with none, and devices ignore the
+     column, so it needs no PowerSync change. Index creation is not
+     concurrent; that is fine at current table sizes.
+
+   An environment that already runs a `develop` build with categories has
+   the first one, and `db:push` applies only the second.
+
+2. Right after, run these files in the project's SQL editor, in this order.
+   They only touch the new table, which the old app never reads. Each one is
+   idempotent, so an environment that already has them can run them again.
+   1. [`supabase/manual/20260814235900_categories_rls.sql`](../supabase/manual/20260814235900_categories_rls.sql):
+      RLS on `categories` by `tenant_users` membership. **Security-critical:**
+      until it runs, anyone holding the publishable key can read and write
+      every puesto's categories through PostgREST.
+   2. [`supabase/manual/20260814235910_category_integrity_triggers.sql`](../supabase/manual/20260814235910_category_integrity_triggers.sql):
+      renaming a category renames it on its products (sales keep the category
+      they were sold under), and a category a product still uses cannot be
+      deleted.
+   3. [`supabase/manual/20260814235930_powersync_add_categories_to_publication.sql`](../supabase/manual/20260814235930_powersync_add_categories_to_publication.sql):
+      adds `categories` to the `powersync` publication. Then check that
+      `powersync_role` can read the new table (the query is under
+      [PowerSync setup](../README.md#powersync-setup)); if it returns
+      `false`, run `GRANT SELECT ON public.categories TO powersync_role;`.
+
+### 4. PowerSync Sync Streams
 
 Paste [`powersync/sync-rules.yaml`](../powersync/sync-rules.yaml) into the
 environment's PowerSync Cloud **Sync Streams** editor, then **Validate** and
-**Deploy**. Every stream query now also requires a `tenant_users` membership
-for the signed-in user, not just the active tenant claim, so a removed member
+**Deploy**. The streams now sync `categories`, which is why they wait for
+step 3, and every stream query also requires a `tenant_users` membership for
+the signed-in user, not just the active tenant claim, so a removed member
 stops syncing at once.
 
 - Confirm that `tenant_users` is in the `powersync` publication (the query is
   under [PowerSync setup](../README.md#powersync-setup)). It already had to be.
 - If **Validate** rejects the membership subquery (`AND … IN (SELECT …)`),
   the streams already deployed stay in place. Fix the file and validate again
-  before going on to step 4. The syntax follows the PowerSync Sync Streams
+  before going on to step 5. The syntax follows the PowerSync Sync Streams
   documentation but has not been through PowerSync Cloud's validator yet.
 
-Deploy the streams before (or together with) the app in step 4. The old app
-keeps working with them.
+Deploy the streams before (or together with) the app in step 5. The old app
+keeps working with them: it has no `categories` table, and ignores the rows.
 
-### 4. Migrations, then the app right away
+### 5. The app, right away
 
-1. Link the project and run `pnpm db:push`. It applies:
-   - `supabase/migrations/20260927013110_schema_integrity_checks_and_fk_indexes.sql`:
-     `CHECK` constraints for blank names, sale line totals and the stock
-     movement sign rules (an `initial` count may now be 0), `NOT NULL` on
-     `sale_lines.product_id`, and index changes (3 dropped, 6 created). Index
-     creation is not concurrent; that is fine at current table sizes.
-   - `supabase/migrations/20260927144544_products_name_category_length_checks.sql`:
-     product names up to 120 characters and categories up to 60.
-   - `supabase/migrations/20260929000106_products_field_updated_at.sql`:
-     `products.field_updated_at`, the per-column edit times that file 3 of
-     step 5 keeps. Existing products start with none. The sync streams send
-     the column and devices ignore it, so it needs no PowerSync change.
-2. Deploy this release's app build immediately after, never before. Vercel
-   deploys on push: every Preview deployment of this release's branch already
-   talks to staging, and a merge into the production branch deploys
-   production. So push the migrations to staging before anyone opens such a
-   preview, and to production before merging.
+Deploy this release's app build right after steps 3 and 4, never before.
+Vercel deploys on push: every Preview deployment of this release's branch
+already talks to staging, and a merge into the production branch deploys
+production. So run steps 3 and 4 on staging before anyone opens such a
+preview, and on production before merging.
 
-   The new app writes an `initial` stock movement of 0 when tracking is
-   switched on with the count left blank, and the old constraint rejects it
-   (`23514`). A device that uploads one before the migration shows a red sync
-   pill, and every later upload from it (sales included), its sign-out and
-   tenant switching wait behind that one. Nothing is lost: once the migration
-   is applied, **Forzar sincronización** in Diagnostics sends it.
+The new app reads `categories` and `products.field_updated_at` when `/`
+loads, so it fails on a database without them. It also writes an `initial`
+stock movement of 0 when tracking is switched on with the count left blank,
+and the old constraint rejects it (`23514`). A device that uploads one before
+the migration shows a red sync pill, and every later upload from it (sales
+included), its sign-out and tenant switching wait behind that one. Nothing is
+lost: once the migration is applied, **Forzar sincronización** in Diagnostics
+sends it.
 
-   The new server actions (checkout now sends a client-generated sale id, and
-   tenant-scoped actions take the tenant id the screen shows) do not match the
-   old app's calls either, and the new app reads `products.field_updated_at`,
-   so its product screens fail on a database without it.
+The new server actions (checkout now sends a client-generated sale id, and
+tenant-scoped actions take the tenant id the screen shows) do not match the
+old app's calls either.
 
-PowerSync applies the new client-side indexes on each device when the app
-starts; nothing else is needed for them.
+PowerSync applies the new client-side tables and indexes on each device when
+the app starts; nothing else is needed for them.
 
-### 5. Hand-written SQL
+### 6. The remaining hand-written SQL
 
 First, once the app is deployed, ask vendors to close their installed app
 completely (swipe it away in the app switcher) and reopen it with a working
@@ -220,15 +247,15 @@ file run on its own can put back what a newer one replaced.
    late offline upload no longer overwrites a newer change to the same field
    and still applies its other changes, and a placeholder tone never replaces
    an uploaded image. It must run after file 1 and after the `db:push` of
-   step 4, which adds the column it keeps. If this environment ever ran an
+   step 3, which adds the column it keeps. If this environment ever ran an
    earlier draft of this file (one that kept or dropped whole edits), run it
-   again; its step 6 marker stays `false` until then.
+   again; its step 7 marker stays `false` until then.
 
 An environment that has not had every older `supabase/manual/` file must run
 those first, in order (see
 [Hand-written SQL](../README.md#hand-written-sql-supabasemanual)).
 
-### 6. Check the database
+### 7. Check the database
 
 In the SQL editor:
 
@@ -248,12 +275,12 @@ In the SQL editor:
    ```
 
 Then, in the dashboard's database settings, look at the connection pooler's
-maximum client connections. Each server instance of the app now opens up to 6
+maximum client connections. Each server instance of the app now opens up to 7
 connections to the transaction pooler instead of 5 (`lib/db/index.ts`), so
-that maximum must stay well above 6 times the number of instances Vercel runs
+that maximum must stay well above 7 times the number of instances Vercel runs
 at once. No change is expected at current traffic.
 
-### 7. Supabase Auth
+### 8. Supabase Auth
 
 In the project's dashboard (all of these are per project; `config.toml` only
 configures the local stack):
@@ -276,7 +303,7 @@ configures the local stack):
    also needs the preview wildcard (see
    [Branch preview URLs](../README.md#branch-preview-urls-vercel)).
 
-### 8. After the deploy
+### 9. After the deploy
 
 1. **Headers:** `curl -I https://<app-url>/` shows
    `X-Content-Type-Options: nosniff`,
@@ -302,7 +329,7 @@ configures the local stack):
 5. **Icons:** glance over the screens. lucide-react moved to 1.x, which may
    redraw some glyphs slightly.
 
-### 9. Acceptance (staging), then production
+### 10. Acceptance (staging), then production
 
 On staging, run on installed iPhone Safari and Android Chrome PWAs:
 
@@ -316,8 +343,13 @@ On staging, run on installed iPhone Safari and Android Chrome PWAs:
   mode relaunch with no online relaunch in between: Sell Mode must open) and
   **Offline Relaunch After An Update**. An installed app must be opened online
   once after the deploy before `/` is cached for offline starts.
+- Categories, on two devices of one puesto: an existing puesto shows its
+  products' categories under **Categorías**; a category created, renamed or
+  deleted on one device shows on the other, online and after an offline
+  spell; a rename moves the products on both; a category a product uses
+  cannot be deleted; and Reports keep the category each sale was made under.
 
-When they pass, repeat steps 1–8 on production, then run **Offline Relaunch
+When they pass, repeat steps 1–9 on production, then run **Offline Relaunch
 Right After Signing In** on installed production PWAs as well.
 
 ## What users may notice
@@ -326,19 +358,26 @@ Right After Signing In** on installed production PWAs as well.
   longer exist, and gets "Identificador de puesto inválido." or Next.js'
   "action not found" until it is reloaded.
 - An installed PWA keeps running the old build until it is closed and
-  reopened online. Until then, after step 5's file 1, a refund it made that
+  reopened online. Until then, after step 6's file 1, a refund it made that
   loses to a void on another device keeps retrying its upload with a generic
   error, and every later upload from that device, sales included, stays
   pending on it behind that refund, with no failure to discard. Reopening the
   app on the new build reverts the refund and sends the rest. A void that
   loses to a refund is reverted at the next sync. Nothing is lost.
 - Signing out now signs out only the current device.
+- **Productos → Categorías → Gestionar** lists the puesto's categories:
+  create, rename, and delete one that no product uses. The editor's category
+  is a list of them, with **Crear categoría** at the end, and a product can
+  no longer be saved without one. On its first load after the deploy, each
+  puesto gets a category for every category its products already use (names
+  over 40 characters excepted). Renaming a category renames it on its
+  products; sales keep the category they were sold under.
 - The app now addresses users as vos on every screen (before, only the
   sign-in screens and the More tab did), and Settings calls a tenant a
   "puesto", as the More tab already did. A tenant created on a first sign-in
   is named "Puesto de <name>"; existing tenants keep their "Cuenta de <name>"
   name. The auth emails already used vos, and their "cuenta" is the user's
-  own account, so this wording change leaves them as they are: step 7's
+  own account, so this wording change leaves them as they are: step 8's
   templates, pasted once, already carry it.
 - Confirming an email address no longer signs in. The link opens the sign-in
   screen with "Tu correo está confirmado", and the user signs in with the
@@ -355,6 +394,12 @@ Right After Signing In** on installed production PWAs as well.
   goes on, less everything sold since.
 
 ## Later
+
+- Once every puesto has opened the app on this release, `/` no longer needs
+  to create categories from the products' ones on each load
+  (`ensureCategoriesForExistingProducts` in `lib/categories/repository.ts`).
+- `categories_tenant_id_idx` duplicates the leading column of
+  `categories_tenant_name_unique`; drop it in a later migration.
 
 - **Before 2026-12-31:** check the Supabase API logs for calls to
   `powersync_void_sale` without `voided_at_value`. If there are none, drop the
