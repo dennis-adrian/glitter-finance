@@ -50,13 +50,18 @@ async function assertProductOnDevice(
   db: Pick<Transaction, "getOptional">,
   input: { tenantId: string; productId: string }
 ) {
-  const row = await db.getOptional<{ id: string }>(
-    `SELECT id FROM products WHERE id = ? AND tenant_id = ?`,
+  const row = await db.getOptional<{ id: string; category: string }>(
+    `SELECT id, category FROM products WHERE id = ? AND tenant_id = ?`,
     [input.productId, input.tenantId]
   );
   if (!row) {
     throw new Error(PRODUCT_NOT_ON_DEVICE_MESSAGE);
   }
+  return row;
+}
+
+function hasSynced(db: Pick<AbstractPowerSyncDatabase, "currentStatus">) {
+  return db.currentStatus?.hasSynced ?? false;
 }
 
 /**
@@ -101,11 +106,11 @@ export async function createProductLocal(
   );
   const now = nowIso();
   await db.writeTransaction(async (tx) => {
-    const category = await resolveCategoryNameLocal(
-      tx,
-      input.tenantId,
-      product.category
-    );
+    const category = await resolveCategoryNameLocal(tx, {
+      tenantId: input.tenantId,
+      name: product.category,
+      hasSynced: hasSynced(db),
+    });
     input.assertCurrent?.();
     await tx.execute(
       `INSERT INTO products
@@ -194,12 +199,17 @@ export async function updateProductLocal(
   );
 
   await db.writeTransaction(async (tx) => {
-    await assertProductOnDevice(tx, input);
-    const category = await resolveCategoryNameLocal(
-      tx,
-      input.tenantId,
-      product.category
-    );
+    const current = await assertProductOnDevice(tx, input);
+    // A category the edit leaves as it was is kept, even when the tenant has
+    // no such category (any more): the editor lists it for this product.
+    const category =
+      product.category === current.category
+        ? current.category
+        : await resolveCategoryNameLocal(tx, {
+            tenantId: input.tenantId,
+            name: product.category,
+            hasSynced: hasSynced(db),
+          });
     input.assertCurrent?.();
     await tx.execute(
       `UPDATE products SET category = ?, ${assignments.join(", ")}

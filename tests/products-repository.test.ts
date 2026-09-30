@@ -26,6 +26,9 @@ type Write = {
 const writes: Write[] = [];
 let transactions = 0;
 let failMovementInsert = false;
+// The stored product's category, and the tenant's categories.
+let storedCategory = "Prints";
+let tenantCategories = ["Prints"];
 
 function tableName(table: unknown): Write["table"] {
   return (table as Record<symbol, string>)[Symbol.for("drizzle:Name")] ===
@@ -77,10 +80,17 @@ function returningRow(table: Write["table"], values: Record<string, unknown>) {
 
 function fakeDatabase(log: Write[]) {
   return {
-    // The tenant's category lookup (resolveCategoryNameForTenant).
+    // The stored product's category, and the tenant's category lookup
+    // (resolveCategoryNameForTenant), which ignores case.
     select: () => ({
-      from: () => ({
-        where: () => ({ limit: async () => [{ name: "Prints" }] }),
+      from: (table: unknown) => ({
+        where: () => ({
+          limit: async () =>
+            (table as Record<symbol, string>)[Symbol.for("drizzle:Name")] ===
+            "categories"
+              ? tenantCategories.slice(0, 1).map((name) => ({ name }))
+              : [{ category: storedCategory }],
+        }),
       }),
     }),
     insert: (table: unknown) => ({
@@ -115,6 +125,8 @@ function reset() {
   writes.length = 0;
   transactions = 0;
   failMovementInsert = false;
+  storedCategory = "Prints";
+  tenantCategories = ["Prints"];
 }
 
 async function repository() {
@@ -270,5 +282,34 @@ test("an invalid count is refused before anything is written", async () => {
     );
   }
   assert.equal(transactions, 0);
+  assert.deepEqual(writes, []);
+});
+
+test("an edit keeps a category the tenant no longer has", async () => {
+  const { updateProductForTenant } = await repository();
+  reset();
+  storedCategory = "Retirada";
+  tenantCategories = [];
+
+  await updateProductForTenant(TENANT_ID, PRODUCT_ID, {
+    ...trackedProduct,
+    category: "Retirada",
+  });
+
+  assert.equal(writes[0]?.values.category, "Retirada");
+});
+
+test("an edit cannot move a product to a category the tenant does not have", async () => {
+  const { updateProductForTenant } = await repository();
+  reset();
+  tenantCategories = [];
+
+  await assert.rejects(
+    updateProductForTenant(TENANT_ID, PRODUCT_ID, {
+      ...trackedProduct,
+      category: "Otra",
+    }),
+    { name: "UserFacingError", message: "Elegí una categoría válida." }
+  );
   assert.deepEqual(writes, []);
 });

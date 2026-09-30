@@ -9,11 +9,13 @@ import {
   validateCategoryName,
 } from "@/lib/categories/validation";
 import {
+  CATEGORY_NOT_ON_DEVICE_MESSAGE,
   createCategoryLocal,
   deleteCategoryLocal,
   renameCategoryLocal,
   resolveCategoryNameLocal,
 } from "@/lib/powersync/write-categories";
+import { updateProductLocal } from "@/lib/powersync/write-products";
 
 const categoryRow = {
   id: "category-1",
@@ -112,18 +114,95 @@ test("a product takes the tenant's spelling of its category", async () => {
   };
 
   assert.equal(
-    await resolveCategoryNameLocal(found, "tenant-1", "  stickers "),
+    await resolveCategoryNameLocal(found, {
+      tenantId: "tenant-1",
+      name: "  stickers ",
+      hasSynced: true,
+    }),
     "Stickers"
   );
   assert.deepEqual(lookups, [["tenant-1", "stickers"]]);
   await assert.rejects(
     resolveCategoryNameLocal(
       { getOptional: async () => null },
-      "tenant-1",
-      "Otra"
+      { tenantId: "tenant-1", name: "Otra", hasSynced: true }
     ),
     /Elegí una categoría válida/
   );
+});
+
+test("before the first sync a missing category may still be on its way", async () => {
+  await assert.rejects(
+    resolveCategoryNameLocal(
+      { getOptional: async () => null },
+      { tenantId: "tenant-1", name: "Stickers", hasSynced: false }
+    ),
+    (error: unknown) =>
+      error instanceof UserFacingError &&
+      error.message === CATEGORY_NOT_ON_DEVICE_MESSAGE
+  );
+});
+
+function productEditDb(input: { storedCategory: string; synced: boolean }) {
+  const updates: unknown[][] = [];
+  const db = {
+    currentStatus: { hasSynced: input.synced },
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        // The product is on the device; the tenant has no categories.
+        getOptional: async (sql: string) =>
+          /FROM products/.test(sql)
+            ? { id: "product-1", category: input.storedCategory }
+            : null,
+        execute: async (_sql: string, parameters?: unknown[]) => {
+          updates.push(parameters ?? []);
+          return {} as never;
+        },
+      } as unknown as Transaction),
+  } as unknown as AbstractPowerSyncDatabase;
+  return { db, updates };
+}
+
+const editedProduct = {
+  name: "Sticker",
+  priceCents: 1500,
+  costCents: null,
+  imageTone: "violet" as const,
+};
+
+test("a product edit keeps a category the tenant no longer has", async () => {
+  const { db, updates } = productEditDb({
+    storedCategory: "Retirada",
+    synced: true,
+  });
+
+  await updateProductLocal(db, {
+    tenantId: "tenant-1",
+    productId: "product-1",
+    product: { ...editedProduct, category: "Retirada" },
+  });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0][0], "Retirada");
+});
+
+test("a product edit cannot move it to a category the tenant does not have", async () => {
+  for (const synced of [true, false]) {
+    const { db, updates } = productEditDb({
+      storedCategory: "Stickers",
+      synced,
+    });
+
+    await assert.rejects(
+      updateProductLocal(db, {
+        tenantId: "tenant-1",
+        productId: "product-1",
+        product: { ...editedProduct, category: "Otra" },
+      }),
+      synced ? /Elegí una categoría válida/ : /todavía se están sincronizando/
+    );
+    assert.equal(updates.length, 0);
+  }
 });
 
 test("renaming a category updates the category and its products together", async () => {

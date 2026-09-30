@@ -21,6 +21,14 @@ import type { Category } from "@/lib/types";
 const CATEGORY_NOT_FOUND_MESSAGE = "No se encontró la categoría.";
 const DUPLICATE_CATEGORY_MESSAGE = "Ya existe una categoría con ese nombre.";
 
+/**
+ * Before the first sync completes, the local store holds only this device's
+ * own categories, so one listed from the server-rendered catalog may not be
+ * there yet (like PRODUCT_NOT_ON_DEVICE_MESSAGE for products).
+ */
+export const CATEGORY_NOT_ON_DEVICE_MESSAGE =
+  "Las categorías todavía se están sincronizando en este dispositivo. Intentalo de nuevo en un momento.";
+
 async function findDuplicate(
   tx: Pick<Transaction, "getOptional">,
   tenantId: string,
@@ -54,22 +62,26 @@ async function findCategory(
 /**
  * The tenant's category matching `inputName` (ignoring case), as the tenant
  * spelled it: the local counterpart of resolveCategoryNameForTenant, for the
- * product writers' transactions.
+ * product writers' transactions. `hasSynced` is whether the device has
+ * completed its first sync, and so holds every category.
  */
 export async function resolveCategoryNameLocal(
   tx: Pick<Transaction, "getOptional">,
-  tenantId: string,
-  inputName: string
+  input: { tenantId: string; name: string; hasSynced: boolean }
 ) {
-  const name = validateCategoryName(inputName);
+  const name = validateCategoryName(input.name);
   const row = await tx.getOptional<{ name: string }>(
     `SELECT name FROM categories
      WHERE tenant_id = ? AND lower(name) = lower(?)
      LIMIT 1`,
-    [tenantId, name]
+    [input.tenantId, name]
   );
   if (!row) {
-    throw new UserFacingError("Elegí una categoría válida.");
+    throw new UserFacingError(
+      input.hasSynced
+        ? "Elegí una categoría válida."
+        : CATEGORY_NOT_ON_DEVICE_MESSAGE
+    );
   }
   return row.name;
 }

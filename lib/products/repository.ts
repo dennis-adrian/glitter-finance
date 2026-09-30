@@ -201,11 +201,18 @@ export async function updateProductForTenant(
   }
 
   return db.transaction(async (tx) => {
-    const category = await resolveCategoryNameForTenant(
-      tenantId,
-      input.category,
-      tx
-    );
+    // Like updateProductLocal, a category the edit leaves as it was is kept,
+    // even when the tenant has no such category (any more): the editor lists
+    // it for this product.
+    const [current] = await tx
+      .select({ category: products.category })
+      .from(products)
+      .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))
+      .limit(1);
+    const category =
+      current?.category === input.category
+        ? current.category
+        : await resolveCategoryNameForTenant(tenantId, input.category, tx);
     const [product] = await tx
       .update(products)
       .set({ ...updates, category })
