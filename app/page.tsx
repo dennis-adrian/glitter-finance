@@ -29,23 +29,24 @@ async function loadTenantData(tenantId: string) {
   const recentHistoryStart = new Date(
     Date.now() - RECENT_HISTORY_DAYS * DAY_MS
   );
-  // Tenants whose products predate categories get them from their catalog
-  // before categories and products are read together.
-  await ensureCategoriesForExistingProducts(tenantId);
-
   // Seven reads run at once, each on its own pooled connection; lib/db sizes
   // the pool for them, so keep its count in step when adding one.
   const members = getTenantMembersForTenant(tenantId);
+  // Tenants whose products predate categories get them from their catalog
+  // first. One read follows the other, so together they hold one connection.
+  const categories = ensureCategoriesForExistingProducts(tenantId).then(() =>
+    getCategoriesForTenant(tenantId)
+  );
 
   const [
-    categories,
+    tenantCategories,
     products,
     sales,
     tenantMembers,
     inventory,
     activeInvitation,
   ] = await Promise.all([
-    getCategoriesForTenant(tenantId),
+    categories,
     getProductsForTenant(tenantId),
     // With PowerSync the device's local store holds the whole history once
     // its first sync completes; these rows only paint the screens until
@@ -61,7 +62,7 @@ async function loadTenantData(tenantId: string) {
   ]);
 
   return {
-    categories,
+    categories: tenantCategories,
     products,
     sales,
     tenantMembers,

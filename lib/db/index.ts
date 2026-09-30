@@ -18,10 +18,10 @@ const globalForDb = globalThis as unknown as {
 // the transaction pooler multiplexes them onto the database. Seven covers the
 // reads '/' starts at once (loadTenantData in app/page.tsx): categories,
 // members, products, the sales history transaction, opening stock, recent
-// movements and the invitation. Without prepared statements postgres.js cannot pipeline
-// a query that has parameters, so each of them holds a connection of its own
-// and a smaller pool makes the rest wait. Idle connections close after 20 s
-// instead of being held for the instance's lifetime.
+// movements and the invitation. Without prepared statements postgres.js cannot
+// pipeline a query that has parameters, so each of them holds a connection of
+// its own and a smaller pool makes the rest wait. Idle connections close after
+// 20 s instead of being held for the instance's lifetime.
 // The global cache avoids opening new clients on every Next.js dev hot reload.
 export const client =
   globalForDb.glitterPostgres ??

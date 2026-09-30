@@ -1,18 +1,13 @@
 // No `import "server-only"` here: lib/products/repository.ts imports this
 // module, and scripts/seed-qa.ts imports that one under plain tsx, where the
 // marker throws (tests/server-only-marker.test.ts).
-import { and, asc, count, eq, sql } from "drizzle-orm";
+import { and, asc, count, eq, notExists, sql } from "drizzle-orm";
 import { UserFacingError } from "@/lib/action-result";
 import { db } from "@/lib/db";
 import { categories, products } from "@/lib/db/schema";
 import { postgresErrorCode } from "@/lib/db/errors";
-import {
-  categoryNameMaxLength,
-  normalizeCategoryName,
-  validateCategoryName,
-} from "@/lib/categories/validation";
+import { validateCategoryName } from "@/lib/categories/validation";
 import type { Category } from "@/lib/types";
-import { characterCount } from "@/lib/validation";
 
 const CATEGORY_NOT_FOUND_MESSAGE = "No se encontró la categoría.";
 
@@ -48,34 +43,51 @@ export async function getCategoriesForTenant(
 }
 
 /**
- * One-time compatibility bridge for tenants that already had products before
- * categories became first-class records. It creates categories only from the
- * tenant's own catalog; new/empty tenants still start with no defaults.
+ * Compatibility bridge for tenants whose products predate categories: every
+ * category name their products use becomes one of their categories. It
+ * creates categories only from the tenant's own catalog; new or empty tenants
+ * still start with none. It reads only the names no category has yet, so once
+ * a tenant has them a page load writes nothing.
  */
 export async function ensureCategoriesForExistingProducts(tenantId: string) {
   const rows = await db
     .selectDistinct({ name: products.category })
     .from(products)
-    .where(eq(products.tenantId, tenantId));
+    .where(
+      and(
+        eq(products.tenantId, tenantId),
+        notExists(
+          db
+            .select({ id: categories.id })
+            .from(categories)
+            .where(
+              and(
+                eq(categories.tenantId, tenantId),
+                sql`lower(${categories.name}) = lower(${products.category})`
+              )
+            )
+        )
+      )
+    );
   const names = new Map<string, string>();
 
   for (const row of rows) {
-    const name = normalizeCategoryName(row.name);
-    if (!name || characterCount(name) > categoryNameMaxLength) continue;
-    if (!names.has(name.toLocaleLowerCase("es"))) {
-      names.set(name.toLocaleLowerCase("es"), name);
+    let name: string;
+    try {
+      name = validateCategoryName(row.name);
+    } catch {
+      // Blank, too long for a category, or the rails' "Todos": the products
+      // keep the name, and their editor asks for a category on a change.
+      continue;
     }
+    const key = name.toLocaleLowerCase("es");
+    if (!names.has(key)) names.set(key, name);
   }
 
   if (names.size > 0) {
     await db
       .insert(categories)
-      .values(
-        [...names.values()].map((name) => ({
-          tenantId,
-          name,
-        }))
-      )
+      .values([...names.values()].map((name) => ({ tenantId, name })))
       .onConflictDoNothing();
   }
 }

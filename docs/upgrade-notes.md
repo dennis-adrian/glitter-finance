@@ -409,7 +409,7 @@ Right After Signing In** on installed production PWAs as well.
 ## Later
 
 - Once every puesto has opened the app on this release, `/` no longer needs
-  to create categories from the products' ones on each load
+  to look for product categories that have no category on each load
   (`ensureCategoriesForExistingProducts` in `lib/categories/repository.ts`).
 - `categories_tenant_id_idx` duplicates the leading column of
   `categories_tenant_name_unique`; drop it in a later migration.
