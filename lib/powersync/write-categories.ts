@@ -44,9 +44,18 @@ async function findDuplicate(
   );
 }
 
+function hasSynced(db: Pick<AbstractPowerSyncDatabase, "currentStatus">) {
+  return db.currentStatus?.hasSynced ?? false;
+}
+
+/**
+ * The category being renamed or deleted. `hasSynced` is whether the device
+ * has completed its first sync: before it, a category listed from the
+ * server-rendered catalog may simply not be on this device yet.
+ */
 async function findCategory(
   tx: Pick<Transaction, "getOptional">,
-  input: { tenantId: string; categoryId: string }
+  input: { tenantId: string; categoryId: string; hasSynced: boolean }
 ) {
   const row = await tx.getOptional<LocalCategoryRow>(
     `SELECT id, tenant_id, name, created_at, updated_at
@@ -54,7 +63,11 @@ async function findCategory(
     [input.categoryId, input.tenantId]
   );
   if (!row) {
-    throw new UserFacingError(CATEGORY_NOT_FOUND_MESSAGE);
+    throw new UserFacingError(
+      input.hasSynced
+        ? CATEGORY_NOT_FOUND_MESSAGE
+        : CATEGORY_NOT_ON_DEVICE_MESSAGE
+    );
   }
   return row;
 }
@@ -139,7 +152,11 @@ export async function renameCategoryLocal(
   const name = validateCategoryName(input.name);
 
   return db.writeTransaction(async (tx) => {
-    const current = await findCategory(tx, input);
+    const current = await findCategory(tx, {
+      tenantId: input.tenantId,
+      categoryId: input.categoryId,
+      hasSynced: hasSynced(db),
+    });
     if (await findDuplicate(tx, input.tenantId, name, input.categoryId)) {
       throw new UserFacingError(DUPLICATE_CATEGORY_MESSAGE);
     }
@@ -170,7 +187,11 @@ export async function deleteCategoryLocal(
   }
 ): Promise<void> {
   await db.writeTransaction(async (tx) => {
-    const category = await findCategory(tx, input);
+    const category = await findCategory(tx, {
+      tenantId: input.tenantId,
+      categoryId: input.categoryId,
+      hasSynced: hasSynced(db),
+    });
 
     const usedBy = await tx.getOptional<{ id: string }>(
       `SELECT id FROM products

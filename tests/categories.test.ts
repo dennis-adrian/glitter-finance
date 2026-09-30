@@ -254,3 +254,43 @@ test("does not delete a category used by any product", async () => {
   );
   assert.equal(writes, 0);
 });
+
+test("renaming or deleting a category missing from the device says whether it is still syncing", async () => {
+  for (const synced of [true, false]) {
+    let writes = 0;
+    const db = {
+      currentStatus: { hasSynced: synced },
+      writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+        callback({
+          getOptional: async () => null,
+          execute: async () => {
+            writes += 1;
+            return {} as never;
+          },
+        } as unknown as Transaction),
+    } as unknown as AbstractPowerSyncDatabase;
+    const expected = (error: unknown) =>
+      error instanceof UserFacingError &&
+      error.message ===
+        (synced
+          ? "No se encontró la categoría."
+          : CATEGORY_NOT_ON_DEVICE_MESSAGE);
+
+    await assert.rejects(
+      renameCategoryLocal(db, {
+        tenantId: "tenant-1",
+        categoryId: "category-1",
+        name: "Pegatinas",
+      }),
+      expected
+    );
+    await assert.rejects(
+      deleteCategoryLocal(db, {
+        tenantId: "tenant-1",
+        categoryId: "category-1",
+      }),
+      expected
+    );
+    assert.equal(writes, 0);
+  }
+});
