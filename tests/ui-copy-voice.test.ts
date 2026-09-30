@@ -38,12 +38,12 @@ const tuWords =
 // Imperatives with a pronoun attached keep the tú stress mark ("Inténtalo");
 // the vos forms have none ("Intentalo", "Conectate").
 const tuImperativesWithPronoun =
-  /(?<!\p{L})(?:[Ii]nténtalo|[Cc]ópialo|[Dd]escárgalo|[Cc]onéctate|[Cc]ompártelo|[Dd]éjalo|[Ee]scríbelas?|[Rr]esuélvelas?|[Dd]escártalas?|Únete|[Aa]segúrate|Mantén)(?!\p{L})/u;
+  /(?<!\p{L})(?:[Ii]nténtalo|[Cc]ópialo|[Dd]escárgalo|[Cc]onéctate|[Cc]ompártelo|[Dd]éjalo|[Ee]scríbelas?|[Rr]esuélvelas?|[Dd]escártalas?|[Úú]sal[ao]s?|Únete|[Aa]segúrate|Mantén)(?!\p{L})/u;
 
 // A tú imperative that opens a sentence ("Revisa la conexión"). In the middle
 // of one the same words are usually third person ("la subida se reintenta").
 const tuImperativeOpeningSentence =
-  /(?:^\s*|["'`>]|[.!?:]\s)(?:Abre|Activa|Agrega|Busca|Cierra|Comparte|Confirma|Configura|Consulta|Crea|Descarga|Edita|Elige|Escribe|Espera|Fuerza|Guarda|Ingresa|Inicia|Intenta|Pide|Prueba|Recarga|Reintenta|Revisa|Selecciona|Toca|Usa|Verifica|Vuelve)(?:\s+\p{L}|…)/mu;
+  /(?:^\s*|["'`>]|[.!?:]\s)(?:Abre|Activa|Agrega|Busca|Cierra|Comparte|Confirma|Configura|Consulta|Crea|Descarga|Edita|Elige|Escribe|Espera|Fuerza|Guarda|Ingresa|Inicia|Intenta|Mueve|Ordena|Pide|Prueba|Recarga|Reintenta|Revisa|Selecciona|Toca|Usa|Verifica|Vuelve)(?:\s+\p{L}|…)/mu;
 
 test("user-facing copy uses vos, not tú", () => {
   const offending: string[] = [];
@@ -65,9 +65,10 @@ test("user-facing copy uses vos, not tú", () => {
 // "Cuenta" is only the user's sign-in account ("Salí de tu cuenta", "Crear
 // Cuenta"). A user has one of those, and it has no name, so these phrases can
 // only mean the tenant, which is a "puesto" ("Tus puestos", "Crear nuevo
-// puesto", "Nombre del puesto"). Words may wrap across JSX lines.
+// puesto", "Nombre del puesto", "Se requiere un puesto para…"). Words may wrap
+// across JSX lines.
 const tenantAsCuenta =
-  /(?<!\p{L})(?:(?:tus\s+cuentas|nueva\s+cuenta|nombre\s+de\s+la\s+cuenta|identificador\s+de\s+cuenta|cuenta\s+activa|unir(?:te|se|me)?\s+a\s+(?:esta|la|una|tu|mi)\s+cuenta)(?!\p{L})|cuenta\s+de\s+\$\{)/giu;
+  /(?<!\p{L})(?:(?:tus\s+cuentas|nueva\s+cuenta|nombre\s+de\s+la\s+cuenta|identificador\s+de\s+cuenta|cuenta\s+activa|se\s+requiere\s+una\s+cuenta|unir(?:te|se|me)?\s+a\s+(?:esta|la|una|tu|mi)\s+cuenta)(?!\p{L})|cuenta\s+de\s+\$\{)/giu;
 
 test("user-facing copy calls a tenant a puesto, not a cuenta", () => {
   const offending: string[] = [];
