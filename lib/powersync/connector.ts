@@ -11,9 +11,10 @@
 //
 // - uploadData: drains PowerSync's local CRUD queue. Sale, void, and refund
 //   transactions go through authenticated Postgres RPCs so the remote commit is
-//   atomic. Product and inventory transactions are uploaded row by row
-//   through PostgREST, in queue order (a product saved with its initial
-//   stock count is one transaction of two rows).
+//   atomic. Product, category and inventory transactions are uploaded row by
+//   row through PostgREST, in queue order (a product saved with its initial
+//   stock count is one transaction of two rows, a category rename one with
+//   its products).
 //   Permanent errors are copied into a local-only dead-letter table while the
 //   transaction remains queued; all errors are re-thrown for PowerSync backoff.
 //   A transaction the server will never accept is discarded from Diagnostics
@@ -22,7 +23,8 @@
 //   local upload hold (lib/powersync/upload-holds.ts) and retried.
 //   When a void or refund loses a cross-device conflict, the RPC applies
 //   nothing and returns NULL; the local row is then reverted so the device
-//   matches the server.
+//   matches the server. A category write that lost to another device's is
+//   dropped the same way (isLostCategoryConflict).
 
 import {
   type AbstractPowerSyncDatabase,
@@ -183,6 +185,33 @@ function isPrimaryKeyUniqueViolation(
 
   return (
     details.startsWith("Key (id)=") || message.includes(`"${tableName}_pkey"`)
+  );
+}
+
+/**
+ * A category write that lost to another device's. A tenant's category names
+ * are unique (categories_tenant_name_unique), and a category a product uses
+ * cannot be deleted (supabase/manual/20260814235910_category_integrity_triggers.sql),
+ * so two devices offline at once can each make a change that the other's
+ * rules out:
+ * - a new category, or a rename, to a name the tenant has since got (23505);
+ * - deleting a category another device has since filed a product under
+ *   (23503; nothing else references categories).
+ * A retry can never apply it, and recording it as a failure would hold every
+ * later upload, sales included, until someone discards it. It is skipped
+ * instead, like a void that lost to a refund: the next checkpoint gives the
+ * device the server's categories back. The rest of its transaction still
+ * uploads, so a rename's products move to the name the tenant already has.
+ */
+function isLostCategoryConflict(op: CrudEntry, error: unknown): boolean {
+  if (op.table !== "categories") return false;
+  const code = errorCode(error);
+  if (op.op === UpdateType.DELETE) return code === "23503";
+  if (code !== "23505" || !error || typeof error !== "object") return false;
+  const message = (error as { message?: unknown }).message;
+  return (
+    typeof message === "string" &&
+    message.includes('"categories_tenant_name_unique"')
   );
 }
 
@@ -567,7 +596,10 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
           .update(op.opData ?? {})
           .eq("id", op.id)
           .select("id");
-        if (patch.error) throw patch.error;
+        if (patch.error) {
+          if (this.skipsLostCategoryConflict(op, patch.error)) return;
+          throw patch.error;
+        }
         if (!patch.data?.length) throw new UnappliedUpdateError(op.table);
         return;
       }
@@ -579,8 +611,18 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     }
 
     if (result.error) {
+      if (this.skipsLostCategoryConflict(op, result.error)) return;
       throw result.error;
     }
+  }
+
+  private skipsLostCategoryConflict(op: CrudEntry, error: unknown): boolean {
+    if (!isLostCategoryConflict(op, error)) return false;
+    console.info(
+      "[PowerSync] category change lost to another device's, skipping it",
+      { op: op.op, id: op.id, code: errorCode(error) }
+    );
+    return true;
   }
 
   /**

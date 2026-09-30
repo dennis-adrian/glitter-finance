@@ -758,6 +758,153 @@ test("records a duplicate on any other unique constraint", async () => {
   assert.equal(localWrites[1].params?.[4], "23505");
 });
 
+// Two devices offline at once: another device's change reached the server
+// first and rules this one out for good (isLostCategoryConflict).
+const takenName = {
+  code: "23505",
+  details: "Key (tenant_id, lower(name))=(tenant-1, stickers) already exists.",
+  message:
+    'duplicate key value violates unique constraint "categories_tenant_name_unique"',
+};
+
+test("skips a new category whose name another device took first", async () => {
+  const events: string[] = [];
+  const supabase = {
+    from: () => ({ insert: async () => ({ error: takenName }) }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: [
+      operation({
+        clientId: 13,
+        table: "categories",
+        id: "category-1",
+        op: UpdateType.PUT,
+        data: { tenant_id: "tenant-1", name: "Stickers" },
+      }),
+    ],
+    transactionId: 43,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+  assert.deepEqual(events, ["complete", "resolve-marker"]);
+});
+
+test("skips a rename to a taken name and still moves its products", async () => {
+  const events: string[] = [];
+  const patched: string[] = [];
+  const supabase = {
+    from: (table: string) => ({
+      update: () => ({
+        eq: () => ({
+          select: async () => {
+            patched.push(table);
+            return table === "categories"
+              ? { data: null, error: takenName }
+              : { data: [{ id: "product-1" }], error: null };
+          },
+        }),
+      }),
+    }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: [
+      operation({
+        clientId: 14,
+        table: "categories",
+        id: "category-1",
+        op: UpdateType.PATCH,
+        data: { name: "Stickers", updated_at: "2026-09-30T12:00:00.000Z" },
+      }),
+      operation({
+        clientId: 15,
+        table: "products",
+        id: "product-1",
+        op: UpdateType.PATCH,
+        data: { category: "Stickers", updated_at: "2026-09-30T12:00:00.000Z" },
+      }),
+    ],
+    transactionId: 44,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+  assert.deepEqual(patched, ["categories", "products"]);
+  assert.deepEqual(events, ["complete", "resolve-marker"]);
+});
+
+test("skips deleting a category another device filed a product under", async () => {
+  const events: string[] = [];
+  const inUse = {
+    code: "23503",
+    message: "Category is still used by products",
+  };
+  const supabase = {
+    from: () => ({
+      delete: () => ({ eq: async () => ({ error: inUse }) }),
+    }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: [
+      operation({
+        clientId: 16,
+        table: "categories",
+        id: "category-1",
+        op: UpdateType.DELETE,
+      }),
+    ],
+    transactionId: 45,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+  assert.deepEqual(events, ["complete", "resolve-marker"]);
+});
+
+test("records any other category rejection", async () => {
+  const invalidName = {
+    code: "23514",
+    message:
+      'new row for relation "categories" violates check constraint "categories_name_valid_check"',
+  };
+  for (const error of [invalidName, { ...takenName, code: "23503" }]) {
+    const events: string[] = [];
+    const localWrites: { sql: string; params?: unknown[] }[] = [];
+    const supabase = {
+      auth: sessionAuth({ access_token: "token" }),
+      from: () => ({ insert: async () => ({ error }) }),
+    } as unknown as SupabaseClient;
+    const db = recordingDb({
+      crud: [
+        operation({
+          clientId: 17,
+          table: "categories",
+          id: "category-1",
+          op: UpdateType.PUT,
+          data: { tenant_id: "tenant-1", name: "Stickers" },
+        }),
+      ],
+      transactionId: 46,
+      events,
+      localWrites,
+    });
+
+    await assert.rejects(
+      () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+      (thrown) => thrown === error
+    );
+
+    assert.deepEqual(events, ["record-failure", "record-failure"]);
+    assert.equal(localWrites[1].params?.[4], error.code);
+  }
+});
+
 test("records a financial retry that no longer matches the server", async () => {
   // The RPC raises 23505 when a sale id already belongs to different data.
   const events: string[] = [];
