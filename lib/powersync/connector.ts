@@ -81,7 +81,9 @@ const FINANCIAL_RPC = {
  * A PostgREST UPDATE matched no row: RLS hid it (e.g. the user is no longer a
  * tenant member) or it does not exist. PostgREST reports that as success, so
  * without this the edit would be dropped silently and reverted at the next
- * checkpoint. Carries 42501 so it is classified like other RLS denials.
+ * checkpoint. Carries 42501 so it is classified like other RLS denials. A
+ * category rename that matches no row is skipped instead
+ * (isLostCategoryConflict).
  *
  * A late product edit does not end up here: the last-write-wins trigger
  * keeps the stored value of each column a newer edit changed and applies the
@@ -195,16 +197,27 @@ function isPrimaryKeyUniqueViolation(
  * so two devices offline at once can each make a change that the other's
  * rules out:
  * - a new category, or a rename, to a name the tenant has since got (23505);
+ * - a rename of a category the server does not have: another device deleted
+ *   it, or this device's own create of it was skipped as above. The UPDATE
+ *   then matches no row (UnappliedUpdateError);
  * - deleting a category another device has since filed a product under
  *   (23503; nothing else references categories).
  * A retry can never apply it, and recording it as a failure would hold every
  * later upload, sales included, until someone discards it. It is skipped
  * instead, like a void that lost to a refund: the next checkpoint gives the
  * device the server's categories back. The rest of its transaction still
- * uploads, so a rename's products move to the name the tenant already has.
+ * uploads, so a rename's products move to the name it chose.
+ *
+ * An UPDATE also matches no row when RLS hides it from a user who is no
+ * longer a member of the tenant. Skipping the category change then loses
+ * nothing the user could still make; that user's other uploads are refused
+ * and recorded as usual.
  */
 function isLostCategoryConflict(op: CrudEntry, error: unknown): boolean {
   if (op.table !== "categories") return false;
+  if (error instanceof UnappliedUpdateError) {
+    return op.op === UpdateType.PATCH;
+  }
   const code = errorCode(error);
   if (op.op === UpdateType.DELETE) return code === "23503";
   if (code !== "23505" || !error || typeof error !== "object") return false;
@@ -600,7 +613,11 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
           if (this.skipsLostCategoryConflict(op, patch.error)) return;
           throw patch.error;
         }
-        if (!patch.data?.length) throw new UnappliedUpdateError(op.table);
+        if (!patch.data?.length) {
+          const unapplied = new UnappliedUpdateError(op.table);
+          if (this.skipsLostCategoryConflict(op, unapplied)) return;
+          throw unapplied;
+        }
         return;
       }
       case UpdateType.DELETE:
@@ -620,7 +637,14 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     if (!isLostCategoryConflict(op, error)) return false;
     console.info(
       "[PowerSync] category change lost to another device's, skipping it",
-      { op: op.op, id: op.id, code: errorCode(error) }
+      {
+        op: op.op,
+        id: op.id,
+        code:
+          error instanceof UnappliedUpdateError
+            ? "no matching row"
+            : errorCode(error),
+      }
     );
     return true;
   }

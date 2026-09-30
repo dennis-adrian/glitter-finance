@@ -867,6 +867,109 @@ test("skips deleting a category another device filed a product under", async () 
   assert.deepEqual(events, ["complete", "resolve-marker"]);
 });
 
+/** Supabase whose categories UPDATE matches no row, and every other does. */
+function categoryGoneSupabase(patched: string[]) {
+  return {
+    auth: sessionAuth({ access_token: "token" }),
+    from: (table: string) => ({
+      insert: async () => ({ error: takenName }),
+      update: () => ({
+        eq: () => ({
+          select: async () => {
+            patched.push(table);
+            return {
+              data: table === "categories" ? [] : [{ id: "product-1" }],
+              error: null,
+            };
+          },
+        }),
+      }),
+    }),
+  } as unknown as SupabaseClient;
+}
+
+function renameTransaction(clientId: number) {
+  return [
+    operation({
+      clientId,
+      table: "categories",
+      id: "category-1",
+      op: UpdateType.PATCH,
+      data: { name: "Otros", updated_at: "2026-09-30T12:00:00.000Z" },
+    }),
+    operation({
+      clientId: clientId + 1,
+      table: "products",
+      id: "product-1",
+      op: UpdateType.PATCH,
+      data: { category: "Otros", updated_at: "2026-09-30T12:00:00.000Z" },
+    }),
+  ];
+}
+
+test("skips renaming a category another device deleted", async () => {
+  const events: string[] = [];
+  const patched: string[] = [];
+  const db = recordingDb({
+    crud: renameTransaction(18),
+    transactionId: 47,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(
+    categoryGoneSupabase(patched),
+    "tenant-1"
+  ).uploadData(db);
+
+  assert.deepEqual(patched, ["categories", "products"]);
+  assert.deepEqual(events, ["complete", "resolve-marker"]);
+});
+
+test("skips renaming a category whose create lost to a taken name", async () => {
+  const events: string[] = [];
+  const patched: string[] = [];
+  const connector = new SupabaseConnector(
+    categoryGoneSupabase(patched),
+    "tenant-1"
+  );
+
+  // The create reaches the server second and is skipped...
+  await connector.uploadData(
+    recordingDb({
+      crud: [
+        operation({
+          clientId: 20,
+          table: "categories",
+          id: "category-1",
+          op: UpdateType.PUT,
+          data: { tenant_id: "tenant-1", name: "Stickers" },
+        }),
+      ],
+      transactionId: 48,
+      events,
+      localWrites: [],
+    })
+  );
+  // ...so the rename after it finds no row, and is skipped too.
+  await connector.uploadData(
+    recordingDb({
+      crud: renameTransaction(21),
+      transactionId: 49,
+      events,
+      localWrites: [],
+    })
+  );
+
+  assert.deepEqual(patched, ["categories", "products"]);
+  assert.deepEqual(events, [
+    "complete",
+    "resolve-marker",
+    "complete",
+    "resolve-marker",
+  ]);
+});
+
 test("records any other category rejection", async () => {
   const invalidName = {
     code: "23514",

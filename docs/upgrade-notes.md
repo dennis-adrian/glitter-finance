@@ -381,10 +381,12 @@ Right After Signing In** on installed production PWAs as well.
   over 40 characters excepted). Renaming a category renames it on its
   products; sales keep the category they were sold under.
 - When two devices offline create the same category, rename one to a name
-  the other has just created, or one deletes a category the other has just
-  filed a product under, the change that reaches the server second is
-  dropped at the next sync instead of holding back that device's uploads. A
-  dropped rename still moves its products to the name.
+  the other has just created, rename one the other has just deleted, or one
+  deletes a category the other has just filed a product under, the change
+  that reaches the server second is dropped at the next sync instead of
+  holding back that device's uploads. So is a later rename of a category
+  whose create was dropped. A dropped rename still moves its products to the
+  name.
 - The app now addresses users as vos on every screen (before, only the
   sign-in screens and the More tab did), and Settings calls a tenant a
   "puesto", as the More tab already did. A tenant created on a first sign-in
