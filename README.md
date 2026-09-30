@@ -126,7 +126,15 @@ Notes:
 - The publication is targeted at exactly the seven synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
 - **Existing environments (Stage D):** if `powersync` was created before `tenant_users` was added to the table list above, run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) in the SQL editor after `pnpm db:push`. It is idempotent and skips quietly when the publication is missing (e.g. local `db:reset` before bootstrap).
 - **Existing environments (inventory):** if `powersync` was created before `inventory_movements` was added, run [`supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql`](supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql) after `pnpm db:push`.
-- **Categories (every environment):** after `pnpm db:push` creates the `categories` table, run in order: [`20260814235900_categories_rls.sql`](supabase/manual/20260814235900_categories_rls.sql) (RLS), [`20260814235910_category_integrity_triggers.sql`](supabase/manual/20260814235910_category_integrity_triggers.sql) (rename cascades to products; delete blocked while in use), and [`20260814235930_powersync_add_categories_to_publication.sql`](supabase/manual/20260814235930_powersync_add_categories_to_publication.sql) (only needed if `powersync` predates categories; idempotent). Then redeploy `powersync/sync-rules.yaml`. Apply before deploying the app — the home page reads `categories` on load. Existing products are backfilled into categories automatically on each tenant's first load.
+- **Categories (every environment):** products reference categories by id (`products.category_id`); `products.category` is a name the database keeps in sync for older app versions and sale snapshots. Roll out in this order, and finish steps 1–4 on an environment before deploying app code there (Vercel previews use the shared staging database, and the home page reads `products.category_id` on load):
+  1. Read-only preflight: `supabase migration list` against the target project.
+  2. `pnpm db:push` (creates `categories`, then adds `products.category_id` and its per-puesto foreign key).
+  3. In the SQL editor, in order: [`20260814235900_categories_rls.sql`](supabase/manual/20260814235900_categories_rls.sql) (RLS), [`20260814235910_category_integrity_triggers.sql`](supabase/manual/20260814235910_category_integrity_triggers.sql) (superseded; harmless, the last file below drops its triggers), [`20260814235930_powersync_add_categories_to_publication.sql`](supabase/manual/20260814235930_powersync_add_categories_to_publication.sql) (only needed if `powersync` predates categories; idempotent), then [`20260929030700_product_category_ids.sql`](supabase/manual/20260929030700_product_category_ids.sql). The last one installs the id triggers and grants and links every existing product to a category in one transaction (it creates missing categories; the old fixed-list names Pegatina(s), Lámina(s) and Pins join Stickers, Prints and Pines when the puesto has no category with that exact name). It is idempotent and rolls back if any check fails. While it runs, writes to `products` and `categories` wait; it sets a 5 s `lock_timeout`, so if another session holds those tables it fails and rolls back instead of stalling traffic. Run it off-peak and re-run it if that happens.
+  4. Verify: `SELECT count(*) FROM products WHERE category_id IS NULL;` is `0`; `SELECT tgname FROM pg_trigger WHERE tgname IN ('products_category_resolve_id', 'products_sync_category_name', 'categories_cascade_name_to_products');` returns three rows; `SELECT has_table_privilege('authenticated', 'public.categories', 'INSERT');` is `true`; the retired triggers are gone: `SELECT tgname FROM pg_trigger WHERE tgname IN ('categories_sync_name_to_products', 'categories_prevent_delete_when_used');` returns no rows.
+  5. Redeploy `powersync/sync-rules.yaml` if it doesn't include `categories` yet, then deploy the app.
+
+  After a local `pnpm db:reset`, re-run the manual files (the seed sets category ids itself). The database test [`tests/db/product-category-ids.sql`](tests/db/product-category-ids.sql) runs inside a rolled-back transaction: `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/db/product-category-ids.sql`.
+
 - Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Confirm `inventory_movements` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'inventory_movements';`. Confirm `categories` is published the same way, and that `powersync_role` can read it: `SELECT has_table_privilege('powersync_role', 'public.categories', 'SELECT');` (default privileges only cover tables created by the role that ran `ALTER DEFAULT PRIVILEGES`; if `false`, run `GRANT SELECT ON public.categories TO powersync_role;`). Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
 
 #### Atomic financial uploads
@@ -315,8 +323,8 @@ Drizzle does **not** apply migrations in this project, and does **not** own the 
 - **Migration runner.** `supabase db push` applies the SQL files in `supabase/migrations/` against the linked cloud project, tracked in `supabase_migrations.schema_migrations`. `supabase db reset` rebuilds the local database from migrations + seed.
 - **Local development stack.** `supabase start` boots Postgres, Auth, Storage, and the rest of the stack locally via Docker. The project is initialized via `supabase/config.toml`.
 - **Things Drizzle cannot model.** RLS policies, `auth.users` foreign keys,
-  storage policies, `ALTER PUBLICATION`, triggers, and grants are timestamped
-  hand-written SQL under `supabase/manual/` and run in the SQL editor after
+  storage policies, `ALTER PUBLICATION`, triggers, grants, and one-off data
+  backfills that must run with those triggers are timestamped hand-written SQL under `supabase/manual/` and run in the SQL editor after
   `db:push` (see Hand-written SQL below). Legacy hand-written files still in
   `supabase/migrations/` from before this split are left as-applied history.
 
@@ -340,7 +348,9 @@ Do not run `drizzle-kit migrate`. The Drizzle `__drizzle_migrations` journal is 
 ### Hand-written SQL (`supabase/manual/`)
 
 For anything Drizzle's schema cannot express (RLS, `auth.users` FKs, storage
-policies, `ALTER PUBLICATION`), add a timestamp-prefixed file under
+policies, `ALTER PUBLICATION`, triggers, grants, and idempotent one-off
+backfills that must run in the same transaction as those triggers), add a
+timestamp-prefixed file under
 `supabase/manual/` and run it in the SQL editor after `pnpm db:push`:
 
 ### Runtime data access

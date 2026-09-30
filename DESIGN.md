@@ -354,13 +354,14 @@ date presets, catalog status, and stock corrections.
 
 - Each puesto manages its own categories (the `categories` table); there is
   no fixed list. **Catálogo › Categorías** (`#/catalogo/categorias`) creates,
-  renames (products follow), and deletes empty categories.
+  renames (products follow, since they point to the category by id), and
+  deletes empty categories.
 - Filters show **Todos** plus the categories that have products in the
   current list, and hide when there is only one.
 - The product editor shows the categories as chips plus **Nueva categoría**,
-  which opens the create form and selects the new category. A product's old,
-  unmanaged category still shows as a chip so saving never changes it
-  silently.
+  which opens the create form and selects the new category. If a product's
+  current category hasn't reached this device yet, it still shows as a chip
+  (selected) so saving never changes it silently.
 
 ### Dialogs and confirmation
 
