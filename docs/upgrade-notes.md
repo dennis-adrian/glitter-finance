@@ -19,14 +19,14 @@ README and empty this file for the release after.
 | PowerSync             | The sync streams also require a `tenant_users` membership, so they must be redeployed.                                                                                                      |
 | Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                         |
 | Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                            |
-| Tooling (developers)  | A pnpm catalog and `.pnpmfile.cjs`, Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                     |
+| Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                 |
 
 ## Once, before the first environment
 
 ### Developer machines
 
-1. Pull, then run `pnpm install`. The lockfile changed and now records the
-   checksum of the new `.pnpmfile.cjs`.
+1. Pull, then run `pnpm install`. The lockfile changed, and TypeScript moves
+   from 7.0 back to 6.0 so ESLint can load it.
 2. Install or upgrade the Supabase CLI to **2.115.0 or later**
    (`brew upgrade supabase`). The `pnpm db:*` scripts refuse older or missing
    CLIs.
@@ -79,8 +79,7 @@ staging, Production for production, and Development too if anyone runs
 3. Make the build install with the pnpm that `packageManager` pins
    (`pnpm@11.21.0`), not the pnpm 9 or 10 that Vercel picks from the
    lockfile otherwise: the `catalog:` version of postcss needs pnpm 9.5 or
-   later, and the install must load `.pnpmfile.cjs` for the lockfile checksum
-   to match. Vercel reads `packageManager` only through Corepack, so under
+   later. Vercel reads `packageManager` only through Corepack, so under
    **Settings → Environment Variables** add `ENABLE_EXPERIMENTAL_COREPACK`
    with the value `1` for this environment, unless it is already there. Leave
    the Install Command at its default. Keep the Build Command at the default

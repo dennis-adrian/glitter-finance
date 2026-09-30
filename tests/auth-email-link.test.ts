@@ -120,7 +120,9 @@ test("the email template link reaches the confirm route with its next path", () 
     encodeURIComponent,
     (value: string) => value,
   ]) {
-    const link = new URL(
+    // Annotated: TypeScript 6 cannot infer a type that the strict assert
+    // calls below narrow inside the loop (TS7022).
+    const link: URL = new URL(
       fillTemplate(
         buildEmailLinkTemplate("email"),
         {

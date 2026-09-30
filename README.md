@@ -193,12 +193,11 @@ After relinking, update `.env.local` so `NEXT_PUBLIC_SUPABASE_URL`, the publisha
 
 Vercel installs with the pnpm that `packageManager` pins (`pnpm@11.21.0`)
 only when Corepack is on; otherwise it picks pnpm 9 or 10 from the lockfile.
-Builds should use the pinned version, the one the lockfile and its
-`.pnpmfile.cjs` checksum come from (`catalog:` versions alone need pnpm 9.5
-or later). In the Vercel project, under **Settings → Environment Variables**,
-set `ENABLE_EXPERIMENTAL_COREPACK` to `1` for Production and Preview, and
-leave the Install Command and the Build Command (`pnpm build`) at their
-defaults. A deployment's build logs show which pnpm version installed it.
+Builds should use the pinned version, the one the lockfile comes from
+(`catalog:` versions need pnpm 9.5 or later). In the Vercel project, under
+**Settings → Environment Variables**, set `ENABLE_EXPERIMENTAL_COREPACK` to
+`1` for Production and Preview, and leave the Install Command and the Build
+Command (`pnpm build`) at their defaults. A deployment's build logs show which pnpm version installed it.
 
 ### Auth settings
 
