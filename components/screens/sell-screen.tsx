@@ -20,15 +20,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { TABLET_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
 import { useSearchShortcut } from "@/lib/hooks/use-search-shortcut";
-import { categoriesInUse } from "@/lib/products";
+import {
+  allCategoriesOption,
+  categoriesInUse,
+  productCategoryKey,
+  type CategoryIndex,
+  type CategoryOption,
+} from "@/lib/products";
 import type { Product } from "@/lib/types";
 
 type SellScreenProps = {
   products: Product[];
-  /** The puesto's category names (managed ones first). */
-  categories: string[];
+  /** Category filter options (see categoryOptions). */
+  categories: CategoryOption[];
+  categoryIndex: CategoryIndex;
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
+  /** Id of the selected filter option. */
   category: string;
   query: string;
   setCategory: (value: string) => void;
@@ -57,14 +65,21 @@ export function SellScreen(props: SellScreenProps) {
   );
   // Only categories with something to sell; if the selected one empties
   // (last product archived or category deleted), fall back to all.
-  const categories = categoriesInUse(props.categories, props.products);
-  const activeCategory = categories.includes(props.category)
+  const categories = categoriesInUse(
+    props.categories,
+    props.products,
+    props.categoryIndex
+  );
+  const activeCategory = categories.some(
+    (option) => option.id === props.category
+  )
     ? props.category
-    : "Todos";
+    : allCategoriesOption.id;
   const normalizedQuery = props.query.trim().toLowerCase();
   const filtered = props.products.filter((product) => {
     const matchesCategory =
-      activeCategory === "Todos" || product.category === activeCategory;
+      activeCategory === allCategoriesOption.id ||
+      productCategoryKey(product, props.categoryIndex) === activeCategory;
     const matchesQuery = product.name.toLowerCase().includes(normalizedQuery);
     return matchesCategory && matchesQuery;
   });
@@ -100,7 +115,7 @@ export function SellScreen(props: SellScreenProps) {
             {categories.length > 1 ? (
               <CategoryRail
                 active={activeCategory}
-                categories={["Todos", ...categories]}
+                categories={[allCategoriesOption, ...categories]}
                 setActive={props.setCategory}
               />
             ) : (

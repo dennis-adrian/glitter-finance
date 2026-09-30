@@ -32,6 +32,9 @@ export const products = sqliteTable("products", {
   name: text("name").notNull(),
   priceCents: integer("price_cents").notNull(),
   costCents: integer("cost_cents"),
+  // Source of truth for the category; nullable until the server links rows
+  // written by old clients. `category` is the server-maintained name.
+  categoryId: text("category_id"),
   category: text("category").notNull(),
   imagePath: text("image_path"),
   tracksInventory: integer("tracks_inventory").notNull().default(0),

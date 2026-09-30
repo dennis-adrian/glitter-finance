@@ -411,3 +411,147 @@ test("preserves the upload error when recording the failure also fails", async (
   assert.equal(completeCount, 0);
   assert.equal(recordingAttempts, 1);
 });
+
+function singleOperationDb(
+  operations: CrudEntry[],
+  events: string[]
+): AbstractPowerSyncDatabase {
+  return {
+    ...emptySyncFailureState(),
+    getNextCrudTransaction: async () => ({
+      crud: operations,
+      transactionId: 30,
+      complete: async () => {
+        events.push("complete");
+      },
+    }),
+    execute: async () => {},
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        getOptional: async () => null,
+        execute: async (sql: string) => {
+          if (/INSERT INTO sync_failures/.test(sql)) {
+            events.push("record-failure");
+          }
+          return { rowsAffected: 1 };
+        },
+      } as unknown as Transaction),
+  } as unknown as AbstractPowerSyncDatabase;
+}
+
+function rejectingSupabase(error: { code: string; message: string }) {
+  const result = async () => ({ error });
+  return {
+    from: () => ({
+      insert: result,
+      update: () => ({ eq: result }),
+      delete: () => ({ eq: result }),
+    }),
+  } as unknown as SupabaseClient;
+}
+
+const categoryNameTaken = {
+  code: "23505",
+  message:
+    'duplicate key value violates unique constraint "categories_tenant_name_unique"',
+};
+const categoryStillUsed = {
+  code: "23503",
+  message:
+    'update or delete on table "categories" violates foreign key constraint "products_category_id_tenant_id_categories_id_tenant_id_fk" on table "products"',
+};
+
+test("completes category writes the server rejects so they converge", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const cases = [
+    { op: UpdateType.PUT, error: categoryNameTaken },
+    { op: UpdateType.PATCH, error: categoryNameTaken },
+    { op: UpdateType.DELETE, error: categoryStillUsed },
+  ];
+
+  for (const item of cases) {
+    const events: string[] = [];
+    const db = singleOperationDb(
+      [
+        operation({
+          clientId: 1,
+          table: "categories",
+          id: "category-1",
+          op: item.op,
+          data: { name: "Stickers" },
+        }),
+      ],
+      events
+    );
+
+    await new SupabaseConnector(rejectingSupabase(item.error)).uploadData(db);
+
+    assert.deepEqual(events, ["complete"], `categories ${item.op}`);
+  }
+});
+
+test("keeps other constraint failures fatal and queued", async () => {
+  const cases = [
+    // A product with a taken id is not a catalog-name collision.
+    { table: "products", op: UpdateType.PATCH, error: categoryNameTaken },
+    // Only the products FK makes a category delete converge.
+    {
+      table: "categories",
+      op: UpdateType.DELETE,
+      error: { code: "23503", message: 'violates "other_fk"' },
+    },
+    // Financial tables are never allow-listed.
+    {
+      table: "inventory_movements",
+      op: UpdateType.PUT,
+      error: categoryStillUsed,
+    },
+  ];
+
+  for (const item of cases) {
+    const events: string[] = [];
+    const db = singleOperationDb(
+      [
+        operation({
+          clientId: 1,
+          table: item.table,
+          id: "row-1",
+          op: item.op,
+          data: { name: "x" },
+        }),
+      ],
+      events
+    );
+
+    await assert.rejects(
+      () => new SupabaseConnector(rejectingSupabase(item.error)).uploadData(db),
+      (error) => error === item.error
+    );
+    assert.deepEqual(events, ["record-failure"], `${item.table} ${item.op}`);
+  }
+});
+
+test("records schema mismatches as visible sync failures", async () => {
+  for (const code of ["PGRST204", "42703"]) {
+    const events: string[] = [];
+    const error = { code, message: "column category_id does not exist" };
+    const db = singleOperationDb(
+      [
+        operation({
+          clientId: 1,
+          table: "products",
+          id: "product-1",
+          op: UpdateType.PATCH,
+          data: { category_id: "category-1" },
+        }),
+      ],
+      events
+    );
+
+    await assert.rejects(
+      () => new SupabaseConnector(rejectingSupabase(error)).uploadData(db),
+      (thrown) => thrown === error
+    );
+    assert.deepEqual(events, ["record-failure"], code);
+  }
+});

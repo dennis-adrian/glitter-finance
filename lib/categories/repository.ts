@@ -1,12 +1,8 @@
-import { and, asc, count, eq, sql } from "drizzle-orm";
+import { and, asc, count, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { categories, products } from "@/lib/db/schema";
 import { postgresErrorCode } from "@/lib/db/errors";
-import {
-  categoryNameMaxLength,
-  normalizeCategoryName,
-  validateCategoryName,
-} from "@/lib/categories/validation";
+import { validateCategoryName } from "@/lib/categories/validation";
 import type { Category } from "@/lib/types";
 
 function mapCategory(row: typeof categories.$inferSelect): Category {
@@ -17,6 +13,10 @@ function mapCategory(row: typeof categories.$inferSelect): Category {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+function categoryInUseError() {
+  return new Error("Mové los productos a otra categoría antes de eliminarla.");
 }
 
 function categoryConflictError(error: unknown): never {
@@ -38,46 +38,39 @@ export async function getCategoriesForTenant(
   return rows.map(mapCategory);
 }
 
-/**
- * One-time compatibility bridge for tenants that already had products before
- * categories became first-class records. It creates categories only from the
- * tenant's own catalog; new/empty tenants still start with no defaults.
- */
-export async function ensureCategoriesForExistingProducts(tenantId: string) {
-  const rows = await db
-    .selectDistinct({ name: products.category })
-    .from(products)
-    .where(eq(products.tenantId, tenantId));
-  const names = new Map<string, string>();
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  for (const row of rows) {
-    const name = normalizeCategoryName(row.name);
-    if (!name || name.length > categoryNameMaxLength) continue;
-    if (!names.has(name.toLocaleLowerCase("es"))) {
-      names.set(name.toLocaleLowerCase("es"), name);
-    }
+export async function getCategoryForTenant(
+  tenantId: string,
+  categoryId: string | null | undefined
+) {
+  if (!categoryId || !uuidPattern.test(categoryId)) {
+    throw new Error("Seleccioná una categoría válida.");
+  }
+  const [category] = await db
+    .select({ id: categories.id, name: categories.name })
+    .from(categories)
+    .where(
+      and(eq(categories.tenantId, tenantId), eq(categories.id, categoryId))
+    )
+    .limit(1);
+
+  if (!category) {
+    throw new Error("Seleccioná una categoría válida.");
   }
 
-  if (names.size > 0) {
-    await db
-      .insert(categories)
-      .values(
-        [...names.values()].map((name) => ({
-          tenantId,
-          name,
-        }))
-      )
-      .onConflictDoNothing();
-  }
+  return category;
 }
 
-export async function resolveCategoryNameForTenant(
+/** For payloads from clients that still send the category by name. */
+export async function findCategoryByNameForTenant(
   tenantId: string,
   inputName: string
 ) {
   const name = validateCategoryName(inputName);
   const [category] = await db
-    .select({ name: categories.name })
+    .select({ id: categories.id, name: categories.name })
     .from(categories)
     .where(
       and(
@@ -91,7 +84,7 @@ export async function resolveCategoryNameForTenant(
     throw new Error("Seleccioná una categoría válida.");
   }
 
-  return category.name;
+  return category;
 }
 
 export async function createCategoryForTenant(
@@ -137,22 +130,25 @@ export async function renameCategoryForTenant(
         throw new Error("No se encontró la categoría.");
       }
 
-      const updatedAt = new Date();
       const [category] = await tx
         .update(categories)
-        .set({ name, updatedAt })
+        .set({ name, updatedAt: new Date() })
         .where(
           and(eq(categories.tenantId, tenantId), eq(categories.id, categoryId))
         )
         .returning();
 
+      // The categories_cascade_name_to_products trigger already does this;
+      // kept for databases without the manual SQL. It is a maintenance write,
+      // so updated_at stays as is.
       await tx
         .update(products)
-        .set({ category: name, updatedAt })
+        .set({ category: name })
         .where(
           and(
             eq(products.tenantId, tenantId),
-            eq(products.category, current.name)
+            eq(products.categoryId, categoryId),
+            sql`${products.category} IS DISTINCT FROM ${name}`
           )
         );
 
@@ -184,26 +180,38 @@ export async function deleteCategoryForTenant(
       throw new Error("No se encontró la categoría.");
     }
 
+    // Rows from old clients may not be linked by id yet; match those by name.
     const [usage] = await tx
       .select({ value: count() })
       .from(products)
       .where(
         and(
           eq(products.tenantId, tenantId),
-          eq(products.category, category.name)
+          or(
+            eq(products.categoryId, categoryId),
+            and(
+              isNull(products.categoryId),
+              sql`lower(${products.category}) = lower(${category.name})`
+            )
+          )
         )
       );
 
     if ((usage?.value ?? 0) > 0) {
-      throw new Error(
-        "Mové los productos a otra categoría antes de eliminarla."
-      );
+      throw categoryInUseError();
     }
 
-    await tx
-      .delete(categories)
-      .where(
-        and(eq(categories.tenantId, tenantId), eq(categories.id, categoryId))
-      );
+    try {
+      await tx
+        .delete(categories)
+        .where(
+          and(eq(categories.tenantId, tenantId), eq(categories.id, categoryId))
+        );
+    } catch (error) {
+      if (postgresErrorCode(error) === "23503") {
+        throw categoryInUseError();
+      }
+      throw error;
+    }
   });
 }

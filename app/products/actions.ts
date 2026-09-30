@@ -13,8 +13,8 @@ import {
   restoreProductForTenant,
   updateProductImageForTenant,
   updateProductForTenant,
+  type ProductPayload,
 } from "@/lib/products/repository";
-import type { ProductInput } from "@/lib/types";
 
 const imageExtensionByMimeType: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -31,12 +31,12 @@ async function requireTenantId() {
   return context.tenant.id;
 }
 
-export async function createProduct(input: ProductInput) {
+export async function createProduct(input: ProductPayload) {
   const tenantId = await requireTenantId();
   return createProductForTenant(tenantId, input);
 }
 
-export async function updateProduct(productId: string, input: ProductInput) {
+export async function updateProduct(productId: string, input: ProductPayload) {
   const tenantId = await requireTenantId();
   return updateProductForTenant(tenantId, productId, input);
 }

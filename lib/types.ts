@@ -15,6 +15,11 @@ export type Product = {
   name: string;
   priceCents: number;
   costCents: number | null;
+  /** The product's category (source of truth). Null only for rows written by
+   * old clients that the server hasn't linked yet. */
+  categoryId: string | null;
+  /** Category name kept in sync with categoryId by the server; use it only as
+   * a display fallback when the category isn't available locally. */
   category: string;
   imagePath: string | null;
   imageUrl: string | null;
@@ -30,7 +35,8 @@ export type ProductInput = {
   name: string;
   priceCents: number;
   costCents: number | null;
-  category: string;
+  /** Selected category. On update, null means "leave the category as is". */
+  categoryId: string | null;
   imageTone?: string;
   imagePath?: string | null;
   tracksInventory?: boolean;

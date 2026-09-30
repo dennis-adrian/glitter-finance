@@ -8,10 +8,7 @@ import { getActiveInvitationForTenant } from "@/lib/invitations/repository";
 import { getProductsForTenant } from "@/lib/products/repository";
 import { getSalesForTenant } from "@/lib/sales/repository";
 import { getRequestOrigin } from "@/lib/request-origin";
-import {
-  ensureCategoriesForExistingProducts,
-  getCategoriesForTenant,
-} from "@/lib/categories/repository";
+import { getCategoriesForTenant } from "@/lib/categories/repository";
 
 export default async function Home() {
   const context = await ensureUserTenantContext();
@@ -21,10 +18,6 @@ export default async function Home() {
   }
 
   const inviteOrigin = await getRequestOrigin();
-
-  if (context.tenant) {
-    await ensureCategoriesForExistingProducts(context.tenant.id);
-  }
 
   const [
     initialCategories,

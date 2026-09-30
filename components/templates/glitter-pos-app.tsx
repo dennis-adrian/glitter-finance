@@ -42,6 +42,13 @@ import { MissingRecordScreen } from "@/components/screens/missing-record-screen"
 import { clampDiscount } from "@/lib/money";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
 import {
+  allCategoriesOption,
+  categoryIndex as buildCategoryIndex,
+  categoryLabel,
+  categoryOptions,
+  effectiveCategoryId,
+} from "@/lib/products";
+import {
   buildSalesFromLocal,
   type LocalRefundRow,
   type LocalSaleLineRow,
@@ -126,6 +133,7 @@ type ProductRow = {
   name: string;
   price_cents: number;
   cost_cents: number | null;
+  category_id: string | null;
   category: string;
   image_path: string | null;
   tracks_inventory: number | null;
@@ -161,6 +169,7 @@ function rowToProduct(row: ProductRow): Product {
     name: row.name,
     priceCents: row.price_cents,
     costCents: row.cost_cents,
+    categoryId: row.category_id,
     category: row.category,
     imagePath: row.image_path,
     tracksInventory: row.tracks_inventory,
@@ -236,9 +245,6 @@ export function GlitterPosApp({
   const hydrateProducts = usePosStore((state) => state.hydrateProducts);
   const hydrateSales = usePosStore((state) => state.hydrateSales);
   const upsertProduct = usePosStore((state) => state.upsertProduct);
-  const renameProductCategory = usePosStore(
-    (state) => state.renameProductCategory
-  );
 
   const { route, navigate, back } = useAppRoute();
   const view = route.view;
@@ -247,8 +253,11 @@ export function GlitterPosApp({
   const [categories, setCategories] = useState<Category[]>(initialCategories);
   const [activeInvitationState, setActiveInvitationState] =
     useState(activeInvitation);
-  const [category, setCategory] = useState("Todos");
-  const [catalogCategory, setCatalogCategory] = useState("Todos");
+  // Selected filter option ids (category id, or allCategoriesOption).
+  const [category, setCategory] = useState(allCategoriesOption.id);
+  const [catalogCategory, setCatalogCategory] = useState(
+    allCategoriesOption.id
+  );
   const [query, setQuery] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
@@ -286,13 +295,14 @@ export function GlitterPosApp({
   const cartUpdatedAtRef = useRef<string | null>(null);
 
   const activeProducts = products.filter((product) => !product.archivedAt);
-  const categoryNames = useMemo(() => {
-    const names = categories.map((item) => item.name);
-    for (const product of products) {
-      if (!names.includes(product.category)) names.push(product.category);
-    }
-    return names;
-  }, [categories, products]);
+  const categoryIndex = useMemo(
+    () => buildCategoryIndex(categories),
+    [categories]
+  );
+  const categoryFilterOptions = useMemo(
+    () => categoryOptions(categories, products, categoryIndex),
+    [categories, products, categoryIndex]
+  );
   const cartDetails = useMemo(
     () =>
       cart
@@ -336,13 +346,12 @@ export function GlitterPosApp({
   const editorProductMissing = Boolean(editorProductId && !editingProduct);
   // New products start in the catalog's current filter, else the category
   // of the most recently added product (if it's still a managed category).
-  const newProductCategory =
-    catalogCategory !== "Todos"
-      ? catalogCategory
-      : ([...activeProducts]
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-          .map((product) => product.category)
-          .find((name) => categories.some((item) => item.name === name)) ?? "");
+  const newProductCategoryId = categoryIndex.nameById.has(catalogCategory)
+    ? catalogCategory
+    : ([...activeProducts]
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .map((product) => effectiveCategoryId(product, categoryIndex))
+        .find((id) => id !== null && categoryIndex.nameById.has(id)) ?? "");
 
   // Fall back to server-hydrated members while tenant_users is still
   // replicating — avoids "Vendedor" regressions in reports on upgrade.
@@ -376,8 +385,8 @@ export function GlitterPosApp({
       cancelTenantWork();
       draftCartReadyRef.current = false;
       navigateRef.current({ view: "sell" }, { replace: true });
-      setCategory("Todos");
-      setCatalogCategory("Todos");
+      setCategory(allCategoriesOption.id);
+      setCatalogCategory(allCategoriesOption.id);
       setQuery("");
       setCatalogQuery("");
       setIsCheckingOut(false);
@@ -1007,11 +1016,6 @@ export function GlitterPosApp({
     if (!tenant) {
       throw new Error("Tu puesto aún no está configurado.");
     }
-    const currentCategory = categories.find((item) => item.id === categoryId);
-    if (!currentCategory) {
-      throw new Error("No se encontró la categoría.");
-    }
-
     const work = beginTenantWork();
     const db = powerSyncDb;
     const renamed = db
@@ -1028,11 +1032,6 @@ export function GlitterPosApp({
         current.map((item) => (item.id === categoryId ? renamed : item))
       )
     );
-    renameProductCategory(currentCategory.name, renamed.name);
-    if (category === currentCategory.name) setCategory(renamed.name);
-    if (catalogCategory === currentCategory.name) {
-      setCatalogCategory(renamed.name);
-    }
     showToast("Categoría renombrada", "info");
     return renamed;
   }
@@ -1042,11 +1041,6 @@ export function GlitterPosApp({
     if (!tenant) {
       throw new Error("Tu puesto aún no está configurado.");
     }
-    const currentCategory = categories.find((item) => item.id === categoryId);
-    if (!currentCategory) {
-      throw new Error("No se encontró la categoría.");
-    }
-
     const work = beginTenantWork();
     const db = powerSyncDb;
     if (db) {
@@ -1062,8 +1056,10 @@ export function GlitterPosApp({
     setCategories((current) =>
       current.filter((item) => item.id !== categoryId)
     );
-    if (category === currentCategory.name) setCategory("Todos");
-    if (catalogCategory === currentCategory.name) setCatalogCategory("Todos");
+    if (category === categoryId) setCategory(allCategoriesOption.id);
+    if (catalogCategory === categoryId) {
+      setCatalogCategory(allCategoriesOption.id);
+    }
     showToast("Categoría eliminada", "info");
   }
 
@@ -1071,7 +1067,7 @@ export function GlitterPosApp({
     name: string;
     priceCents: number;
     costCents: number | null;
-    category: string;
+    categoryId: string | null;
     imageTone: string;
     imagePath?: string | null;
     imageFile?: File | null;
@@ -1339,6 +1335,7 @@ export function GlitterPosApp({
           saleDiscountReason: reason,
           lines: cartDetails.map((line) => ({
             product: line.product,
+            categoryName: categoryLabel(line.product, categoryIndex),
             quantity: line.quantity,
             lineDiscountCents: line.lineDiscountCents,
             lineDiscountReason: line.lineDiscountReason,
@@ -1493,7 +1490,8 @@ export function GlitterPosApp({
   const sellScreen = (
     <SellScreen
       products={activeProducts}
-      categories={categoryNames}
+      categories={categoryFilterOptions}
+      categoryIndex={categoryIndex}
       stockByProduct={stockByProduct}
       inventoryStockReady={inventoryStockReady}
       category={category}
@@ -1553,7 +1551,8 @@ export function GlitterPosApp({
     products: (
       <ProductsScreen
         products={products}
-        categories={categoryNames}
+        categories={categoryFilterOptions}
+        categoryIndex={categoryIndex}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         category={catalogCategory}
@@ -1658,7 +1657,7 @@ export function GlitterPosApp({
         key={editorProductId ?? "new"}
         product={editingProduct}
         categories={categories}
-        defaultCategory={newProductCategory}
+        defaultCategoryId={newProductCategoryId}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         hasInitialMovement={editorHasInitialMovement}

@@ -168,30 +168,44 @@ async function ensureQaCategories() {
     .onConflictDoNothing();
 }
 
+async function getQaCategoryIds() {
+  const rows = await db
+    .select({ id: categories.id, name: categories.name })
+    .from(categories)
+    .where(eq(categories.tenantId, QA_TENANT_ID));
+  const ids = new Map(rows.map((row) => [row.name, row.id]));
+  return (name: string) => {
+    const id = ids.get(name);
+    if (!id) throw new Error(`QA category "${name}" is missing.`);
+    return id;
+  };
+}
+
 async function seedData(userId: string) {
+  const categoryId = await getQaCategoryIds();
   const sticker = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Sticker Pack",
     priceCents: 2000,
     costCents: 600,
-    category: "Stickers",
+    categoryId: categoryId("Stickers"),
   });
   const print = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Art Print A4",
     priceCents: 5000,
     costCents: 1500,
-    category: "Prints",
+    categoryId: categoryId("Prints"),
   });
   const pin = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Enamel Pin",
     priceCents: 3500,
     costCents: null, // cost unknown — exercises the upper-bound net-earnings flag
-    category: "Pines",
+    categoryId: categoryId("Pines"),
   });
   const tote = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Tote Bag",
     priceCents: 8000,
     costCents: 3000,
-    category: "Accesorios",
+    categoryId: categoryId("Accesorios"),
   });
 
   // An archived product to exercise catalog archive/restore views.
@@ -199,7 +213,7 @@ async function seedData(userId: string) {
     name: "QA Keychain (archivado)",
     priceCents: 1500,
     costCents: 500,
-    category: "Accesorios",
+    categoryId: categoryId("Accesorios"),
   });
   await db
     .update(products)

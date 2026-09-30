@@ -15,6 +15,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { categoryIndex, effectiveCategoryId } from "@/lib/products";
 import type { Category, Product } from "@/lib/types";
 
 type CategoriesScreenProps = {
@@ -42,12 +43,14 @@ export function CategoriesScreen({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const productCountByCategory = useMemo(() => {
+    const index = categoryIndex(categories);
     const counts = new Map<string, number>();
     for (const product of products) {
-      counts.set(product.category, (counts.get(product.category) ?? 0) + 1);
+      const id = effectiveCategoryId(product, index);
+      if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
     }
     return counts;
-  }, [products]);
+  }, [categories, products]);
 
   function openCreate() {
     setEditingCategory(null);
@@ -130,7 +133,7 @@ export function CategoriesScreen({
       {categories.length ? (
         <div className="overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10">
           {categories.map((category) => {
-            const productCount = productCountByCategory.get(category.name) ?? 0;
+            const productCount = productCountByCategory.get(category.id) ?? 0;
             const isUsed = productCount > 0;
             return (
               <div

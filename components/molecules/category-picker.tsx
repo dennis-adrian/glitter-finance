@@ -1,20 +1,21 @@
 "use client";
 
 import { Plus } from "lucide-react";
+import type { CategoryOption } from "@/lib/products";
 import type { Category } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type CategoryPickerProps = {
-  /** Selected category name ("" when none). */
+  /** Selected option id ("" when none). */
   value: string;
   onChange: (value: string) => void;
-  /** The puesto's managed categories. */
+  /** The puesto's categories. */
   categories: Category[];
   /**
-   * A category the product already has that isn't a managed category (from
-   * before categories were managed). Shown so saving doesn't silently change it.
+   * The product's current category when it isn't among `categories` (e.g.
+   * not synced to this device yet). Shown so saving doesn't change it.
    */
-  legacyCategory?: string | null;
+  currentCategory?: CategoryOption | null;
   /** Opens the "new category" form. */
   onCreate: () => void;
   labelledBy?: string;
@@ -28,13 +29,19 @@ export function CategoryPicker({
   value,
   onChange,
   categories,
-  legacyCategory,
+  currentCategory,
   onCreate,
   labelledBy,
 }: CategoryPickerProps) {
-  const names = categories.map((category) => category.name);
-  if (legacyCategory && !names.includes(legacyCategory)) {
-    names.unshift(legacyCategory);
+  const options: CategoryOption[] = categories.map((category) => ({
+    id: category.id,
+    label: category.name,
+  }));
+  if (
+    currentCategory &&
+    !options.some((option) => option.id === currentCategory.id)
+  ) {
+    options.unshift(currentCategory);
   }
 
   return (
@@ -43,15 +50,15 @@ export function CategoryPicker({
       role="radiogroup"
       aria-labelledby={labelledBy}
     >
-      {names.map((name) => {
-        const selected = name === value;
+      {options.map((option) => {
+        const selected = option.id === value;
         return (
           <button
-            key={name}
+            key={option.id}
             type="button"
             role="radio"
             aria-checked={selected}
-            onClick={() => onChange(name)}
+            onClick={() => onChange(option.id)}
             className={cn(
               chipClassName,
               selected
@@ -59,7 +66,7 @@ export function CategoryPicker({
                 : "border-primary/60 text-primary hover:bg-primary/10"
             )}
           >
-            {name}
+            {option.label}
           </button>
         );
       })}

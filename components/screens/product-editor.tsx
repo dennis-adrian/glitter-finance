@@ -32,7 +32,11 @@ import {
   productImageMaxBytes,
   productImageMimeTypes,
 } from "@/lib/product-image-config";
-import { emptyProduct } from "@/lib/products";
+import {
+  categoryIndex,
+  effectiveCategoryId,
+  emptyProduct,
+} from "@/lib/products";
 import type { Category, Product } from "@/lib/types";
 import {
   hasValidProductForm,
@@ -40,12 +44,16 @@ import {
   parseSignedInteger,
 } from "@/components/screens/product-editor.helpers";
 
+// Selection value for a product whose category isn't linked by id yet and
+// isn't available on this device.
+const currentCategoryValue = "current";
+
 type ProductEditorProps = {
   product: Product | null;
   /** The puesto's managed categories. */
   categories: Category[];
-  /** Preselected category for new products. */
-  defaultCategory?: string;
+  /** Preselected category id for new products. */
+  defaultCategoryId?: string;
   createCategory: (name: string) => Promise<Category>;
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
@@ -55,7 +63,8 @@ type ProductEditorProps = {
     name: string;
     priceCents: number;
     costCents: number | null;
-    category: string;
+    /** Null leaves the product's category unchanged. */
+    categoryId: string | null;
     imageTone: string;
     imagePath?: string | null;
     imageFile?: File | null;
@@ -120,7 +129,7 @@ function MoneyInput(props: React.ComponentProps<typeof Input>) {
 export function ProductEditor({
   product,
   categories,
-  defaultCategory = "",
+  defaultCategoryId = "",
   stockByProduct,
   inventoryStockReady,
   hasInitialMovement,
@@ -136,14 +145,17 @@ export function ProductEditor({
     name: product?.name ?? "",
     price: product ? String(product.priceCents / 100) : "",
     cost: product?.costCents == null ? "" : String(product.costCents / 100),
-    category: product?.category ?? defaultCategory,
+    categoryId: product
+      ? (effectiveCategoryId(product, categoryIndex(categories)) ??
+        currentCategoryValue)
+      : defaultCategoryId,
     imageTone: product?.imageTone ?? "violet",
     tracksInventory: product?.tracksInventory ?? false,
   }));
   const [name, setName] = useState(initial.name);
   const [price, setPrice] = useState(initial.price);
   const [cost, setCost] = useState(initial.cost);
-  const [category, setCategory] = useState(initial.category);
+  const [categoryId, setCategoryId] = useState(initial.categoryId);
   const [imageTone, setImageTone] = useState(initial.imageTone);
   const [tracksInventory, setTracksInventory] = useState(
     initial.tracksInventory
@@ -167,8 +179,16 @@ export function ProductEditor({
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
   const [categoryDrawerOpen, setCategoryDrawerOpen] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const canSave =
-    hasValidProductForm(name, price) && Boolean(category) && !saving;
+  // The product's category as it was, when it isn't available on this device
+  // (not synced yet); keeping it selected saves without changing it.
+  const currentCategory =
+    product && !categories.some((item) => item.id === initial.categoryId)
+      ? { id: initial.categoryId, label: product.category }
+      : null;
+  const hasCategory =
+    categories.some((item) => item.id === categoryId) ||
+    (currentCategory !== null && categoryId === currentCategory.id);
+  const canSave = hasValidProductForm(name, price) && hasCategory && !saving;
   const trackingPersisted = product?.tracksInventory ?? false;
   const trackingDirty =
     Boolean(product) && tracksInventory !== trackingPersisted;
@@ -187,7 +207,7 @@ export function ProductEditor({
     name !== initial.name ||
     price !== initial.price ||
     cost !== initial.cost ||
-    category !== initial.category ||
+    categoryId !== initial.categoryId ||
     imageTone !== initial.imageTone ||
     tracksInventory !== initial.tracksInventory ||
     Boolean(imageFile) ||
@@ -329,7 +349,10 @@ export function ProductEditor({
         name: name.trim(),
         priceCents: parseBolivianos(price),
         costCents: cost.trim() ? parseBolivianos(cost) : null,
-        category,
+        categoryId:
+          categoryId === initial.categoryId && product
+            ? product.categoryId
+            : categoryId,
         imageTone,
         imagePath: product?.imagePath ?? null,
         imageFile,
@@ -499,14 +522,14 @@ export function ProductEditor({
               Categoría
             </p>
             <CategoryPicker
-              value={category}
-              onChange={setCategory}
+              value={categoryId}
+              onChange={setCategoryId}
               categories={categories}
-              legacyCategory={product?.category}
+              currentCategory={currentCategory}
               onCreate={() => setCategoryDrawerOpen(true)}
               labelledBy="product-category-label"
             />
-            {!category ? (
+            {!hasCategory ? (
               <p className="text-sm text-muted-foreground">
                 Elegí o creá una categoría para poder guardar el producto.
               </p>
@@ -711,7 +734,7 @@ export function ProductEditor({
         onOpenChange={setCategoryDrawerOpen}
         onSave={async (categoryName) => {
           const created = await createCategory(categoryName);
-          setCategory(created.name);
+          setCategoryId(created.id);
           return created;
         }}
       />
