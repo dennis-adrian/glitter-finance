@@ -33,7 +33,7 @@ export default function GlobalError({
         <main>
           <h1>Algo salió mal</h1>
           <p>
-            El error fue registrado. Puedes intentar cargar la aplicación otra
+            El error fue registrado. Podés intentar cargar la aplicación otra
             vez.
           </p>
           <button

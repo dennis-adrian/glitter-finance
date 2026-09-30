@@ -1,5 +1,8 @@
 import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
-import { validateCategoryName } from "@/lib/categories/validation";
+import {
+  categoryNameKey,
+  validateCategoryName,
+} from "@/lib/categories/validation";
 import type { Category } from "@/lib/types";
 
 type CategoryRow = {
@@ -24,20 +27,23 @@ function categoryFromRow(row: CategoryRow): Category {
   };
 }
 
+// SQLite's lower() only folds ASCII, so compare names in JS (Ñ/ñ, Á/á).
 async function findDuplicate(
   db: Pick<AbstractPowerSyncDatabase, "getAll"> | Pick<Transaction, "getAll">,
   tenantId: string,
   name: string,
   excludedId?: string
 ) {
-  const rows = await db.getAll<{ id: string }>(
-    `SELECT id FROM categories
-     WHERE tenant_id = ? AND lower(name) = lower(?)
-       AND (? IS NULL OR id <> ?)
-     LIMIT 1`,
-    [tenantId, name, excludedId ?? null, excludedId ?? null]
+  const rows = await db.getAll<{ id: string; name: string }>(
+    `SELECT id, name FROM categories WHERE tenant_id = ?`,
+    [tenantId]
   );
-  return rows[0] ?? null;
+  const key = categoryNameKey(name);
+  return (
+    rows.find(
+      (row) => row.id !== excludedId && categoryNameKey(row.name) === key
+    ) ?? null
+  );
 }
 
 export async function createCategoryLocal(
@@ -101,15 +107,12 @@ export async function renameCategoryLocal(
 
     const updatedAt = nowIso();
     input.assertCurrent?.();
+    // Products reference the category by id, so only the category changes.
+    // The server keeps products.category (the denormalized name) in sync.
     await tx.execute(
       `UPDATE categories SET name = ?, updated_at = ?
        WHERE id = ? AND tenant_id = ?`,
       [name, updatedAt, input.categoryId, input.tenantId]
-    );
-    await tx.execute(
-      `UPDATE products SET category = ?, updated_at = ?
-       WHERE tenant_id = ? AND category = ?`,
-      [name, updatedAt, input.tenantId, current.name]
     );
 
     return categoryFromRow({ ...current, name, updated_at: updatedAt });
@@ -137,14 +140,24 @@ export async function deleteCategoryLocal(
       throw new Error("No se encontró la categoría.");
     }
 
-    const usedBy = await tx.getAll<{ id: string }>(
-      `SELECT id FROM products
-       WHERE tenant_id = ? AND category = ? LIMIT 1`,
-      [input.tenantId, category.name]
+    // Rows from old clients may not be linked by id yet; match those by name.
+    const products = await tx.getAll<{
+      category_id: string | null;
+      category: string;
+    }>(
+      `SELECT category_id, category FROM products
+       WHERE tenant_id = ? AND (category_id = ? OR category_id IS NULL)`,
+      [input.tenantId, input.categoryId]
     );
-    if (usedBy.length > 0) {
+    const key = categoryNameKey(category.name);
+    const inUse = products.some(
+      (product) =>
+        product.category_id === input.categoryId ||
+        categoryNameKey(product.category) === key
+    );
+    if (inUse) {
       throw new Error(
-        "Mueve los productos a otra categoría antes de eliminarla."
+        "Mové los productos a otra categoría antes de eliminarla."
       );
     }
 

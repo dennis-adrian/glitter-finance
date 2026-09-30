@@ -29,7 +29,7 @@ test("local writers check cancellation before committing SQLite mutations", asyn
         name: "Producto",
         priceCents: 100,
         costCents: null,
-        category: "General",
+        categoryId: "category-1",
         imageTone: "violet",
         tracksInventory: false,
       },

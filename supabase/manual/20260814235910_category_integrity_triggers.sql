@@ -1,3 +1,10 @@
+-- SUPERSEDED by 20260929030700_product_category_ids.sql, which drops these
+-- triggers: products now reference categories by id, the FK guards deletes,
+-- and a new cascade keeps the denormalized name without bumping updated_at.
+-- Kept so fresh environments replay the same history; running it again
+-- after the newer file would re-add these name-based triggers, so re-run
+-- 20260929030700_product_category_ids.sql afterwards if that happens.
+--
 -- Run after: 20260814235900_categories_rls.sql.
 -- Keep name-based product rows coherent for every write path, including
 -- PowerSync uploads and concurrent devices. Sales keep their historical

@@ -22,6 +22,9 @@ function uuid() {
 
 export type CreateSaleLocalLine = {
   product: Product;
+  /** Current category name for the snapshot, resolved from the product's
+   * category id; falls back to the product's denormalized name. */
+  categoryName?: string;
   quantity: number;
   lineDiscountCents?: number;
   lineDiscountReason?: string;
@@ -78,7 +81,10 @@ function normalizeAndPriceLines(
       tenant_id: tenantId,
       product_id: line.product.id,
       product_name: line.product.name,
-      category: line.product.category,
+      category:
+        line.categoryName?.trim() ||
+        line.product.category?.trim() ||
+        "Sin categoría",
       quantity: line.quantity,
       unit_price_cents: line.product.priceCents,
       unit_cost_cents: line.product.costCents,

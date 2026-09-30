@@ -13,8 +13,8 @@ import {
   restoreProductForTenant,
   updateProductImageForTenant,
   updateProductForTenant,
+  type ProductPayload,
 } from "@/lib/products/repository";
-import type { ProductInput } from "@/lib/types";
 
 const imageExtensionByMimeType: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -25,18 +25,18 @@ async function requireTenantId() {
   const context = await ensureUserTenantContext();
 
   if (!context?.tenant) {
-    throw new Error("Se requiere una cuenta para gestionar productos.");
+    throw new Error("Se requiere un puesto para gestionar productos.");
   }
 
   return context.tenant.id;
 }
 
-export async function createProduct(input: ProductInput) {
+export async function createProduct(input: ProductPayload) {
   const tenantId = await requireTenantId();
   return createProductForTenant(tenantId, input);
 }
 
-export async function updateProduct(productId: string, input: ProductInput) {
+export async function updateProduct(productId: string, input: ProductPayload) {
   const tenantId = await requireTenantId();
   return updateProductForTenant(tenantId, productId, input);
 }
@@ -49,7 +49,7 @@ export async function uploadProductImage(
   const image = formData.get("image");
 
   if (!(image instanceof File)) {
-    throw new Error("Selecciona una imagen del producto.");
+    throw new Error("Seleccioná una imagen del producto.");
   }
 
   if (image.size <= 0) {

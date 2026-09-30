@@ -26,7 +26,7 @@ function generateInviteToken() {
 export async function createInvitation() {
   const context = await ensureUserTenantContext();
   if (!context?.tenant) {
-    throw new Error("No se encontró una cuenta activa.");
+    throw new Error("No se encontró un puesto activo.");
   }
 
   const origin = await getRequestOrigin();
@@ -62,7 +62,7 @@ export async function createInvitation() {
 export async function revokeInvitation(invitationId: string) {
   const context = await ensureUserTenantContext();
   if (!context?.tenant) {
-    throw new Error("No se encontró una cuenta activa.");
+    throw new Error("No se encontró un puesto activo.");
   }
 
   await revokeInvitationById(invitationId, context.tenant.id);
@@ -79,7 +79,7 @@ export async function acceptInvitation(token: string) {
   // can surface the error instead of racing a server redirect against its own
   // post-accept navigation.
   if (!user) {
-    throw new Error("Tu sesión expiró. Vuelve a iniciar sesión.");
+    throw new Error("Tu sesión expiró. Volvé a iniciar sesión.");
   }
 
   const displayName = getDisplayName({

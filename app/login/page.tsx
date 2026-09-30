@@ -97,13 +97,13 @@ function WelcomeScreen({ next }: { next: string }) {
           href={authHref("signin", next)}
           className="flex h-[52px] items-center justify-center rounded-2xl bg-primary text-base font-bold text-primary-foreground shadow-[0_4px_6px_rgba(0,120,111,0.15)] transition-colors hover:bg-[var(--interactive-hover)] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-primary/40 dark:shadow-[0_4px_10px_rgba(0,0,0,0.35)]"
         >
-          Iniciar Sesión
+          Iniciar sesión
         </Link>
         <Link
           href={authHref("signup", next)}
           className="flex h-[52px] items-center justify-center rounded-2xl border-[1.5px] border-primary text-base font-bold text-primary transition-colors hover:bg-muted focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-primary/40"
         >
-          Crear Cuenta
+          Crear cuenta
         </Link>
       </div>
     </div>
@@ -138,7 +138,7 @@ function AuthScreen({
           />
         </Link>
         <h1 className="font-heading text-[28px] leading-[34px] font-extrabold text-foreground">
-          {isSignup ? "Crear Cuenta" : "Iniciar Sesión"}
+          {isSignup ? "Crear cuenta" : "Iniciar sesión"}
         </h1>
       </header>
 

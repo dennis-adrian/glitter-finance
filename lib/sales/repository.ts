@@ -1,6 +1,15 @@
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+} from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  categories,
   products,
   refunds,
   saleLines,
@@ -231,8 +240,18 @@ export async function createSaleForTenant(
 
   const productIds = normalizedLines.map((line) => line.productId);
   const productRows = await db
-    .select()
+    .select({
+      ...getTableColumns(products),
+      categoryName: categories.name,
+    })
     .from(products)
+    .leftJoin(
+      categories,
+      and(
+        eq(categories.id, products.categoryId),
+        eq(categories.tenantId, products.tenantId)
+      )
+    )
     .where(
       and(
         eq(products.tenantId, input.tenantId),
@@ -267,7 +286,8 @@ export async function createSaleForTenant(
       tenantId: input.tenantId,
       productId: product.id,
       productName: product.name,
-      category: product.category,
+      category:
+        product.categoryName ?? (product.category.trim() || "Sin categoría"),
       quantity: line.quantity,
       unitPriceCents: product.priceCents,
       unitCostCents: product.costCents,

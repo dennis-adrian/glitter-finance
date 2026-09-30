@@ -1,17 +1,11 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import {
-  BarChart3,
-  Check,
-  ChevronRight,
-  Loader2,
-  LogOut,
-  Settings,
-} from "lucide-react";
+import { Check, ChevronRight, Loader2, LogOut, Settings } from "lucide-react";
 import { signOut } from "@/app/auth/actions";
 import { createTenant, switchTenant } from "@/app/tenants/actions";
-import { BrandMark } from "@/components/atoms/brand-mark";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { usePowerSyncControls } from "@/components/providers/powersync-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +19,6 @@ import { cn } from "@/lib/utils";
 
 type MoreScreenProps = {
   tenantContext: UserTenantContext;
-  openReports: () => void;
   openSettings: () => void;
 };
 
@@ -83,11 +76,7 @@ function MenuItem({
   );
 }
 
-export function MoreScreen({
-  tenantContext,
-  openReports,
-  openSettings,
-}: MoreScreenProps) {
+export function MoreScreen({ tenantContext, openSettings }: MoreScreenProps) {
   const identity =
     tenantContext.user.displayName ||
     tenantContext.user.email ||
@@ -121,7 +110,7 @@ export function MoreScreen({
     } catch (error) {
       console.error("[tenant-change] refreshSession failed", error);
       setActionError(
-        "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
+        "La sesión no se actualizó. Cerrá sesión y volvé a entrar, o recargá la página."
       );
       return false;
     }
@@ -212,13 +201,13 @@ export function MoreScreen({
     setActionError(null);
     if (syncFailureCount > 0) {
       setActionError(
-        "Hay operaciones que no llegaron a la nube. Abre Diagnósticos desde Ajustes antes de cerrar sesión."
+        "Hay operaciones que no llegaron a la nube. Abrí Diagnósticos desde Ajustes antes de cerrar sesión."
       );
       return;
     }
     if (!canSwitchTenant) {
       setActionError(
-        "Espera a que termine la sincronización antes de cerrar sesión."
+        "Esperá a que termine la sincronización antes de cerrar sesión."
       );
       return;
     }
@@ -250,7 +239,7 @@ export function MoreScreen({
       : null;
 
   return (
-    <section className="screen more-screen">
+    <Screen width="narrow" header={<ScreenHeader title="Más" />}>
       {overlayLabel ? (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-background/80 backdrop-blur-sm"
@@ -264,20 +253,12 @@ export function MoreScreen({
         </div>
       ) : null}
 
-      <header className="mb-4 flex h-12 items-center gap-2.5">
-        <BrandMark size="small" />
-        <h1 className="font-heading text-[22px] font-extrabold">
-          Billetera Ferial
-        </h1>
-      </header>
-
       <section className="overflow-hidden rounded-3xl border border-primary/10 bg-card shadow-[0_4px_12px_rgba(45,27,20,0.06)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]">
-        <button
-          type="button"
-          onClick={openSettings}
-          className="flex w-full items-center gap-3.5 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
-        >
-          <span className="grid size-14 shrink-0 place-items-center rounded-full bg-primary text-xl font-bold text-primary-foreground">
+        <div className="flex w-full items-center gap-3.5 p-4">
+          <span
+            className="grid size-14 shrink-0 place-items-center rounded-full bg-primary text-xl font-bold text-primary-foreground"
+            aria-hidden
+          >
             {initials}
           </span>
           <span className="min-w-0 flex-1">
@@ -288,8 +269,7 @@ export function MoreScreen({
               {tenantContext.user.email ?? "Usuario autenticado"}
             </small>
           </span>
-          <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
-        </button>
+        </div>
 
         <div className="mx-4 border-t border-border pt-3 pb-4">
           <p className="mb-2 text-xs font-semibold text-muted-foreground">
@@ -388,15 +368,9 @@ export function MoreScreen({
 
       <section className="mt-5 overflow-hidden rounded-3xl border border-primary/10 bg-card shadow-[0_4px_12px_rgba(45,27,20,0.06)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]">
         <MenuItem
-          icon={<BarChart3 className="size-6" />}
-          title="Reportes"
-          description="Revisá tus ventas y estadísticas"
-          onClick={openReports}
-        />
-        <MenuItem
           icon={<Settings className="size-6" />}
           title="Ajustes"
-          description="Configurá tu cuenta y preferencias"
+          description="Equipo, apariencia y diagnósticos"
           onClick={openSettings}
         />
         <MenuItem
@@ -414,6 +388,6 @@ export function MoreScreen({
           disabled={signingOut}
         />
       </section>
-    </section>
+    </Screen>
   );
 }

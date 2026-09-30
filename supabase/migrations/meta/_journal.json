@@ -78,6 +78,20 @@
       "when": 1786715768575,
       "tag": "20260814135608_glorious_agent_zero",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790651175123,
+      "tag": "20260929030615_product_category_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790651200195,
+      "tag": "20260929030640_product_category_fk",
+      "breakpoints": true
     }
   ]
 }

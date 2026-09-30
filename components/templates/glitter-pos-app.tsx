@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   archiveProduct as archiveProductAction,
   createProduct,
@@ -19,24 +19,35 @@ import {
   refundSale as refundSaleAction,
   voidSale as voidSaleAction,
 } from "@/app/sales/actions";
+import { flushSync } from "react-dom";
 import { toast as sonnerToast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { BottomNav } from "@/components/organisms/bottom-nav";
-import { CartScreen } from "@/components/screens/cart-screen";
+import { SideNav } from "@/components/organisms/side-nav";
 import { CategoriesScreen } from "@/components/screens/categories-screen";
-import { PaymentScreen } from "@/components/screens/payment-screen";
+import {
+  CheckoutScreen,
+  type CheckoutPayment,
+} from "@/components/screens/checkout-screen";
+import { SaleCompleteScreen } from "@/components/screens/sale-complete-screen";
 import { ProductEditor } from "@/components/screens/product-editor";
 import { ProductsScreen } from "@/components/screens/products-screen";
 import { ReportsScreen } from "@/components/screens/reports-screen";
-import { SaleDetailScreen } from "@/components/screens/sale-detail-screen";
 import { SalesScreen } from "@/components/screens/sales-screen";
 import { SellScreen } from "@/components/screens/sell-screen";
 import { MoreScreen } from "@/components/screens/more-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
-import { paymentLabels, saleTotal } from "@/lib/sales";
+import { MissingRecordScreen } from "@/components/screens/missing-record-screen";
 import { clampDiscount } from "@/lib/money";
 import { mapDbProductToProduct } from "@/lib/product-mapper";
+import {
+  allCategoriesOption,
+  categoryIndex as buildCategoryIndex,
+  categoryLabel,
+  categoryOptions,
+  effectiveCategoryId,
+} from "@/lib/products";
 import {
   buildSalesFromLocal,
   type LocalRefundRow,
@@ -54,18 +65,24 @@ import { usePosStore } from "@/lib/store";
 import type {
   Category,
   CartLine,
-  PaymentMethod,
   Product,
   Sale,
   TenantInvitation,
   TenantMember,
   ToastMessage,
 } from "@/lib/types";
-import type { View } from "@/lib/views";
+import {
+  isPrimaryView,
+  primaryViewFor,
+  type PrimaryView,
+  type View,
+} from "@/lib/views";
+import { useAppRoute } from "@/lib/hooks/use-app-route";
+import { DESKTOP_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
+import { useVirtualKeyboard } from "@/lib/hooks/use-virtual-keyboard";
 import type { UserTenantContext } from "@/lib/auth/user-context";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
 import { isPowerSyncConfigured } from "@/lib/env";
-import { SyncStatusPill } from "@/components/molecules/sync-status-pill";
 import {
   createSaleLocal,
   refundSaleLocal,
@@ -106,7 +123,7 @@ import {
   addInventoryMovement,
   productHasInitialMovementLocal,
 } from "@/lib/powersync/write-inventory";
-import { formatBs } from "@/lib/money";
+import type { CompletedSaleSummary } from "@/lib/receipt";
 
 // Shape of a row coming back from the local SQLite store. Column names are
 // snake_case (matching Postgres) because PowerSync replicates with the
@@ -116,6 +133,7 @@ type ProductRow = {
   name: string;
   price_cents: number;
   cost_cents: number | null;
+  category_id: string | null;
   category: string;
   image_path: string | null;
   tracks_inventory: number | null;
@@ -151,6 +169,7 @@ function rowToProduct(row: ProductRow): Product {
     name: row.name,
     priceCents: row.price_cents,
     costCents: row.cost_cents,
+    categoryId: row.category_id,
     category: row.category,
     imagePath: row.image_path,
     tracksInventory: row.tracks_inventory,
@@ -226,25 +245,24 @@ export function GlitterPosApp({
   const hydrateProducts = usePosStore((state) => state.hydrateProducts);
   const hydrateSales = usePosStore((state) => state.hydrateSales);
   const upsertProduct = usePosStore((state) => state.upsertProduct);
-  const renameProductCategory = usePosStore(
-    (state) => state.renameProductCategory
-  );
 
-  const [view, setView] = useState<View>("sell");
+  const { route, navigate, back } = useAppRoute();
+  const view = route.view;
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  useVirtualKeyboard();
   const [categories, setCategories] = useState<Category[]>(initialCategories);
   const [activeInvitationState, setActiveInvitationState] =
     useState(activeInvitation);
-  const [previousView, setPreviousView] = useState<View>("products");
-  const [category, setCategory] = useState("Todos");
-  const [catalogCategory, setCatalogCategory] = useState("Todos");
+  // Selected filter option ids (category id, or allCategoriesOption).
+  const [category, setCategory] = useState(allCategoriesOption.id);
+  const [catalogCategory, setCatalogCategory] = useState(
+    allCategoriesOption.id
+  );
   const [query, setQuery] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
-  const [saleDetailReturnView, setSaleDetailReturnView] = useState<
-    "sales" | "reports"
-  >("sales");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [completedSale, setCompletedSale] =
+    useState<CompletedSaleSummary | null>(null);
   const [tenantMembers, setTenantMembers] =
     useState<TenantMember[]>(initialTenantMembers);
   const [inventoryMovements, setInventoryMovements] = useState<
@@ -270,17 +288,21 @@ export function GlitterPosApp({
     });
   }
   const draftCartReadyRef = useRef(false);
+  // Stable handle for teardown callbacks registered once on mount.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const cartRef = useRef(cart);
   const cartUpdatedAtRef = useRef<string | null>(null);
 
   const activeProducts = products.filter((product) => !product.archivedAt);
-  const categoryNames = useMemo(() => {
-    const names = categories.map((item) => item.name);
-    for (const product of products) {
-      if (!names.includes(product.category)) names.push(product.category);
-    }
-    return names;
-  }, [categories, products]);
+  const categoryIndex = useMemo(
+    () => buildCategoryIndex(categories),
+    [categories]
+  );
+  const categoryFilterOptions = useMemo(
+    () => categoryOptions(categories, products, categoryIndex),
+    [categories, products, categoryIndex]
+  );
   const cartDetails = useMemo(
     () =>
       cart
@@ -310,9 +332,26 @@ export function GlitterPosApp({
     (total, line) => total + line.quantity,
     0
   );
-  const selectedSale = selectedSaleId
-    ? (sales.find((sale) => sale.id === selectedSaleId) ?? null)
-    : null;
+  // The editor route carries the product id; `null` means "new product".
+  // Memoized so the initial-movement lookup below only reruns when the
+  // edited product itself changes.
+  const editorProductId = view === "editor" ? (route.id ?? null) : null;
+  const editingProduct = useMemo(
+    () =>
+      editorProductId
+        ? (products.find((product) => product.id === editorProductId) ?? null)
+        : null,
+    [editorProductId, products]
+  );
+  const editorProductMissing = Boolean(editorProductId && !editingProduct);
+  // New products start in the catalog's current filter, else the category
+  // of the most recently added product (if it's still a managed category).
+  const newProductCategoryId = categoryIndex.nameById.has(catalogCategory)
+    ? catalogCategory
+    : ([...activeProducts]
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .map((product) => effectiveCategoryId(product, categoryIndex))
+        .find((id) => id !== null && categoryIndex.nameById.has(id)) ?? "");
 
   // Fall back to server-hydrated members while tenant_users is still
   // replicating — avoids "Vendedor" regressions in reports on upgrade.
@@ -345,16 +384,13 @@ export function GlitterPosApp({
     const clearTenantState = onLocalDataCleared(() => {
       cancelTenantWork();
       draftCartReadyRef.current = false;
-      setView("sell");
-      setPreviousView("products");
-      setCategory("Todos");
-      setCatalogCategory("Todos");
+      navigateRef.current({ view: "sell" }, { replace: true });
+      setCategory(allCategoriesOption.id);
+      setCatalogCategory(allCategoriesOption.id);
       setQuery("");
       setCatalogQuery("");
-      setEditingProduct(null);
-      setSelectedSaleId(null);
-      setSaleDetailReturnView("sales");
       setIsCheckingOut(false);
+      setCompletedSale(null);
       setActiveInvitationState(null);
       setCategories([]);
       setTenantMembers([]);
@@ -370,6 +406,17 @@ export function GlitterPosApp({
       clearTenantState();
     };
   }, []);
+
+  // Route states that can't render: the order sheet on desktop (the order
+  // panel is always visible there) and a confirmation with no sale behind
+  // it (e.g. after a reload).
+  useEffect(() => {
+    if (view === "cart" && isDesktop) {
+      navigate({ view: "sell" }, { replace: true });
+    } else if (view === "saleComplete" && !completedSale) {
+      navigate({ view: "sell" }, { replace: true });
+    }
+  }, [view, isDesktop, completedSale, navigate]);
 
   useEffect(() => {
     initialTenantMembersRef.current = initialTenantMembers;
@@ -924,19 +971,21 @@ export function GlitterPosApp({
   }
 
   function openEditor(product: Product | null) {
-    setPreviousView(view === "editor" ? "products" : view);
-    setEditingProduct(product);
-    setView("editor");
+    navigate({ view: "editor", id: product?.id });
   }
 
-  function openImport() {
-    showToast("La importación desde Excel aún no está disponible.", "info");
+  function closeEditor() {
+    back({ view: "products" });
+  }
+
+  function goToPrimary(next: PrimaryView) {
+    navigate({ view: next });
   }
 
   async function handleCreateCategory(name: string): Promise<Category> {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      throw new Error("Tu cuenta aún no está configurada.");
+      throw new Error("Tu puesto aún no está configurado.");
     }
 
     const work = beginTenantWork();
@@ -965,13 +1014,8 @@ export function GlitterPosApp({
   ): Promise<Category> {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      throw new Error("Tu cuenta aún no está configurada.");
+      throw new Error("Tu puesto aún no está configurado.");
     }
-    const currentCategory = categories.find((item) => item.id === categoryId);
-    if (!currentCategory) {
-      throw new Error("No se encontró la categoría.");
-    }
-
     const work = beginTenantWork();
     const db = powerSyncDb;
     const renamed = db
@@ -988,11 +1032,6 @@ export function GlitterPosApp({
         current.map((item) => (item.id === categoryId ? renamed : item))
       )
     );
-    renameProductCategory(currentCategory.name, renamed.name);
-    if (category === currentCategory.name) setCategory(renamed.name);
-    if (catalogCategory === currentCategory.name) {
-      setCatalogCategory(renamed.name);
-    }
     showToast("Categoría renombrada", "info");
     return renamed;
   }
@@ -1000,13 +1039,8 @@ export function GlitterPosApp({
   async function handleDeleteCategory(categoryId: string): Promise<void> {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      throw new Error("Tu cuenta aún no está configurada.");
+      throw new Error("Tu puesto aún no está configurado.");
     }
-    const currentCategory = categories.find((item) => item.id === categoryId);
-    if (!currentCategory) {
-      throw new Error("No se encontró la categoría.");
-    }
-
     const work = beginTenantWork();
     const db = powerSyncDb;
     if (db) {
@@ -1022,8 +1056,10 @@ export function GlitterPosApp({
     setCategories((current) =>
       current.filter((item) => item.id !== categoryId)
     );
-    if (category === currentCategory.name) setCategory("Todos");
-    if (catalogCategory === currentCategory.name) setCatalogCategory("Todos");
+    if (category === categoryId) setCategory(allCategoriesOption.id);
+    if (catalogCategory === categoryId) {
+      setCatalogCategory(allCategoriesOption.id);
+    }
     showToast("Categoría eliminada", "info");
   }
 
@@ -1031,7 +1067,7 @@ export function GlitterPosApp({
     name: string;
     priceCents: number;
     costCents: number | null;
-    category: string;
+    categoryId: string | null;
     imageTone: string;
     imagePath?: string | null;
     imageFile?: File | null;
@@ -1040,7 +1076,7 @@ export function GlitterPosApp({
   }) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
+      showToast("Tu puesto aún no está configurado.", "danger");
       return;
     }
     const work = beginTenantWork();
@@ -1178,7 +1214,7 @@ export function GlitterPosApp({
           editingProduct ? "info" : "success"
         );
       }
-      setView("products");
+      closeEditor();
     } catch (error) {
       if (!work.isCurrent()) {
         return;
@@ -1200,7 +1236,7 @@ export function GlitterPosApp({
   }) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
+      showToast("Tu puesto aún no está configurado.", "danger");
       return;
     }
     const db = powerSyncDb;
@@ -1238,32 +1274,60 @@ export function GlitterPosApp({
     }
   }
 
-  async function handlePayment(
-    method: PaymentMethod,
-    discount: number,
-    reason?: string
-  ) {
+  async function handlePayment({
+    method,
+    discountCents: discount,
+    discountReason: reason,
+    receivedCents,
+  }: CheckoutPayment) {
     if (isCheckingOut || !cartDetails.length) {
       return;
     }
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
+      showToast("Tu puesto aún no está configurado.", "danger");
       return;
     }
 
     const work = beginTenantWork();
     const db = powerSyncDb;
     setIsCheckingOut(true);
+    // Snapshot the order before the cart is cleared, for the confirmation
+    // screen and the shareable receipt.
+    const totalCents = Math.max(0, cartSubtotal - discount);
+    const summary: Omit<CompletedSaleSummary, "saleId" | "createdAt"> = {
+      paymentMethod: method,
+      lines: cartDetails.map((line) => {
+        const gross = line.product.priceCents * line.quantity;
+        return {
+          name: line.product.name,
+          quantity: line.quantity,
+          totalCents: Math.max(
+            0,
+            gross - clampDiscount(line.lineDiscountCents ?? 0, gross)
+          ),
+        };
+      }),
+      itemCount: cartCount,
+      subtotalCents: cartSubtotal,
+      discountCents: discount,
+      totalCents,
+      receivedCents: method === "cash" ? receivedCents : null,
+      changeCents:
+        method === "cash" && receivedCents != null
+          ? Math.max(0, receivedCents - totalCents)
+          : null,
+    };
 
     try {
+      let saleId: string;
       // Local-first when PowerSync is initialized; the watch subscription
       // picks up the new rows and updates the sales list, and the upload
       // queue replicates to Supabase in the background. Fall back to the
       // server action during the brief window before PowerSync is ready.
       if (db) {
         work.assertCurrent();
-        await createSaleLocal(db, {
+        ({ saleId } = await createSaleLocal(db, {
           tenantId: tenant.id,
           userId: tenantContext.user.id,
           paymentMethod: method,
@@ -1271,19 +1335,16 @@ export function GlitterPosApp({
           saleDiscountReason: reason,
           lines: cartDetails.map((line) => ({
             product: line.product,
+            categoryName: categoryLabel(line.product, categoryIndex),
             quantity: line.quantity,
             lineDiscountCents: line.lineDiscountCents,
             lineDiscountReason: line.lineDiscountReason,
           })),
           assertCurrent: work.assertCurrent,
-        });
+        }));
         work.assertCurrent();
         clearCart();
         void clearDraftCartLocal(db);
-        const totalCents = Math.max(0, cartSubtotal - discount);
-        showToast(
-          `Venta registrada · ${formatBs(totalCents, true)} · ${paymentLabels[method]}`
-        );
       } else {
         work.assertCurrent();
         const sale = await createSale({
@@ -1299,12 +1360,21 @@ export function GlitterPosApp({
         });
         work.assertCurrent();
         recordSale(sale);
-        showToast(
-          `Venta registrada · ${saleTotal(sale)} · ${paymentLabels[method]}`
-        );
+        saleId = sale.id;
       }
       work.assertCurrent();
-      setView("sell");
+      // Commit the summary before the route changes: the route store
+      // re-renders synchronously, and the confirmation screen redirects to
+      // Vender if it renders without a sale.
+      flushSync(() =>
+        setCompletedSale({
+          ...summary,
+          saleId,
+          createdAt: new Date().toISOString(),
+        })
+      );
+      // Replace checkout so Back from the confirmation doesn't reopen it.
+      navigate({ view: "saleComplete" }, { replace: true });
     } catch (error) {
       if (!work.isCurrent()) {
         return;
@@ -1325,7 +1395,7 @@ export function GlitterPosApp({
   async function handleVoidSale(saleId: string) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
+      showToast("Tu puesto aún no está configurado.", "danger");
       return false;
     }
     const work = beginTenantWork();
@@ -1363,7 +1433,7 @@ export function GlitterPosApp({
   async function handleRefundSale(saleId: string, reason?: string) {
     const tenant = tenantContext.tenant;
     if (!tenant) {
-      showToast("Tu cuenta aún no está configurada.", "danger");
+      showToast("Tu puesto aún no está configurado.", "danger");
       return false;
     }
     const work = beginTenantWork();
@@ -1401,69 +1471,100 @@ export function GlitterPosApp({
     }
   }
 
-  function openSaleDetail(saleId: string, returnView: "sales" | "reports") {
-    setSelectedSaleId(saleId);
-    setSaleDetailReturnView(returnView);
-    setView("saleDetail");
+  function handleClearCart() {
+    clearCart();
+    if (powerSyncDb) {
+      void clearDraftCartLocal(powerSyncDb);
+    }
+    showToast("Pedido vaciado", "info");
+    if (view === "cart") {
+      back({ view: "sell" });
+    }
   }
 
-  const content = {
-    sell: (
-      <SellScreen
-        products={activeProducts}
-        categories={categoryNames}
-        stockByProduct={stockByProduct}
-        inventoryStockReady={inventoryStockReady}
-        cartCount={cartCount}
-        cartSubtotal={cartSubtotal}
-        cart={cart}
-        category={category}
-        query={query}
-        setCategory={setCategory}
-        setQuery={setQuery}
-        addToCart={addToCart}
-        decrementCart={decrementCart}
-        openCart={() => setView("cart")}
-        openPayment={() => setView("payment")}
-        openProductEditor={() => openEditor(null)}
-      />
-    ),
+  function openSaleDetail(saleId: string) {
+    navigate({ view: "saleDetail", id: saleId });
+  }
+
+  const orderSheetOpen = view === "cart" && !isDesktop;
+  const sellScreen = (
+    <SellScreen
+      products={activeProducts}
+      categories={categoryFilterOptions}
+      categoryIndex={categoryIndex}
+      stockByProduct={stockByProduct}
+      inventoryStockReady={inventoryStockReady}
+      category={category}
+      query={query}
+      setCategory={setCategory}
+      setQuery={setQuery}
+      order={{
+        lines: cartDetails,
+        subtotal: cartSubtotal,
+        count: cartCount,
+        addToCart,
+        decrementCart,
+        removeFromCart,
+        setLineDiscount,
+        clearCart: handleClearCart,
+        charge: () => navigate({ view: "checkout" }),
+      }}
+      orderSheetOpen={orderSheetOpen}
+      openOrderSheet={() => navigate({ view: "cart" })}
+      closeOrderSheet={() => back({ view: "sell" })}
+      openProductEditor={() => openEditor(null)}
+    />
+  );
+
+  // One element for both routes so the list keeps its filters and scroll
+  // position while a sale's detail opens beside it (or over it on phones).
+  const salesScreen = (
+    <SalesScreen
+      sales={sales}
+      selectedSaleId={view === "saleDetail" ? (route.id ?? null) : null}
+      openSale={(saleId) =>
+        navigate(
+          { view: "saleDetail", id: saleId },
+          // Switching between sales shouldn't stack history entries.
+          { replace: view === "saleDetail" }
+        )
+      }
+      closeSale={() => back({ view: "sales" })}
+      voidSale={handleVoidSale}
+      refundSale={handleRefundSale}
+    />
+  );
+
+  const content: Record<View, ReactNode> = {
+    sell: sellScreen,
+    cart: sellScreen,
     reports: (
       <ReportsScreen
         sales={sales}
         products={activeProducts}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
-        openSales={() => setView("sales")}
       />
     ),
-    sales: (
-      <SalesScreen
-        sales={sales}
-        openSale={(saleId) => openSaleDetail(saleId, "sales")}
-        voidSale={handleVoidSale}
-        refundSale={handleRefundSale}
-      />
-    ),
+    sales: salesScreen,
+    saleDetail: salesScreen,
     products: (
       <ProductsScreen
         products={products}
-        categories={categoryNames}
+        categories={categoryFilterOptions}
+        categoryIndex={categoryIndex}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         category={catalogCategory}
         query={catalogQuery}
-        userDisplayName={tenantContext.user.displayName}
-        userEmail={tenantContext.user.email}
         setCategory={setCatalogCategory}
         setQuery={setCatalogQuery}
         openEditor={openEditor}
-        openCategories={() => setView("categories")}
-        onImport={openImport}
+        openCategories={() => navigate({ view: "categories" })}
         restoreProduct={async (productId) => {
           const tenant = tenantContext.tenant;
           if (!tenant) {
-            showToast("Tu cuenta aún no está configurada.", "danger");
+            showToast("Tu puesto aún no está configurado.", "danger");
             return;
           }
           const work = beginTenantWork();
@@ -1502,7 +1603,7 @@ export function GlitterPosApp({
       <CategoriesScreen
         categories={categories}
         products={products}
-        back={() => setView("products")}
+        back={() => back({ view: "products" })}
         createCategory={handleCreateCategory}
         renameCategory={handleRenameCategory}
         deleteCategory={handleDeleteCategory}
@@ -1511,8 +1612,7 @@ export function GlitterPosApp({
     more: (
       <MoreScreen
         tenantContext={tenantContext}
-        openReports={() => setView("reports")}
-        openSettings={() => setView("settings")}
+        openSettings={() => navigate({ view: "settings" })}
       />
     ),
     settings: (
@@ -1523,61 +1623,52 @@ export function GlitterPosApp({
         activeInvitation={activeInvitationState}
         inviteOrigin={inviteOrigin}
         onInvitationChange={setActiveInvitationState}
-        productCount={activeProducts.length}
-        saleCount={sales.filter((sale) => sale.status === "completed").length}
-        pendingCount={sales.length}
-        openDiagnostics={() => {
-          setPreviousView("settings");
-          setView("diagnostics");
-        }}
+        openDiagnostics={() => navigate({ view: "diagnostics" })}
+        back={() => back({ view: "more" })}
       />
     ),
-    cart: (
-      <CartScreen
-        cartDetails={cartDetails}
-        subtotal={cartSubtotal}
-        decrementCart={decrementCart}
-        addToCart={addToCart}
-        removeFromCart={removeFromCart}
-        setLineDiscount={setLineDiscount}
-        clearCart={() => {
-          clearCart();
-          if (powerSyncDb) {
-            void clearDraftCartLocal(powerSyncDb);
-          }
-          showToast("Carrito vaciado", "info");
-          setView("sell");
-        }}
-        back={() => setView("sell")}
-        charge={() => setView("payment")}
-      />
-    ),
-    payment: (
-      <PaymentScreen
+    checkout: (
+      <CheckoutScreen
+        lines={cartDetails}
         subtotal={cartSubtotal}
         count={cartCount}
-        back={() => setView("sell")}
+        back={() => back({ view: "sell" })}
         pay={handlePayment}
         isSubmitting={isCheckingOut}
       />
     ),
-    editor: (
+    saleComplete: completedSale ? (
+      <SaleCompleteScreen
+        sale={completedSale}
+        storeName={tenantContext.tenant?.name}
+        newSale={() => navigate({ view: "sell" }, { replace: true })}
+        openSale={openSaleDetail}
+        notify={showToast}
+      />
+    ) : null,
+    editor: editorProductMissing ? (
+      <MissingRecordScreen
+        title="Producto no encontrado"
+        body="El producto ya no está disponible en este dispositivo."
+        back={closeEditor}
+      />
+    ) : (
       <ProductEditor
+        key={editorProductId ?? "new"}
         product={editingProduct}
         categories={categories}
+        defaultCategoryId={newProductCategoryId}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         hasInitialMovement={editorHasInitialMovement}
         onInventoryMovement={handleInventoryMovement}
-        back={() =>
-          setView(previousView === "sell" ? "products" : previousView)
-        }
+        back={closeEditor}
         createCategory={handleCreateCategory}
         save={handleSaveProduct}
         archive={async (productId) => {
           const tenant = tenantContext.tenant;
           if (!tenant) {
-            showToast("Tu cuenta aún no está configurada.", "danger");
+            showToast("Tu puesto aún no está configurado.", "danger");
             return;
           }
           const work = beginTenantWork();
@@ -1598,7 +1689,7 @@ export function GlitterPosApp({
             }
             work.assertCurrent();
             showToast("Producto archivado", "info");
-            setView("products");
+            closeEditor();
           } catch (error) {
             if (!work.isCurrent()) {
               return;
@@ -1613,41 +1704,42 @@ export function GlitterPosApp({
         }}
       />
     ),
-    saleDetail: (
-      <SaleDetailScreen
-        sale={selectedSale}
-        sales={sales}
-        back={() => setView(saleDetailReturnView)}
-        voidSale={handleVoidSale}
-        refundSale={handleRefundSale}
-      />
-    ),
     diagnostics: (
       <DiagnosticsScreen
         tenantContext={tenantContext}
-        back={() => setView("settings")}
+        localCounts={{
+          activeProducts: activeProducts.length,
+          archivedProducts: products.length - activeProducts.length,
+          completedSales: sales.filter((sale) => sale.status === "completed")
+            .length,
+          saleRecords: sales.length,
+        }}
+        back={() => back({ view: "settings" })}
       />
     ),
-  }[view];
+  };
+  const activePrimary = primaryViewFor(view);
 
   return (
-    <main className="app-shell">
-      <div className="phone-frame">
-        {content}
-        <SyncStatusPill />
-        {["sell", "sales", "reports", "products", "more", "settings"].includes(
-          view
-        ) ? (
-          <BottomNav view={view} setView={(nextView) => setView(nextView)} />
+    // --app-height is set by useVirtualKeyboard while the keyboard is open.
+    <div className="flex h-[var(--app-height,100dvh)] overflow-hidden bg-background">
+      <SideNav
+        active={activePrimary}
+        onNavigate={goToPrimary}
+        tenantName={tenantContext.tenant?.name}
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <main className="relative min-h-0 flex-1">{content[view]}</main>
+        {isPrimaryView(view) ? (
+          <BottomNav active={activePrimary} onNavigate={goToPrimary} />
         ) : null}
-        <Toaster
-          richColors
-          position="bottom-center"
-          offset={{ bottom: "88px" }}
-          mobileOffset={{ bottom: "88px" }}
-          duration={2600}
-        />
       </div>
-    </main>
+      <Toaster
+        richColors
+        // Phones: top, clear of the checkout bar and bottom nav.
+        position={isDesktop ? "bottom-right" : "top-center"}
+        duration={2600}
+      />
+    </div>
   );
 }

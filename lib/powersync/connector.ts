@@ -43,7 +43,66 @@ const FATAL_RESPONSE_CODES = [
   /^23\d{3}$/,
   // INSUFFICIENT PRIVILEGE — typically an RLS denial.
   /^42501$/,
+  // UNDEFINED COLUMN (Postgres) / column not in the schema cache (PostgREST):
+  // the app and database schemas are out of step (e.g. an app deployed before
+  // its migration). Surface it instead of retrying silently forever.
+  /^42703$/,
+  /^PGRST204$/,
 ];
+
+// Catalog-only rejections that converge on their own: completing the op lets
+// the next checkpoint drop or restore the local row from server data, instead
+// of blocking every later upload (sales included) behind it. Financial tables
+// are never listed here.
+//   - categories PUT/PATCH hitting the per-tenant name index: another device
+//     already has that name. After a rejected create, products that reference
+//     the unknown id resolve to the existing category by name server-side
+//     (supabase/manual/20260929030700_product_category_ids.sql); after a
+//     rejected rename, the category keeps its server name and its products.
+//   - categories DELETE refused by the products FK: another device still has
+//     products in it; the category comes back at the next sync.
+const CONVERGENT_CATALOG_REJECTIONS: {
+  table: string;
+  ops: UpdateType[];
+  code: string;
+  constraint: string;
+}[] = [
+  {
+    table: "categories",
+    ops: [UpdateType.PUT, UpdateType.PATCH],
+    code: "23505",
+    constraint: "categories_tenant_name_unique",
+  },
+  {
+    table: "categories",
+    ops: [UpdateType.DELETE],
+    code: "23503",
+    constraint: "products_category_id_tenant_id_categories_id_tenant_id_fk",
+  },
+];
+
+export function isConvergentCatalogRejection(
+  error: unknown,
+  op: Pick<CrudEntry, "table" | "op">
+): boolean {
+  if (!error || typeof error !== "object") return false;
+  const postgresError = error as {
+    code?: unknown;
+    details?: unknown;
+    message?: unknown;
+  };
+  const text = [postgresError.message, postgresError.details]
+    .filter((part): part is string => typeof part === "string")
+    .join(" ");
+
+  return CONVERGENT_CATALOG_REJECTIONS.some(
+    (rule) =>
+      rule.table === op.table &&
+      rule.ops.includes(op.op) &&
+      postgresError.code === rule.code &&
+      text.includes(`"${rule.constraint}"`)
+  );
+}
 
 function isFatalError(error: unknown): boolean {
   if (error instanceof InvalidUploadTransactionError) return true;
@@ -295,6 +354,13 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     }
 
     if (result.error) {
+      if (isConvergentCatalogRejection(result.error, op)) {
+        console.warn(
+          "[PowerSync] catalog change rejected by the server; it will be undone at the next sync",
+          { table: op.table, op: op.op, id: op.id, code: result.error.code }
+        );
+        return;
+      }
       throw result.error;
     }
   }

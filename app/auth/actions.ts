@@ -69,7 +69,7 @@ export async function signInWithPassword(
   if (error) {
     return {
       error:
-        "No se pudo iniciar sesión. Verifica tu correo electrónico y contraseña.",
+        "No se pudo iniciar sesión. Verificá tu correo electrónico y contraseña.",
     };
   }
 
@@ -154,7 +154,7 @@ export async function signUpWithPassword(
   const callbackUrl = origin ? buildAuthCallbackUrl(origin, next) : null;
 
   if (displayName.length < 2) {
-    return { error: "Escribe tu nombre completo para crear la cuenta." };
+    return { error: "Escribí tu nombre completo para crear la cuenta." };
   }
   if (password.length < 8) {
     return { error: "La contraseña debe tener al menos 8 caracteres." };
@@ -204,7 +204,7 @@ export async function signUpWithPassword(
       buildLoginRedirectPath(
         {
           message:
-            "Cuenta creada. Revisa tu correo electrónico para confirmarla y luego inicia sesión.",
+            "Cuenta creada. Revisá tu correo electrónico para confirmarla y luego iniciá sesión.",
         },
         next
       )

@@ -14,6 +14,8 @@ type SaleRowProps = {
   openSale: (saleId: string) => void;
   requestVoid: (sale: Sale) => void;
   requestRefund: (sale: Sale) => void;
+  /** Highlighted while its detail is open beside the list (desktop). */
+  selected?: boolean;
 };
 
 export function SaleRow({
@@ -24,6 +26,7 @@ export function SaleRow({
   openSale,
   requestVoid,
   requestRefund,
+  selected = false,
 }: SaleRowProps) {
   const amount = saleNetCents(sale);
   const isRefundRecord = Boolean(sale.refundOfSaleId);
@@ -31,13 +34,17 @@ export function SaleRow({
   return (
     <article
       className={cn(
-        "border-b border-border py-3.5 last:border-b-0",
+        "border-b border-border py-2 last:border-b-0",
         sale.status === "voided" && "opacity-60"
       )}
     >
       <button
         type="button"
-        className="grid w-full grid-cols-[46px_1fr_auto] gap-x-2.5 text-left"
+        className={cn(
+          "-mx-2 grid w-[calc(100%+1rem)] grid-cols-[46px_minmax(0,1fr)_auto] gap-x-2.5 rounded-xl px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          selected && "bg-primary/10 hover:bg-primary/10"
+        )}
+        aria-current={selected ? "true" : undefined}
         onClick={() => openSale(sale.id)}
       >
         <span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
@@ -55,7 +62,7 @@ export function SaleRow({
             {relativeTime(sale.createdAt)} · {paymentLabels[sale.paymentMethod]}
             {statusLabel !== "Completada" ? ` · ${statusLabel}` : ""}
           </span>
-          <small className="block max-w-[190px] truncate text-sm text-muted-foreground">
+          <small className="block truncate text-sm text-muted-foreground">
             {sale.lines
               .map((line) => `${line.quantity}x ${line.productName}`)
               .join(", ")}

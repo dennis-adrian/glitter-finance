@@ -20,7 +20,7 @@ function InvalidInvitationScreen() {
       <section className="w-full max-w-[420px] rounded-2xl bg-card p-6 text-center ring-1 ring-foreground/10">
         <h1 className="text-xl font-bold">Esta invitación ya no es válida</h1>
         <p className="mt-3 text-sm leading-snug text-muted-foreground">
-          El enlace puede haber caducado o haber sido revocado. Pide un enlace
+          El enlace puede haber caducado o haber sido revocado. Pedí un enlace
           nuevo a quien te invitó.
         </p>
         <Link

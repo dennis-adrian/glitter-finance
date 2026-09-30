@@ -8,7 +8,7 @@ export function validateCategoryName(value: string) {
   const name = normalizeCategoryName(value);
 
   if (!name) {
-    throw new Error("Escribe un nombre para la categoría.");
+    throw new Error("Escribí un nombre para la categoría.");
   }
   if (name.length > categoryNameMaxLength) {
     throw new Error(
@@ -17,6 +17,11 @@ export function validateCategoryName(value: string) {
   }
 
   return name;
+}
+
+/** Comparison key for category names: normalized and case-insensitive. */
+export function categoryNameKey(value: string) {
+  return normalizeCategoryName(value).toLocaleLowerCase("es");
 }
 
 export function categoryNamesMatch(first: string, second: string) {

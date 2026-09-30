@@ -105,7 +105,9 @@ export function formatDateInputInBolivia(now = new Date()) {
 }
 
 export function formatDateLabelInBolivia(iso: string) {
-  return boliviaDateLabelFormatter.format(new Date(iso));
+  const label = boliviaDateLabelFormatter.format(new Date(iso));
+  // Sentence case: only the weekday is capitalized ("Sábado, 26 de septiembre").
+  return label.charAt(0).toLocaleUpperCase("es-BO") + label.slice(1);
 }
 
 export function resolveSalesRange(
@@ -121,7 +123,7 @@ export function resolveSalesRange(
     if (!start || !end) {
       return {
         bounds: null,
-        error: "Elige una fecha de inicio y una fecha final.",
+        error: "Elegí una fecha de inicio y una fecha final.",
       };
     }
 
@@ -178,7 +180,10 @@ export function relativeTime(iso: string) {
   const minutes = minutesSince(iso);
   if (minutes < 1) return "Ahora";
   if (minutes < 60) return `Hace ${minutes} min`;
-  if (minutes < 1440) return `Hace ${Math.floor(minutes / 60)} hora`;
+  if (minutes < 1440) {
+    const hours = Math.floor(minutes / 60);
+    return `Hace ${hours} ${hours === 1 ? "hora" : "horas"}`;
+  }
   return new Intl.DateTimeFormat("es-BO", {
     timeZone: BOLIVIA_TIME_ZONE,
     day: "2-digit",

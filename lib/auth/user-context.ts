@@ -32,7 +32,7 @@ export async function setActiveTenantClaim(user: User, tenantId: string) {
     app_metadata: { ...(user.app_metadata ?? {}), tenant_id: tenantId },
   });
   if (error) {
-    throw new Error("No se pudo actualizar la cuenta activa.");
+    throw new Error("No se pudo actualizar el puesto activo.");
   }
 }
 
@@ -121,7 +121,7 @@ export async function ensureMembership(
 export async function assertUserIsMember(userId: string, tenantId: string) {
   const memberships = await loadAllMemberships(db, userId);
   if (!memberships.some((membership) => membership.tenantId === tenantId)) {
-    throw new Error("No perteneces a esta cuenta.");
+    throw new Error("No pertenecés a este puesto.");
   }
 }
 
@@ -230,14 +230,14 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
     const [tenant] = await tx
       .insert(tenants)
       .values({
-        name: `Cuenta de ${displayName}`,
+        name: `Puesto de ${displayName}`,
         createdByUserId: user.id,
       })
       .returning({ id: tenants.id, name: tenants.name });
 
     if (!tenant) {
       throw new Error(
-        "No se pudo crear una cuenta para el usuario autenticado."
+        "No se pudo crear un puesto para el usuario autenticado."
       );
     }
 

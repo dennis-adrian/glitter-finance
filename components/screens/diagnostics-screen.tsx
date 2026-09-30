@@ -6,15 +6,11 @@
 // the queue) and a "Copiar diagnóstico" action that dumps everything as
 // JSON to the clipboard. Per PRD §8 + §14.
 
-import {
-  AlertTriangle,
-  ChevronLeft,
-  RefreshCw,
-  ClipboardCopy,
-} from "lucide-react";
+import { AlertTriangle, RefreshCw, ClipboardCopy } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Header } from "@/components/atoms/header";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -91,11 +87,19 @@ function readDeviceInfoSync(): DeviceInfo {
 
 type DiagnosticsScreenProps = {
   tenantContext: UserTenantContext;
+  /** Records currently loaded on this device, for support. */
+  localCounts: {
+    activeProducts: number;
+    archivedProducts: number;
+    completedSales: number;
+    saleRecords: number;
+  };
   back: () => void;
 };
 
 export function DiagnosticsScreen({
   tenantContext,
+  localCounts,
   back,
 }: DiagnosticsScreenProps) {
   const db = useOptionalPowerSyncDb();
@@ -255,21 +259,10 @@ export function DiagnosticsScreen({
   }
 
   return (
-    <section className="screen">
-      <Header
-        title="Diagnósticos"
-        left={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={back}
-            aria-label="Volver"
-          >
-            <ChevronLeft className="size-6" />
-          </Button>
-        }
-      />
-
+    <Screen
+      width="narrow"
+      header={<ScreenHeader title="Diagnósticos" onBack={back} />}
+    >
       {snapshot.failures.length ? (
         <div
           className="mt-3 flex gap-2 rounded-xl border border-destructive/35 bg-destructive/10 p-3 text-sm text-destructive"
@@ -280,7 +273,7 @@ export function DiagnosticsScreen({
             {snapshot.failures.length === 1
               ? "1 transacción no llegó a la nube."
               : `${snapshot.failures.length} transacciones no llegaron a la nube.`}{" "}
-            Copia este diagnóstico y no cierres sesión ni cambies de cuenta
+            Copiá este diagnóstico y no cierres sesión ni cambies de puesto
             hasta{" "}
             {snapshot.failures.length === 1 ? "recuperarla" : "recuperarlas"}.
           </span>
@@ -339,9 +332,9 @@ export function DiagnosticsScreen({
       </DiagPanel>
 
       <DiagPanel title="Identidad">
-        <DiagRow label="Cuenta" value={tenantContext.tenant?.id ?? "—"} mono />
+        <DiagRow label="Puesto" value={tenantContext.tenant?.id ?? "—"} mono />
         <DiagRow
-          label="Nombre de la cuenta"
+          label="Nombre del puesto"
           value={tenantContext.tenant?.name ?? "—"}
         />
         <DiagRow label="Usuario" value={tenantContext.user.id} mono />
@@ -349,6 +342,25 @@ export function DiagnosticsScreen({
         <DiagRow
           label="Correo electrónico"
           value={tenantContext.user.email ?? "—"}
+        />
+      </DiagPanel>
+
+      <DiagPanel title="Datos en este dispositivo">
+        <DiagRow
+          label="Productos activos"
+          value={String(localCounts.activeProducts)}
+        />
+        <DiagRow
+          label="Productos archivados"
+          value={String(localCounts.archivedProducts)}
+        />
+        <DiagRow
+          label="Ventas completadas"
+          value={String(localCounts.completedSales)}
+        />
+        <DiagRow
+          label="Registros de ventas"
+          value={String(localCounts.saleRecords)}
         />
       </DiagPanel>
 
@@ -382,7 +394,7 @@ export function DiagnosticsScreen({
           {copyConfirmed ? "Copiado" : "Copiar diagnóstico"}
         </Button>
       </div>
-    </section>
+    </Screen>
   );
 }
 

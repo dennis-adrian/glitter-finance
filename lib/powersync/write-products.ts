@@ -8,7 +8,7 @@
 // The metadata write to products.image_path stays in the local SQLite store,
 // which PowerSync replicates to Postgres alongside other product writes.
 
-import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { encodePlaceholderImagePath } from "@/lib/product-mapper";
 import {
@@ -18,7 +18,6 @@ import {
   productImagesBucket,
 } from "@/lib/product-image-config";
 import type { ProductInput } from "@/lib/types";
-import { validateCategoryName } from "@/lib/categories/validation";
 
 const imageExtensionByMimeType: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -40,23 +39,27 @@ function resolveInputImagePath(input: ProductInput): string {
   return input.imagePath as string;
 }
 
-async function resolveProductCategoryLocal(
-  db: AbstractPowerSyncDatabase,
+async function findCategoryLocal(
+  db: Pick<AbstractPowerSyncDatabase, "getAll"> | Pick<Transaction, "getAll">,
   tenantId: string,
-  inputName: string
+  categoryId: string | null
 ) {
-  const name = validateCategoryName(inputName);
-  const rows = await db.getAll<{ name: string }>(
-    `SELECT name FROM categories
-     WHERE tenant_id = ? AND lower(name) = lower(?) LIMIT 1`,
-    [tenantId, name]
+  if (!categoryId) {
+    throw new Error("Seleccioná una categoría válida.");
+  }
+  const rows = await db.getAll<{ id: string; name: string }>(
+    `SELECT id, name FROM categories WHERE id = ? AND tenant_id = ? LIMIT 1`,
+    [categoryId, tenantId]
   );
   if (!rows[0]) {
-    throw new Error("Selecciona una categoría válida.");
+    throw new Error("Seleccioná una categoría válida.");
   }
-  return rows[0].name;
+  return rows[0];
 }
 
+// Products carry both the category id and its name: the id is the source of
+// truth and the name lets the server link the row if the category upload
+// was rejected (see supabase/manual/20260929030700_product_category_ids.sql).
 export async function createProductLocal(
   db: AbstractPowerSyncDatabase,
   input: {
@@ -68,24 +71,26 @@ export async function createProductLocal(
   const productId = uuid();
   const now = nowIso();
   input.assertCurrent?.();
-  const category = await resolveProductCategoryLocal(
+  const category = await findCategoryLocal(
     db,
     input.tenantId,
-    input.product.category
+    input.product.categoryId
   );
   input.assertCurrent?.();
   await db.execute(
     `INSERT INTO products
-      (id, tenant_id, name, price_cents, cost_cents, category, image_path,
-       tracks_inventory, low_stock_threshold, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, tenant_id, name, price_cents, cost_cents, category_id, category,
+       image_path, tracks_inventory, low_stock_threshold, created_at,
+       updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       productId,
       input.tenantId,
       input.product.name,
       input.product.priceCents,
       input.product.costCents,
-      category,
+      category.id,
+      category.name,
       resolveInputImagePath(input.product),
       input.product.tracksInventory ? 1 : 0,
       input.product.lowStockThreshold ?? null,
@@ -106,31 +111,55 @@ export async function updateProductLocal(
   }
 ): Promise<void> {
   input.assertCurrent?.();
-  const category = await resolveProductCategoryLocal(
-    db,
-    input.tenantId,
-    input.product.category
-  );
-  input.assertCurrent?.();
-  await db.execute(
-    `UPDATE products
-       SET name = ?, price_cents = ?, cost_cents = ?, category = ?,
-           image_path = ?, tracks_inventory = ?, low_stock_threshold = ?,
-           updated_at = ?
-     WHERE id = ? AND tenant_id = ?`,
-    [
+  await db.writeTransaction(async (tx) => {
+    const rows = await tx.getAll<{ category_id: string | null }>(
+      `SELECT category_id FROM products WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [input.productId, input.tenantId]
+    );
+    const current = rows[0];
+    if (!current) {
+      throw new Error("No se encontró el producto.");
+    }
+
+    // Only write the category columns when the category actually changes,
+    // so edits don't depend on categories having synced and the upload
+    // doesn't look like a category move to the server.
+    const nextCategoryId = input.product.categoryId;
+    const category =
+      nextCategoryId === null || nextCategoryId === current.category_id
+        ? null
+        : await findCategoryLocal(tx, input.tenantId, nextCategoryId);
+
+    const assignments = [
+      "name = ?",
+      "price_cents = ?",
+      "cost_cents = ?",
+      ...(category ? ["category_id = ?", "category = ?"] : []),
+      "image_path = ?",
+      "tracks_inventory = ?",
+      "low_stock_threshold = ?",
+      "updated_at = ?",
+    ];
+    const values = [
       input.product.name,
       input.product.priceCents,
       input.product.costCents,
-      category,
+      ...(category ? [category.id, category.name] : []),
       resolveInputImagePath(input.product),
       input.product.tracksInventory ? 1 : 0,
       input.product.lowStockThreshold ?? null,
       nowIso(),
       input.productId,
       input.tenantId,
-    ]
-  );
+    ];
+
+    input.assertCurrent?.();
+    await tx.execute(
+      `UPDATE products SET ${assignments.join(", ")}
+       WHERE id = ? AND tenant_id = ?`,
+      values
+    );
+  });
 }
 
 export async function archiveProductLocal(
