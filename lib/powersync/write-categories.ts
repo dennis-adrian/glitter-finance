@@ -1,43 +1,102 @@
+// Local-first category writes. Mirror lib/categories/repository.ts, but write
+// to the per-device PowerSync SQLite store; PowerSync's CRUD queue uploads
+// the changes to Supabase via SupabaseConnector.uploadData.
+//
+// A rename also renames the category on this device's products, setting their
+// updated_at like every product UPDATE (see lib/powersync/write-products.ts).
+// Postgres renames them too (supabase/manual/
+// 20260814235910_category_integrity_triggers.sql), for products this device
+// has not synced yet.
+
 import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
+import { UserFacingError } from "@/lib/action-result";
 import { validateCategoryName } from "@/lib/categories/validation";
+import { nowIso } from "@/lib/dates";
+import {
+  mapLocalCategoryRow,
+  type LocalCategoryRow,
+} from "@/lib/powersync/categories-from-local";
 import type { Category } from "@/lib/types";
 
-type CategoryRow = {
-  id: string;
-  tenant_id: string;
-  name: string;
-  created_at: string;
-  updated_at: string;
-};
+const CATEGORY_NOT_FOUND_MESSAGE = "No se encontró la categoría.";
+const DUPLICATE_CATEGORY_MESSAGE = "Ya existe una categoría con ese nombre.";
 
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function categoryFromRow(row: CategoryRow): Category {
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    name: row.name,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
+/**
+ * Before the first sync completes, the local store holds only this device's
+ * own categories, so one listed from the server-rendered catalog may not be
+ * there yet (like PRODUCT_NOT_ON_DEVICE_MESSAGE for products).
+ */
+export const CATEGORY_NOT_ON_DEVICE_MESSAGE =
+  "Las categorías todavía se están sincronizando en este dispositivo. Intentalo de nuevo en un momento.";
 
 async function findDuplicate(
-  db: Pick<AbstractPowerSyncDatabase, "getAll"> | Pick<Transaction, "getAll">,
+  tx: Pick<Transaction, "getOptional">,
   tenantId: string,
   name: string,
   excludedId?: string
 ) {
-  const rows = await db.getAll<{ id: string }>(
+  return tx.getOptional<{ id: string }>(
     `SELECT id FROM categories
      WHERE tenant_id = ? AND lower(name) = lower(?)
        AND (? IS NULL OR id <> ?)
      LIMIT 1`,
     [tenantId, name, excludedId ?? null, excludedId ?? null]
   );
-  return rows[0] ?? null;
+}
+
+function hasSynced(db: Pick<AbstractPowerSyncDatabase, "currentStatus">) {
+  return db.currentStatus?.hasSynced ?? false;
+}
+
+/**
+ * The category being renamed or deleted. `hasSynced` is whether the device
+ * has completed its first sync: before it, a category listed from the
+ * server-rendered catalog may simply not be on this device yet.
+ */
+async function findCategory(
+  tx: Pick<Transaction, "getOptional">,
+  input: { tenantId: string; categoryId: string; hasSynced: boolean }
+) {
+  const row = await tx.getOptional<LocalCategoryRow>(
+    `SELECT id, tenant_id, name, created_at, updated_at
+     FROM categories WHERE id = ? AND tenant_id = ?`,
+    [input.categoryId, input.tenantId]
+  );
+  if (!row) {
+    throw new UserFacingError(
+      input.hasSynced
+        ? CATEGORY_NOT_FOUND_MESSAGE
+        : CATEGORY_NOT_ON_DEVICE_MESSAGE
+    );
+  }
+  return row;
+}
+
+/**
+ * The tenant's category matching `inputName` (ignoring case), as the tenant
+ * spelled it: the local counterpart of resolveCategoryNameForTenant, for the
+ * product writers' transactions. `hasSynced` is whether the device has
+ * completed its first sync, and so holds every category.
+ */
+export async function resolveCategoryNameLocal(
+  tx: Pick<Transaction, "getOptional">,
+  input: { tenantId: string; name: string; hasSynced: boolean }
+) {
+  const name = validateCategoryName(input.name);
+  const row = await tx.getOptional<{ name: string }>(
+    `SELECT name FROM categories
+     WHERE tenant_id = ? AND lower(name) = lower(?)
+     LIMIT 1`,
+    [input.tenantId, name]
+  );
+  if (!row) {
+    throw new UserFacingError(
+      input.hasSynced
+        ? "Elegí una categoría válida."
+        : CATEGORY_NOT_ON_DEVICE_MESSAGE
+    );
+  }
+  return row.name;
 }
 
 export async function createCategoryLocal(
@@ -49,28 +108,36 @@ export async function createCategoryLocal(
   }
 ): Promise<Category> {
   const name = validateCategoryName(input.name);
-  input.assertCurrent?.();
-  if (await findDuplicate(db, input.tenantId, name)) {
-    throw new Error("Ya existe una categoría con ese nombre.");
-  }
-
-  const id = crypto.randomUUID();
   const now = nowIso();
-  input.assertCurrent?.();
-  await db.execute(
-    `INSERT INTO categories
-      (id, tenant_id, name, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [id, input.tenantId, name, now, now]
-  );
-
-  return {
-    id,
+  const category: Category = {
+    id: crypto.randomUUID(),
     tenantId: input.tenantId,
     name,
     createdAt: now,
     updatedAt: now,
   };
+
+  await db.writeTransaction(async (tx) => {
+    input.assertCurrent?.();
+    if (await findDuplicate(tx, input.tenantId, name)) {
+      throw new UserFacingError(DUPLICATE_CATEGORY_MESSAGE);
+    }
+    input.assertCurrent?.();
+    await tx.execute(
+      `INSERT INTO categories
+        (id, tenant_id, name, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        category.id,
+        category.tenantId,
+        category.name,
+        category.createdAt,
+        category.updatedAt,
+      ]
+    );
+  });
+
+  return category;
 }
 
 export async function renameCategoryLocal(
@@ -83,20 +150,15 @@ export async function renameCategoryLocal(
   }
 ): Promise<Category> {
   const name = validateCategoryName(input.name);
-  input.assertCurrent?.();
 
   return db.writeTransaction(async (tx) => {
-    const rows = await tx.getAll<CategoryRow>(
-      `SELECT id, tenant_id, name, created_at, updated_at
-       FROM categories WHERE id = ? AND tenant_id = ? LIMIT 1`,
-      [input.categoryId, input.tenantId]
-    );
-    const current = rows[0];
-    if (!current) {
-      throw new Error("No se encontró la categoría.");
-    }
+    const current = await findCategory(tx, {
+      tenantId: input.tenantId,
+      categoryId: input.categoryId,
+      hasSynced: hasSynced(db),
+    });
     if (await findDuplicate(tx, input.tenantId, name, input.categoryId)) {
-      throw new Error("Ya existe una categoría con ese nombre.");
+      throw new UserFacingError(DUPLICATE_CATEGORY_MESSAGE);
     }
 
     const updatedAt = nowIso();
@@ -112,7 +174,7 @@ export async function renameCategoryLocal(
       [name, updatedAt, input.tenantId, current.name]
     );
 
-    return categoryFromRow({ ...current, name, updated_at: updatedAt });
+    return mapLocalCategoryRow({ ...current, name, updated_at: updatedAt });
   });
 }
 
@@ -124,27 +186,21 @@ export async function deleteCategoryLocal(
     assertCurrent?: () => void;
   }
 ): Promise<void> {
-  input.assertCurrent?.();
-
   await db.writeTransaction(async (tx) => {
-    const rows = await tx.getAll<CategoryRow>(
-      `SELECT id, tenant_id, name, created_at, updated_at
-       FROM categories WHERE id = ? AND tenant_id = ? LIMIT 1`,
-      [input.categoryId, input.tenantId]
-    );
-    const category = rows[0];
-    if (!category) {
-      throw new Error("No se encontró la categoría.");
-    }
+    const category = await findCategory(tx, {
+      tenantId: input.tenantId,
+      categoryId: input.categoryId,
+      hasSynced: hasSynced(db),
+    });
 
-    const usedBy = await tx.getAll<{ id: string }>(
+    const usedBy = await tx.getOptional<{ id: string }>(
       `SELECT id FROM products
        WHERE tenant_id = ? AND category = ? LIMIT 1`,
       [input.tenantId, category.name]
     );
-    if (usedBy.length > 0) {
-      throw new Error(
-        "Mueve los productos a otra categoría antes de eliminarla."
+    if (usedBy) {
+      throw new UserFacingError(
+        "Mové los productos a otra categoría antes de eliminarla."
       );
     }
 

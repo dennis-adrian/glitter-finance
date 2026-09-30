@@ -4,54 +4,76 @@
 // useful bug report — sync state, upload queue, identity, device info —
 // plus a "Forzar sincronización" action that reconnects PowerSync (kicking
 // the queue) and a "Copiar diagnóstico" action that dumps everything as
-// JSON to the clipboard. Per PRD §8 + §14.
+// JSON to the clipboard, or, when the clipboard fails, into a selectable text
+// box with a download button. Per PRD §8 + §14.
+//
+// Each transaction the server permanently rejected is listed with its error
+// and a confirmed "Descartar operación" action, the way out when retrying
+// cannot succeed (see lib/powersync/discard-sync-failure.ts). A transaction the
+// server only defers until its clock catches up (lib/powersync/upload-holds.ts)
+// is explained instead: it needs no action and cannot be discarded. After the
+// active tenant changed on another device, reconnecting cannot help, so the
+// screen explains that and offers the reload that can.
 
 import {
   AlertTriangle,
-  ChevronLeft,
+  ArrowLeftRight,
+  Clock,
   RefreshCw,
   ClipboardCopy,
+  Download,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import { BackButton } from "@/components/atoms/back-button";
 import { Header } from "@/components/atoms/header";
+import { DiscardSyncFailureDialog } from "@/components/molecules/discard-sync-failure-dialog";
+import { ReloadAppButton } from "@/components/molecules/reload-app-button";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   useOptionalPowerSyncDb,
   usePowerSyncControls,
 } from "@/components/providers/powersync-provider";
-import type { UserTenantContext } from "@/lib/auth/user-context";
+import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import {
+  formatDateInputInBolivia,
+  formatDateTimeInBolivia,
+  formatDateTimeLabelInBolivia,
+} from "@/lib/dates";
+import { downloadJsonFile } from "@/lib/download-json";
+import { reportClientFailure } from "@/lib/observability/report-client-failure";
+import {
+  discardSyncFailure,
+  SyncFailureDiscardError,
+  type DiscardSyncFailureResult,
+} from "@/lib/powersync/discard-sync-failure";
+import {
+  describeSyncFailure,
+  getDiscardedSyncFailures,
   getUnresolvedSyncFailures,
-  reconcileSyncFailures,
   type SyncFailure,
 } from "@/lib/powersync/sync-failures";
+import { describeUploadHold } from "@/lib/powersync/upload-holds";
+import {
+  useSyncStatus,
+  useSyncStatusStore,
+} from "@/lib/powersync/use-sync-status";
 
-type Snapshot = {
-  connected: boolean;
-  hasSynced: boolean;
-  lastSyncedAt: string | null;
-  uploading: boolean;
-  downloading: boolean;
-  uploadError: string | null;
-  downloadError: string | null;
-  pendingCount: number;
+type QueueDetails = {
   pendingBytes: number | null;
   failures: SyncFailure[];
+  discarded: SyncFailure[];
 };
 
-const emptySnapshot: Snapshot = {
-  connected: false,
-  hasSynced: false,
-  lastSyncedAt: null,
-  uploading: false,
-  downloading: false,
-  uploadError: null,
-  downloadError: null,
-  pendingCount: 0,
+const emptyQueueDetails: QueueDetails = {
   pendingBytes: null,
   failures: [],
+  discarded: [],
 };
 
 function formatBytes(bytes: number | null): string {
@@ -89,6 +111,11 @@ function readDeviceInfoSync(): DeviceInfo {
   };
 }
 
+/** Saves the diagnostic as a file, for when the clipboard is unavailable. */
+function downloadDiagnostic(json: string) {
+  downloadJsonFile(json, `diagnostico-${formatDateInputInBolivia()}.json`);
+}
+
 type DiagnosticsScreenProps = {
   tenantContext: UserTenantContext;
   back: () => void;
@@ -100,87 +127,72 @@ export function DiagnosticsScreen({
 }: DiagnosticsScreenProps) {
   const db = useOptionalPowerSyncDb();
   const controls = usePowerSyncControls();
-  const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot);
-  const lastFailuresRef = useRef<SyncFailure[]>([]);
+  const sync = useSyncStatus();
+  const syncStatusStore = useSyncStatusStore();
+  const [queueDetails, setQueueDetails] = useState<{
+    db: AbstractPowerSyncDatabase;
+    details: QueueDetails;
+  } | null>(null);
   const [device, setDevice] = useState<DeviceInfo>(readDeviceInfoSync);
   const [reconnecting, setReconnecting] = useState(false);
   const [copyConfirmed, setCopyConfirmed] = useState(false);
+  // The diagnostic as text, shown when copying it failed.
+  const [copyFallback, setCopyFallback] = useState<string | null>(null);
+  const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
+  const [discarding, setDiscarding] = useState<SyncFailure | null>(null);
+  // Bumped after a discard, which does not always change the counts.
+  const [detailsVersion, setDetailsVersion] = useState(0);
+  const { pendingCount, failureCount } = sync;
+  const details =
+    queueDetails && queueDetails.db === db
+      ? queueDetails.details
+      : emptyQueueDetails;
 
-  // Sync state — re-fetch on status changes plus a 2s poll for the queue
-  // count, which isn't part of the status event stream.
+  // The status itself is shared (useSyncStatus). The queue size and the
+  // failure records are read again only when the counts change: summing the
+  // queue reads every pending operation.
   useEffect(() => {
-    lastFailuresRef.current = [];
-    if (!db) {
-      setSnapshot(emptySnapshot);
-      return;
-    }
+    if (!db) return;
     let cancelled = false;
 
-    async function refresh() {
-      if (cancelled || !db) return;
-      const status = db.currentStatus;
-      try {
-        await reconcileSyncFailures(db);
-      } catch (error) {
-        console.error("[Diagnostics] sync failure reconciliation failed", {
-          error,
-        });
-      }
+    async function loadQueueDetails(activeDb: AbstractPowerSyncDatabase) {
+      const [statsResult, failuresResult, discardedResult] =
+        await Promise.allSettled([
+          activeDb.getUploadQueueStats(true),
+          getUnresolvedSyncFailures(activeDb),
+          getDiscardedSyncFailures(activeDb),
+        ]);
       if (cancelled) return;
-      let pendingCount = 0;
-      let pendingBytes: number | null = null;
-      let failures = lastFailuresRef.current;
-      const [statsResult, failuresResult] = await Promise.allSettled([
-        db.getUploadQueueStats(true),
-        getUnresolvedSyncFailures(db),
-      ]);
-      if (cancelled) return;
-      if (statsResult.status === "fulfilled") {
-        pendingCount = statsResult.value.count;
-        pendingBytes = statsResult.value.size;
-      }
-      if (failuresResult.status === "fulfilled") {
-        failures = failuresResult.value;
-        lastFailuresRef.current = failures;
-      }
-      setSnapshot({
-        connected: status?.connected ?? false,
-        hasSynced: status?.hasSynced ?? false,
-        lastSyncedAt: status?.lastSyncedAt?.toISOString() ?? null,
-        uploading: status?.dataFlowStatus.uploading ?? false,
-        downloading: status?.dataFlowStatus.downloading ?? false,
-        uploadError: status?.dataFlowStatus.uploadError
-          ? String(
-              status.dataFlowStatus.uploadError.message ??
-                status.dataFlowStatus.uploadError
-            )
-          : null,
-        downloadError: status?.dataFlowStatus.downloadError
-          ? String(
-              status.dataFlowStatus.downloadError.message ??
-                status.dataFlowStatus.downloadError
-            )
-          : null,
-        pendingCount,
-        pendingBytes,
-        failures,
+      setQueueDetails((current) => {
+        const previous =
+          current?.db === activeDb ? current.details : emptyQueueDetails;
+        return {
+          db: activeDb,
+          details: {
+            pendingBytes:
+              statsResult.status === "fulfilled"
+                ? (statsResult.value.size ?? null)
+                : previous.pendingBytes,
+            // Keep the last list when the read fails, so the failures stay
+            // on screen.
+            failures:
+              failuresResult.status === "fulfilled"
+                ? failuresResult.value
+                : previous.failures,
+            discarded:
+              discardedResult.status === "fulfilled"
+                ? discardedResult.value
+                : previous.discarded,
+          },
+        };
       });
     }
 
-    const unregister = db.registerListener({
-      statusChanged: () => {
-        void refresh();
-      },
-    });
-    void refresh();
-    const interval = window.setInterval(refresh, 2000);
-
+    void loadQueueDetails(db);
     return () => {
       cancelled = true;
-      unregister();
-      window.clearInterval(interval);
     };
-  }, [db]);
+  }, [db, pendingCount, failureCount, detailsVersion]);
 
   // Device info — refresh on online/offline events and an async storage
   // estimate (StorageManager API isn't always available; falls back to "—").
@@ -220,6 +232,14 @@ export function DiagnosticsScreen({
     };
   }, []);
 
+  // Select the fallback text so it can be copied by hand right away.
+  useEffect(() => {
+    const textarea = copyFallbackRef.current;
+    if (!copyFallback || !textarea) return;
+    textarea.focus();
+    textarea.select();
+  }, [copyFallback]);
+
   async function handleReconnect() {
     if (!controls || reconnecting) return;
     setReconnecting(true);
@@ -227,15 +247,58 @@ export function DiagnosticsScreen({
       await controls.reconnect();
     } catch (error) {
       console.error("[Diagnostics] reconnect failed", error);
+      toast.error(
+        "No se pudo reconectar. Revisá la conexión e intentalo de nuevo."
+      );
     } finally {
       setReconnecting(false);
     }
   }
 
+  async function handleDiscard(failure: SyncFailure) {
+    if (!db || !controls) {
+      throw new Error("La base local no está disponible en este momento.");
+    }
+    let result: DiscardSyncFailureResult;
+    try {
+      // With uploads paused, a retry of this transaction still in flight
+      // finishes first; if it got through, there is nothing to discard.
+      result = await controls.withUploadsPaused((activeDb) =>
+        discardSyncFailure(activeDb, failure.id)
+      );
+    } catch (error) {
+      if (error instanceof SyncFailureDiscardError) throw error;
+      console.error("[Diagnostics] discard failed", error);
+      reportClientFailure("powersync_sync_failure_discard", error);
+      throw new Error("No se pudo descartar la operación. Intentalo de nuevo.");
+    } finally {
+      setDetailsVersion((version) => version + 1);
+      void syncStatusStore.refresh();
+    }
+    toast.success(
+      result.revertFailed
+        ? "Operación descartada. Sus cambios se deshacen en este dispositivo con la próxima sincronización."
+        : "Operación descartada"
+    );
+  }
+
   async function handleCopy() {
     const payload = {
       generatedAt: new Date().toISOString(),
-      sync: snapshot,
+      sync: {
+        connected: sync.connected,
+        hasSynced: sync.hasSynced,
+        lastSyncedAt: sync.lastSyncedAt?.toISOString() ?? null,
+        uploading: sync.uploading,
+        downloading: sync.downloading,
+        uploadError: sync.uploadError,
+        downloadError: sync.downloadError,
+        pendingCount: sync.pendingCount,
+        pendingBytes: details.pendingBytes,
+        uploadHold: sync.uploadHold,
+        failures: details.failures,
+        discardedFailures: details.discarded,
+      },
       identity: {
         tenantId: tenantContext.tenant?.id ?? null,
         tenantName: tenantContext.tenant?.name ?? null,
@@ -245,103 +308,185 @@ export function DiagnosticsScreen({
       },
       device,
     };
+    const json = JSON.stringify(payload, null, 2);
     try {
-      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      // Undefined outside secure contexts; it can also reject (permission,
+      // focus), and this copy is the recovery data for failed uploads.
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable");
+      }
+      await navigator.clipboard.writeText(json);
+      setCopyFallback(null);
       setCopyConfirmed(true);
       window.setTimeout(() => setCopyConfirmed(false), 1800);
     } catch (error) {
       console.error("[Diagnostics] copy failed", error);
+      setCopyFallback(json);
+      toast.error(
+        "No se pudo copiar el diagnóstico. Copialo desde abajo o descargalo."
+      );
+    }
+  }
+
+  function handleDownload(json: string) {
+    try {
+      downloadDiagnostic(json);
+    } catch (error) {
+      console.error("[Diagnostics] download failed", error);
+      toast.error(
+        "No se pudo descargar el diagnóstico. Seleccioná el texto y copialo."
+      );
     }
   }
 
   return (
     <section className="screen">
-      <Header
-        title="Diagnósticos"
-        left={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={back}
-            aria-label="Volver"
-          >
-            <ChevronLeft className="size-6" />
-          </Button>
-        }
-      />
+      <Header title="Diagnósticos" left={<BackButton back={back} />} />
 
-      {snapshot.failures.length ? (
+      {details.failures.length ? (
         <div
           className="mt-3 flex gap-2 rounded-xl border border-destructive/35 bg-destructive/10 p-3 text-sm text-destructive"
           role="alert"
         >
           <AlertTriangle className="mt-0.5 size-4.25 shrink-0" />
           <span>
-            {snapshot.failures.length === 1
+            {details.failures.length === 1
               ? "1 transacción no llegó a la nube."
-              : `${snapshot.failures.length} transacciones no llegaron a la nube.`}{" "}
-            Copia este diagnóstico y no cierres sesión ni cambies de cuenta
-            hasta{" "}
-            {snapshot.failures.length === 1 ? "recuperarla" : "recuperarlas"}.
+              : `${details.failures.length} transacciones no llegaron a la nube.`}{" "}
+            Copiá este diagnóstico y no cierres sesión ni cambies de puesto
+            hasta {details.failures.length === 1 ? "resolverla" : "resolverlas"}
+            : forzá la sincronización cuando el problema esté corregido, o
+            descartá la operación si la nube la sigue rechazando.
+          </span>
+        </div>
+      ) : sync.state === "tenant-changed" ? (
+        <div
+          className="mt-3 grid gap-2 rounded-xl border border-[var(--amber)]/35 bg-[var(--amber-surface)] p-3 text-sm text-[var(--amber)]"
+          role="status"
+        >
+          <span className="flex gap-2">
+            <ArrowLeftRight className="mt-0.5 size-4.25 shrink-0" />
+            <span>
+              Tu puesto activo cambió en otro dispositivo. Este dispositivo no
+              sincroniza hasta que recargues la app; al recargar, sube primero
+              lo pendiente y después abre el puesto activo.
+            </span>
+          </span>
+          <ReloadAppButton />
+        </div>
+      ) : sync.uploadHold ? (
+        <div
+          className="mt-3 flex gap-2 rounded-xl border border-[var(--amber)]/35 bg-[var(--amber-surface)] p-3 text-sm text-[var(--amber)]"
+          role="status"
+        >
+          <Clock className="mt-0.5 size-4.25 shrink-0" />
+          <span>
+            {describeUploadHold(sync.uploadHold)} No hace falta descartar nada:
+            la subida se reintenta sola.
           </span>
         </div>
       ) : null}
 
       <DiagPanel title="Sincronización">
-        <DiagRow label="Conectado" value={yesNo(snapshot.connected)} />
-        <DiagRow label="Sincronizado" value={yesNo(snapshot.hasSynced)} />
+        <DiagRow label="Conectado" value={yesNo(sync.connected)} />
+        <DiagRow label="Sincronizado" value={yesNo(sync.hasSynced)} />
         <DiagRow
           label="Última sincronización"
-          value={snapshot.lastSyncedAt ?? "—"}
-          mono
+          value={
+            sync.lastSyncedAt ? formatDateTimeInBolivia(sync.lastSyncedAt) : "—"
+          }
         />
-        <DiagRow label="Subiendo" value={yesNo(snapshot.uploading)} />
-        <DiagRow label="Bajando" value={yesNo(snapshot.downloading)} />
-        {snapshot.uploadError ? (
-          <DiagRow label="Error de subida" value={snapshot.uploadError} mono />
+        <DiagRow label="Subiendo" value={yesNo(sync.uploading)} />
+        <DiagRow label="Bajando" value={yesNo(sync.downloading)} />
+        {sync.uploadError ? (
+          <DiagRow label="Error de subida" value={sync.uploadError} mono />
         ) : null}
-        {snapshot.downloadError ? (
-          <DiagRow
-            label="Error de bajada"
-            value={snapshot.downloadError}
-            mono
-          />
+        {sync.downloadError ? (
+          <DiagRow label="Error de bajada" value={sync.downloadError} mono />
         ) : null}
       </DiagPanel>
 
       <DiagPanel title="Cola de subida">
         <DiagRow
           label="Operaciones pendientes"
-          value={String(snapshot.pendingCount)}
+          value={String(sync.pendingCount)}
         />
         <DiagRow
           label="Tamaño aproximado"
-          value={formatBytes(snapshot.pendingBytes)}
+          value={formatBytes(details.pendingBytes)}
         />
         <DiagRow
           label="Transacciones fallidas"
-          value={String(snapshot.failures.length)}
+          value={String(sync.failureCount)}
         />
-        {snapshot.failures[0] ? (
-          <>
-            <DiagRow
-              label="Último código"
-              value={snapshot.failures[0].errorCode ?? "—"}
-              mono
-            />
-            <DiagRow
-              label="Último error"
-              value={snapshot.failures[0].errorMessage}
-              mono
-            />
-          </>
+        {sync.uploadHold ? (
+          <DiagRow
+            label="En espera hasta"
+            value={
+              sync.uploadHold.heldUntil
+                ? formatDateTimeLabelInBolivia(sync.uploadHold.heldUntil)
+                : "—"
+            }
+          />
         ) : null}
       </DiagPanel>
 
+      {details.failures.length ? (
+        <DiagPanel title="Transacciones fallidas">
+          {details.failures.map((failure) => (
+            <article
+              key={failure.id}
+              className="border-b border-border/60 py-2.5 first:pt-0 last:border-b-0 last:pb-0"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <strong className="text-sm font-semibold">
+                  {describeSyncFailure(failure.operationsJson)}
+                </strong>
+                <span className="text-xs text-muted-foreground">
+                  {formatDateTimeInBolivia(failure.createdAt)}
+                </span>
+              </div>
+              <p className="mt-1 font-mono text-xs break-all text-muted-foreground">
+                {failure.errorCode ? `${failure.errorCode} · ` : ""}
+                {failure.errorMessage}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 text-destructive"
+                onClick={() => setDiscarding(failure)}
+                disabled={!db || !controls || reconnecting}
+              >
+                <Trash2 className="size-4" />
+                Descartar operación
+              </Button>
+            </article>
+          ))}
+        </DiagPanel>
+      ) : null}
+
+      {details.discarded.length ? (
+        <DiagPanel title="Operaciones descartadas">
+          <p className="mb-1.5 text-xs leading-relaxed text-muted-foreground">
+            Sus datos se guardan en este dispositivo, y en el diagnóstico, hasta
+            que cierres sesión.
+          </p>
+          {details.discarded.map((failure) => (
+            <DiagRow
+              key={failure.id}
+              label={describeSyncFailure(failure.operationsJson)}
+              value={`${formatDateTimeInBolivia(failure.discardedAt ?? failure.createdAt)}${
+                failure.errorCode ? ` · ${failure.errorCode}` : ""
+              }`}
+            />
+          ))}
+        </DiagPanel>
+      ) : null}
+
       <DiagPanel title="Identidad">
-        <DiagRow label="Cuenta" value={tenantContext.tenant?.id ?? "—"} mono />
+        <DiagRow label="Puesto" value={tenantContext.tenant?.id ?? "—"} mono />
         <DiagRow
-          label="Nombre de la cuenta"
+          label="Nombre del puesto"
           value={tenantContext.tenant?.name ?? "—"}
         />
         <DiagRow label="Usuario" value={tenantContext.user.id} mono />
@@ -382,6 +527,42 @@ export function DiagnosticsScreen({
           {copyConfirmed ? "Copiado" : "Copiar diagnóstico"}
         </Button>
       </div>
+
+      {copyFallback ? (
+        <DiagPanel title="Diagnóstico">
+          <p className="mb-2.5 text-xs leading-relaxed text-muted-foreground">
+            No se pudo copiar automáticamente. Seleccioná todo el texto y
+            copialo, o descargalo como archivo.
+          </p>
+          <Textarea
+            ref={copyFallbackRef}
+            readOnly
+            value={copyFallback}
+            onFocus={(event) => event.currentTarget.select()}
+            aria-label="Diagnóstico en formato JSON"
+            className="max-h-64 min-h-40 field-sizing-fixed font-mono text-xs md:text-xs"
+          />
+          <Button
+            variant="outline"
+            size="lg"
+            className="mt-2.5 w-full"
+            onClick={() => handleDownload(copyFallback)}
+          >
+            <Download className="size-4.5" />
+            Descargar diagnóstico
+          </Button>
+        </DiagPanel>
+      ) : null}
+
+      <DiscardSyncFailureDialog
+        label={
+          discarding ? describeSyncFailure(discarding.operationsJson) : null
+        }
+        onClose={() => setDiscarding(null)}
+        onConfirm={() =>
+          discarding ? handleDiscard(discarding) : Promise.resolve()
+        }
+      />
     </section>
   );
 }

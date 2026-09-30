@@ -1,5 +1,13 @@
 import type { AbstractPowerSyncDatabase, CrudEntry } from "@powersync/web";
+import type { LocalRow, syncFailures } from "@/lib/db/client-schema";
 import { reportSyncFailureReconciliationError } from "@/lib/observability/report-sync-failure";
+import {
+  errorDetails,
+  syncFailureId,
+  tenantIdFrom,
+} from "@/lib/powersync/crud-metadata";
+
+type SyncFailureRow = LocalRow<typeof syncFailures>;
 
 export type SyncFailure = {
   id: string;
@@ -9,52 +17,74 @@ export type SyncFailure = {
   errorCode: string | null;
   errorMessage: string;
   createdAt: string;
+  /** Set when the transaction was discarded from Diagnostics. */
+  discardedAt: string | null;
 };
 
-export function syncFailureId(input: {
-  transactionId?: number;
-  operations: CrudEntry[];
-}): string {
-  if (input.transactionId != null) {
-    return `transaction:${input.transactionId}`;
-  }
-  return `operations:${input.operations
-    .map((operation) => operation.clientId)
-    .join("-")}`;
-}
+/** One operation of a failure's stored payload (CrudEntry.toJSON()). */
+export type SyncFailureOperation = {
+  clientId: number;
+  op: string;
+  table: string;
+  id: string;
+  data: Record<string, unknown> | null;
+};
 
-function errorDetails(error: unknown): {
-  code: string | null;
-  message: string;
-} {
-  if (error instanceof Error) {
-    const code = (error as Error & { code?: unknown }).code;
-    return {
-      code: typeof code === "string" ? code : null,
-      message: error.message,
-    };
+/** Reads a stored payload. Malformed entries are skipped. */
+export function parseSyncFailureOperations(
+  operationsJson: string
+): SyncFailureOperation[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(operationsJson);
+  } catch {
+    return [];
   }
-  if (error && typeof error === "object") {
-    const candidate = error as { code?: unknown; message?: unknown };
-    return {
-      code: typeof candidate.code === "string" ? candidate.code : null,
-      message:
-        typeof candidate.message === "string"
-          ? candidate.message
-          : "Permanent upload failure",
-    };
-  }
-  return { code: null, message: String(error) };
-}
-
-function tenantIdFrom(operations: CrudEntry[]): string | null {
-  for (const operation of operations) {
-    const tenantId = operation.opData?.tenant_id;
-    if (typeof tenantId === "string" && tenantId) {
-      return tenantId;
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((entry): SyncFailureOperation[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const candidate = entry as Record<string, unknown>;
+    if (
+      typeof candidate.op_id !== "number" ||
+      typeof candidate.op !== "string" ||
+      typeof candidate.type !== "string" ||
+      typeof candidate.id !== "string"
+    ) {
+      return [];
     }
-  }
-  return null;
+    return [
+      {
+        clientId: candidate.op_id,
+        op: candidate.op,
+        table: candidate.type,
+        id: candidate.id,
+        data:
+          candidate.data && typeof candidate.data === "object"
+            ? (candidate.data as Record<string, unknown>)
+            : null,
+      },
+    ];
+  });
+}
+
+/** What the failed transaction was, in the words the app uses for it. */
+export function describeSyncFailure(operationsJson: string): string {
+  const operations = parseSyncFailureOperations(operationsJson);
+  const has = (table: string, op: string) =>
+    operations.some(
+      (operation) => operation.table === table && operation.op === op
+    );
+  if (has("sales", "PUT")) return "Venta";
+  if (has("sales", "PATCH")) return "Anulación de venta";
+  if (has("refunds", "PUT")) return "Reembolso";
+  // A category rename also renames its products in the same transaction.
+  if (has("categories", "PUT")) return "Categoría nueva";
+  if (has("categories", "PATCH")) return "Cambio de categoría";
+  if (has("categories", "DELETE")) return "Categoría eliminada";
+  if (has("products", "PUT")) return "Producto nuevo";
+  if (has("products", "PATCH")) return "Cambio de producto";
+  if (has("inventory_movements", "PUT")) return "Movimiento de inventario";
+  return "Operación";
 }
 
 export async function recordSyncFailure(
@@ -68,18 +98,24 @@ export async function recordSyncFailure(
   const details = errorDetails(input.error);
   const failureId = syncFailureId(input);
   await db.writeTransaction(async (tx) => {
-    const existing = await tx.getOptional<{ created_at: string }>(
-      `SELECT created_at FROM sync_failures
-       WHERE id = ? AND resolved_at IS NULL`,
+    const existing = await tx.getOptional<
+      Pick<SyncFailureRow, "created_at" | "resolved_at" | "discarded_at">
+    >(
+      `SELECT created_at, resolved_at, discarded_at FROM sync_failures
+       WHERE id = ?`,
       [failureId]
     );
+    // An upload already in flight when the transaction was discarded can
+    // still fail afterwards. The discard stands, as does a decision to
+    // discard whose dequeue has not run yet.
+    if (existing?.discarded_at) return;
 
     await tx.execute(`DELETE FROM sync_failures WHERE id = ?`, [failureId]);
     await tx.execute(
       `INSERT INTO sync_failures
         (id, transaction_id, tenant_id, operations_json, error_code,
-         error_message, created_at, resolved_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+         error_message, created_at, resolved_at, discarded_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
       [
         failureId,
         input.transactionId ?? null,
@@ -87,44 +123,36 @@ export async function recordSyncFailure(
         JSON.stringify(input.operations.map((operation) => operation.toJSON())),
         details.code,
         details.message,
-        existing?.created_at ?? new Date().toISOString(),
+        (existing && !existing.resolved_at ? existing.created_at : null) ??
+          new Date().toISOString(),
       ]
     );
   });
 }
 
+/**
+ * The transaction uploaded. A decision to discard it that had not dequeued it
+ * yet (discardSyncFailure) is withdrawn: its data reached the server.
+ */
 export async function resolveSyncFailure(
   db: AbstractPowerSyncDatabase,
   input: { transactionId?: number; operations: CrudEntry[] }
 ): Promise<void> {
   await db.execute(
     `UPDATE sync_failures
-     SET resolved_at = ?
+     SET resolved_at = ?, discarded_at = NULL
      WHERE id = ? AND resolved_at IS NULL`,
     [new Date().toISOString(), syncFailureId(input)]
   );
 }
 
-export async function getUnresolvedSyncFailures(
-  db: AbstractPowerSyncDatabase
-): Promise<SyncFailure[]> {
-  const rows = await db.getAll<{
-    id: string;
-    transaction_id: number | null;
-    tenant_id: string | null;
-    operations_json: string;
-    error_code: string | null;
-    error_message: string;
-    created_at: string;
-  }>(
-    `SELECT id, transaction_id, tenant_id, operations_json, error_code,
-            error_message, created_at
-     FROM sync_failures
-     WHERE resolved_at IS NULL
-     ORDER BY created_at DESC`
-  );
+type SyncFailureListRow = Omit<SyncFailureRow, "resolved_at">;
 
-  return rows.map((row) => ({
+const syncFailureColumns = `id, transaction_id, tenant_id, operations_json,
+  error_code, error_message, created_at, discarded_at`;
+
+function toSyncFailure(row: SyncFailureListRow): SyncFailure {
+  return {
     id: row.id,
     transactionId: row.transaction_id,
     tenantId: row.tenant_id,
@@ -132,7 +160,37 @@ export async function getUnresolvedSyncFailures(
     errorCode: row.error_code,
     errorMessage: row.error_message,
     createdAt: row.created_at,
-  }));
+    discardedAt: row.discarded_at,
+  };
+}
+
+export async function getUnresolvedSyncFailures(
+  db: AbstractPowerSyncDatabase
+): Promise<SyncFailure[]> {
+  const rows = await db.getAll<SyncFailureListRow>(
+    `SELECT ${syncFailureColumns}
+     FROM sync_failures
+     WHERE resolved_at IS NULL
+     ORDER BY created_at DESC`
+  );
+  return rows.map(toSyncFailure);
+}
+
+/**
+ * Discarded failures, kept with their payload until the data is cleared. A
+ * discard still in progress, or interrupted before its transaction left the
+ * queue, is still a pending failure (getUnresolvedSyncFailures) instead.
+ */
+export async function getDiscardedSyncFailures(
+  db: AbstractPowerSyncDatabase
+): Promise<SyncFailure[]> {
+  const rows = await db.getAll<SyncFailureListRow>(
+    `SELECT ${syncFailureColumns}
+     FROM sync_failures
+     WHERE discarded_at IS NOT NULL AND resolved_at IS NOT NULL
+     ORDER BY discarded_at DESC`
+  );
+  return rows.map(toSyncFailure);
 }
 
 export async function getUnresolvedSyncFailureCount(
@@ -148,43 +206,52 @@ export async function getUnresolvedSyncFailureCount(
 
 /**
  * Clear dead-letter markers only after proving that their PowerSync CRUD
- * transaction is no longer queued. `getCrudTransactions` is read-only; never
- * call complete() here, since reconciliation must not advance the queue.
+ * transaction is no longer queued. It only reads the queue; never call
+ * complete() here, since reconciliation must not advance the queue.
  *
  * Markers without a transaction ID are intentionally retained: there is no
  * unambiguous queue identity with which to prove their completion.
+ *
+ * One query over ps_crud (PowerSync's upload queue table) finds which of
+ * the markers' transactions are still queued. Walking the queue with
+ * getCrudTransactions() instead costs a query per transaction, and the queue
+ * keeps growing behind a failed transaction.
  */
 export async function reconcileSyncFailures(
   db: AbstractPowerSyncDatabase
 ): Promise<number> {
   try {
-    const failures = await getUnresolvedSyncFailures(db);
-    if (failures.length === 0) return 0;
+    const markers = await db.getAll<
+      Pick<SyncFailureRow, "id" | "transaction_id">
+    >(
+      `SELECT id, transaction_id FROM sync_failures
+       WHERE resolved_at IS NULL AND transaction_id IS NOT NULL`
+    );
+    if (markers.length === 0) return 0;
 
-    const pendingTransactionIds = new Set<number>();
-    for await (const transaction of db.getCrudTransactions()) {
-      if (transaction.transactionId != null) {
-        pendingTransactionIds.add(transaction.transactionId);
-      }
-    }
+    const queued = await db.getAll<{ tx_id: number }>(
+      `SELECT DISTINCT tx_id FROM ps_crud
+       WHERE tx_id IN (SELECT value FROM json_each(?))`,
+      [JSON.stringify(markers.map((marker) => marker.transaction_id))]
+    );
+    const queuedTransactionIds = new Set(
+      queued.map((row) => Number(row.tx_id))
+    );
+    const staleIds = markers
+      .filter(
+        (marker) => !queuedTransactionIds.has(Number(marker.transaction_id))
+      )
+      .map((marker) => marker.id);
+    if (staleIds.length === 0) return 0;
 
-    let resolvedCount = 0;
-    for (const failure of failures) {
-      if (
-        failure.transactionId == null ||
-        pendingTransactionIds.has(failure.transactionId)
-      ) {
-        continue;
-      }
-
-      await resolveSyncFailure(db, {
-        transactionId: failure.transactionId,
-        operations: [],
-      });
-      resolvedCount += 1;
-    }
-
-    return resolvedCount;
+    await db.execute(
+      `UPDATE sync_failures
+       SET resolved_at = ?
+       WHERE resolved_at IS NULL
+         AND id IN (SELECT value FROM json_each(?))`,
+      [new Date().toISOString(), JSON.stringify(staleIds)]
+    );
+    return staleIds.length;
   } catch (error) {
     // Do not expose SQL errors or operation payloads to telemetry.
     reportSyncFailureReconciliationError();

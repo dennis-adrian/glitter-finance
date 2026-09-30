@@ -3,11 +3,19 @@ import { cn } from "@/lib/utils";
 type MetricCardProps = {
   label: string;
   value: string;
+  /** A second figure under the value, such as the count behind an amount. */
+  detail?: string;
   tone?: "green";
   warning?: boolean;
 };
 
-export function MetricCard({ label, value, tone, warning }: MetricCardProps) {
+export function MetricCard({
+  label,
+  value,
+  detail,
+  tone,
+  warning,
+}: MetricCardProps) {
   return (
     <article className="rounded-2xl bg-card p-3.5 ring-1 ring-foreground/10">
       <span className="text-sm text-muted-foreground">{label}</span>
@@ -19,6 +27,9 @@ export function MetricCard({ label, value, tone, warning }: MetricCardProps) {
       >
         {value}
       </strong>
+      {detail ? (
+        <small className="block text-xs text-muted-foreground">{detail}</small>
+      ) : null}
       {warning ? (
         <small className="text-xs text-[var(--amber)]">Incompleto</small>
       ) : null}

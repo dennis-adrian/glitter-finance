@@ -1,27 +1,58 @@
-import { hasRefundForSale } from "@/lib/sales";
+import {
+  hasRefundForSale,
+  isWithinVoidWindow,
+  REFUNDED_SALE_VOID_MESSAGE,
+  SALE_ALREADY_REFUNDED_MESSAGE,
+  SALE_ALREADY_VOIDED_MESSAGE,
+  VOID_WINDOW_EXPIRED_MESSAGE,
+  VOIDED_SALE_REFUND_MESSAGE,
+  type SaleIndex,
+} from "@/lib/sales";
 import type { Sale } from "@/lib/types";
 
-const VOID_WINDOW_MS = 10 * 60 * 1000;
-/** Allow small device/server clock skew; reject only clearly future createdAt. */
-const CLOCK_SKEW_TOLERANCE_MS = 5_000;
+export type SaleAction = "void" | "refund";
 
-export function canVoidSale(sale: Sale, sales: Sale[], now = Date.now()) {
-  const createdAt = new Date(sale.createdAt).getTime();
-
-  return (
-    sale.status === "completed" &&
-    !hasRefundForSale(sales, sale.id) &&
-    !Number.isNaN(createdAt) &&
-    createdAt - now <= CLOCK_SKEW_TOLERANCE_MS &&
-    now - createdAt <= VOID_WINDOW_MS
-  );
+/**
+ * Why `action` cannot be applied to the sale now, or null when it can. The
+ * sale is looked up in `sales`, the index of the current list, so a void or
+ * refund that arrived while a dialog was open (from this device or, synced,
+ * from another) counts, and a void is refused once its window has passed.
+ */
+export function saleActionBlockedMessage(
+  action: SaleAction,
+  sale: Sale,
+  sales: SaleIndex,
+  now = Date.now()
+): string | null {
+  const current = sales.byId.get(sale.id) ?? sale;
+  if (current.status === "voided") {
+    return action === "void"
+      ? SALE_ALREADY_VOIDED_MESSAGE
+      : VOIDED_SALE_REFUND_MESSAGE;
+  }
+  if (hasRefundForSale(sales, current.id)) {
+    return action === "void"
+      ? REFUNDED_SALE_VOID_MESSAGE
+      : SALE_ALREADY_REFUNDED_MESSAGE;
+  }
+  if (current.status !== "completed") {
+    return "Un reembolso no se puede anular ni reembolsar.";
+  }
+  if (action === "void" && !isWithinVoidWindow(current.createdAt, now)) {
+    return VOID_WINDOW_EXPIRED_MESSAGE;
+  }
+  return null;
 }
 
-export function canRefundSale(sale: Sale, sales: Sale[]) {
-  return sale.status === "completed" && !hasRefundForSale(sales, sale.id);
+export function canVoidSale(sale: Sale, sales: SaleIndex, now = Date.now()) {
+  return saleActionBlockedMessage("void", sale, sales, now) == null;
 }
 
-export function saleStatusLabel(sale: Sale, sales: Sale[] = []) {
+export function canRefundSale(sale: Sale, sales: SaleIndex) {
+  return saleActionBlockedMessage("refund", sale, sales) == null;
+}
+
+export function saleStatusLabel(sale: Sale, sales: SaleIndex) {
   if (sale.status === "voided") return "Anulada";
   if (sale.refundOfSaleId) return "Reembolso";
   if (sale.status === "refunded") return "Reembolso";

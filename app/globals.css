@@ -361,10 +361,24 @@ button {
   box-shadow: var(--soft-shadow);
 }
 
+/* Each option is a 44px touch target around its 30px dot. The negative
+   inline margin keeps the first dot in line with the fields below. */
 .tone-picker {
   display: flex;
-  gap: 9px;
-  margin: 12px 0;
+  margin: 5px -7px;
+}
+
+.tone-option {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  cursor: pointer;
+}
+
+.tone-option:has(:focus-visible) .tone-dot {
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
 }
 
 .tone-dot {
@@ -459,11 +473,18 @@ button {
   animation: sync-pulse 1.2s ease-in-out infinite;
 }
 
-.sync-pill-offline {
+/* Uploads wait for the server clock (lib/powersync/upload-holds.ts), or
+   nothing downloads until a reload after the active tenant changed on
+   another device; both shown like offline. */
+.sync-pill-offline,
+.sync-pill-held,
+.sync-pill-tenant-changed {
   background: rgba(180, 90, 30, 0.92);
 }
 
-.sync-pill-offline .sync-pill-dot {
+.sync-pill-offline .sync-pill-dot,
+.sync-pill-held .sync-pill-dot,
+.sync-pill-tenant-changed .sync-pill-dot {
   background: #f59e0b;
   box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22);
 }

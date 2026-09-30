@@ -7,6 +7,8 @@ import { CategoryRail } from "@/components/molecules/category-rail";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { ProductTile } from "@/components/molecules/product-tile";
 import { CheckoutDock } from "@/components/organisms/checkout-dock";
+import { ALL_CATEGORIES } from "@/lib/categories";
+import { filterProducts } from "@/lib/products";
 import type { Product } from "@/lib/types";
 
 type SellScreenProps = {
@@ -29,22 +31,15 @@ type SellScreenProps = {
 };
 
 export function SellScreen(props: SellScreenProps) {
-  const filtered = props.products.filter((product) => {
-    const matchesCategory =
-      props.category === "Todos" || product.category === props.category;
-    const matchesQuery = product.name
-      .toLowerCase()
-      .includes(props.query.toLowerCase());
-    return matchesCategory && matchesQuery;
-  });
+  const filtered = filterProducts(props.products, props.category, props.query);
 
   return (
     <section className="screen">
-      <Header title="Billetera Ferial" left={<BrandMark />} />
+      <Header title="Billetera Ferial" left={<BrandMark decorative />} />
 
       <CategoryRail
         active={props.category}
-        categories={["Todos", ...props.categories]}
+        categories={[ALL_CATEGORIES, ...props.categories]}
         setActive={props.setCategory}
       />
 
@@ -81,7 +76,7 @@ export function SellScreen(props: SellScreenProps) {
       ) : props.products.length === 0 ? (
         <EmptyState
           icon={<PackagePlus size={42} />}
-          title="Agrega tu primer producto"
+          title="Agregá tu primer producto"
           body="Tu catálogo está vacío."
           action={
             <Button
@@ -98,7 +93,7 @@ export function SellScreen(props: SellScreenProps) {
         <EmptyState
           icon={<Search size={42} />}
           title="No se encontraron productos"
-          body="Prueba con otra categoría o término de búsqueda."
+          body="Probá con otra categoría o término de búsqueda."
         />
       )}
 

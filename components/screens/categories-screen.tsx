@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, Hash, Pencil, Plus, Tags, Trash2 } from "lucide-react";
+import { Hash, Pencil, Plus, Tags, Trash2 } from "lucide-react";
+import { BackButton } from "@/components/atoms/back-button";
 import { Header } from "@/components/atoms/header";
 import { CategoryFormDrawer } from "@/components/molecules/category-form-drawer";
 import { EmptyState } from "@/components/molecules/empty-state";
@@ -14,14 +15,19 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { countLabel } from "@/lib/plural";
 import type { Category, Product } from "@/lib/types";
 
 type CategoriesScreenProps = {
   categories: Category[];
   products: Product[];
   back: () => void;
-  createCategory: (name: string) => Promise<Category>;
-  renameCategory: (categoryId: string, name: string) => Promise<Category>;
+  /** Resolve to null when the write was cancelled (see runTenantWrite). */
+  createCategory: (name: string) => Promise<Category | null>;
+  renameCategory: (
+    categoryId: string,
+    name: string
+  ) => Promise<Category | null>;
   deleteCategory: (categoryId: string) => Promise<void>;
 };
 
@@ -80,17 +86,7 @@ export function CategoriesScreen({
     <section className="screen">
       <Header
         title="Categorías"
-        left={
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            onClick={back}
-            aria-label="Volver al catálogo"
-          >
-            <ChevronLeft />
-          </Button>
-        }
+        left={<BackButton back={back} />}
         right={
           <Button
             type="button"
@@ -111,11 +107,11 @@ export function CategoriesScreen({
           </span>
           <div>
             <h2 className="font-heading text-base font-bold">
-              Ordena tu catálogo a tu manera
+              Ordená tu catálogo a tu manera
             </h2>
             <p className="mt-1 text-sm leading-5 text-muted-foreground">
-              Puedes crear y renombrar categorías. Para eliminar una, primero
-              mueve sus productos.
+              Podés crear y renombrar categorías. Para eliminar una, primero
+              mové sus productos.
             </p>
           </div>
         </div>
@@ -139,9 +135,7 @@ export function CategoriesScreen({
                     {category.name}
                   </strong>
                   <span className="text-[13px] text-muted-foreground">
-                    {productCount === 1
-                      ? "1 producto"
-                      : `${productCount} productos`}
+                    {countLabel(productCount, "producto", "productos")}
                   </span>
                 </div>
                 <Button
@@ -160,7 +154,7 @@ export function CategoriesScreen({
                   disabled={isUsed}
                   title={
                     isUsed
-                      ? "Mueve sus productos antes de eliminarla"
+                      ? "Mové sus productos antes de eliminarla"
                       : "Eliminar categoría"
                   }
                   onClick={() => {
@@ -178,11 +172,15 @@ export function CategoriesScreen({
       ) : (
         <EmptyState
           icon={<Tags size={46} />}
-          title="Crea tu primera categoría"
+          title="Creá tu primera categoría"
           body="Las categorías que crees aparecerán al agregar productos."
           action={
-            <Button size="lg" onClick={openCreate}>
-              <Plus />
+            <Button
+              size="lg"
+              className="font-extrabold tracking-wide"
+              onClick={openCreate}
+            >
+              <Plus className="size-5" />
               CREAR CATEGORÍA
             </Button>
           }

@@ -2,21 +2,53 @@
 
 import { useState } from "react";
 import { acceptInvitation } from "@/app/invitations/actions";
+import { ReloadAppButton } from "@/components/molecules/reload-app-button";
 import { Button } from "@/components/ui/button";
 import { usePowerSyncControls } from "@/components/providers/powersync-provider";
-import { createClient } from "@/lib/supabase/client";
+import { unwrapActionResult } from "@/lib/action-result";
+import {
+  changeIdentityAfterLocalTeardown,
+  LOCAL_TEARDOWN_UNAVAILABLE_MESSAGE,
+  refreshSessionForActiveTenant,
+} from "@/lib/auth/identity-change";
+import {
+  pendingUploadsBlockerMessage,
+  tenantChangedBlockerMessage,
+  type LocalDataChangeBlocker,
+} from "@/lib/powersync/local-data-gate";
+import { isUnsyncedLocalDataRefusal } from "@/lib/powersync/local-data-teardown";
+import type { UploadHold } from "@/lib/powersync/upload-holds";
+import { useLocalDataChangeGate } from "@/lib/powersync/use-local-data-change-gate";
 
 type JoinTenantFormProps = {
   token: string;
 };
 
+function describeBlocker(
+  blocker: LocalDataChangeBlocker,
+  pendingCount: number,
+  uploadHold: UploadHold | null
+) {
+  switch (blocker) {
+    case "sync-failures":
+      return "Hay operaciones que no llegaron a la nube. Abrí Diagnósticos en Ajustes antes de unirte.";
+    case "tenant-changed":
+      return tenantChangedBlockerMessage("unirte");
+    case "pending-uploads":
+      return pendingUploadsBlockerMessage(pendingCount, "unirte", uploadHold);
+    case "not-synced":
+      return "Esperá a que termine la sincronización antes de unirte.";
+  }
+}
+
 export function JoinTenantForm({ token }: JoinTenantFormProps) {
   const powerSyncControls = usePowerSyncControls();
+  const gate = useLocalDataChangeGate();
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleJoin() {
-    if (joining) {
+    if (joining || !gate.canChange) {
       return;
     }
     setJoining(true);
@@ -27,44 +59,54 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
     // safe; continuing would risk showing the prior tenant after reload.
     try {
       if (!powerSyncControls) {
-        throw new Error("La limpieza local aún no está disponible.");
+        throw new Error(LOCAL_TEARDOWN_UNAVAILABLE_MESSAGE);
       }
-      await powerSyncControls.teardownForTenantChange();
+      const navigating = await changeIdentityAfterLocalTeardown({
+        teardown: powerSyncControls.teardownForTenantChange,
+        commit: async () => {
+          await unwrapActionResult(
+            () => acceptInvitation(token),
+            "No se pudo unir a este puesto."
+          );
+          await refreshSessionForActiveTenant();
+        },
+        destination: "/",
+        failureMessage: "No se pudo unir a este puesto.",
+        // This form is unmounted once the teardown succeeded.
+        reportFailure: powerSyncControls.reportIdentityChangeFailure,
+      });
+      if (!navigating) {
+        setJoining(false);
+      }
     } catch (err) {
       setError(
-        err instanceof Error
-          ? `${err.message} Reintenta la limpieza segura antes de unirte.`
-          : "No se pudieron limpiar los datos locales. Reintenta antes de unirte."
+        isUnsyncedLocalDataRefusal(err)
+          ? err.message
+          : err instanceof Error
+            ? `${err.message} Reintentá la limpieza segura antes de unirte.`
+            : "No se pudieron limpiar los datos locales. Reintentá antes de unirte."
       );
       setJoining(false);
-      return;
     }
-
-    try {
-      await acceptInvitation(token);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No se pudo unir a esta cuenta."
-      );
-      setJoining(false);
-      window.location.assign("/");
-      return;
-    }
-
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.refreshSession();
-      if (error) {
-        console.error("[join] refreshSession failed", error);
-      }
-    } catch (error) {
-      console.error("[join] refreshSession failed", error);
-    }
-    window.location.assign("/");
   }
 
   return (
     <div className="mt-5">
+      {gate.blocker ? (
+        <p
+          role="status"
+          className={
+            gate.blocker === "sync-failures"
+              ? "mb-3 text-sm text-destructive"
+              : "mb-3 text-sm text-muted-foreground"
+          }
+        >
+          {describeBlocker(gate.blocker, gate.pendingCount, gate.uploadHold)}
+        </p>
+      ) : null}
+      {gate.blocker === "tenant-changed" ? (
+        <ReloadAppButton className="mb-3" />
+      ) : null}
       {error ? (
         <p role="alert" className="mb-3 text-sm text-destructive">
           {error}
@@ -75,7 +117,7 @@ export function JoinTenantForm({ token }: JoinTenantFormProps) {
         size="lg"
         className="w-full rounded-2xl"
         onClick={() => void handleJoin()}
-        disabled={joining}
+        disabled={joining || !gate.canChange}
       >
         {joining ? "Uniéndote…" : "Unirme"}
       </Button>

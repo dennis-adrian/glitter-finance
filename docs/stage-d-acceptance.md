@@ -11,7 +11,7 @@ or generic `"Vendedor"` names — rather than hard errors.
 Apply every step against the target Supabase project and matching PowerSync
 instance before manual QA:
 
-1. **Schema** — `npm run db:push` includes the `tenant_users.id` migration.
+1. **Schema** — `pnpm db:push` includes the `tenant_users.id` migration.
 2. **Publication** — run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](../supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) in the Supabase SQL editor (idempotent; skip on fresh bootstrap). Confirm `tenant_users` is in the `powersync` publication:
 
    ```sql
@@ -29,14 +29,14 @@ same Supabase project as the app env vars.
 ## Setup
 
 - Complete the deploy checklist above on `glitter-finance-staging`.
-- Seed QA: `npm run db:seed:qa`.
+- Seed QA: `pnpm db:seed:qa`.
 - Invite a second member on the QA tenant:
 
   ```bash
   TENANT_ID=7a000000-0000-4000-8000-000000000001 \
   INVITE_EMAIL=... INVITE_PASSWORD=... \
   NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
-  npm run db:invite:tenant-user
+  pnpm db:invite:tenant-user
   ```
 
 - Install the staging PWA on two devices (iPhone Safari + Android Chrome).

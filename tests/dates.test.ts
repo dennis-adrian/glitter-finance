@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filterSalesByRange, resolveSalesRange } from "@/lib/dates";
+import {
+  filterSalesByRange,
+  formatDateTimeInBolivia,
+  formatDateTimeLabelInBolivia,
+  nowIso,
+  relativeTime,
+  resolveSalesRange,
+  toIso,
+} from "@/lib/dates";
 
 test("today uses Bolivia midnight rather than the device timezone", () => {
   const now = new Date("2026-08-09T05:00:00.000Z");
@@ -60,4 +68,48 @@ test("custom ranges include both Bolivia calendar dates and reject reversal", ()
     bounds: null,
     error: "La fecha final debe ser igual o posterior a la inicial.",
   });
+});
+
+test("timestamps are shown in Bolivian local time", () => {
+  const formatted = formatDateTimeInBolivia("2026-09-27T03:05:09.000Z");
+  // 03:05 UTC is 23:05 of the previous day in La Paz.
+  assert.match(formatted, /^26\/9\/26/);
+  assert.match(formatted, /11:05:09/);
+  assert.equal(
+    formatDateTimeInBolivia(new Date("2026-09-27T03:05:09.000Z")),
+    formatted
+  );
+  assert.equal(formatDateTimeInBolivia("not a date"), "—");
+});
+
+test("a sale's date and time are labeled in Bolivian local time", () => {
+  // 03:05 UTC is 23:05 of the previous day in La Paz.
+  const formatted = formatDateTimeLabelInBolivia("2026-09-27T03:05:09.000Z");
+  assert.match(formatted, /^26.sept.2026/);
+  assert.match(formatted, /11:05/);
+  assert.equal(formatDateTimeLabelInBolivia("not a date"), "—");
+});
+
+test("sales older than a day show their Bolivian date", () => {
+  const now = Date.parse("2026-09-28T12:00:00.000Z");
+  assert.match(relativeTime("2026-09-27T03:05:09.000Z", now), /^26.sept$/);
+});
+
+test("recent sales count minutes, then hours in the right number", () => {
+  const now = Date.parse("2026-09-28T12:00:00.000Z");
+  const ago = (minutes: number) =>
+    new Date(now - minutes * 60_000).toISOString();
+
+  assert.equal(relativeTime(ago(0), now), "Ahora");
+  assert.equal(relativeTime(ago(5), now), "Hace 5 min");
+  assert.equal(relativeTime(ago(60), now), "Hace 1 hora");
+  assert.equal(relativeTime(ago(179), now), "Hace 2 horas");
+});
+
+test("timestamps are stored as ISO UTC text", () => {
+  const date = new Date("2026-09-28T08:05:09-04:00");
+
+  assert.equal(toIso(date), "2026-09-28T12:05:09.000Z");
+  assert.equal(toIso("2026-09-28T12:05:09.000Z"), "2026-09-28T12:05:09.000Z");
+  assert.match(nowIso(), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 });

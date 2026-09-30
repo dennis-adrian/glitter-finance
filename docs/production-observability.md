@@ -4,9 +4,10 @@
 
 Configure these in Vercel:
 
-- `NEXT_PUBLIC_SENTRY_DSN` — optional runtime DSN override. The checked-in DSN
-  is public and defaults production builds to the Glitter Sentry project. Use
-  this override if an environment needs a separate project.
+- `NEXT_PUBLIC_SENTRY_DSN` — optional DSN override. The checked-in DSN is
+  public; Vercel production and preview deployments report to the Glitter
+  Sentry project with it. Use this override if an environment needs a separate
+  project.
 - `SENTRY_AUTH_TOKEN` — build-only source-map upload token.
 - `SENTRY_ORG` and `SENTRY_PROJECT` — required when
   `NEXT_PUBLIC_SENTRY_DSN` targets another project; set them to that project's
@@ -15,13 +16,32 @@ Configure these in Vercel:
 
 Never expose `SENTRY_AUTH_TOKEN` as a `NEXT_PUBLIC_*` variable.
 
+Reporting is on only where `VERCEL_ENV` is `production` or `preview`, and
+events carry that value as their environment. The browser reads it from
+`NEXT_PUBLIC_VERCEL_ENV`, so keep Vercel's “Automatically expose System
+Environment Variables” enabled. Anywhere else, including `next dev` and a
+local `pnpm build && pnpm start`, Sentry stays off unless
+`NEXT_PUBLIC_SENTRY_DSN` is set; those events are tagged `local`. The shared
+init options live in `lib/observability/sentry-options.ts`.
+
 ## Collection policy
 
-- Errors: enabled for browser, server, and edge runtimes.
+- Errors: enabled for the browser and the Node.js server (pages, route
+  handlers, server actions and `proxy.ts`). Nothing runs on the edge runtime,
+  so there is no edge configuration.
 - Tracing: 10% sample rate.
 - Logs and Session Replay: disabled.
-- User identity, request headers/cookies/bodies, query strings, and invitation
-  tokens: removed before delivery.
+- User identity, cookies, HTTP headers, request/response bodies, URL query
+  strings and database query values: not collected (every `dataCollection`
+  category is off). The `beforeSend*` scrubbers in
+  `lib/observability/sentry-privacy.ts` remove them again before delivery,
+  together with invitation tokens (`/join/<token>`, also percent-encoded) in
+  URLs, messages, span data and the Next.js request path.
+- Failed database queries: the parameterized SQL is kept, the bound values
+  (`params:` in Drizzle's error message) are replaced with `[redacted]`.
+- Expected server action failures (validation, a changed active tenant, a sale
+  outside the void window) are returned to the screen, not thrown, so they are
+  not reported (see `lib/action-result.ts`).
 - Permanent PowerSync upload failures: report only transaction metadata, table
   names, operation types, and PostgreSQL error code. Financial row payloads and
   tenant/user identifiers remain local.
