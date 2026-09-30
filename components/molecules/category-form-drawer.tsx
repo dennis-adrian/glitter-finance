@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Plus, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,7 @@ import {
   validateCategoryName,
 } from "@/lib/categories/validation";
 import type { Category } from "@/lib/types";
+import { characterCount } from "@/lib/validation";
 
 type CategoryFormDrawerProps = {
   open: boolean;
@@ -40,11 +41,16 @@ export function CategoryFormDrawer({
   const [isPending, setIsPending] = useState(false);
   const editing = Boolean(category);
 
-  useEffect(() => {
-    if (!open) return;
-    setName(category?.name ?? "");
-    setError(null);
-  }, [open, category]);
+  // Each opening starts from the category's name, without the last error.
+  // Set while rendering, so the drawer never shows the previous name first.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setName(category?.name ?? "");
+      setError(null);
+    }
+  }
 
   async function submit() {
     if (isPending) return;
@@ -142,7 +148,7 @@ export function CategoryFormDrawer({
                 {error ?? "Sin error"}
               </p>
               <span className="shrink-0 text-muted-foreground">
-                {name.length}/{categoryNameMaxLength}
+                {characterCount(name)}/{categoryNameMaxLength}
               </span>
             </div>
           </div>
