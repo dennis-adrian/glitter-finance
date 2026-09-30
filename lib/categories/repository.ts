@@ -199,10 +199,26 @@ export async function renameCategoryForTenant(
   }
 }
 
+const CATEGORY_IN_USE_MESSAGE =
+  "Mové los productos a otra categoría antes de eliminarla.";
+
 export async function deleteCategoryForTenant(
   tenantId: string,
   categoryId: string
 ): Promise<void> {
+  try {
+    await deleteUnusedCategory(tenantId, categoryId);
+  } catch (error) {
+    // A product filed under it after the check below: Postgres refuses the
+    // delete (categories_prevent_delete_when_used).
+    if (postgresErrorCode(error) === "23503") {
+      throw new UserFacingError(CATEGORY_IN_USE_MESSAGE, { cause: error });
+    }
+    throw error;
+  }
+}
+
+async function deleteUnusedCategory(tenantId: string, categoryId: string) {
   await db.transaction(async (tx) => {
     const [category] = await tx
       .select()
@@ -227,9 +243,7 @@ export async function deleteCategoryForTenant(
       );
 
     if ((usage?.value ?? 0) > 0) {
-      throw new UserFacingError(
-        "Mové los productos a otra categoría antes de eliminarla."
-      );
+      throw new UserFacingError(CATEGORY_IN_USE_MESSAGE);
     }
 
     await tx
