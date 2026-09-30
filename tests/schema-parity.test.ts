@@ -72,6 +72,7 @@ test("local SQLite indexes cover the on-device point lookups", () => {
     ])
   );
 
+  assert.deepEqual(indexes.products, [["category"]]);
   assert.deepEqual(indexes.refunds, [["original_sale_id"]]);
   assert.deepEqual(indexes.inventory_movements, [["product_id", "reason"]]);
   AppSchema.validate();

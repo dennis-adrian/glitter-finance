@@ -51,20 +51,26 @@ export const categories = sqliteTable("categories", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const products = sqliteTable("products", {
-  id: text("id").primaryKey(),
-  tenantId: text("tenant_id").notNull(),
-  name: text("name").notNull(),
-  priceCents: integer("price_cents").notNull(),
-  costCents: integer("cost_cents"),
-  category: text("category").notNull(),
-  imagePath: text("image_path"),
-  tracksInventory: integer("tracks_inventory").notNull().default(0),
-  lowStockThreshold: integer("low_stock_threshold"),
-  archivedAt: text("archived_at"),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
+export const products = sqliteTable(
+  "products",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    name: text("name").notNull(),
+    priceCents: integer("price_cents").notNull(),
+    costCents: integer("cost_cents"),
+    category: text("category").notNull(),
+    imagePath: text("image_path"),
+    tracksInventory: integer("tracks_inventory").notNull().default(0),
+    lowStockThreshold: integer("low_stock_threshold"),
+    archivedAt: text("archived_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  // Renaming or deleting a category looks up the products filed under it
+  // (lib/powersync/write-categories.ts).
+  (table) => [index("category").on(table.category)]
+);
 
 export const sales = sqliteTable("sales", {
   id: text("id").primaryKey(),
