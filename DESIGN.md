@@ -233,7 +233,7 @@ are the recorded exceptions of implementation rule 8.
 - Radius: 12px.
 - Horizontal padding: 16px.
 - Label (`FormField`): Instrument Sans Medium 14px, main text, 6px gap before the input; an optional hint sits at the right of the label in supporting text. Figma: Bold 13px, 4px gap.
-- Input text: Instrument Sans Regular, 16px below `md` and 14px from `md` up; the placeholder uses supporting text.
+- Input text: Instrument Sans Regular, 16px below `md` and 14px from `md` up; the placeholder is `--muted-foreground` at 70%, lighter than supporting text, so it reads as an example rather than a value.
 - Focus: `--ring` border and a 3px ring at 50% opacity. Invalid fields use `--destructive`.
 
 ### Chips and category tabs

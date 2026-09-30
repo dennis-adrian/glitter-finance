@@ -2,6 +2,7 @@
 // under plain tsx, where that marker throws (tests/server-only-marker.test.ts).
 import { and, asc, eq, type SQL, sql } from "drizzle-orm";
 import { UserFacingError } from "@/lib/action-result";
+import { resolveCategoryNameForTenant } from "@/lib/categories/repository";
 import { db } from "@/lib/db";
 import { inventoryMovements, products } from "@/lib/db/schema";
 import {
@@ -111,6 +112,11 @@ export async function createProductForTenant(
   // the database's.
   const now = new Date();
   return db.transaction(async (tx) => {
+    const category = await resolveCategoryNameForTenant(
+      tenantId,
+      input.category,
+      tx
+    );
     const [product] = await tx
       .insert(products)
       .values({
@@ -118,7 +124,7 @@ export async function createProductForTenant(
         name: input.name,
         priceCents: input.priceCents,
         costCents: input.costCents,
-        category: input.category,
+        category,
         // A new product starts with a placeholder. An image is attached after
         // the insert, by updateProductImageForTenant.
         imagePath: encodePlaceholderImagePath(input.imageTone),
@@ -161,7 +167,6 @@ export async function updateProductForTenant(
     name: string;
     priceCents: number;
     costCents: number | null;
-    category: string;
     imagePath?: SQL;
     tracksInventory?: boolean;
     lowStockThreshold?: number | null;
@@ -170,7 +175,6 @@ export async function updateProductForTenant(
     name: input.name,
     priceCents: input.priceCents,
     costCents: input.costCents,
-    category: input.category,
     updatedAt: new Date(),
   };
 
@@ -197,9 +201,14 @@ export async function updateProductForTenant(
   }
 
   return db.transaction(async (tx) => {
+    const category = await resolveCategoryNameForTenant(
+      tenantId,
+      input.category,
+      tx
+    );
     const [product] = await tx
       .update(products)
-      .set(updates)
+      .set({ ...updates, category })
       .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))
       .returning();
 

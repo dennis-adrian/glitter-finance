@@ -16,6 +16,7 @@ import {
   SALE_NOT_ON_DEVICE_MESSAGE,
   voidSaleLocal,
 } from "@/lib/powersync/write-sales";
+import { createCategoryLocal } from "@/lib/powersync/write-categories";
 import type { Product } from "@/lib/types";
 
 const cancelled = () => {
@@ -27,6 +28,9 @@ test("local writers check cancellation before committing SQLite mutations", asyn
   const transactionDb = {
     writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
       callback({
+        // The product's category, and no duplicate of a new one.
+        getOptional: async (sql: string) =>
+          /SELECT name FROM categories/.test(sql) ? { name: "General" } : null,
         execute: async () => {
           transactionWrites += 1;
         },
@@ -45,6 +49,15 @@ test("local writers check cancellation before committing SQLite mutations", asyn
         tracksInventory: true,
       },
       initialStock: { userId: "user-1", delta: 5 },
+      assertCurrent: cancelled,
+    }),
+    /tenant work cancelled/
+  );
+
+  await assert.rejects(
+    createCategoryLocal(transactionDb, {
+      tenantId: "tenant-1",
+      name: "General",
       assertCurrent: cancelled,
     }),
     /tenant work cancelled/

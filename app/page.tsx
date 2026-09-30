@@ -3,6 +3,10 @@ import { GlitterPosApp } from "@/components/templates/glitter-pos-app";
 import { PowerSyncProvider } from "@/components/providers/powersync-provider";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import { getTenantMembersForTenant } from "@/lib/auth/tenant-members";
+import {
+  ensureCategoriesForExistingProducts,
+  getCategoriesForTenant,
+} from "@/lib/categories/repository";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { getInventorySnapshotForTenant } from "@/lib/inventory/repository";
 import { getActiveInvitationForTenant } from "@/lib/invitations/repository";
@@ -25,27 +29,45 @@ async function loadTenantData(tenantId: string) {
   const recentHistoryStart = new Date(
     Date.now() - RECENT_HISTORY_DAYS * DAY_MS
   );
-  // Six reads run at once, each on its own pooled connection; lib/db sizes
+  // Tenants whose products predate categories get them from their catalog
+  // before categories and products are read together.
+  await ensureCategoriesForExistingProducts(tenantId);
+
+  // Seven reads run at once, each on its own pooled connection; lib/db sizes
   // the pool for them, so keep its count in step when adding one.
   const members = getTenantMembersForTenant(tenantId);
 
-  const [products, sales, tenantMembers, inventory, activeInvitation] =
-    await Promise.all([
-      getProductsForTenant(tenantId),
-      // With PowerSync the device's local store holds the whole history once
-      // its first sync completes; these rows only paint the screens until
-      // then, so recent sales are enough. Without it these sales are the
-      // whole history the screens have, so custom ranges need all of them.
-      getSalesForTenant(tenantId, {
-        since: isPowerSyncConfigured() ? recentHistoryStart : undefined,
-        members,
-      }),
+  const [
+    categories,
+    products,
+    sales,
+    tenantMembers,
+    inventory,
+    activeInvitation,
+  ] = await Promise.all([
+    getCategoriesForTenant(tenantId),
+    getProductsForTenant(tenantId),
+    // With PowerSync the device's local store holds the whole history once
+    // its first sync completes; these rows only paint the screens until
+    // then, so recent sales are enough. Without it these sales are the
+    // whole history the screens have, so custom ranges need all of them.
+    getSalesForTenant(tenantId, {
+      since: isPowerSyncConfigured() ? recentHistoryStart : undefined,
       members,
-      getInventorySnapshotForTenant(tenantId, recentHistoryStart),
-      getActiveInvitationForTenant(tenantId),
-    ]);
+    }),
+    members,
+    getInventorySnapshotForTenant(tenantId, recentHistoryStart),
+    getActiveInvitationForTenant(tenantId),
+  ]);
 
-  return { products, sales, tenantMembers, inventory, activeInvitation };
+  return {
+    categories,
+    products,
+    sales,
+    tenantMembers,
+    inventory,
+    activeInvitation,
+  };
 }
 
 export default async function Home() {
@@ -60,6 +82,7 @@ export default async function Home() {
   const data = context.tenant
     ? await loadTenantData(context.tenant.id)
     : {
+        categories: [],
         products: [],
         sales: [],
         tenantMembers: [],
@@ -77,6 +100,7 @@ export default async function Home() {
     >
       <GlitterPosApp
         tenantContext={context}
+        initialCategories={data.categories}
         initialProducts={data.products}
         initialSales={data.sales}
         initialTenantMembers={data.tenantMembers}

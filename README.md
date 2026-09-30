@@ -11,7 +11,7 @@ not considered accepted until its documented real-device tests pass: see
 iPhone Safari and Android Chrome) and
 [`docs/stage-d-acceptance.md`](docs/stage-d-acceptance.md).
 
-- Product catalog with categories, optional cost, archive/restore, and graceful image placeholders.
+- Product catalog with tenant-managed categories, optional cost, archive/restore, and graceful image placeholders.
 - Sell Mode as the default screen with tappable product grid, quantity badges, PowerSync-backed draft cart persistence, and a fixed Cobrar action.
 - Cart review surface with quantity controls, per-line discounts, and clear-cart (with undo).
 - Payment screen with sale-level discounts and cash/QR checkout.
@@ -19,7 +19,7 @@ iPhone Safari and Android Chrome) and
 - Email and password or Google sign-in, with email confirmation and password reset.
 - Several tenants per user, with a tenant switcher and invitation links for adding team members (Settings → Equipo).
 - Optional stock tracking per product: initial count, restocks, adjustments, losses and gifts, with low-stock and oversold states.
-- PowerSync-backed local SQLite reads/writes for products, sales, sale lines, refunds, inventory movements, and local-only draft carts, plus the synced team list.
+- PowerSync-backed local SQLite reads/writes for categories, products, sales, sale lines, refunds, inventory movements, and local-only draft carts, plus the synced team list.
 - Offline app shell through Serwist, with Supabase and PowerSync API responses kept network-only so synced data remains owned by PowerSync/local SQLite. Product photos from Supabase Storage are the one exception: the service worker caches them so Sell tiles keep their images offline.
 - Sync status visibility and a tester diagnostics surface for pending queue count, offline/reconnect state, errors, and last sync time.
 
@@ -298,17 +298,18 @@ In the target project's Supabase dashboard, open the SQL editor and run:
 CREATE ROLE powersync_role WITH REPLICATION BYPASSRLS LOGIN PASSWORD '<per-env-secret>';
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
-CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds, tenant_users, inventory_movements;
+CREATE PUBLICATION powersync FOR TABLE categories, products, sales, sale_lines, refunds, tenant_users, inventory_movements;
 ```
 
 Notes:
 
 - Generate a fresh `<per-env-secret>` for each environment (e.g. `openssl rand -base64 32`) and store it in a password manager. Do not reuse across staging and prod.
 - The role has `REPLICATION BYPASSRLS` — it can read every row in every tenant, bypassing RLS. Treat the credential like a service-role key.
-- The publication is targeted at exactly the six synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
+- The publication is targeted at exactly the seven synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
 - **Existing environments (Stage D):** if `powersync` was created before `tenant_users` was added to the table list above, run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) in the SQL editor after `pnpm db:push`. It is idempotent and skips quietly when the publication is missing (e.g. local `db:reset` before bootstrap).
 - **Existing environments (inventory):** if `powersync` was created before `inventory_movements` was added, run [`supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql`](supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql) after `pnpm db:push`.
-- Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Confirm `inventory_movements` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'inventory_movements';`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
+- **Categories (every environment):** after `pnpm db:push` creates the `categories` table, run in order: [`20260814235900_categories_rls.sql`](supabase/manual/20260814235900_categories_rls.sql) (RLS), [`20260814235910_category_integrity_triggers.sql`](supabase/manual/20260814235910_category_integrity_triggers.sql) (rename cascades to products; delete blocked while in use), and [`20260814235930_powersync_add_categories_to_publication.sql`](supabase/manual/20260814235930_powersync_add_categories_to_publication.sql) (only needed if `powersync` predates categories; idempotent). Then redeploy `powersync/sync-rules.yaml`. Apply before deploying the app — the home page reads `categories` on load. Existing products are backfilled into categories automatically on each tenant's first load.
+- Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Confirm `inventory_movements` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'inventory_movements';`. Confirm `categories` is published the same way, and that `powersync_role` can read it: `SELECT has_table_privilege('powersync_role', 'public.categories', 'SELECT');` (default privileges only cover tables created by the role that ran `ALTER DEFAULT PRIVILEGES`; if `false`, run `GRANT SELECT ON public.categories TO powersync_role;`). Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
 
 #### Atomic financial uploads
 
@@ -467,18 +468,18 @@ header's `kid` and `alg` with the keys at the JWKS URI, `iss` with
 `https://<project-ref>.supabase.co/auth/v1`, `aud` with the accepted audience,
 and `app_metadata.tenant_id` with the tenant in Diagnostics.
 
-**After `supabase db reset --linked`:** the reset drops everything in the `public` schema, which includes the `powersync` publication, the grants you gave `powersync_role`, and everything the `supabase/manual/` files installed there: the `inventory_movements` RLS, the financial RPCs and triggers, the product last-write-wins trigger and the Storage policy helper. The role itself survives (it's cluster-level, not database-level), and its password is unchanged. To restore the environment:
+**After `supabase db reset --linked`:** the reset drops everything in the `public` schema, which includes the `powersync` publication, the grants you gave `powersync_role`, and everything the `supabase/manual/` files installed there: the `inventory_movements` and `categories` RLS, the category triggers, the financial RPCs and triggers, the product last-write-wins trigger and the Storage policy helper. The role itself survives (it's cluster-level, not database-level), and its password is unchanged. To restore the environment:
 
 1. Re-run the grants + publication portion of the bootstrap (skip `CREATE ROLE`):
 
    ```sql
    GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
-   CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds, tenant_users, inventory_movements;
+   CREATE PUBLICATION powersync FOR TABLE categories, products, sales, sale_lines, refunds, tenant_users, inventory_movements;
    ```
 
 2. Run every file in `supabase/manual/`, in order, in the SQL editor (see
-   [Hand-written SQL](#hand-written-sql-supabasemanual)). The two publication
+   [Hand-written SQL](#hand-written-sql-supabasemanual)). The publication
    scripts are no-ops once the publication above exists.
 3. Run the verification queries from that section.
 
@@ -667,15 +668,15 @@ below:
   last one it has had, in order. When unsure, start from an earlier file and
   run every file after it as well, in order. Never re-run an older file on its
   own: some files replace what an earlier one installed, and running the
-  earlier one again puts the old version back. File 1 replaces file 7's upload
-  policy, and file 5 replaces file 6's upload RPCs and void trigger. The
+  earlier one again puts the old version back. File 1 replaces file 10's upload
+  policy, and file 5 replaces file 9's upload RPCs and void trigger. The
   verification query below shows both.
 - **Local stack:** `pnpm db:reset` runs all of them after the migrations and
   before `seed.sql`.
 
 1. [`20260610012304_product_image_upload_policy_membership.sql`](supabase/manual/20260610012304_product_image_upload_policy_membership.sql):
    Storage upload policy checked by `tenant_users` membership instead of the
-   JWT claim. Every environment; file 7 replaces the policy.
+   JWT claim. Every environment; file 10 replaces the policy.
 2. [`20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql):
    adds `tenant_users` to the `powersync` publication. Needed where the
    publication predates Stage D; skips when it is already there or there is
@@ -692,23 +693,33 @@ below:
    atomic RPCs for sale, void and refund uploads, revokes direct financial
    writes, and the void trigger. Every environment, before deploying the
    atomic uploader (see [Atomic financial uploads](#atomic-financial-uploads)).
-6. [`20260926120000_powersync_upload_convergence.sql`](supabase/manual/20260926120000_powersync_upload_convergence.sql):
+6. [`20260814235900_categories_rls.sql`](supabase/manual/20260814235900_categories_rls.sql):
+   RLS on `categories` by `tenant_users` membership. **Every environment,
+   security-critical**, right after the `pnpm db:push` that creates the table.
+7. [`20260814235910_category_integrity_triggers.sql`](supabase/manual/20260814235910_category_integrity_triggers.sql):
+   renaming a category renames it on its products, and a category still used
+   by a product cannot be deleted. Sales keep the category they were sold
+   under. Every environment.
+8. [`20260814235930_powersync_add_categories_to_publication.sql`](supabase/manual/20260814235930_powersync_add_categories_to_publication.sql):
+   adds `categories` to the publication. Needed where the publication predates
+   categories; skips otherwise. Redeploy `powersync/sync-rules.yaml` after it.
+9. [`20260926120000_powersync_upload_convergence.sql`](supabase/manual/20260926120000_powersync_upload_convergence.sql):
    replaces the functions from file 5 with device-timestamp bounds, void/refund
    conflict convergence and whole-number payload checks, and adds the refund
    trigger. Every environment, after file 5 and after the app build that
    handles its `NULL` conflict results (see
    [Atomic financial uploads](#atomic-financial-uploads)).
-7. [`20260926130000_product_images_storage_rules.sql`](supabase/manual/20260926130000_product_images_storage_rules.sql):
-   `product-images` bucket limits (JPEG and PNG, 5 MiB) and the Storage upload
-   and delete policies by tenant folder. Every environment. Hosted buckets get
-   their limits only from this file; do not use `supabase seed buckets --linked`,
-   which would also upload the local seed images.
-8. [`20260926130100_products_last_write_wins.sql`](supabase/manual/20260926130100_products_last_write_wins.sql):
-   product edits are last-write-wins by `updated_at`, column by column: a late
-   offline upload no longer overwrites a newer change to the same field, and
-   its changes to other fields still apply. A placeholder tone never replaces
-   an uploaded image. Every environment, after file 6 and after the
-   `pnpm db:push` that adds `products.field_updated_at`.
+10. [`20260926130000_product_images_storage_rules.sql`](supabase/manual/20260926130000_product_images_storage_rules.sql):
+    `product-images` bucket limits (JPEG and PNG, 5 MiB) and the Storage upload
+    and delete policies by tenant folder. Every environment. Hosted buckets get
+    their limits only from this file; do not use `supabase seed buckets --linked`,
+    which would also upload the local seed images.
+11. [`20260926130100_products_last_write_wins.sql`](supabase/manual/20260926130100_products_last_write_wins.sql):
+    product edits are last-write-wins by `updated_at`, column by column: a late
+    offline upload no longer overwrites a newer change to the same field, and
+    its changes to other fields still apply. A placeholder tone never replaces
+    an uploaded image. Every environment, after file 9 and after the
+    `pnpm db:push` that adds `products.field_updated_at`.
 
 To check an environment, run in its SQL editor:
 
@@ -727,6 +738,12 @@ SELECT
     WHERE oid = 'public.inventory_movements'::regclass) AS "20260626170000",
   to_regprocedure('public.powersync_create_sale(jsonb,jsonb)') IS NOT NULL
     AS "20260808235900",
+  (SELECT relrowsecurity FROM pg_class
+    WHERE oid = 'public.categories'::regclass) AS "20260814235900",
+  (SELECT count(*) = 2 FROM pg_trigger
+    WHERE tgrelid = 'public.categories'::regclass
+      AND tgname IN ('categories_sync_name_to_products',
+        'categories_prevent_delete_when_used')) AS "20260814235910",
   -- File 5's versions of these do not bound device timestamps.
   (SELECT bool_and(coalesce(
       pg_get_functiondef(to_regprocedure(f)) LIKE '%check_upload_timestamp%',

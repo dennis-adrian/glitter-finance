@@ -5,7 +5,7 @@ import {
   defaultPlaceholderImageTone,
   encodePlaceholderImagePath,
 } from "@/lib/product-image-config";
-import { ALL_CATEGORIES, canonicalizeCategory } from "@/lib/categories";
+import { ALL_CATEGORIES } from "@/lib/categories";
 import type { Product, ProductInput } from "@/lib/types";
 import { characterCount } from "@/lib/validation";
 
@@ -14,7 +14,7 @@ export const emptyProduct: Product = {
   name: "Producto",
   priceCents: 0,
   costCents: null,
-  category: "Stickers",
+  category: "",
   imagePath: encodePlaceholderImagePath(defaultPlaceholderImageTone),
   imageUrl: null,
   imageTone: defaultPlaceholderImageTone,
@@ -86,9 +86,10 @@ function requiredText(
 }
 
 /**
- * A product as it may be stored: a trimmed name and category (in its current
- * spelling) within their lengths, a whole-cent price and optional cost up to
- * MAX_PRICE_CENTS, and a low-stock threshold up to MAX_QUANTITY. The local
+ * A product as it may be stored: a trimmed name and category within their
+ * lengths, a whole-cent price and optional cost up to MAX_PRICE_CENTS, and a
+ * low-stock threshold up to MAX_QUANTITY. (The writers then match the
+ * category to one of the tenant's, spelled as the tenant did.) The local
  * writers and the server actions both call it, so a value Postgres would
  * reject never reaches the PowerSync upload queue. Optional fields keep their
  * presence, which the update paths rely on. Throws UserFacingError.
@@ -103,11 +104,13 @@ export function normalizeProductInput(input: unknown): ProductInput {
     blank: "El nombre del producto es obligatorio.",
     tooLong: `El nombre del producto no puede superar ${PRODUCT_NAME_MAX_LENGTH} caracteres.`,
   });
-  const category = canonicalizeCategory(
-    requiredText(candidate.category, PRODUCT_CATEGORY_MAX_LENGTH, {
+  const category = requiredText(
+    candidate.category,
+    PRODUCT_CATEGORY_MAX_LENGTH,
+    {
       blank: "La categoría del producto es obligatoria.",
       tooLong: `La categoría no puede superar ${PRODUCT_CATEGORY_MAX_LENGTH} caracteres.`,
-    })
+    }
   );
 
   if (!isValidCents(candidate.priceCents)) {

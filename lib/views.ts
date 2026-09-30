@@ -3,6 +3,7 @@ export type View =
   | "sales"
   | "reports"
   | "products"
+  | "categories"
   | "more"
   | "settings"
   | "cart"

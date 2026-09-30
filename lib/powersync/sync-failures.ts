@@ -77,6 +77,10 @@ export function describeSyncFailure(operationsJson: string): string {
   if (has("sales", "PUT")) return "Venta";
   if (has("sales", "PATCH")) return "Anulación de venta";
   if (has("refunds", "PUT")) return "Reembolso";
+  // A category rename also renames its products in the same transaction.
+  if (has("categories", "PUT")) return "Categoría nueva";
+  if (has("categories", "PATCH")) return "Cambio de categoría";
+  if (has("categories", "DELETE")) return "Categoría eliminada";
   if (has("products", "PUT")) return "Producto nuevo";
   if (has("products", "PATCH")) return "Cambio de producto";
   if (has("inventory_movements", "PUT")) return "Movimiento de inventario";

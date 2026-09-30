@@ -156,5 +156,14 @@ test("stored payloads are read back and described", () => {
     ),
     "Venta"
   );
+  assert.equal(
+    describeSyncFailure(
+      JSON.stringify([
+        { op_id: 1, op: "PATCH", type: "categories", id: "c", data: {} },
+        { op_id: 2, op: "PATCH", type: "products", id: "p", data: {} },
+      ])
+    ),
+    "Cambio de categoría"
+  );
   assert.equal(describeSyncFailure("not json"), "Operación");
 });

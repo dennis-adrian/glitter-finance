@@ -33,6 +33,7 @@ import ws from "ws";
 import { ensureMembership } from "@/lib/auth/memberships";
 import { client, db } from "@/lib/db";
 import {
+  categories,
   inventoryMovements,
   products,
   refunds,
@@ -144,11 +145,11 @@ async function ensureTenant(userId: string) {
   });
 }
 
-// Deletes only the QA tenant's catalog, stock movements and sales. FKs are ON
-// DELETE RESTRICT, so children are removed before parents, and one
-// transaction keeps a failure from leaving products without their sales. The
-// direct db connection bypasses RLS, which is required because sales are
-// otherwise immutable.
+// Deletes only the QA tenant's catalog (categories included), stock movements
+// and sales. FKs are ON DELETE RESTRICT, so children are removed before
+// parents, and one transaction keeps a failure from leaving products without
+// their sales. The direct db connection bypasses RLS, which is required
+// because sales are otherwise immutable.
 async function resetTenantData() {
   await db.transaction(async (tx) => {
     await tx
@@ -158,7 +159,22 @@ async function resetTenantData() {
     await tx.delete(saleLines).where(eq(saleLines.tenantId, QA_TENANT_ID));
     await tx.delete(sales).where(eq(sales.tenantId, QA_TENANT_ID));
     await tx.delete(products).where(eq(products.tenantId, QA_TENANT_ID));
+    await tx.delete(categories).where(eq(categories.tenantId, QA_TENANT_ID));
   });
+}
+
+// The categories the seeded products use: a product may only be saved in one
+// of its tenant's categories.
+async function ensureQaCategories() {
+  await db
+    .insert(categories)
+    .values(
+      ["Stickers", "Prints", "Pines", "Accesorios"].map((name) => ({
+        tenantId: QA_TENANT_ID,
+        name,
+      }))
+    )
+    .onConflictDoNothing();
 }
 
 async function seedData(userId: string) {
@@ -298,6 +314,8 @@ async function main() {
     await resetTenantData();
     console.log("Existing QA catalog, stock and sales wiped (--reset).");
   }
+
+  await ensureQaCategories();
 
   const [existingProduct] = await db
     .select({ id: products.id })

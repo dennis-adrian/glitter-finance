@@ -39,6 +39,7 @@ import {
 
 /** The synced tables (lib/db/client-schema.ts); local-only tables never upload. */
 export const SYNCED_TABLE_NAMES = [
+  "categories",
   "products",
   "sales",
   "sale_lines",

@@ -16,6 +16,11 @@ import {
   uploadProductImage,
 } from "@/app/products/actions";
 import {
+  createCategory as createCategoryAction,
+  deleteCategory as deleteCategoryAction,
+  renameCategory as renameCategoryAction,
+} from "@/app/categories/actions";
+import {
   createSale,
   refundSale as refundSaleAction,
   voidSale as voidSaleAction,
@@ -26,6 +31,7 @@ import { toast as sonnerToast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { BottomNav } from "@/components/organisms/bottom-nav";
 import { CartScreen } from "@/components/screens/cart-screen";
+import { CategoriesScreen } from "@/components/screens/categories-screen";
 import { PaymentScreen } from "@/components/screens/payment-screen";
 import {
   ProductEditor,
@@ -40,7 +46,7 @@ import { MoreScreen } from "@/components/screens/more-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
 import { unwrapActionResult } from "@/lib/action-result";
-import { ALL_CATEGORIES } from "@/lib/categories";
+import { ALL_CATEGORIES, sortCategories } from "@/lib/categories";
 import { paymentLabels, saleTotal, sortSalesNewestFirst } from "@/lib/sales";
 import { cartSubtotalCents } from "@/lib/sales/pricing";
 import {
@@ -73,6 +79,7 @@ import { createScrollMemory } from "@/lib/scroll-memory";
 import { usePosStore } from "@/lib/store";
 import { useSalesRangeState } from "@/lib/use-sales-range";
 import type {
+  Category,
   CartLine,
   PaymentMethod,
   Product,
@@ -109,6 +116,15 @@ import {
 } from "@/lib/powersync/local-watch";
 import type { TenantWork } from "@/lib/powersync/tenant-work";
 import { useTenantWork } from "@/lib/powersync/use-tenant-work";
+import {
+  createCategoryLocal,
+  deleteCategoryLocal,
+  renameCategoryLocal,
+} from "@/lib/powersync/write-categories";
+import {
+  mapLocalCategoryRow,
+  type LocalCategoryRow,
+} from "@/lib/powersync/categories-from-local";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   compareMovementsOldestFirst,
@@ -164,6 +180,7 @@ const noLocalLedgerLoaded = { movements: false, sales: false };
 
 type GlitterPosAppProps = {
   tenantContext: UserTenantContext;
+  initialCategories: Category[];
   initialProducts: Product[];
   initialSales: Sale[];
   initialTenantMembers: TenantMember[];
@@ -175,6 +192,7 @@ type GlitterPosAppProps = {
 
 export function GlitterPosApp({
   tenantContext,
+  initialCategories,
   initialProducts,
   initialSales,
   initialTenantMembers,
@@ -198,8 +216,14 @@ export function GlitterPosApp({
   const hydrateProducts = usePosStore((state) => state.hydrateProducts);
   const hydrateSales = usePosStore((state) => state.hydrateSales);
   const upsertProduct = usePosStore((state) => state.upsertProduct);
+  const renameProductCategory = usePosStore(
+    (state) => state.renameProductCategory
+  );
 
   const [view, setView] = useState<View>("sell");
+  const [categories, setCategories] = useState(() =>
+    sortCategories(initialCategories)
+  );
   const [activeInvitationState, setActiveInvitationState] =
     useState(activeInvitation);
   const [previousView, setPreviousView] = useState<View>("products");
@@ -269,6 +293,7 @@ export function GlitterPosApp({
   const initialTenantMembersRef = useRef(initialTenantMembers);
   // The server-rendered data the local rows are merged over until the first
   // sync completes (see the watches below).
+  const initialCategoriesRef = useRef(initialCategories);
   const initialProductsRef = useRef(initialProducts);
   const initialSalesRef = useRef(initialSales);
   const initialInventoryRef = useRef(initialInventory);
@@ -287,6 +312,15 @@ export function GlitterPosApp({
   const cartUpdatedAtRef = useRef<string | null>(null);
 
   const activeProducts = products.filter((product) => !product.archivedAt);
+  // The rails' categories: the tenant's, then any a product still names that
+  // is not one of them (such as one another device just renamed).
+  const categoryNames = useMemo(() => {
+    const names = categories.map((item) => item.name);
+    for (const product of products) {
+      if (!names.includes(product.category)) names.push(product.category);
+    }
+    return names;
+  }, [categories, products]);
   const cartDetails = useMemo(
     () =>
       cart
@@ -366,6 +400,7 @@ export function GlitterPosApp({
       setSelectedSaleId(null);
       setIsCheckingOut(false);
       setActiveInvitationState(null);
+      setCategories([]);
       setTenantMembers([]);
       setInventoryMovements([]);
       setOpeningStock(null);
@@ -393,6 +428,7 @@ export function GlitterPosApp({
   // prompt to a vendor with a full catalog. A layout effect installs the
   // server rows before that paint.
   useLayoutEffect(() => {
+    initialCategoriesRef.current = initialCategories;
     initialProductsRef.current = initialProducts;
     initialSalesRef.current = initialSales;
     initialInventoryRef.current = initialInventory;
@@ -401,6 +437,7 @@ export function GlitterPosApp({
   }, [
     hydrateProducts,
     hydrateSales,
+    initialCategories,
     initialProducts,
     initialSales,
     initialInventory,
@@ -408,6 +445,8 @@ export function GlitterPosApp({
 
   useEffect(() => {
     setTenantMembers(initialTenantMembers);
+    // The first render already has them (the state's initial value).
+    setCategories(sortCategories(initialCategories));
     setInventoryMovements(initialInventory?.movements ?? []);
     setOpeningStock(initialInventory?.opening ?? null);
     setLocalLedgerLoaded(noLocalLedgerLoaded);
@@ -426,6 +465,7 @@ export function GlitterPosApp({
     // New server data (the products and sales installed above) puts the
     // ledger back to it as well.
   }, [
+    initialCategories,
     initialProducts,
     initialSales,
     initialTenantMembers,
@@ -551,6 +591,39 @@ export function GlitterPosApp({
     tenantWork,
     tenantWorkGeneration,
     initialProducts,
+  ]);
+
+  useEffect(() => {
+    if (!powerSyncDb || !activeTenantId) return;
+    return watchTenantRows<LocalCategoryRow>(powerSyncDb, {
+      sql: "SELECT * FROM categories WHERE tenant_id = ? ORDER BY name ASC",
+      tenantId: activeTenantId,
+      isCurrent: tenantWork.captureGeneration(),
+      onRows: (rows, synced) => {
+        const localCategories = rows.map(mapLocalCategoryRow);
+        setCategories(
+          sortCategories(
+            synced
+              ? localCategories
+              : mergeLocalRowsOverServer(
+                  initialCategoriesRef.current,
+                  localCategories
+                )
+          )
+        );
+      },
+      onError: watchFailed(
+        "categories watch error",
+        "powersync_categories_watch"
+      ),
+    });
+    // initialCategories: see the products watch.
+  }, [
+    powerSyncDb,
+    activeTenantId,
+    tenantWork,
+    tenantWorkGeneration,
+    initialCategories,
   ]);
 
   useEffect(() => {
@@ -1145,6 +1218,118 @@ export function GlitterPosApp({
     }
   }
 
+  // Category writes, from the category screen and the product editor. Their
+  // drawers show a failure next to the name, so these throw it; they resolve
+  // to null once the write was cancelled (see runTenantWrite). With PowerSync
+  // the categories watch shows the change; without it the server action's
+  // result is applied here.
+  async function handleCreateCategory(name: string) {
+    const created = await runTenantWrite({
+      local: ({ tenant, work, db }) =>
+        createCategoryLocal(db, {
+          tenantId: tenant.id,
+          name,
+          assertCurrent: work.assertCurrent,
+        }),
+      server: async ({ tenant, work }) => {
+        const category = await unwrapActionResult(
+          () => createCategoryAction(tenant.id, name),
+          "No se pudo crear la categoría"
+        );
+        work.assertCurrent();
+        setCategories((current) =>
+          sortCategories([
+            category,
+            ...current.filter((item) => item.id !== category.id),
+          ])
+        );
+        return category;
+      },
+    });
+    if (!created) {
+      return null;
+    }
+    showToast("Categoría creada", "success");
+    return created.value;
+  }
+
+  async function handleRenameCategory(categoryId: string, name: string) {
+    const previousName = categories.find(
+      (item) => item.id === categoryId
+    )?.name;
+    const renamed = await runTenantWrite({
+      local: ({ tenant, work, db }) =>
+        renameCategoryLocal(db, {
+          tenantId: tenant.id,
+          categoryId,
+          name,
+          assertCurrent: work.assertCurrent,
+        }),
+      server: async ({ tenant, work }) => {
+        const category = await unwrapActionResult(
+          () => renameCategoryAction(tenant.id, categoryId, name),
+          "No se pudo renombrar la categoría"
+        );
+        work.assertCurrent();
+        setCategories((current) =>
+          sortCategories(
+            current.map((item) => (item.id === categoryId ? category : item))
+          )
+        );
+        // Postgres renamed it on the products too (the category triggers).
+        if (previousName) {
+          renameProductCategory(previousName, category.name);
+        }
+        return category;
+      },
+    });
+    if (!renamed) {
+      return null;
+    }
+    const newName = renamed.value.name;
+    if (previousName) {
+      // A rail filtered by the category keeps showing it.
+      const follow = (current: string) =>
+        current === previousName ? newName : current;
+      setCategory(follow);
+      setCatalogCategory(follow);
+    }
+    showToast("Categoría renombrada", "info");
+    return renamed.value;
+  }
+
+  async function handleDeleteCategory(categoryId: string) {
+    const deletedName = categories.find((item) => item.id === categoryId)?.name;
+    const deleted = await runTenantWrite({
+      local: ({ tenant, work, db }) =>
+        deleteCategoryLocal(db, {
+          tenantId: tenant.id,
+          categoryId,
+          assertCurrent: work.assertCurrent,
+        }),
+      server: async ({ tenant, work }) => {
+        await unwrapActionResult(
+          () => deleteCategoryAction(tenant.id, categoryId),
+          "No se pudo eliminar la categoría"
+        );
+        work.assertCurrent();
+        setCategories((current) =>
+          current.filter((item) => item.id !== categoryId)
+        );
+      },
+    });
+    if (!deleted) {
+      return;
+    }
+    if (deletedName) {
+      const reset = (current: string) =>
+        current === deletedName ? ALL_CATEGORIES : current;
+      setCategory(reset);
+      setCatalogCategory(reset);
+    }
+    showToast("Categoría eliminada", "info");
+  }
+
   // Without PowerSync nothing watches inventory_movements, so a movement the
   // server action recorded is added here; stock is derived from this list.
   function addInventoryMovementToState(movement: InventoryMovement) {
@@ -1366,6 +1551,7 @@ export function GlitterPosApp({
     sell: (
       <SellScreen
         products={activeProducts}
+        categories={categoryNames}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         cartCount={cartCount}
@@ -1405,6 +1591,7 @@ export function GlitterPosApp({
     products: (
       <ProductsScreen
         products={products}
+        categories={categoryNames}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         category={catalogCategory}
@@ -1414,11 +1601,22 @@ export function GlitterPosApp({
         setCategory={setCatalogCategory}
         setQuery={setCatalogQuery}
         openEditor={openEditor}
+        openCategories={() => setView("categories")}
         productWritePending={productWrite != null}
         restoringProductId={
           productWrite?.kind === "restore" ? productWrite.productId : null
         }
         restoreProduct={handleRestoreProduct}
+      />
+    ),
+    categories: (
+      <CategoriesScreen
+        categories={categories}
+        products={products}
+        back={() => setView("products")}
+        createCategory={handleCreateCategory}
+        renameCategory={handleRenameCategory}
+        deleteCategory={handleDeleteCategory}
       />
     ),
     more: (
@@ -1468,6 +1666,7 @@ export function GlitterPosApp({
     editor: (
       <ProductEditor
         product={editingProduct}
+        categories={categories}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         initialMovement={editorInitialMovementState}
@@ -1476,6 +1675,7 @@ export function GlitterPosApp({
           closeEditor(previousView === "sell" ? "products" : previousView)
         }
         pendingWrite={editorPendingWrite(productWrite, editorSession)}
+        createCategory={handleCreateCategory}
         save={handleSaveProduct}
         archive={handleArchiveProduct}
       />

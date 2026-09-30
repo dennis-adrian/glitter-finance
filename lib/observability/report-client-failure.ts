@@ -7,6 +7,7 @@ import * as Sentry from "@sentry/nextjs";
 export type ClientFailureComponent =
   | "powersync_init"
   | "powersync_products_watch"
+  | "powersync_categories_watch"
   | "powersync_inventory_watch"
   | "powersync_tenant_users_watch"
   | "powersync_sales_watch"

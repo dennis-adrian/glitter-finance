@@ -50,6 +50,34 @@ export const tenants = pgTable(
   ]
 );
 
+export const categories = pgTable(
+  "categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("categories_tenant_id_idx").on(table.tenantId),
+    uniqueIndex("categories_tenant_name_unique").on(
+      table.tenantId,
+      sql`lower(${table.name})`
+    ),
+    check(
+      "categories_name_valid_check",
+      sql`btrim(${table.name}) <> '' AND char_length(${table.name}) <= 40`
+    ),
+  ]
+);
+
 export const tenantInvitations = pgTable(
   "tenant_invitations",
   {

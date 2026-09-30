@@ -28,6 +28,9 @@ streams:
     queries:
       # No ::uuid cast — PowerSync evaluates these rules in a SQLite engine
       # which has no native UUID type; UUIDs are compared as text.
+      - SELECT * FROM categories
+        WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+        AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())
       - SELECT * FROM products
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
         AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())

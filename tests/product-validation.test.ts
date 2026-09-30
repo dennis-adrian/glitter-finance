@@ -24,7 +24,8 @@ const valid: ProductInput = {
 function recordingDb() {
   const statements: { sql: string; params: unknown[] }[] = [];
   const tx = {
-    getOptional: async () => ({ id: "product-1" }),
+    // The product on the device, and the tenant's category.
+    getOptional: async () => ({ id: "product-1", name: "Stickers" }),
     execute: async (sql: string, params: unknown[] = []) => {
       statements.push({ sql, params });
       return { rowsAffected: 1 };
@@ -37,7 +38,7 @@ function recordingDb() {
   return { db, statements };
 }
 
-test("products are trimmed, canonicalized and keep optional-field presence", () => {
+test("products are trimmed and keep optional-field presence", () => {
   assert.deepEqual(
     normalizeProductInput({
       ...valid,
@@ -50,7 +51,8 @@ test("products are trimmed, canonicalized and keep optional-field presence", () 
       name: "Sticker holo",
       priceCents: 1500,
       costCents: 400,
-      category: "Stickers",
+      // Categories are the tenant's own: no name is rewritten to another.
+      category: "Pegatinas",
       imageTone: "coral",
     }
   );
@@ -148,7 +150,8 @@ test("a product and its initial stock are written in one transaction", async () 
     writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) => {
       transactions += 1;
       return callback({
-        getOptional: async () => ({ id: "product-1" }),
+        // The product on the device, and the tenant's category.
+        getOptional: async () => ({ id: "product-1", name: "Stickers" }),
         execute: async (sql: string) => {
           statements.push(sql);
         },

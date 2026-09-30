@@ -12,7 +12,6 @@
 import { UserFacingError } from "@/lib/action-result";
 import { MAX_QUANTITY, MAX_QUANTITY_LABEL } from "@/lib/inventory";
 import { clampDiscount, INT4_MAX, isValidCents } from "@/lib/money";
-import { canonicalizeCategory } from "@/lib/categories";
 import type { Product } from "@/lib/types";
 import { normalizeNote } from "@/lib/validation";
 
@@ -220,7 +219,7 @@ export function priceSale(
     return {
       productId: product.id,
       productName: product.name,
-      category: canonicalizeCategory(product.category),
+      category: product.category,
       quantity: line.quantity,
       unitPriceCents: product.priceCents,
       unitCostCents: product.costCents,

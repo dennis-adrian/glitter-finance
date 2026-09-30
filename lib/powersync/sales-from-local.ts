@@ -15,7 +15,6 @@ import type {
   saleLines,
   sales,
 } from "@/lib/db/client-schema";
-import { canonicalizeCategory } from "@/lib/categories";
 import { sortSalesNewestFirst } from "@/lib/sales";
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
 
@@ -28,9 +27,10 @@ function mapLine(row: LocalSaleLineRow): SaleLine {
     id: row.id,
     productId: row.product_id,
     productName: row.product_name,
-    // Lines recorded before a category was renamed ("Pegatinas") report
-    // under its current name ("Stickers"), so reports do not split them.
-    category: canonicalizeCategory(row.category),
+    // The category the product had when it was sold: renaming a category
+    // does not rewrite sales (supabase/manual/
+    // 20260814235910_category_integrity_triggers.sql).
+    category: row.category,
     quantity: row.quantity,
     unitPriceCents: row.unit_price_cents,
     unitCostCents: row.unit_cost_cents,

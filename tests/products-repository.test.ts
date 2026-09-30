@@ -77,6 +77,12 @@ function returningRow(table: Write["table"], values: Record<string, unknown>) {
 
 function fakeDatabase(log: Write[]) {
   return {
+    // The tenant's category lookup (resolveCategoryNameForTenant).
+    select: () => ({
+      from: () => ({
+        where: () => ({ limit: async () => [{ name: "Prints" }] }),
+      }),
+    }),
     insert: (table: unknown) => ({
       values: (values: Record<string, unknown>) => {
         log.push({ kind: "insert", table: tableName(table), values });

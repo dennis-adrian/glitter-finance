@@ -53,7 +53,7 @@ function productRow(
 
 const productRows = [
   productRow("00000000-0000-4000-8000-00000000000a", 1500, "Stickers", 400),
-  // A category saved before the rename; both paths record "Prints".
+  // Both paths record the category as the product has it.
   productRow("00000000-0000-4000-8000-00000000000b", 4000, "Láminas", null),
 ];
 
@@ -228,7 +228,7 @@ test("the server action and the PowerSync writer record the same sale", async ()
     serverLines.map((line) => [line.category, line.lineTotalCents]),
     [
       ["Stickers", 3800],
-      ["Prints", 0],
+      ["Láminas", 0],
     ]
   );
   assert.equal(recorded.saleDiscountCents, 3800);
@@ -263,10 +263,11 @@ test("a sale id already used in another tenant is never returned", async () => {
   assert.equal(fake.tables.get(sales)!.length, 1);
 });
 
-test("legacy sale-line categories report under their current name", async () => {
+test("sale lines report under the category they were sold in", async () => {
   const { createSaleForTenant, getSalesForTenant } = await loadRepository();
   await createSaleForTenant(serverSale(crypto.randomUUID()));
   const [sale] = fake.tables.get(sales)!;
+  // Sold before its category was renamed: sales keep the name they had.
   fake.tables.get(saleLines)!.push({
     ...fake.tables.get(saleLines)![0],
     id: crypto.randomUUID(),
@@ -311,11 +312,11 @@ test("legacy sale-line categories report under their current name", async () => 
   for (const loaded of [serverSales, localSales]) {
     assert.deepEqual(
       loaded[0].lines.map((line) => line.category),
-      ["Stickers", "Prints", "Stickers"]
+      ["Stickers", "Láminas", "Pegatinas"]
     );
     assert.deepEqual(
       computeCategoryTotals(loaded).map((item) => item.category),
-      ["Stickers"]
+      ["Stickers", "Pegatinas"]
     );
   }
 });

@@ -5,6 +5,14 @@ import type { paymentMethodEnum } from "@/lib/db/schema";
 export type PaymentMethod = (typeof paymentMethodEnum.enumValues)[number];
 export type SaleStatus = "completed" | "voided" | "refunded";
 
+export type Category = {
+  id: string;
+  tenantId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Product = {
   id: string;
   name: string;

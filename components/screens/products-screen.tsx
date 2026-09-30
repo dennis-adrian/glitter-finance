@@ -1,4 +1,4 @@
-import { PackagePlus, Plus, Search } from "lucide-react";
+import { PackagePlus, Plus, Search, Tags } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { CategoryRail } from "@/components/molecules/category-rail";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { ProductCatalogCard } from "@/components/molecules/product-catalog-card";
-import { categories } from "@/lib/categories";
+import { ALL_CATEGORIES } from "@/lib/categories";
 import { filterProducts } from "@/lib/products";
 import type { Product } from "@/lib/types";
 import { getProductStock } from "@/lib/inventory";
@@ -16,6 +16,7 @@ type ProductsScreenProps = {
   products: Product[];
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
+  categories: string[];
   category: string;
   query: string;
   userDisplayName?: string;
@@ -27,6 +28,7 @@ type ProductsScreenProps = {
   /** A product save, archive or restore is still running. */
   productWritePending: boolean;
   restoringProductId: string | null;
+  openCategories: () => void;
 };
 
 export function ProductsScreen(props: ProductsScreenProps) {
@@ -60,9 +62,22 @@ export function ProductsScreen(props: ProductsScreenProps) {
           className="h-12 rounded-2xl pl-11"
         />
       </div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-bold">Categorías</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="text-primary"
+          onClick={props.openCategories}
+        >
+          <Tags />
+          Gestionar
+        </Button>
+      </div>
       <CategoryRail
         active={props.category}
-        categories={categories}
+        categories={[ALL_CATEGORIES, ...props.categories]}
         setActive={props.setCategory}
       />
       {filtered.length ? (

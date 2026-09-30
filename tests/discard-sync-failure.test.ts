@@ -38,6 +38,7 @@ function op(
 
 test("the revert covers exactly the synced tables", () => {
   const syncedClientTables = [
+    client.categories,
     client.products,
     client.sales,
     client.saleLines,

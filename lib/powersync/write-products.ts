@@ -29,6 +29,7 @@ import {
   productImagesBucket,
 } from "@/lib/product-image-config";
 import { removeProductImageObjects } from "@/lib/product-images";
+import { resolveCategoryNameLocal } from "@/lib/powersync/write-categories";
 import {
   insertInventoryMovement,
   prepareInventoryMovement,
@@ -100,6 +101,11 @@ export async function createProductLocal(
   );
   const now = nowIso();
   await db.writeTransaction(async (tx) => {
+    const category = await resolveCategoryNameLocal(
+      tx,
+      input.tenantId,
+      product.category
+    );
     input.assertCurrent?.();
     await tx.execute(
       `INSERT INTO products
@@ -112,7 +118,7 @@ export async function createProductLocal(
         product.name,
         product.priceCents,
         product.costCents,
-        product.category,
+        category,
         // A new product starts with a placeholder. An image is attached after
         // the insert, by uploadProductImageLocal.
         encodePlaceholderImagePath(product.imageTone),
@@ -155,7 +161,6 @@ export async function updateProductLocal(
     "name = ?",
     "price_cents = ?",
     "cost_cents = ?",
-    "category = ?",
     `image_path = CASE
        WHEN image_path IS NULL OR image_path LIKE ?
          THEN coalesce(?, image_path)
@@ -166,7 +171,6 @@ export async function updateProductLocal(
     product.name,
     product.priceCents,
     product.costCents,
-    product.category,
     placeholderImagePathPattern,
     placeholderPath,
   ];
@@ -191,11 +195,16 @@ export async function updateProductLocal(
 
   await db.writeTransaction(async (tx) => {
     await assertProductOnDevice(tx, input);
+    const category = await resolveCategoryNameLocal(
+      tx,
+      input.tenantId,
+      product.category
+    );
     input.assertCurrent?.();
     await tx.execute(
-      `UPDATE products SET ${assignments.join(", ")}
+      `UPDATE products SET category = ?, ${assignments.join(", ")}
        WHERE id = ? AND tenant_id = ?`,
-      [...params, input.productId, input.tenantId]
+      [category, ...params, input.productId, input.tenantId]
     );
     if (initialMovement) {
       await insertInventoryMovement(tx, initialMovement);

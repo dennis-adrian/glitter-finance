@@ -43,6 +43,14 @@ export type LocalRow<T extends Table> = {
   >;
 };
 
+export const categories = sqliteTable("categories", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  name: text("name").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const products = sqliteTable("products", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").notNull(),
@@ -168,6 +176,7 @@ export const uploadHolds = sqliteTable("upload_holds", {
 });
 
 export const clientSchema = {
+  categories,
   products,
   sales,
   saleLines,

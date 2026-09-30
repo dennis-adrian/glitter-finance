@@ -25,7 +25,6 @@ import {
   priceSale,
   type SaleLineRequest,
 } from "@/lib/sales/pricing";
-import { canonicalizeCategory } from "@/lib/categories";
 import type { PaymentMethod, Sale, SaleLine, TenantMember } from "@/lib/types";
 import { normalizeNote } from "@/lib/validation";
 
@@ -62,9 +61,10 @@ function mapSaleLine(line: typeof saleLines.$inferSelect): SaleLine {
     id: line.id,
     productId: line.productId,
     productName: line.productName,
-    // Lines recorded before a category was renamed report under its current
-    // name, like the PowerSync path (lib/powersync/sales-from-local.ts).
-    category: canonicalizeCategory(line.category),
+    // The category the product had when it was sold: renaming a category
+    // does not rewrite sales, like the PowerSync path
+    // (lib/powersync/sales-from-local.ts).
+    category: line.category,
     quantity: line.quantity,
     unitPriceCents: line.unitPriceCents,
     unitCostCents: line.unitCostCents,

@@ -1,5 +1,4 @@
 import type { Product } from "@/lib/types";
-import { canonicalizeCategory } from "@/lib/categories";
 import { toIso } from "@/lib/dates";
 import {
   placeholderImageTone,
@@ -38,7 +37,7 @@ export function mapDbProductToProduct(product: DbProduct): Product {
     name: product.name,
     priceCents: product.priceCents,
     costCents: product.costCents,
-    category: canonicalizeCategory(product.category),
+    category: product.category,
     imagePath: product.imagePath,
     imageUrl: getProductImagePublicUrl(product.imagePath),
     imageTone: imageToneFromPath(

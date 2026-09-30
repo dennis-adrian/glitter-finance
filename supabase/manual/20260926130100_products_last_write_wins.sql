@@ -1,5 +1,5 @@
 -- Apply after `pnpm db:push`, which adds products.field_updated_at
--- (20260929000106_products_field_updated_at.sql), and after
+-- (20260930035820_schema_integrity_and_product_field_times.sql), and after
 -- 20260926120000_powersync_upload_convergence.sql, in the Supabase SQL
 -- editor. Every statement is idempotent, so the file can be re-run.
 --

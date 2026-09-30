@@ -19,9 +19,11 @@ import { cn } from "@/lib/utils";
 // not --muted-foreground. The three light colors no token matches stay as
 // hex, each with a token for dark mode (DESIGN.md, "Sign-in screens").
 
-// The Input defaults supply the border, fill, text and focus colors.
+// The Input defaults supply the border, fill, text, placeholder and focus
+// colors. Placeholders are lighter than supporting text, like every other
+// input, so they read as examples rather than values.
 export const authInputClassName =
-  "h-12! rounded-xl! px-4 text-base md:text-sm shadow-none placeholder:text-foreground/70 focus-visible:ring-ring/15";
+  "h-12! rounded-xl! px-4 text-base md:text-sm shadow-none focus-visible:ring-ring/15";
 
 export const authLinkClassName =
   "font-bold text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40";

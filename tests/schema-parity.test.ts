@@ -12,6 +12,7 @@ import type { PaymentMethod } from "@/lib/types";
 // The sync rules use SELECT *, so a Postgres column missing from the client
 // schema is silently dropped on every device.
 const syncedTables: [Table, Table][] = [
+  [server.categories, client.categories],
   [server.products, client.products],
   [server.sales, client.sales],
   [server.saleLines, client.saleLines],

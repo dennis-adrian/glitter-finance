@@ -86,8 +86,8 @@ test("a sale is priced with clamped line and sale discounts", () => {
       {
         productId: "p2",
         productName: "Producto p2",
-        // Snapshotted in its current spelling.
-        category: "Prints",
+        // Snapshotted as the product has it.
+        category: "Láminas",
         quantity: 1,
         unitPriceCents: 2500,
         unitCostCents: null,
