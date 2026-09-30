@@ -14,6 +14,7 @@ Implemented now:
 - A sales list with each sale's detail, voids within the void window, and refunds.
 - Reports over today, week, month, or a custom range: by category, payment method, product, and seller.
 - Optional stock tracking per product.
+- Categories each tenant manages (create, rename, delete when unused); every product is filed under one.
 - Several tenants per user, a tenant switcher, and invitation links.
 - Email and password or Google sign-in, and password reset.
 - A sync status pill and a tester Diagnostics screen.
@@ -22,7 +23,7 @@ Implemented now:
 
 The data model is the sync model:
 
-- Products, sales, sale lines, refunds, and inventory movements take client-generated IDs, so a device can create them offline.
+- Categories, products, sales, sale lines, refunds, and inventory movements take client-generated IDs, so a device can create them offline.
 - Committed sales are append-only.
 - Sales snapshot price and cost at the time of sale.
 - Draft carts are local-only and not represented as committed sales.
@@ -49,3 +50,9 @@ Deferred items that are acceptable for now but should be revisited.
 - **Photos are cached on the device.** The service worker (`app/sw.ts`) keeps product photos in the `glitter-pos-product-images` cache (cache-first, up to 300 photos of at most 1 MB, each dropped after 30 days unused), so Sell tiles show them offline, as PRD §7.1 asks. `ProductArt` loads them with `crossOrigin="anonymous"` so the responses are CORS, not opaque, and uploads set a one-year `Cache-Control`, since every upload has a new name. Logout and tenant changes delete the cache with the rest of the user's data.
 - **Public bucket is cross-tenant readable.** `product-images` is a public bucket, so any object URL is world-readable and the tenant-scoped path (`<tenantId>/products/<productId>/<uuid>.<ext>`) is guessable. Accepted because product images are not sensitive and the PRD treats them as display assets. Revisit if images ever carry tenant-private information (would require a private bucket plus signed URLs or an RLS-gated read path). See `supabase/migrations/20260607185822_supabase_storage_bucket.sql`.
 - **Uploads run with the signed-in user's session.** In PowerSync mode the browser uploads straight to Storage (`uploadProductImageLocal` in `lib/powersync/write-products.ts`). Otherwise the `uploadProductImage` server action checks that the product belongs to the tenant and then uploads with the user's cookie session, not the service role. Either way the Storage INSERT policy allows only `<tenant_id>/products/<product_id>/<uuid>.<jpg|png>` in a tenant the user belongs to (`tenant_users` membership). Every signed-up user gets a tenant, so any account can upload into its own folder; the bucket limits bound each upload. A DELETE policy with the same tenant check lets the app remove images it no longer references. There is no UPDATE policy: every upload gets a fresh name.
+
+### Categories
+
+- **Products name their category; nothing references it by id.** A product stores its category's name, and a sale line keeps the name it was sold under. Postgres keeps them in step for every writer ([`supabase/manual/20260814235910_category_integrity_triggers.sql`](../supabase/manual/20260814235910_category_integrity_triggers.sql), whose functions [`20260930120000_category_triggers_follow_latest_edit.sql`](../supabase/manual/20260930120000_category_triggers_follow_latest_edit.sql) replaces): a rename renames the tenant's products, and a category a product uses cannot be deleted. Names are unique per tenant ignoring case, while those triggers match the exact spelling.
+- **Offline conflicts converge rather than block.** When two devices offline create the same name, rename to a name the other just created, or delete a category the other just used, the connector skips the change that reached the server second (`isLostCategoryConflict` in `lib/powersync/connector.ts`), and the next checkpoint restores the server's categories. A product can still end up under a name no category has: filed under one while another device deleted it, spelled in another case after a duplicate create, or a legacy category over 40 characters that the backfill skipped. The category rails and the editor still show such a name, and saving the product keeps it; choosing another category is the way out.
+- **Existing catalogs are backfilled on load.** `/` creates a category for every product category name that has none (`ensureCategoriesForExistingProducts`), reading only the missing names. It can go once every tenant has loaded the release (see the upgrade notes).
