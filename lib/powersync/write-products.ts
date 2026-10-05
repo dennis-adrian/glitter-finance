@@ -18,6 +18,7 @@ import {
   productImagesBucket,
 } from "@/lib/product-image-config";
 import type { ProductInput } from "@/lib/types";
+import { validateCategoryName } from "@/lib/categories/validation";
 
 const imageExtensionByMimeType: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -39,6 +40,23 @@ function resolveInputImagePath(input: ProductInput): string {
   return input.imagePath as string;
 }
 
+async function resolveProductCategoryLocal(
+  db: AbstractPowerSyncDatabase,
+  tenantId: string,
+  inputName: string
+) {
+  const name = validateCategoryName(inputName);
+  const rows = await db.getAll<{ name: string }>(
+    `SELECT name FROM categories
+     WHERE tenant_id = ? AND lower(name) = lower(?) LIMIT 1`,
+    [tenantId, name]
+  );
+  if (!rows[0]) {
+    throw new Error("Selecciona una categoría válida.");
+  }
+  return rows[0].name;
+}
+
 export async function createProductLocal(
   db: AbstractPowerSyncDatabase,
   input: {
@@ -49,6 +67,12 @@ export async function createProductLocal(
 ): Promise<{ productId: string }> {
   const productId = uuid();
   const now = nowIso();
+  input.assertCurrent?.();
+  const category = await resolveProductCategoryLocal(
+    db,
+    input.tenantId,
+    input.product.category
+  );
   input.assertCurrent?.();
   await db.execute(
     `INSERT INTO products
@@ -61,7 +85,7 @@ export async function createProductLocal(
       input.product.name,
       input.product.priceCents,
       input.product.costCents,
-      input.product.category,
+      category,
       resolveInputImagePath(input.product),
       input.product.tracksInventory ? 1 : 0,
       input.product.lowStockThreshold ?? null,
@@ -82,6 +106,12 @@ export async function updateProductLocal(
   }
 ): Promise<void> {
   input.assertCurrent?.();
+  const category = await resolveProductCategoryLocal(
+    db,
+    input.tenantId,
+    input.product.category
+  );
+  input.assertCurrent?.();
   await db.execute(
     `UPDATE products
        SET name = ?, price_cents = ?, cost_cents = ?, category = ?,
@@ -92,7 +122,7 @@ export async function updateProductLocal(
       input.product.name,
       input.product.priceCents,
       input.product.costCents,
-      input.product.category,
+      category,
       resolveInputImagePath(input.product),
       input.product.tracksInventory ? 1 : 0,
       input.product.lowStockThreshold ?? null,

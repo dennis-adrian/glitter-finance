@@ -3,12 +3,37 @@ import type { Product, Sale } from "@/lib/types";
 /** Default low-stock threshold when a product has no per-product override. */
 export const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 
-export type InventoryMovementReason =
-  | "initial"
-  | "restock"
-  | "adjustment"
-  | "loss"
-  | "gift";
+export const inventoryMovementReasons = [
+  "initial",
+  "restock",
+  "adjustment",
+  "loss",
+  "gift",
+] as const;
+
+export type InventoryMovementReason = (typeof inventoryMovementReasons)[number];
+
+/**
+ * Mirrors the inventory_movements CHECK constraints so every write path
+ * rejects bad input with a readable message before touching the database.
+ */
+export function validateInventoryMovement(
+  delta: number,
+  reason: string
+): asserts reason is InventoryMovementReason {
+  if (!inventoryMovementReasons.some((item) => item === reason)) {
+    throw new Error("Selecciona un motivo de inventario válido.");
+  }
+  if (!Number.isInteger(delta) || delta === 0) {
+    throw new Error("La cantidad debe ser un número entero distinto de cero.");
+  }
+  if ((reason === "initial" || reason === "restock") && delta < 0) {
+    throw new Error("La cantidad debe ser mayor que cero.");
+  }
+  if ((reason === "loss" || reason === "gift") && delta > 0) {
+    throw new Error("Las pérdidas y regalos deben restar unidades.");
+  }
+}
 
 export type InventoryMovement = {
   id: string;

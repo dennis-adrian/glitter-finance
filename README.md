@@ -8,12 +8,12 @@ acceptance, but it is not considered accepted until the documented real-device
 offline tests pass on iPhone Safari installed PWA and Android Chrome installed
 PWA.
 
-- Product catalog with categories, optional cost, archive/restore, and graceful image placeholders.
+- Product catalog with tenant-managed categories, optional cost, archive/restore, and graceful image placeholders.
 - Sell Mode as the default screen with tappable product grid, quantity badges, PowerSync-backed draft cart persistence, and a fixed Cobrar action.
 - Cart review surface with quantity controls and clear-cart.
 - Payment screen with sale-level discounts and cash/QR checkout.
 - Immutable local sales with snapshotted price/cost data, recent sales, voids, refunds, and basic reports.
-- PowerSync-backed local SQLite reads/writes for products, sales, sale lines, refunds, and local-only draft carts.
+- PowerSync-backed local SQLite reads/writes for categories, products, sales, sale lines, refunds, and local-only draft carts.
 - Offline app shell through Serwist, with Supabase and PowerSync API responses kept network-only so synced data remains owned by PowerSync/local SQLite.
 - Sync status visibility and a tester diagnostics surface for pending queue count, offline/reconnect state, errors, and last sync time.
 
@@ -116,17 +116,18 @@ In the target project's Supabase dashboard, open the SQL editor and run:
 CREATE ROLE powersync_role WITH REPLICATION BYPASSRLS LOGIN PASSWORD '<per-env-secret>';
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
-CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds, tenant_users, inventory_movements;
+CREATE PUBLICATION powersync FOR TABLE categories, products, sales, sale_lines, refunds, tenant_users, inventory_movements;
 ```
 
 Notes:
 
 - Generate a fresh `<per-env-secret>` for each environment (e.g. `openssl rand -base64 32`) and store it in a password manager. Do not reuse across staging and prod.
 - The role has `REPLICATION BYPASSRLS` — it can read every row in every tenant, bypassing RLS. Treat the credential like a service-role key.
-- The publication is targeted at exactly the six synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
+- The publication is targeted at exactly the seven synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
 - **Existing environments (Stage D):** if `powersync` was created before `tenant_users` was added to the table list above, run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) in the SQL editor after `pnpm db:push`. It is idempotent and skips quietly when the publication is missing (e.g. local `db:reset` before bootstrap).
 - **Existing environments (inventory):** if `powersync` was created before `inventory_movements` was added, run [`supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql`](supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql) after `pnpm db:push`.
-- Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Confirm `inventory_movements` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'inventory_movements';`. Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
+- **Categories (every environment):** after `pnpm db:push` creates the `categories` table, run in order: [`20260814235900_categories_rls.sql`](supabase/manual/20260814235900_categories_rls.sql) (RLS), [`20260814235910_category_integrity_triggers.sql`](supabase/manual/20260814235910_category_integrity_triggers.sql) (rename cascades to products; delete blocked while in use), and [`20260814235930_powersync_add_categories_to_publication.sql`](supabase/manual/20260814235930_powersync_add_categories_to_publication.sql) (only needed if `powersync` predates categories; idempotent). Then redeploy `powersync/sync-rules.yaml`. Apply before deploying the app — the home page reads `categories` on load. Existing products are backfilled into categories automatically on each tenant's first load.
+- Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Confirm `inventory_movements` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'inventory_movements';`. Confirm `categories` is published the same way, and that `powersync_role` can read it: `SELECT has_table_privilege('powersync_role', 'public.categories', 'SELECT');` (default privileges only cover tables created by the role that ran `ALTER DEFAULT PRIVILEGES`; if `false`, run `GRANT SELECT ON public.categories TO powersync_role;`). Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
 
 #### Atomic financial uploads
 
@@ -197,7 +198,7 @@ project used for the JWKS URI, and the `kid` must appear in that JWKS response.
 ```sql
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
-CREATE PUBLICATION powersync FOR TABLE products, sales, sale_lines, refunds, tenant_users, inventory_movements;
+CREATE PUBLICATION powersync FOR TABLE categories, products, sales, sale_lines, refunds, tenant_users, inventory_movements;
 ```
 
 Also pass `--no-seed` when resetting any cloud project — the `supabase/seed.sql` script is local-only (creates a demo auth user with a known password, and assumes `pgcrypto` is enabled). It has no business running against staging or prod.

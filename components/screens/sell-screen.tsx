@@ -7,13 +7,13 @@ import { CategoryRail } from "@/components/molecules/category-rail";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { ProductTile } from "@/components/molecules/product-tile";
 import { CheckoutDock } from "@/components/organisms/checkout-dock";
-import { categories } from "@/lib/sample-data";
 import type { Product } from "@/lib/types";
 
 type SellScreenProps = {
   products: Product[];
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
+  categories: string[];
   cartCount: number;
   cartSubtotal: number;
   cart: { productId: string; quantity: number }[];
@@ -44,7 +44,7 @@ export function SellScreen(props: SellScreenProps) {
 
       <CategoryRail
         active={props.category}
-        categories={categories}
+        categories={["Todos", ...props.categories]}
         setActive={props.setCategory}
       />
 

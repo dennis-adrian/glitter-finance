@@ -12,6 +12,7 @@ import {
   Plus,
 } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
+import { CategoryFormDrawer } from "@/components/molecules/category-form-drawer";
 import { FormField } from "@/components/atoms/form-field";
 import { Header } from "@/components/atoms/header";
 import { ProductArt } from "@/components/atoms/product-art";
@@ -22,6 +23,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -37,8 +39,7 @@ import {
   productImageMimeTypes,
 } from "@/lib/product-image-config";
 import { emptyProduct } from "@/lib/products";
-import { canonicalizeCategory, categories } from "@/lib/sample-data";
-import type { Product } from "@/lib/types";
+import type { Category, Product } from "@/lib/types";
 import {
   hasValidProductForm,
   parsePositiveInteger,
@@ -47,10 +48,12 @@ import {
 
 type ProductEditorProps = {
   product: Product | null;
+  categories: Category[];
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
   hasInitialMovement: boolean;
   back: () => void;
+  createCategory: (name: string) => Promise<Category>;
   save: (input: {
     name: string;
     priceCents: number;
@@ -73,10 +76,12 @@ type ProductEditorProps = {
 
 export function ProductEditor({
   product,
+  categories,
   stockByProduct,
   inventoryStockReady,
   hasInitialMovement,
   back,
+  createCategory,
   save,
   onInventoryMovement,
   archive,
@@ -88,9 +93,8 @@ export function ProductEditor({
   const [cost, setCost] = useState(
     product?.costCents == null ? "" : String(product.costCents / 100)
   );
-  const [category, setCategory] = useState(
-    canonicalizeCategory(product?.category ?? "Stickers")
-  );
+  const [category, setCategory] = useState(product?.category ?? "");
+  const [categoryDrawerOpen, setCategoryDrawerOpen] = useState(false);
   const [imageTone, setImageTone] = useState(product?.imageTone ?? "violet");
   const [tracksInventory, setTracksInventory] = useState(
     product?.tracksInventory ?? false
@@ -113,7 +117,7 @@ export function ProductEditor({
   const [inventoryMovementSubmitting, setInventoryMovementSubmitting] =
     useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const canSave = hasValidProductForm(name, price);
+  const canSave = hasValidProductForm(name, price) && Boolean(category);
   const trackingPersisted = product?.tracksInventory ?? false;
   const trackingDirty =
     Boolean(product) && tracksInventory !== trackingPersisted;
@@ -321,7 +325,7 @@ export function ProductEditor({
           value={price}
           onChange={(event) => setPrice(event.target.value)}
           inputMode="decimal"
-          placeholder="15"
+          placeholder="Ej. 15"
           className="h-12 rounded-xl"
         />
       </FormField>
@@ -340,26 +344,46 @@ export function ProductEditor({
       </p>
       <FormField label="Categoría" id="product-category">
         <Select
-          value={category}
-          onValueChange={(value) => setCategory(value ?? "")}
+          value={category || null}
+          onValueChange={(value) => {
+            if (value === "__create_category__") {
+              setCategoryDrawerOpen(true);
+              return;
+            }
+            setCategory(value ?? "");
+          }}
         >
           <SelectTrigger
             id="product-category"
             className="h-12 w-full rounded-xl"
           >
-            <SelectValue />
+            <SelectValue placeholder="Selecciona una categoría" />
           </SelectTrigger>
           <SelectContent>
-            {categories
-              .filter((item) => item !== "Todos")
-              .map((item) => (
-                <SelectItem key={item} value={item}>
-                  {item}
-                </SelectItem>
-              ))}
+            {product?.category &&
+            !categories.some((item) => item.name === product.category) ? (
+              <SelectItem value={product.category}>
+                {product.category}
+              </SelectItem>
+            ) : null}
+            {categories.map((item) => (
+              <SelectItem key={item.id} value={item.name}>
+                {item.name}
+              </SelectItem>
+            ))}
+            {categories.length ? <SelectSeparator /> : null}
+            <SelectItem value="__create_category__" className="text-primary">
+              <Plus />
+              Crear categoría
+            </SelectItem>
           </SelectContent>
         </Select>
       </FormField>
+      {!category ? (
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Selecciona o crea una categoría para poder guardar el producto.
+        </p>
+      ) : null}
 
       <section className="mt-5 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
         <Label className="flex items-start justify-between gap-3">
@@ -387,7 +411,7 @@ export function ProductEditor({
                 setInventoryActionError(null);
               }}
               inputMode="numeric"
-              placeholder="10"
+              placeholder="Ej. 10"
               className="h-12 rounded-xl"
             />
           </FormField>
@@ -419,7 +443,7 @@ export function ProductEditor({
                   value={restockAmount}
                   onChange={(event) => setRestockAmount(event.target.value)}
                   inputMode="numeric"
-                  placeholder="+5"
+                  placeholder="Ej. +5"
                   className="h-14 flex-1 rounded-xl"
                 />
                 <Button
@@ -458,7 +482,7 @@ export function ProductEditor({
                       onChange={(event) =>
                         setAdjustmentAmount(event.target.value)
                       }
-                      placeholder="±2"
+                      placeholder="Ej. -2 o +3"
                       className="h-14 rounded-xl"
                     />
                     <Input
@@ -495,7 +519,7 @@ export function ProductEditor({
                       value={lossAmount}
                       onChange={(event) => setLossAmount(event.target.value)}
                       inputMode="numeric"
-                      placeholder="2"
+                      placeholder="Ej. 2"
                       className="h-14 rounded-xl"
                     />
                     <Input
@@ -531,7 +555,7 @@ export function ProductEditor({
                       value={giftAmount}
                       onChange={(event) => setGiftAmount(event.target.value)}
                       inputMode="numeric"
-                      placeholder="1"
+                      placeholder="Ej. 1"
                       className="h-14 rounded-xl"
                     />
                     <Input
@@ -616,6 +640,17 @@ export function ProductEditor({
       >
         GUARDAR CAMBIOS
       </Button>
+
+      <CategoryFormDrawer
+        open={categoryDrawerOpen}
+        existingNames={categories.map((item) => item.name)}
+        onOpenChange={setCategoryDrawerOpen}
+        onSave={async (categoryName) => {
+          const created = await createCategory(categoryName);
+          setCategory(created.name);
+          return created;
+        }}
+      />
     </section>
   );
 }

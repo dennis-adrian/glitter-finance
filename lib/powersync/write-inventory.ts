@@ -2,7 +2,10 @@
 // PowerSync's INSERT path — no upload-connector changes needed.
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
-import type { InventoryMovementReason } from "@/lib/inventory";
+import {
+  validateInventoryMovement,
+  type InventoryMovementReason,
+} from "@/lib/inventory";
 
 function nowIso() {
   return new Date().toISOString();
@@ -39,9 +42,7 @@ export async function addInventoryMovement(
   db: AbstractPowerSyncDatabase,
   input: AddInventoryMovementInput
 ): Promise<{ movementId: string }> {
-  if (!Number.isInteger(input.delta) || input.delta === 0) {
-    throw new Error("La cantidad debe ser un número entero distinto de cero.");
-  }
+  validateInventoryMovement(input.delta, input.reason);
 
   const movementId = uuid();
   const now = nowIso();
