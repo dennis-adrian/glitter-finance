@@ -12,7 +12,7 @@ export const SIGN_UP_FALLBACK_ERROR_MESSAGE =
   "No se pudo crear la cuenta. Intentá de nuevo o contactá a soporte si el problema continúa.";
 
 export const SIGN_UP_ORIGIN_UNAVAILABLE_MESSAGE =
-  "No se pudo determinar la URL pública de la app. Configura NEXT_PUBLIC_APP_URL o APP_URL en el servidor para crear cuentas.";
+  "No se pudo determinar la URL pública de la app. Configurá NEXT_PUBLIC_APP_URL o APP_URL en el servidor para crear cuentas.";
 
 const SIGN_UP_RATE_LIMIT_ERROR_MESSAGE =
   "Demasiados intentos de registro. Esperá unos minutos antes de volver a intentar.";
@@ -49,7 +49,7 @@ const SIGN_UP_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   unexpected_failure: SIGN_UP_TEMPORARY_ERROR_MESSAGE,
 };
 
-function weakPasswordMessage(reasons: unknown): string {
+export function weakPasswordMessage(reasons: unknown): string {
   if (!Array.isArray(reasons)) {
     return "La contraseña no cumple los requisitos de seguridad. Usá una más larga y combiná letras, números y símbolos.";
   }

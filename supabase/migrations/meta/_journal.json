@@ -78,6 +78,34 @@
       "when": 1786715768575,
       "tag": "20260814135608_glorious_agent_zero",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790740700010,
+      "tag": "20260930035820_schema_integrity_and_product_field_times",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791598678548,
+      "tag": "20261010021758_product_category_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791599054011,
+      "tag": "20261010022414_product_category_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791634633186,
+      "tag": "20261010121713_product_name_240_chars",
+      "breakpoints": true
     }
   ]
 }

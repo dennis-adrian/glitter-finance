@@ -1,34 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import {
-  Box,
-  Check,
-  CreditCard,
-  Loader2,
-  Plus,
-  ReceiptText,
-  RotateCcw,
-  Stethoscope,
-} from "lucide-react";
-import { signOut } from "@/app/auth/actions";
-import { createTenant, switchTenant } from "@/app/tenants/actions";
-import { signOutAfterLocalTeardown } from "@/lib/auth/client-logout";
-import { BrandMark } from "@/components/atoms/brand-mark";
-import { Header } from "@/components/atoms/header";
+import type { ReactNode } from "react";
+import { Stethoscope } from "lucide-react";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { InviteTeamCard } from "@/components/molecules/invite-team-card";
 import { SettingsItem } from "@/components/molecules/settings-item";
 import { ThemePicker } from "@/components/molecules/theme-picker";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { usePowerSyncControls } from "@/components/providers/powersync-provider";
-import type { UserTenantContext } from "@/lib/auth/user-context";
-import { useSyncStatus } from "@/lib/powersync/use-sync-status";
-import { isPowerSyncConfigured } from "@/lib/env";
-import { createClient } from "@/lib/supabase/client";
+import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import type { TenantInvitation, TenantMember } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { initialsOf } from "@/lib/utils";
 
 type SettingsScreenProps = {
   tenantContext: UserTenantContext;
@@ -37,12 +18,41 @@ type SettingsScreenProps = {
   activeInvitation: TenantInvitation | null;
   inviteOrigin: string;
   onInvitationChange?: (invitation: TenantInvitation | null) => void;
-  productCount: number;
-  saleCount: number;
-  pendingCount: number;
   openDiagnostics: () => void;
+  back: () => void;
 };
 
+function SettingsSection({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id: string;
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-labelledby={id} className="grid gap-3">
+      <div>
+        <h2 id={id} className="text-base font-bold">
+          {title}
+        </h2>
+        {description ? (
+          <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Settings for the active puesto and this device. Account and puesto
+ * switching, and signing out, live in Más; on-device record counts live in
+ * Diagnósticos.
+ */
 export function SettingsScreen({
   tenantContext,
   tenantMembers,
@@ -50,428 +60,99 @@ export function SettingsScreen({
   activeInvitation,
   inviteOrigin,
   onInvitationChange,
-  productCount,
-  saleCount,
-  pendingCount,
   openDiagnostics,
+  back,
 }: SettingsScreenProps) {
-  const identity =
-    tenantContext.user.displayName ||
-    tenantContext.user.email ||
-    "Billetera Ferial";
-  const initials = identity.slice(0, 2).toUpperCase();
-  const powerSyncControls = usePowerSyncControls();
-  const {
-    state: syncState,
-    pendingCount: syncPendingCount,
-    failureCount: syncFailureCount,
-  } = useSyncStatus();
-  const canSwitchTenant =
-    !isPowerSyncConfigured() ||
-    (syncState === "synced" &&
-      syncPendingCount === 0 &&
-      syncFailureCount === 0);
-  const [signingOut, setSigningOut] = useState(false);
-  const [signOutFailed, setSignOutFailed] = useState(false);
-  const [switchingTenantId, setSwitchingTenantId] = useState<string | null>(
-    null
-  );
-  const [showCreatePrompt, setShowCreatePrompt] = useState(false);
-  const [newTenantName, setNewTenantName] = useState("");
-  const [creatingTenant, setCreatingTenant] = useState(false);
-  const [tenantActionError, setTenantActionError] = useState<string | null>(
-    null
-  );
-  const syncFailureExplanation =
-    syncFailureCount === 1
-      ? "Hay una operación que no llegó a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión."
-      : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión.`;
-
-  async function refreshTenantSessionAndReload() {
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.refreshSession();
-      if (error) {
-        console.error("[tenant-change] refreshSession failed", error);
-        setTenantActionError(
-          "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
-        );
-        return false;
-      }
-    } catch (error) {
-      console.error("[tenant-change] refreshSession failed", error);
-      setTenantActionError(
-        "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
-      );
-      return false;
-    }
-    window.location.assign("/");
-    return true;
-  }
-
-  async function teardownForTenantChange() {
-    if (!powerSyncControls) {
-      throw new Error("La limpieza local aún no está disponible.");
-    }
-    await powerSyncControls.teardownForTenantChange();
-  }
-
-  async function handleTenantSwitch(tenantId: string) {
-    if (
-      switchingTenantId ||
-      tenantId === tenantContext.tenant?.id ||
-      !canSwitchTenant
-    ) {
-      return;
-    }
-
-    setTenantActionError(null);
-    setSwitchingTenantId(tenantId);
-    try {
-      // Do this before committing the server-side tenant change. If cleanup
-      // fails, the current authenticated session and tenant remain intact.
-      await teardownForTenantChange();
-    } catch (error) {
-      console.error("[switchTenant] local teardown failed", error);
-      setTenantActionError(
-        error instanceof Error
-          ? error.message
-          : "No se pudo limpiar los datos locales ni cambiar de cuenta."
-      );
-      setSwitchingTenantId(null);
-      return;
-    }
-
-    try {
-      await switchTenant(tenantId);
-    } catch (error) {
-      console.error("[switchTenant] failed", error);
-      setTenantActionError(
-        error instanceof Error ? error.message : "No se pudo cambiar de cuenta."
-      );
-      setSwitchingTenantId(null);
-      window.location.assign("/");
-      return;
-    }
-
-    if (!(await refreshTenantSessionAndReload())) {
-      setSwitchingTenantId(null);
-    }
-  }
-
-  async function handleCreateTenant() {
-    const trimmedName = newTenantName.trim();
-    if (!trimmedName || creatingTenant || !canSwitchTenant) {
-      return;
-    }
-
-    setTenantActionError(null);
-    setCreatingTenant(true);
-    try {
-      await teardownForTenantChange();
-    } catch (error) {
-      console.error("[createTenant] local teardown failed", error);
-      setTenantActionError(
-        error instanceof Error ? error.message : "No se pudo crear la cuenta."
-      );
-      setCreatingTenant(false);
-      return;
-    }
-
-    try {
-      await createTenant(trimmedName);
-    } catch (error) {
-      console.error("[createTenant] failed", error);
-      setTenantActionError(
-        error instanceof Error ? error.message : "No se pudo crear la cuenta."
-      );
-      setCreatingTenant(false);
-      window.location.assign("/");
-      return;
-    }
-
-    if (!(await refreshTenantSessionAndReload())) {
-      setCreatingTenant(false);
-    }
-  }
-
-  async function handleSignOut(_formData: FormData) {
-    if (signingOut) return;
-    setSignOutFailed(false);
-    if (syncFailureCount > 0) {
-      setTenantActionError(syncFailureExplanation);
-      return;
-    }
-    setSigningOut(true);
-    try {
-      if (!powerSyncControls) {
-        throw new Error("La limpieza local aún no está disponible.");
-      }
-      await signOutAfterLocalTeardown(
-        () => powerSyncControls.teardownForLogout(),
-        signOut
-      );
-    } catch (error) {
-      console.error("[signOut] signOut failed", error);
-      setSignOutFailed(true);
-      setTenantActionError(
-        error instanceof Error
-          ? `${error.message} Reintenta la limpieza segura antes de cerrar sesión.`
-          : "No se pudieron eliminar los datos locales. Reintenta la limpieza segura antes de cerrar sesión."
-      );
-      setSigningOut(false);
-    }
-  }
-
-  const switchOverlayLabel = creatingTenant
-    ? "Creando tu cuenta…"
-    : switchingTenantId
-      ? "Cambiando de cuenta…"
-      : null;
+  const tenantName = tenantContext.tenant?.name;
 
   return (
-    <section className="screen">
-      {switchOverlayLabel ? (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-background/80 backdrop-blur-sm"
-          role="status"
-          aria-live="polite"
-        >
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="size-7 animate-spin text-primary" />
-            <p className="text-sm font-medium">{switchOverlayLabel}</p>
-            <p className="max-w-60 text-center text-xs text-muted-foreground">
-              Sincronizando los datos de esta cuenta.
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      <Header title="Ajustes" left={<BrandMark />} />
-
-      <section className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-        <div className="mb-4 flex items-center gap-3.5">
-          <div className="grid size-14 shrink-0 place-items-center rounded-full bg-primary/10 text-base font-bold text-primary">
-            {initials}
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold">Tus cuentas</h2>
-            <p className="text-sm text-muted-foreground">
-              {tenantContext.user.email ?? "Usuario autenticado"}
-            </p>
-          </div>
-        </div>
-
-        {syncFailureCount > 0 ? (
-          <p className="mb-3 text-xs leading-relaxed text-destructive">
-            La sincronización requiere recuperación. Abre Diagnósticos antes de
-            cambiar de cuenta o cerrar sesión.
-          </p>
-        ) : !canSwitchTenant ? (
-          <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-            Espera a que termine la sincronización antes de cambiar de cuenta.
-          </p>
-        ) : null}
-        {tenantActionError ? (
-          <p className="mb-3 text-sm text-destructive">{tenantActionError}</p>
-        ) : null}
-
-        <div className="grid gap-1">
-          {tenantContext.tenants.map((tenant) => {
-            const isActive = tenant.id === tenantContext.tenant?.id;
-            const isSwitching = switchingTenantId === tenant.id;
-            return (
-              <button
-                key={tenant.id}
-                type="button"
-                disabled={
-                  !canSwitchTenant || isActive || Boolean(switchingTenantId)
-                }
-                onClick={() => void handleTenantSwitch(tenant.id)}
-                className={cn(
-                  "flex items-center justify-between rounded-xl px-3 py-2.5 text-left transition-colors",
-                  isActive
-                    ? "bg-primary/10 text-primary"
-                    : "hover:bg-muted disabled:opacity-50"
-                )}
-              >
-                <span className="font-medium">{tenant.name}</span>
-                {isActive ? (
-                  <Check className="size-4 shrink-0" />
-                ) : isSwitching ? (
-                  <span className="text-xs text-muted-foreground">
-                    Cambiando…
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-
-          {showCreatePrompt ? (
-            <div className="mt-2 grid gap-2 rounded-xl border border-border p-3">
-              <Label className="grid gap-1.5 text-sm">
-                Nombre de la cuenta
-                <Input
-                  value={newTenantName}
-                  onChange={(event) => setNewTenantName(event.target.value)}
-                  placeholder="Ej. Puesto 2"
-                  className="h-11 rounded-xl"
-                  autoFocus
-                />
-              </Label>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-2xl"
-                  onClick={() => {
-                    setShowCreatePrompt(false);
-                    setNewTenantName("");
-                  }}
-                  disabled={creatingTenant}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  type="button"
-                  className="rounded-2xl"
-                  onClick={() => void handleCreateTenant()}
-                  disabled={
-                    creatingTenant || !newTenantName.trim() || !canSwitchTenant
-                  }
-                >
-                  {creatingTenant ? "Creando…" : "Crear"}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              disabled={!canSwitchTenant || Boolean(switchingTenantId)}
-              onClick={() => setShowCreatePrompt(true)}
-              className="mt-1 flex items-center gap-2 rounded-xl px-3 py-2.5 text-left text-primary hover:bg-muted disabled:opacity-50"
-            >
-              <Plus className="size-4" />
-              <span className="font-medium">Crear nueva cuenta</span>
-            </button>
-          )}
-        </div>
-      </section>
-
-      <section className="my-4 grid gap-2.5">
-        <SettingsItem
-          icon={<Box size={21} />}
-          label="Productos activos"
-          value={String(productCount)}
-        />
-        <SettingsItem
-          icon={<ReceiptText size={21} />}
-          label="Ventas registradas"
-          value={String(saleCount)}
-        />
-        <SettingsItem
-          icon={<RotateCcw size={21} />}
-          label="Ventas cargadas"
-          value={String(pendingCount)}
-        />
-        <SettingsItem
-          icon={<CreditCard size={21} />}
-          label="Métodos de pago"
-          value="Efectivo · QR"
-        />
-        <button
-          type="button"
-          className="block w-full rounded-2xl text-left focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          onClick={openDiagnostics}
-        >
-          <SettingsItem
-            icon={<Stethoscope size={21} />}
-            label="Diagnósticos"
-            value="Estado de sincronización y dispositivo"
-          />
-        </button>
-      </section>
-
-      <section className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-        <h2 className="mb-3 text-lg font-semibold">Apariencia</h2>
-        <ThemePicker />
-      </section>
-
+    <Screen
+      width="narrow"
+      header={<ScreenHeader title="Ajustes" onBack={back} />}
+      bodyClassName="grid gap-8"
+    >
       {tenantContext.tenant ? (
-        <InviteTeamCard
-          initialInvitation={activeInvitation}
-          origin={inviteOrigin}
-          onInvitationChange={onInvitationChange}
-        />
+        <SettingsSection
+          id="settings-team"
+          title="Equipo"
+          description={
+            tenantName
+              ? `Quiénes pueden registrar ventas en ${tenantName}.`
+              : undefined
+          }
+        >
+          <div className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+            {teamSyncPending ? (
+              <p className="mb-3 text-sm leading-snug text-muted-foreground">
+                Sincronizando el equipo… Si esto persiste, revisá la conexión en
+                Diagnósticos.
+              </p>
+            ) : null}
+            <ul className="grid">
+              {tenantMembers.map((member) => {
+                const isCurrentUser = member.userId === tenantContext.user.id;
+                const isOwner =
+                  tenantContext.tenant?.createdByUserId != null &&
+                  member.userId === tenantContext.tenant.createdByUserId;
+                const roleLabel = isOwner ? "Propietario" : "Vendedor";
+                const memberInitials = initialsOf(member.displayName);
+                return (
+                  <li
+                    className="flex items-center gap-3 border-b border-border py-2.5 first:pt-0 last:border-b-0 last:pb-0"
+                    key={member.id}
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                      {memberInitials}
+                    </span>
+                    <span className="min-w-0">
+                      <strong className="block truncate text-sm">
+                        {member.displayName}
+                        {isCurrentUser ? (
+                          <span className="font-normal text-muted-foreground">
+                            {" "}
+                            (vos)
+                          </span>
+                        ) : null}
+                      </strong>
+                      <small className="block truncate text-xs text-muted-foreground">
+                        {roleLabel}
+                        {isCurrentUser && tenantContext.user.email
+                          ? ` · ${tenantContext.user.email}`
+                          : ""}
+                      </small>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <InviteTeamCard
+            tenantId={tenantContext.tenant.id}
+            initialInvitation={activeInvitation}
+            origin={inviteOrigin}
+            onInvitationChange={onInvitationChange}
+          />
+        </SettingsSection>
       ) : null}
 
-      <section className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-        <h2 className="mb-3 text-lg font-semibold">Equipo</h2>
-        {teamSyncPending ? (
-          <p className="mb-3 text-sm leading-snug text-muted-foreground">
-            Sincronizando el equipo… Si esto persiste, revisa la conexión en
-            Diagnósticos.
-          </p>
-        ) : null}
-        <div className="grid">
-          {tenantMembers.map((member) => {
-            const isCurrentUser = member.userId === tenantContext.user.id;
-            const isOwner =
-              tenantContext.tenant?.createdByUserId != null &&
-              member.userId === tenantContext.tenant.createdByUserId;
-            const roleLabel = isOwner
-              ? "Propietario"
-              : "Vendedor en esta cuenta";
-            const memberInitials = member.displayName.slice(0, 2).toUpperCase();
-            return (
-              <div
-                className="flex items-center gap-2.5 border-b border-border py-2 last:border-b-0"
-                key={member.id}
-              >
-                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
-                  {memberInitials}
-                </span>
-                <span>
-                  <strong className="block text-sm">
-                    {member.displayName}
-                  </strong>
-                  <small className="block text-xs text-muted-foreground">
-                    {isCurrentUser
-                      ? `Tú · ${roleLabel}${tenantContext.user.email ? ` · ${tenantContext.user.email}` : ""}`
-                      : roleLabel}
-                  </small>
-                </span>
-              </div>
-            );
-          })}
+      <SettingsSection
+        id="settings-appearance"
+        title="Apariencia"
+        description="Se guarda en este dispositivo."
+      >
+        <div className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+          <ThemePicker />
         </div>
-        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          Varios vendedores pueden registrar ventas en la misma cuenta desde sus
-          propios teléfonos. Comparte el enlace de invitación para agregar
-          miembros al equipo.
-        </p>
-      </section>
+      </SettingsSection>
 
-      <form action={handleSignOut} className="mt-5">
-        {syncFailureCount > 0 ? (
-          <p className="mb-3 text-xs leading-relaxed text-destructive">
-            {syncFailureExplanation}
-          </p>
-        ) : null}
-        <Button
-          variant="outline"
-          size="lg"
-          type="submit"
-          disabled={signingOut || syncFailureCount > 0}
-          className="w-full"
-        >
-          {signingOut
-            ? "Cerrando sesión…"
-            : signOutFailed
-              ? "Reintentar limpieza y cerrar sesión"
-              : "Cerrar sesión"}
-        </Button>
-      </form>
-    </section>
+      <SettingsSection id="settings-support" title="Soporte">
+        <SettingsItem
+          icon={<Stethoscope size={21} />}
+          label="Diagnósticos"
+          value="Sincronización, datos y dispositivo"
+          onClick={openDiagnostics}
+        />
+      </SettingsSection>
+    </Screen>
   );
 }

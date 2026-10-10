@@ -15,9 +15,7 @@ export function postgresErrorCode(error: unknown): string | null {
       return current.code;
     }
     current =
-      typeof current === "object" && "cause" in current
-        ? current.cause
-        : null;
+      typeof current === "object" && "cause" in current ? current.cause : null;
   }
 
   return null;

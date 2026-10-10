@@ -1,17 +1,23 @@
 # PowerSync Sync Streams for Billetera Ferial (edition 3).
 #
-# Every authenticated user belongs to a single tenant. The user's tenant_id
-# is written to Supabase Auth's `app_metadata` (set in the bootstrap path in
-# lib/auth/user-context.ts, and in the QA seed). Supabase embeds
-# `app_metadata` as a nested object in every JWT it issues, so the stream
-# below reads it via auth.parameters() and filters every synced row to the
-# caller's tenant.
+# A user can belong to several tenants, and syncs one at a time: the active
+# tenant, stored in Supabase Auth's `app_metadata.tenant_id` (written by
+# lib/auth/user-context.ts, the tenant/invitation server actions, and the QA
+# seed). Supabase embeds `app_metadata` as a nested object in every JWT it
+# issues, so the stream reads it via auth.parameters().
+#
+# The claim alone is not enough: it is only rewritten on the next visit to
+# '/', so a user removed from a tenant would keep its claim. Every query
+# therefore also requires a tenant_users membership for the JWT's user
+# (auth.user_id() is the `sub` claim), the same check RLS makes
+# (current_user_has_tenant). Deleting the membership stops the sync at once.
 #
 # Tables NOT synced (yet):
 # - tenants: single row per tenant, loaded server-side.
 #
 # To deploy: paste into the PowerSync Cloud instance's Sync Streams editor,
-# click Validate, then Deploy.
+# click Validate, then Deploy. Redeploy in every environment whenever this
+# file changes.
 
 config:
   edition: 3
@@ -24,15 +30,22 @@ streams:
       # which has no native UUID type; UUIDs are compared as text.
       - SELECT * FROM categories
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+        AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())
       - SELECT * FROM products
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+        AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())
       - SELECT * FROM sales
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+        AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())
       - SELECT * FROM sale_lines
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+        AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())
       - SELECT * FROM refunds
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+        AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())
       - SELECT * FROM tenant_users
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+        AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())
       - SELECT * FROM inventory_movements
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+        AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())

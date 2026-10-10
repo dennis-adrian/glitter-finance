@@ -1,12 +1,7 @@
+import type { LocalRow, tenantUsers } from "@/lib/db/client-schema";
 import type { TenantMember } from "@/lib/types";
 
-export type LocalTenantUserRow = {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  display_name: string;
-  created_at: string;
-};
+export type LocalTenantUserRow = LocalRow<typeof tenantUsers>;
 
 export function mapTenantUserRow(row: LocalTenantUserRow): TenantMember {
   return {
@@ -120,12 +115,4 @@ export function mergeTenantMembersFromWatch(
     return previous;
   }
   return mapped;
-}
-
-export function resolveUserDisplayName(
-  userId: string,
-  members: TenantMember[],
-  fallback = "Vendedor"
-): string {
-  return buildUserNameMap(members).get(userId) ?? fallback;
 }

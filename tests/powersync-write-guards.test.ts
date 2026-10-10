@@ -3,60 +3,70 @@ import test from "node:test";
 import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import { addInventoryMovement } from "@/lib/powersync/write-inventory";
 import {
+  archiveProductLocal,
   createProductLocal,
+  PRODUCT_NOT_ON_DEVICE_MESSAGE,
+  restoreProductLocal,
+  updateProductLocal,
   uploadProductImageLocal,
 } from "@/lib/powersync/write-products";
-import { createSaleLocal } from "@/lib/powersync/write-sales";
+import {
+  createSaleLocal,
+  refundSaleLocal,
+  SALE_NOT_ON_DEVICE_MESSAGE,
+  voidSaleLocal,
+} from "@/lib/powersync/write-sales";
 import { createCategoryLocal } from "@/lib/powersync/write-categories";
 import type { Product } from "@/lib/types";
+
+const categoryId = "11111111-1111-4111-8111-111111111111";
 
 const cancelled = () => {
   throw new Error("tenant work cancelled");
 };
 
 test("local writers check cancellation before committing SQLite mutations", async () => {
-  let directWrites = 0;
-  const directDb = {
-    execute: async () => {
-      directWrites += 1;
-    },
+  let transactionWrites = 0;
+  const transactionDb = {
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        // The product's category, and no duplicate of a new one.
+        getOptional: async (sql: string) =>
+          /FROM categories/.test(sql)
+            ? { id: categoryId, name: "General" }
+            : null,
+        getAll: async () => [],
+        execute: async () => {
+          transactionWrites += 1;
+        },
+      } as unknown as Transaction),
   } as unknown as AbstractPowerSyncDatabase;
 
   await assert.rejects(
-    createProductLocal(directDb, {
+    createProductLocal(transactionDb, {
       tenantId: "tenant-1",
       product: {
         name: "Producto",
         priceCents: 100,
         costCents: null,
-        category: "General",
+        categoryId,
         imageTone: "violet",
-        tracksInventory: false,
+        tracksInventory: true,
       },
+      initialStock: { userId: "user-1", delta: 5 },
       assertCurrent: cancelled,
     }),
     /tenant work cancelled/
   );
 
   await assert.rejects(
-    createCategoryLocal(directDb, {
+    createCategoryLocal(transactionDb, {
       tenantId: "tenant-1",
       name: "General",
       assertCurrent: cancelled,
     }),
     /tenant work cancelled/
   );
-  assert.equal(directWrites, 0);
-
-  let transactionWrites = 0;
-  const transactionDb = {
-    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
-      callback({
-        execute: async () => {
-          transactionWrites += 1;
-        },
-      } as unknown as Transaction),
-  } as unknown as AbstractPowerSyncDatabase;
 
   await assert.rejects(
     addInventoryMovement(transactionDb, {
@@ -101,6 +111,7 @@ test("image metadata write re-checks cancellation after storage upload", async (
   let metadataWrites = 0;
   let removed = false;
   const db = {
+    getOptional: async () => ({ id: "product-1" }),
     execute: async () => {
       metadataWrites += 1;
     },
@@ -134,4 +145,93 @@ test("image metadata write re-checks cancellation after storage upload", async (
 
   assert.equal(metadataWrites, 0);
   assert.equal(removed, true);
+});
+
+test("product edits refuse a product that is not on the device yet", async () => {
+  let uploads = 0;
+  let writes = 0;
+  const db = {
+    getOptional: async () => null,
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        getOptional: async () => null,
+        execute: async () => {
+          writes += 1;
+        },
+      } as unknown as Transaction),
+  } as unknown as AbstractPowerSyncDatabase;
+  const input = { tenantId: "tenant-1", productId: "product-1" };
+  const product = {
+    name: "Producto",
+    priceCents: 100,
+    costCents: null,
+    categoryId,
+    imageTone: "violet",
+    tracksInventory: false,
+  };
+  const supabase = {
+    storage: {
+      from: () => ({
+        upload: async () => {
+          uploads += 1;
+          return { error: null };
+        },
+      }),
+    },
+  };
+
+  for (const edit of [
+    updateProductLocal(db, { ...input, product }),
+    archiveProductLocal(db, input),
+    restoreProductLocal(db, input),
+    uploadProductImageLocal(supabase as never, db, {
+      ...input,
+      file: { size: 1, type: "image/png" } as File,
+    }),
+  ]) {
+    await assert.rejects(edit, (error: Error) => {
+      assert.equal(error.message, PRODUCT_NOT_ON_DEVICE_MESSAGE);
+      return true;
+    });
+  }
+  assert.equal(writes, 0);
+  assert.equal(uploads, 0);
+});
+
+function saleDb(sale: { tenant_id: string } | null) {
+  let writes = 0;
+  const db = {
+    writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
+      callback({
+        getAll: async (sql: string) =>
+          /FROM sales/.test(sql) && sale ? [sale] : [],
+        execute: async () => {
+          writes += 1;
+        },
+      } as unknown as Transaction),
+  } as unknown as AbstractPowerSyncDatabase;
+  return { db, writes: () => writes };
+}
+
+test("a void or refund of a sale not on the device yet says it is syncing", async () => {
+  const { db, writes } = saleDb(null);
+  const input = { saleId: "sale-1", userId: "user-1", tenantId: "tenant-1" };
+
+  for (const write of [voidSaleLocal(db, input), refundSaleLocal(db, input)]) {
+    await assert.rejects(write, (error: Error) => {
+      assert.equal(error.message, SALE_NOT_ON_DEVICE_MESSAGE);
+      return true;
+    });
+  }
+  assert.equal(writes(), 0);
+});
+
+test("a void or refund of another tenant's sale is refused as not found", async () => {
+  const { db, writes } = saleDb({ tenant_id: "tenant-2" });
+  const input = { saleId: "sale-1", userId: "user-1", tenantId: "tenant-1" };
+
+  for (const write of [voidSaleLocal(db, input), refundSaleLocal(db, input)]) {
+    await assert.rejects(write, /No se encontró la venta\./);
+  }
+  assert.equal(writes(), 0);
 });

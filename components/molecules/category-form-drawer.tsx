@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Plus, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,13 +18,15 @@ import {
   validateCategoryName,
 } from "@/lib/categories/validation";
 import type { Category } from "@/lib/types";
+import { characterCount } from "@/lib/validation";
 
 type CategoryFormDrawerProps = {
   open: boolean;
   category?: Category | null;
   existingNames: string[];
   onOpenChange: (open: boolean) => void;
-  onSave: (name: string) => Promise<Category>;
+  /** Throws the message to show when the name was not saved. */
+  onSave: (name: string) => Promise<unknown>;
 };
 
 export function CategoryFormDrawer({
@@ -39,11 +41,16 @@ export function CategoryFormDrawer({
   const [isPending, setIsPending] = useState(false);
   const editing = Boolean(category);
 
-  useEffect(() => {
-    if (!open) return;
-    setName(category?.name ?? "");
-    setError(null);
-  }, [open, category]);
+  // Each opening starts from the category's name, without the last error.
+  // Set while rendering, so the drawer never shows the previous name first.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setName(category?.name ?? "");
+      setError(null);
+    }
+  }
 
   async function submit() {
     if (isPending) return;
@@ -55,7 +62,7 @@ export function CategoryFormDrawer({
       setError(
         validationError instanceof Error
           ? validationError.message
-          : "Revisa el nombre de la categoría."
+          : "Revisá el nombre de la categoría."
       );
       return;
     }
@@ -94,7 +101,8 @@ export function CategoryFormDrawer({
       }}
       showSwipeHandle
     >
-      <DrawerContent className="mx-auto max-w-[448px]">
+      {/* Lifts above the iOS keyboard while typing the name. */}
+      <DrawerContent className="mx-auto max-w-[448px] data-[swipe-axis=y]:[--drawer-content-max-height:calc(var(--app-height,100dvh)-6rem)] data-[swipe-direction=down]:bottom-(--keyboard-inset,0px)">
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -108,7 +116,7 @@ export function CategoryFormDrawer({
             <DrawerDescription className="text-left">
               {editing
                 ? "El nuevo nombre se aplicará también a sus productos."
-                : "Úsala para ordenar el catálogo y encontrar productos más rápido."}
+                : "Usala para ordenar el catálogo y encontrar productos más rápido."}
             </DrawerDescription>
           </DrawerHeader>
 
@@ -136,12 +144,14 @@ export function CategoryFormDrawer({
               <p
                 id="category-name-error"
                 role={error ? "alert" : undefined}
+                // Reserves the line's height; hidden from screen readers.
+                aria-hidden={error ? undefined : true}
                 className={error ? "text-destructive" : "text-transparent"}
               >
                 {error ?? "Sin error"}
               </p>
               <span className="shrink-0 text-muted-foreground">
-                {name.length}/{categoryNameMaxLength}
+                {characterCount(name)}/{categoryNameMaxLength}
               </span>
             </div>
           </div>

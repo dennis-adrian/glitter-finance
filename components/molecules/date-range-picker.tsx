@@ -1,15 +1,16 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { SegmentedControl } from "@/components/molecules/segmented-control";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ReportRange } from "@/lib/types";
 
-const ranges: [ReportRange, string][] = [
-  ["today", "Hoy"],
-  ["week", "Esta semana"],
-  ["month", "Este mes"],
-  ["custom", "Rango"],
+// Short labels so all four fit a 320px phone without horizontal scrolling.
+const ranges: { value: ReportRange; label: string }[] = [
+  { value: "today", label: "Hoy" },
+  { value: "week", label: "Semana" },
+  { value: "month", label: "Mes" },
+  { value: "custom", label: "Rango" },
 ];
 
 type DateRangePickerProps = {
@@ -33,20 +34,14 @@ export function DateRangePicker({
 }: DateRangePickerProps) {
   return (
     <>
-      <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {ranges.map(([value, label]) => (
-          <Button
-            key={value}
-            type="button"
-            size="sm"
-            variant={range === value ? "default" : "outline"}
-            className="shrink-0 rounded-full px-4"
-            onClick={() => setRange(value)}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
+      <SegmentedControl<ReportRange>
+        aria-label="Período"
+        size="sm"
+        className="mb-4 md:max-w-md"
+        options={ranges}
+        value={range}
+        onChange={setRange}
+      />
 
       {range === "custom" ? (
         <div className="mb-4">

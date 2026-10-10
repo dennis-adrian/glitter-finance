@@ -25,9 +25,14 @@ export function SerwistClientProvider({
   }, [disableServiceWorker]);
 
   return (
+    // cacheOnNavigation is off: it re-fetched the current page on every
+    // "online" event (a full server render of "/", with the user's sales,
+    // members and invitation) into a cache nothing reads. Navigations are
+    // cached by the service worker's own rule (app/sw.ts).
     <SerwistProvider
       swUrl="/serwist/sw.js"
       disable={disableServiceWorker}
+      cacheOnNavigation={false}
       reloadOnOnline={false}
     >
       {children}

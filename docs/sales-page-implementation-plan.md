@@ -3,6 +3,21 @@
 **Status:** Implemented  
 **Date:** 2026-08-09
 
+> **As built.** This plan is kept as written, with these differences from the
+> shipped code:
+>
+> - The bottom navigation kept **four** columns. **Ventas** took the slot
+>   Reportes had, and Reportes moved under **Más**, next to Ajustes (decision
+>   1 and §4 below).
+> - The eligibility helpers take a `SaleIndex` (`indexSales(sales)` in
+>   `lib/sales.ts`) instead of the sales array: `canVoidSale(sale, index, now)`
+>   and `canRefundSale(sale, index)`, both built on `saleActionBlockedMessage`
+>   (§2).
+> - Sale detail has no return-view tracking: its back button returns to
+>   Sales, which restores its range, loaded pages and scroll (§4).
+> - The date range is shared by Sales and Reports, so **Ver ventas** in Reports
+>   opens Sales on the same range.
+
 ## Objective
 
 Add a dedicated Sales screen where users can:
@@ -29,7 +44,7 @@ Add a dedicated Sales screen where users can:
 
 Proceed unless changed before implementation:
 
-1. Add **Ventas** as a fifth primary bottom-navigation item.
+1. Add **Ventas** as a fifth primary bottom-navigation item. _(As built: Ventas replaced Reportes in a four-item nav — POS Venta, Ventas, Catálogo, Más — and Reportes moved under Más.)_
 2. Remove the duplicated recent-sales list from Reports; retain a compact **Ver ventas** link.
 3. Confirm void/refund before execution.
 4. Let users optionally record a refund reason.
@@ -104,8 +119,8 @@ This fixes existing behavior that depends on the device timezone, contrary to th
 
 Centralize in `components/screens/sale-detail-screen.helpers.ts` or a domain helper:
 
-- `canVoidSale(sale, sales, now)`.
-- `canRefundSale(sale, sales)`.
+- `canVoidSale(sale, sales, now)`. _(As built: `canVoidSale(sale, index, now)` with a `SaleIndex`.)_
+- `canRefundSale(sale, sales)`. _(As built: `canRefundSale(sale, index)`.)_
 - Exact millisecond 10-minute cutoff; remove floor-minute behavior.
 - Derive display status for original sales with linked refunds.
 
@@ -129,10 +144,10 @@ All data remains local-first. No range-specific network query: server hydration 
 
 - Add `"sales"` to `lib/views.ts`.
 - Add **Ventas** to `components/organisms/bottom-nav.tsx`.
-- Change nav layout from four to five columns; verify labels and touch targets at 320–480 px widths.
+- Change nav layout from four to five columns; verify labels and touch targets at 320–480 px widths. _(As built: the nav stayed at four columns, with Ventas in place of Reportes.)_
 - Import/render Sales in `components/templates/glitter-pos-app.tsx`.
 - Include Sales among views that show bottom navigation.
-- Track sale-detail return view.
+- Track sale-detail return view. _(As built: not needed; sale detail always returns to Sales.)_
 - Pass existing void/refund handlers to Sales.
 
 ### 5. Action plumbing

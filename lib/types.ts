@@ -1,6 +1,9 @@
-export type PaymentMethod = "cash" | "qr_transfer";
+// Type-only import: erased at build time, so client bundles do not pull in
+// the Postgres schema.
+import type { paymentMethodEnum } from "@/lib/db/schema";
+
+export type PaymentMethod = (typeof paymentMethodEnum.enumValues)[number];
 export type SaleStatus = "completed" | "voided" | "refunded";
-export type CostStatus = "known" | "unknown";
 
 export type Category = {
   id: string;
@@ -15,6 +18,11 @@ export type Product = {
   name: string;
   priceCents: number;
   costCents: number | null;
+  /** The product's category (source of truth). Null only for rows written by
+   * old clients that the server hasn't linked yet. */
+  categoryId: string | null;
+  /** Category name kept in sync with categoryId by the server; use it only as
+   * a display fallback when the category isn't available locally. */
   category: string;
   imagePath: string | null;
   imageUrl: string | null;
@@ -30,7 +38,8 @@ export type ProductInput = {
   name: string;
   priceCents: number;
   costCents: number | null;
-  category: string;
+  /** Selected category. On update, null means "leave the category as is". */
+  categoryId: string | null;
   imageTone?: string;
   imagePath?: string | null;
   tracksInventory?: boolean;
@@ -72,6 +81,13 @@ export type Sale = {
   voidedAt?: string;
   voidedByUserId?: string;
   refundOfSaleId?: string;
+  /**
+   * On a refund record, who made the refunded sale; userId and userName
+   * are whoever recorded the refund. The seller breakdown in Reports nets
+   * the refund against this seller.
+   */
+  refundOfSaleUserId?: string;
+  refundOfSaleUserName?: string;
   refundedAt?: string;
   refundReason?: string;
 };
@@ -98,10 +114,4 @@ export type TenantInvitation = {
   expiresAt: string;
   revokedAt: string | null;
   createdAt: string;
-};
-
-export type ToastMessage = {
-  id: string;
-  text: string;
-  tone: "success" | "info" | "danger";
 };

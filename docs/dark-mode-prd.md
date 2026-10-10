@@ -97,8 +97,16 @@ less battery on OLED phones.
   `resolvedTheme` from `@wrksz/themes` and overrides every
   `<meta name="theme-color">` when the user forces Claro/Oscuro against the OS
   (§5.6). Mounted in `app/layout.tsx` inside `ThemeProvider`.
-- **`app/manifest.webmanifest/route.ts`** — `theme_color` and `background_color`
-  come from `SHELL_THEME_COLORS`; light install/splash chrome uses `#fffdf8`.
+- **`app/manifest.webmanifest/route.ts`** — per-mode install/splash chrome.
+  The route reads the `Sec-CH-Prefers-Color-Scheme` client hint and returns
+  the matching `SHELL_THEME_COLORS` surface (`shellThemeColorForScheme`) as
+  both `theme_color` and `background_color`, with
+  `Vary: Sec-CH-Prefers-Color-Scheme` and `Cache-Control: no-cache`.
+  `next.config.ts` sends `Accept-CH: Sec-CH-Prefers-Color-Scheme` on every
+  response, so Chromium browsers include the hint when they fetch the
+  manifest. Safari and Firefox do not send it and get the light colors
+  (`#fffdf8`). The hint carries the browser's color scheme, not the in-app
+  Claro/Oscuro override.
 
 **Style gaps already closed**
 
@@ -110,11 +118,23 @@ less battery on OLED phones.
 - Amber "cost incomplete" boxes in `reports-screen.tsx` and
   `sale-detail-screen.tsx` use `var(--amber-surface)`, which has a `.dark`
   override in `globals.css`.
+- Login and the password screens (`AuthPageShell` and the `auth-*`
+  molecules) use the semantic tokens instead of a light-only hex palette, so
+  their card matches the `theme-color` in both modes. DESIGN.md ("Sign-in
+  screens") lists the three light values that stay hex, each with a dark
+  token.
+- `app/global-error.tsx`, which replaces the root layout, imports
+  `globals.css` and applies the stored or system theme itself
+  (`ClientThemeProvider` with the layout's options from
+  `lib/theme-options.ts`), including `theme-color`.
 
-**Already fine in both modes (dark-on-dark by design):** the `Toast`
-(`bg-[#17151d]`/`#31234c`/`bg-destructive`) and the `.sync-pill` translucent
-dark pill. The `.product-art` gradient placeholders are decorative and read
-acceptably on either background (verify in audit, don't redesign).
+**Already fine in both modes:** toasts are Sonner
+(`components/ui/sonner.tsx`) on the `--popover`, `--popover-foreground` and
+`--border` tokens, so they follow the theme. The `.sync-pill` is a translucent
+dark pill in both modes by design. The `.product-art` placeholders are flat
+tiles tinted by each product's tone (a `color-mix` of the tone and `--card`,
+no gradients) and read on either background (verify in audit, don't
+redesign).
 
 ### 4.2 Remaining gaps
 
@@ -169,8 +189,9 @@ OS; in Claro/Oscuro it's fixed.
 - **Control:** a 3-way segmented control labelled **Sistema / Claro / Oscuro**
   (icons: `Monitor` / `Sun` / `Moon` from lucide). Selecting applies instantly.
 - Built from shadcn primitives (e.g. a small segmented group of `Button`s, or a
-  `ToggleGroup` if we add it). Meets the 56px-friendly touch sizing already in
-  the Button scale.
+  `ToggleGroup` if we add it). Meets the 44 px minimum touch target in
+  `DESIGN.md` (the picker buttons are 56 px: the `lg` Button size with an
+  `h-14` override).
 - **Optional (decide in §10):** a quick Sun/Moon icon toggle in screen headers
   for one-tap switching without opening Settings. If included, it toggles
   between light/dark and implicitly leaves Sistema.
@@ -197,11 +218,12 @@ implemented — see §4.1. Remaining work is in §4.2:
 4. ~~**Amber warning boxes**~~ — done via `--amber-surface` (§4.1).
 5. **Audit pass:** grep for `#`, `rgb(`, `bg-[`, `text-[var(--green|amber)`,
    `var(--ink)` across `components/` and `app/` and confirm each reads correctly
-   in dark. Decorative `.product-art` gradients and the intentionally-dark Toast
-   / sync-pill are expected to stay.
-6. **`manifest.webmanifest` install chrome** — align `theme_color` /
-   `background_color` with per-mode surfaces (runtime `theme-color` is already
-   handled by `app/layout.tsx` + `ThemeColorSync`; see §4.1).
+   in dark. The flat tone-tinted `.product-art` placeholders and the
+   intentionally dark sync pill are expected to stay; toasts follow the theme
+   tokens.
+6. ~~**`manifest.webmanifest` install chrome** — align `theme_color` /
+   `background_color` with per-mode surfaces~~ — done via the
+   `Sec-CH-Prefers-Color-Scheme` client hint (§4.1).
 
 ## 7. Technical Approach
 
@@ -233,8 +255,9 @@ come from `@wrksz/themes` as planned.
    `ThemeColorSync`; §4.1)
 5. **Audit + dual-platform pass:** walk every screen in both modes on iOS Safari
    PWA and Android Chrome PWA; fix contrast issues. (§4.2, §6.5)
-6. **`manifest.webmanifest` install chrome** — per-mode `theme_color` /
-   `background_color`. (§4.2, §6.6)
+6. ~~**`manifest.webmanifest` install chrome** — per-mode `theme_color` /
+   `background_color`.~~ ✓ (`app/manifest.webmanifest/route.ts` +
+   `Accept-CH` in `next.config.ts`; §4.1)
 7. _(Optional)_ header quick-toggle, if chosen in §10.
 
 ## 9. Primary Color Note (cross-reference)
@@ -260,8 +283,8 @@ Two related observations:
   solid Figma backgrounds `#fffdf8` (light) and `#1a1a1a` (dark).
 - The original product PRD still names the brand as `#6822E2` (purple); that is
   now superseded by the teal `--primary` going forward. The decorative
-  `product-art` tone palette (incl. the per-product `violet`/`aurora` tones) and
-  the near-navy toast "info" background are intentionally left as-is.
+  `product-art` tone palette (incl. the per-product `violet`/`aurora` tones)
+  is intentionally left as-is.
 
 ## 10. Open Questions / Decisions
 

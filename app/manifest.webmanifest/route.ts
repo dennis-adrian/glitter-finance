@@ -2,6 +2,9 @@ import { shellThemeColorForScheme } from "@/lib/shell-theme-colors";
 import { NextResponse } from "next/server";
 
 const manifest = {
+  // Chrome derived the id from start_url until now, so "/" keeps existing
+  // installs the same app if start_url ever changes.
+  id: "/",
   lang: "es-BO",
   name: "Billetera Ferial",
   short_name: "Billetera Ferial",
@@ -15,13 +18,27 @@ const manifest = {
       src: "/icons/icon-192.png",
       sizes: "192x192",
       type: "image/png",
-      purpose: "any maskable",
+      purpose: "any",
     },
     {
       src: "/icons/icon-512.png",
       sizes: "512x512",
       type: "image/png",
-      purpose: "any maskable",
+      purpose: "any",
+    },
+    // Full-bleed squares with the artwork inside the 80% safe zone, so any
+    // launcher mask crops background rather than the rounded corners.
+    {
+      src: "/icons/icon-maskable-192.png",
+      sizes: "192x192",
+      type: "image/png",
+      purpose: "maskable",
+    },
+    {
+      src: "/icons/icon-maskable-512.png",
+      sizes: "512x512",
+      type: "image/png",
+      purpose: "maskable",
     },
   ],
 };

@@ -1,11 +1,10 @@
+import "server-only";
+
 import { asc, eq } from "drizzle-orm";
+import { toIso } from "@/lib/dates";
 import { db } from "@/lib/db";
 import { tenantUsers } from "@/lib/db/schema";
 import type { TenantMember } from "@/lib/types";
-
-function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : value;
-}
 
 export async function getTenantMembersForTenant(
   tenantId: string

@@ -1,5 +1,8 @@
+import "server-only";
+
 import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
-import { ensureMembership } from "@/lib/auth/user-context";
+import { UserFacingError } from "@/lib/action-result";
+import { ensureMembership } from "@/lib/auth/memberships";
 import { db } from "@/lib/db";
 import { tenantInvitations, tenants } from "@/lib/db/schema";
 import {
@@ -15,6 +18,26 @@ export { isInvitationValid };
 export type InvitationWithTenant = TenantInvitation & {
   tenantName: string;
 };
+
+const invitationColumns = {
+  id: tenantInvitations.id,
+  tenantId: tenantInvitations.tenantId,
+  token: tenantInvitations.token,
+  tokenDeliveryCiphertext: tenantInvitations.tokenDeliveryCiphertext,
+  createdByUserId: tenantInvitations.createdByUserId,
+  expiresAt: tenantInvitations.expiresAt,
+  revokedAt: tenantInvitations.revokedAt,
+  createdAt: tenantInvitations.createdAt,
+};
+
+/** The tenant's invitations that still admit new members. */
+function activeInvitationWhere(tenantId: string, now: Date) {
+  return and(
+    eq(tenantInvitations.tenantId, tenantId),
+    isNull(tenantInvitations.revokedAt),
+    gt(tenantInvitations.expiresAt, now)
+  );
+}
 
 function deliveryTokenFromRow(row: {
   tokenDeliveryCiphertext: string | null;
@@ -74,7 +97,7 @@ export async function redeemInvitation(
       .limit(1);
 
     if (!row || row.revokedAt || row.expiresAt.getTime() <= Date.now()) {
-      throw new Error("Esta invitación ya no es válida.");
+      throw new UserFacingError("Esta invitación ya no es válida.");
     }
 
     await ensureMembership(tx, {
@@ -92,17 +115,7 @@ export async function getInvitationByToken(
 ): Promise<InvitationWithTenant | null> {
   const tokenHash = hashInvitationToken(token);
   const [row] = await db
-    .select({
-      id: tenantInvitations.id,
-      tenantId: tenantInvitations.tenantId,
-      token: tenantInvitations.token,
-      tokenDeliveryCiphertext: tenantInvitations.tokenDeliveryCiphertext,
-      createdByUserId: tenantInvitations.createdByUserId,
-      expiresAt: tenantInvitations.expiresAt,
-      revokedAt: tenantInvitations.revokedAt,
-      createdAt: tenantInvitations.createdAt,
-      tenantName: tenants.name,
-    })
+    .select({ ...invitationColumns, tenantName: tenants.name })
     .from(tenantInvitations)
     .innerJoin(tenants, eq(tenantInvitations.tenantId, tenants.id))
     .where(eq(tenantInvitations.token, tokenHash))
@@ -121,49 +134,24 @@ export async function getInvitationByToken(
 export async function getActiveInvitationForTenant(
   tenantId: string
 ): Promise<TenantInvitation | null> {
-  const now = new Date();
   const [row] = await db
-    .select({
-      id: tenantInvitations.id,
-      tenantId: tenantInvitations.tenantId,
-      token: tenantInvitations.token,
-      tokenDeliveryCiphertext: tenantInvitations.tokenDeliveryCiphertext,
-      createdByUserId: tenantInvitations.createdByUserId,
-      expiresAt: tenantInvitations.expiresAt,
-      revokedAt: tenantInvitations.revokedAt,
-      createdAt: tenantInvitations.createdAt,
-    })
+    .select(invitationColumns)
     .from(tenantInvitations)
-    .where(
-      and(
-        eq(tenantInvitations.tenantId, tenantId),
-        isNull(tenantInvitations.revokedAt),
-        gt(tenantInvitations.expiresAt, now)
-      )
-    )
+    .where(activeInvitationWhere(tenantId, new Date()))
     .orderBy(desc(tenantInvitations.createdAt))
     .limit(1);
 
   if (!row) {
     return null;
   }
+  // A link that cannot be shown again reads as no link: generating one
+  // replaces it (getOrCreateActiveInvitation).
   const deliveryToken = deliveryTokenFromRow(row);
   if (!deliveryToken) {
     return null;
   }
   return mapInvitation(row, deliveryToken);
 }
-
-const invitationColumns = {
-  id: tenantInvitations.id,
-  tenantId: tenantInvitations.tenantId,
-  token: tenantInvitations.token,
-  tokenDeliveryCiphertext: tenantInvitations.tokenDeliveryCiphertext,
-  createdByUserId: tenantInvitations.createdByUserId,
-  expiresAt: tenantInvitations.expiresAt,
-  revokedAt: tenantInvitations.revokedAt,
-  createdAt: tenantInvitations.createdAt,
-};
 
 // Returns the tenant's current active invitation, creating one (with the
 // supplied candidate token/expiry) only if none exists. A per-tenant advisory
@@ -184,13 +172,7 @@ export async function getOrCreateActiveInvitation(input: {
     const [existing] = await tx
       .select(invitationColumns)
       .from(tenantInvitations)
-      .where(
-        and(
-          eq(tenantInvitations.tenantId, input.tenantId),
-          isNull(tenantInvitations.revokedAt),
-          gt(tenantInvitations.expiresAt, new Date())
-        )
-      )
+      .where(activeInvitationWhere(input.tenantId, new Date()))
       .orderBy(desc(tenantInvitations.createdAt))
       .limit(1);
 
@@ -201,8 +183,10 @@ export async function getOrCreateActiveInvitation(input: {
       }
 
       // Active row but undeliverable token (missing ciphertext or decrypt
-      // failure). Revoke before inserting a replacement so two valid links
-      // cannot coexist for the same tenant.
+      // failure). That means the server key changed, which also breaks the
+      // link's lookup hash (rows from before the ciphertext column have long
+      // expired), so replacing it without asking loses nothing. Revoke it
+      // first so two valid links cannot coexist for the same tenant.
       await tx
         .update(tenantInvitations)
         .set({ revokedAt: new Date() })
@@ -251,6 +235,8 @@ export async function revokeInvitationById(
     .returning({ id: tenantInvitations.id });
 
   if (!result.length) {
-    throw new Error("No se encontró la invitación o ya fue revocada.");
+    throw new UserFacingError(
+      "No se encontró la invitación o ya fue revocada."
+    );
   }
 }
