@@ -43,6 +43,10 @@ export const viewport: Viewport = {
   initialScale: 1,
   // No maximumScale: pinch zoom stays available. Form fields use 16px text
   // on phones (components/ui/input.tsx), so iOS does not zoom in on focus.
+  // Android Chrome: shrink the layout when the keyboard opens so the shell
+  // (sized in dvh) stays above it. iOS ignores this; useVirtualKeyboard
+  // covers it with the VisualViewport API.
+  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: SHELL_THEME_COLORS.light },
     { media: "(prefers-color-scheme: dark)", color: SHELL_THEME_COLORS.dark },

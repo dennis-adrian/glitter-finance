@@ -792,6 +792,8 @@ test("skips a new category whose name another device took first", async () => {
   assert.deepEqual(events, ["complete", "resolve-marker"]);
 });
 
+// A rename queued by an earlier version of the app also carries its
+// products; one from this version is a single categories PATCH.
 test("skips a rename to a taken name and still moves its products", async () => {
   const events: string[] = [];
   const patched: string[] = [];
@@ -838,33 +840,40 @@ test("skips a rename to a taken name and still moves its products", async () => 
 });
 
 test("skips deleting a category another device filed a product under", async () => {
-  const events: string[] = [];
-  const inUse = {
-    code: "23503",
-    message: "Category is still used by products",
-  };
-  const supabase = {
-    from: () => ({
-      delete: () => ({ eq: async () => ({ error: inUse }) }),
-    }),
-  } as unknown as SupabaseClient;
-  const db = recordingDb({
-    crud: [
-      operation({
-        clientId: 16,
-        table: "categories",
-        id: "category-1",
-        op: UpdateType.DELETE,
+  for (const inUse of [
+    // The products foreign key on category_id.
+    {
+      code: "23503",
+      message:
+        'update or delete on table "categories" violates foreign key constraint "products_category_id_tenant_id_categories_id_tenant_id_fk" on table "products"',
+    },
+    // The name-based trigger, until the category-id SQL replaces it.
+    { code: "23503", message: "Category is still used by products" },
+  ]) {
+    const events: string[] = [];
+    const supabase = {
+      from: () => ({
+        delete: () => ({ eq: async () => ({ error: inUse }) }),
       }),
-    ],
-    transactionId: 45,
-    events,
-    localWrites: [],
-  });
+    } as unknown as SupabaseClient;
+    const db = recordingDb({
+      crud: [
+        operation({
+          clientId: 16,
+          table: "categories",
+          id: "category-1",
+          op: UpdateType.DELETE,
+        }),
+      ],
+      transactionId: 45,
+      events,
+      localWrites: [],
+    });
 
-  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+    await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
-  assert.deepEqual(events, ["complete", "resolve-marker"]);
+    assert.deepEqual(events, ["complete", "resolve-marker"]);
+  }
 });
 
 /** Supabase whose categories UPDATE matches no row, and every other does. */
@@ -1005,6 +1014,54 @@ test("records any other category rejection", async () => {
 
     assert.deepEqual(events, ["record-failure", "record-failure"]);
     assert.equal(localWrites[1].params?.[4], error.code);
+  }
+});
+
+test("records category-like rejections on other tables", async () => {
+  const cases = [
+    // Only a category write can lose to another device's category.
+    { table: "products", op: UpdateType.PUT, error: takenName },
+    {
+      table: "inventory_movements",
+      op: UpdateType.PUT,
+      error: {
+        code: "23503",
+        message:
+          'insert or update on table "inventory_movements" violates foreign key constraint "inventory_movements_product_id_tenant_id_products_id_tenant_id_fk"',
+      },
+    },
+  ];
+  for (const item of cases) {
+    const events: string[] = [];
+    const supabase = {
+      auth: sessionAuth({ access_token: "token" }),
+      from: () => ({ insert: async () => ({ error: item.error }) }),
+    } as unknown as SupabaseClient;
+    const db = recordingDb({
+      crud: [
+        operation({
+          clientId: 23,
+          table: item.table,
+          id: "row-1",
+          op: item.op,
+          data: { tenant_id: "tenant-1" },
+        }),
+      ],
+      transactionId: 50,
+      events,
+      localWrites: [],
+    });
+
+    await assert.rejects(
+      () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+      (thrown) => thrown === item.error
+    );
+
+    assert.deepEqual(
+      events,
+      ["record-failure", "record-failure"],
+      `${item.table} ${item.op}`
+    );
   }
 });
 

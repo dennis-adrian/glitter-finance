@@ -28,6 +28,7 @@ function product(
     name: `Producto ${id}`,
     priceCents,
     costCents: 300,
+    categoryId: null,
     category: "Stickers",
     imagePath: null,
     imageUrl: null,

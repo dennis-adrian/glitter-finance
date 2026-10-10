@@ -7,10 +7,17 @@ import type { Product } from "@/lib/types";
 
 type ProductArtProps = {
   product: Product;
+  /** 58px square for order lines. */
   compact?: boolean;
+  /** 40px square for table rows. */
+  thumb?: boolean;
 };
 
-export function ProductArt({ product, compact = false }: ProductArtProps) {
+export function ProductArt({
+  product,
+  compact = false,
+  thumb = false,
+}: ProductArtProps) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
   const imageUrl =
     product.imageUrl && product.imageUrl !== failedImageUrl
@@ -27,7 +34,8 @@ export function ProductArt({ product, compact = false }: ProductArtProps) {
         "product-art",
         product.imageTone,
         imageUrl && "has-image",
-        compact && "compact"
+        compact && "compact",
+        thumb && "thumb"
       )}
     >
       {imageUrl ? (
@@ -38,8 +46,8 @@ export function ProductArt({ product, compact = false }: ProductArtProps) {
           // offline tiles (app/sw.ts); Storage allows any origin.
           crossOrigin="anonymous"
           // Intrinsic size in the tile's proportions; CSS sets the real one.
-          width={compact ? 58 : 339}
-          height={compact ? 58 : 300}
+          width={thumb ? 40 : compact ? 58 : 339}
+          height={thumb ? 40 : compact ? 58 : 300}
           loading="lazy"
           decoding="async"
           draggable={false}

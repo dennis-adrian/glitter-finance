@@ -11,6 +11,7 @@ type DbProduct = {
   name: string;
   priceCents: number;
   costCents: number | null;
+  categoryId?: string | null;
   category: string;
   imagePath: string | null;
   tracksInventory?: boolean | number | null;
@@ -37,6 +38,7 @@ export function mapDbProductToProduct(product: DbProduct): Product {
     name: product.name,
     priceCents: product.priceCents,
     costCents: product.costCents,
+    categoryId: product.categoryId ?? null,
     category: product.category,
     imagePath: product.imagePath,
     imageUrl: getProductImagePublicUrl(product.imagePath),

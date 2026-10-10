@@ -23,9 +23,9 @@ import { cn } from "@/lib/utils";
 type AuthMode = "welcome" | LoginMode;
 
 const screenTitles: Record<LoginMode, string> = {
-  signin: "Iniciar Sesión",
-  signup: "Crear Cuenta",
-  reset: "Recuperar Contraseña",
+  signin: "Iniciar sesión",
+  signup: "Crear cuenta",
+  reset: "Recuperar contraseña",
 };
 
 type LoginPageProps = {
@@ -123,13 +123,13 @@ function WelcomeScreen({ next }: { next: string }) {
           href={authHref("signin", next)}
           className="flex h-[52px] items-center justify-center rounded-2xl bg-primary text-base font-bold text-primary-foreground shadow-[0_4px_6px] shadow-primary/15 transition-colors hover:bg-[var(--interactive-hover)] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40"
         >
-          Iniciar Sesión
+          Iniciar sesión
         </Link>
         <Link
           href={authHref("signup", next)}
           className="flex h-[52px] items-center justify-center rounded-2xl border-[1.5px] border-primary text-base font-bold text-primary transition-colors hover:bg-muted focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring/40"
         >
-          Crear Cuenta
+          Crear cuenta
         </Link>
       </div>
     </div>

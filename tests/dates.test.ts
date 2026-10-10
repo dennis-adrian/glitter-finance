@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   filterSalesByRange,
+  formatDateLabelInBolivia,
   formatDateTimeInBolivia,
   formatDateTimeLabelInBolivia,
   nowIso,
@@ -88,6 +89,13 @@ test("a sale's date and time are labeled in Bolivian local time", () => {
   assert.match(formatted, /^26.sept.2026/);
   assert.match(formatted, /11:05/);
   assert.equal(formatDateTimeLabelInBolivia("not a date"), "—");
+});
+
+test("date labels only capitalize the first letter", () => {
+  assert.equal(
+    formatDateLabelInBolivia("2026-09-26T16:00:00.000Z"),
+    "Sábado, 26 de septiembre de 2026"
+  );
 });
 
 test("sales older than a day show their Bolivian date", () => {

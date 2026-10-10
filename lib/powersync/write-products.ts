@@ -8,6 +8,11 @@
 // (supabase/manual/20260926130100_products_last_write_wins.sql), so an UPDATE
 // without it could never win over an edit another device made meanwhile.
 //
+// Products carry both the category id and its name: the id is the source of
+// truth, and the name lets the server link the row if the category's own
+// upload was dropped (products_category_resolve_id in
+// supabase/manual/20261009120000_product_category_ids.sql).
+//
 // Image upload goes directly from the browser to Supabase Storage using the
 // user's JWT, within the bucket limits and tenant-folder policies in
 // supabase/manual/20260926130000_product_images_storage_rules.sql.
@@ -29,7 +34,7 @@ import {
   productImagesBucket,
 } from "@/lib/product-image-config";
 import { removeProductImageObjects } from "@/lib/product-images";
-import { resolveCategoryNameLocal } from "@/lib/powersync/write-categories";
+import { resolveCategoryLocal } from "@/lib/powersync/write-categories";
 import {
   insertInventoryMovement,
   prepareInventoryMovement,
@@ -50,8 +55,8 @@ async function assertProductOnDevice(
   db: Pick<Transaction, "getOptional">,
   input: { tenantId: string; productId: string }
 ) {
-  const row = await db.getOptional<{ id: string; category: string }>(
-    `SELECT id, category FROM products WHERE id = ? AND tenant_id = ?`,
+  const row = await db.getOptional<{ id: string; category_id: string | null }>(
+    `SELECT id, category_id FROM products WHERE id = ? AND tenant_id = ?`,
     [input.productId, input.tenantId]
   );
   if (!row) {
@@ -106,24 +111,26 @@ export async function createProductLocal(
   );
   const now = nowIso();
   await db.writeTransaction(async (tx) => {
-    const category = await resolveCategoryNameLocal(tx, {
+    const category = await resolveCategoryLocal(tx, {
       tenantId: input.tenantId,
-      name: product.category,
+      categoryId: product.categoryId,
       hasSynced: hasSynced(db),
     });
     input.assertCurrent?.();
     await tx.execute(
       `INSERT INTO products
-        (id, tenant_id, name, price_cents, cost_cents, category, image_path,
-         tracks_inventory, low_stock_threshold, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, tenant_id, name, price_cents, cost_cents, category_id, category,
+         image_path, tracks_inventory, low_stock_threshold, created_at,
+         updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         productId,
         input.tenantId,
         product.name,
         product.priceCents,
         product.costCents,
-        category,
+        category.id,
+        category.name,
         // A new product starts with a placeholder. An image is attached after
         // the insert, by uploadProductImageLocal.
         encodePlaceholderImagePath(product.imageTone),
@@ -200,21 +207,27 @@ export async function updateProductLocal(
 
   await db.writeTransaction(async (tx) => {
     const current = await assertProductOnDevice(tx, input);
-    // A category the edit leaves as it was is kept, even when the tenant has
-    // no such category (any more): the editor lists it for this product.
+    // The category columns are written only when the edit picks another
+    // category (null keeps it): a category the edit leaves as it was is kept,
+    // even when it is not on this device (yet, or any more), and the upload
+    // carries no category change for the server to apply.
     const category =
-      product.category === current.category
-        ? current.category
-        : await resolveCategoryNameLocal(tx, {
+      product.categoryId === null || product.categoryId === current.category_id
+        ? null
+        : await resolveCategoryLocal(tx, {
             tenantId: input.tenantId,
-            name: product.category,
+            categoryId: product.categoryId,
             hasSynced: hasSynced(db),
           });
+    const categoryAssignments = category
+      ? ["category_id = ?", "category = ?"]
+      : [];
+    const categoryParams = category ? [category.id, category.name] : [];
     input.assertCurrent?.();
     await tx.execute(
-      `UPDATE products SET category = ?, ${assignments.join(", ")}
+      `UPDATE products SET ${[...categoryAssignments, ...assignments].join(", ")}
        WHERE id = ? AND tenant_id = ?`,
-      [category, ...params, input.productId, input.tenantId]
+      [...categoryParams, ...params, input.productId, input.tenantId]
     );
     if (initialMovement) {
       await insertInventoryMovement(tx, initialMovement);

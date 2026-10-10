@@ -8,6 +8,7 @@ const pin: Product = {
   name: "Pin",
   priceCents: 1000,
   costCents: null,
+  categoryId: null,
   category: "Pines",
   imagePath: null,
   imageUrl: null,

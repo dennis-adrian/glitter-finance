@@ -272,7 +272,8 @@ test("a product edit never writes the editor's copy of an uploaded image", async
     name: "Print",
     priceCents: 4000,
     costCents: null,
-    category: "Prints",
+    // Unchanged: the category columns are left out of the UPDATE.
+    categoryId: null,
     imageTone: "coral",
     tracksInventory: false,
   };
@@ -296,7 +297,7 @@ test("a product edit never writes the editor's copy of an uploaded image", async
     assert.match(write.sql, /updated_at = \?/);
     assert.equal(write.params.includes(imageA), false);
   }
-  assert.equal(writes[0].params[5], null);
-  assert.equal(writes[1].params[4], "placeholder:%");
-  assert.equal(writes[1].params[5], "placeholder:coral");
+  assert.equal(writes[0].params[4], null);
+  assert.equal(writes[1].params[3], "placeholder:%");
+  assert.equal(writes[1].params[4], "placeholder:coral");
 });

@@ -1,9 +1,8 @@
 import { AlertTriangle, Info, QrCode, ReceiptText, Wallet } from "lucide-react";
-import { useMemo, useState } from "react";
-import { BrandMark } from "@/components/atoms/brand-mark";
+import { useState } from "react";
 import { DetailRow } from "@/components/atoms/detail-row";
-import { BackButton } from "@/components/atoms/back-button";
-import { Header } from "@/components/atoms/header";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { SaleActionDialog } from "@/components/molecules/sale-action-dialog";
@@ -15,11 +14,11 @@ import {
   saleCostCents,
   saleDiscountTotalCents,
   saleGrossCents,
-  indexSales,
   saleHasUnknownCost,
   saleLineDiscountCents,
   saleNetCents,
   saleProfitCents,
+  type SaleIndex,
 } from "@/lib/sales";
 import type { Sale } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
@@ -34,33 +33,47 @@ import {
 
 type SaleDetailScreenProps = {
   sale: Sale | null;
-  sales: Sale[];
+  /** The index of the whole list, for the refund links and the checks. */
+  saleIndex: SaleIndex;
   back: () => void;
   voidSale: (saleId: string) => Promise<boolean>;
   refundSale: (saleId: string, reason?: string) => Promise<boolean>;
+  /** `pane`: shown beside the sales list on desktop (close instead of back). */
+  variant?: "screen" | "pane";
+  className?: string;
 };
 
 export function SaleDetailScreen({
   sale,
-  sales,
+  saleIndex,
   back,
   voidSale,
   refundSale,
+  variant = "screen",
+  className,
 }: SaleDetailScreenProps) {
+  const headerProps = {
+    onBack: back,
+    backIcon: variant === "pane" ? ("close" as const) : ("back" as const),
+    backLabel: variant === "pane" ? "Cerrar detalle" : "Volver",
+    hideSync: variant === "pane",
+  };
   const [action, setAction] = useState<SaleAction | null>(null);
   const [now, setNow] = useNow();
-  const saleIndex = useMemo(() => indexSales(sales), [sales]);
 
   if (!sale) {
     return (
-      <section className="screen">
-        <Header title="Detalle" left={<BackButton back={back} />} />
+      <Screen
+        width="narrow"
+        className={className}
+        header={<ScreenHeader title="Detalle" {...headerProps} />}
+      >
         <EmptyState
           icon={<ReceiptText size={46} />}
           title="Venta no encontrada"
           body="La venta ya no está disponible en este dispositivo."
         />
-      </section>
+      </Screen>
     );
   }
 
@@ -79,13 +92,12 @@ export function SaleDetailScreen({
   const refundRecord = saleIndex.refundBySaleId.get(sale.id);
 
   return (
-    <section className="screen">
-      <Header
-        title="Detalle de venta"
-        left={<BackButton back={back} />}
-        right={<BrandMark size="small" />}
-      />
-
+    <Screen
+      width="narrow"
+      className={className}
+      aria-label="Detalle de venta"
+      header={<ScreenHeader title="Detalle de venta" {...headerProps} />}
+    >
       <section className="mb-3.5 rounded-2xl bg-card p-4 text-center ring-1 ring-foreground/10">
         <span className="inline-flex min-h-7 items-center rounded-full bg-primary/10 px-3 text-sm font-bold text-primary">
           {saleStatusLabel(sale, saleIndex)}
@@ -273,6 +285,6 @@ export function SaleDetailScreen({
             : refundSale(sale.id, reason);
         }}
       />
-    </section>
+    </Screen>
   );
 }

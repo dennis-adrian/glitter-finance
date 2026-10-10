@@ -24,6 +24,9 @@ import { normalizeNote } from "@/lib/validation";
 
 export type CreateSaleLocalLine = {
   product: Product;
+  /** Current category name for the snapshot, resolved from the product's
+   * category id; falls back to the product's denormalized name. */
+  categoryName?: string;
   quantity: number;
   lineDiscountCents?: number;
   lineDiscountReason?: string;
@@ -56,7 +59,19 @@ export async function createSaleLocal(
       saleDiscountCents: input.saleDiscountCents,
       saleDiscountReason: input.saleDiscountReason,
     },
-    new Map(input.lines.map((line) => [line.product.id, line.product]))
+    new Map(
+      input.lines.map((line) => [
+        line.product.id,
+        {
+          ...line.product,
+          // The sale RPC refuses a blank category.
+          category:
+            line.categoryName?.trim() ||
+            line.product.category?.trim() ||
+            "Sin categoría",
+        },
+      ])
+    )
   );
 
   const saleId = crypto.randomUUID();

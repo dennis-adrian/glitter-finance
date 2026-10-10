@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { Hash, Pencil, Plus, Tags, Trash2 } from "lucide-react";
-import { BackButton } from "@/components/atoms/back-button";
-import { Header } from "@/components/atoms/header";
 import { CategoryFormDrawer } from "@/components/molecules/category-form-drawer";
 import { EmptyState } from "@/components/molecules/empty-state";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -16,10 +16,12 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { countLabel } from "@/lib/plural";
+import { categoryIndex, effectiveCategoryId } from "@/lib/products";
 import type { Category, Product } from "@/lib/types";
 
-type CategoriesScreenProps = {
+export type CategoriesScreenProps = {
   categories: Category[];
+  /** Every product, archived ones included: they keep their category. */
   products: Product[];
   back: () => void;
   /** Resolve to null when the write was cancelled (see runTenantWrite). */
@@ -28,6 +30,7 @@ type CategoriesScreenProps = {
     categoryId: string,
     name: string
   ) => Promise<Category | null>;
+  /** Throws the message to show when the category was not deleted. */
   deleteCategory: (categoryId: string) => Promise<void>;
 };
 
@@ -47,12 +50,14 @@ export function CategoriesScreen({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const productCountByCategory = useMemo(() => {
+    const index = categoryIndex(categories);
     const counts = new Map<string, number>();
     for (const product of products) {
-      counts.set(product.category, (counts.get(product.category) ?? 0) + 1);
+      const id = effectiveCategoryId(product, index);
+      if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
     }
     return counts;
-  }, [products]);
+  }, [categories, products]);
 
   function openCreate() {
     setEditingCategory(null);
@@ -83,23 +88,38 @@ export function CategoriesScreen({
   }
 
   return (
-    <section className="screen">
-      <Header
-        title="Categorías"
-        left={<BackButton back={back} />}
-        right={
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            onClick={openCreate}
-            aria-label="Crear categoría"
-          >
-            <Plus />
-          </Button>
-        }
-      />
-
+    <Screen
+      width="narrow"
+      header={
+        <ScreenHeader
+          title="Categorías"
+          onBack={back}
+          backLabel="Volver al catálogo"
+          actions={
+            <>
+              <Button
+                type="button"
+                size="icon-sm"
+                className="md:hidden"
+                onClick={openCreate}
+                aria-label="Crear categoría"
+              >
+                <Plus className="size-5" />
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="hidden md:inline-flex"
+                onClick={openCreate}
+              >
+                <Plus className="size-4" />
+                Crear categoría
+              </Button>
+            </>
+          }
+        />
+      }
+    >
       <div className="mb-4 rounded-2xl bg-primary/8 p-4 ring-1 ring-primary/15">
         <div className="flex items-start gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
@@ -120,7 +140,7 @@ export function CategoriesScreen({
       {categories.length ? (
         <div className="overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10">
           {categories.map((category) => {
-            const productCount = productCountByCategory.get(category.name) ?? 0;
+            const productCount = productCountByCategory.get(category.id) ?? 0;
             const isUsed = productCount > 0;
             return (
               <div
@@ -175,13 +195,9 @@ export function CategoriesScreen({
           title="Creá tu primera categoría"
           body="Las categorías que crees aparecerán al agregar productos."
           action={
-            <Button
-              size="lg"
-              className="font-extrabold tracking-wide"
-              onClick={openCreate}
-            >
-              <Plus className="size-5" />
-              CREAR CATEGORÍA
+            <Button size="lg" onClick={openCreate}>
+              <Plus />
+              Crear categoría
             </Button>
           }
         />
@@ -244,6 +260,6 @@ export function CategoriesScreen({
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
-    </section>
+    </Screen>
   );
 }

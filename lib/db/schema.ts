@@ -67,6 +67,9 @@ export const categories = pgTable(
   },
   (table) => [
     index("categories_tenant_id_idx").on(table.tenantId),
+    // Target for the tenant-scoped composite FK on products.category_id.
+    // (id) is already unique as the PK; this pair makes the composite FK legal.
+    unique("categories_id_tenant_id_unique").on(table.id, table.tenantId),
     uniqueIndex("categories_tenant_name_unique").on(
       table.tenantId,
       sql`lower(${table.name})`
@@ -145,6 +148,15 @@ export const products = pgTable(
     name: text("name").notNull(),
     priceCents: integer("price_cents").notNull(),
     costCents: integer("cost_cents"),
+    // The product's category. Nullable while v0.7.0 and v0.8.0 clients, which
+    // only send a category name, can still upload: the products_category_
+    // resolve_id trigger resolves their names to an id
+    // (supabase/manual/20261009120000_product_category_ids.sql).
+    categoryId: uuid("category_id"),
+    // The category's name, derived from category_id by triggers (the
+    // products_sync_category_name and categories_cascade_name_to_products
+    // triggers in the same file). v0.7.0 and v0.8.0 clients read and write
+    // it, and sale lines copy it.
     category: text("category").notNull(),
     imagePath: text("image_path"),
     tracksInventory: boolean("tracks_inventory").notNull().default(false),
@@ -172,6 +184,12 @@ export const products = pgTable(
   (table) => [
     // Leading tenant_id also serves tenant_id-only lookups and the tenants FK.
     index("products_tenant_archived_idx").on(table.tenantId, table.archivedAt),
+    // Backs the composite categories FK below (column order matches it): the
+    // RESTRICT check on a category delete and the category-rename cascade.
+    index("products_category_id_tenant_id_idx").on(
+      table.categoryId,
+      table.tenantId
+    ),
     // Target for the tenant-scoped composite FK on sale_lines.product_id.
     // (id) is already unique as the PK; this pair makes the composite FK legal.
     unique("products_id_tenant_id_unique").on(table.id, table.tenantId),
@@ -190,6 +208,20 @@ export const products = pgTable(
       "products_category_length_check",
       sql`char_length(${table.category}) <= 60`
     ),
+    // Composite FK so a product can only point at its own tenant's category.
+    // A category in use cannot be deleted (tenant_id is NOT NULL, so SET NULL
+    // could not half-null it). NO ACTION rather than RESTRICT: both refuse
+    // the delete, but only NO ACTION reports 23503 on every Postgres version
+    // (18 reports a RESTRICT violation as 23001), and the app and the
+    // uploader read 23503 as "category in use". MATCH SIMPLE (the default)
+    // skips rows whose category_id is still NULL. Generated in a migration
+    // after categories_id_tenant_id_unique on purpose: drizzle-kit emits FKs
+    // before new unique constraints within one migration.
+    foreignKey({
+      name: "products_category_id_tenant_id_categories_id_tenant_id_fk",
+      columns: [table.categoryId, table.tenantId],
+      foreignColumns: [categories.id, categories.tenantId],
+    }).onDelete("no action"),
     check(
       "products_price_cents_nonnegative_check",
       sql`${table.priceCents} >= 0`

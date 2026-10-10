@@ -1,7 +1,8 @@
 // Product categories are the tenant's own records (the categories table):
 // lib/categories/validation.ts checks their names, and
 // lib/categories/repository.ts and lib/powersync/write-categories.ts write
-// them. A product stores its category's name, as the tenant spelled it.
+// them. A product references its category by id (products.category_id) and
+// keeps a copy of its name, which Postgres keeps in step.
 
 /**
  * The category rails' show-everything filter. Never a stored category: the

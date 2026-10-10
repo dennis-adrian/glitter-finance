@@ -49,3 +49,12 @@ export function categoryNamesMatch(first: string, second: string) {
     ) === 0
   );
 }
+
+/**
+ * Comparison key for category names: normalized and case-insensitive, like
+ * categoryNamesMatch, for lookups and duplicate checks done in JavaScript
+ * (SQLite's lower() only folds ASCII letters).
+ */
+export function categoryNameKey(value: string) {
+  return normalizeCategoryName(value).toLocaleLowerCase("es");
+}

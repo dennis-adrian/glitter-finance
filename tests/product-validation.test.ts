@@ -7,25 +7,29 @@ import {
   createProductLocal,
   updateProductLocal,
 } from "@/lib/powersync/write-products";
-import {
-  normalizeProductInput,
-  PRODUCT_CATEGORY_MAX_LENGTH,
-  PRODUCT_NAME_MAX_LENGTH,
-} from "@/lib/products";
+import { normalizeProductInput, PRODUCT_NAME_MAX_LENGTH } from "@/lib/products";
 import type { ProductInput } from "@/lib/types";
+
+const categoryId = "11111111-1111-4111-8111-111111111111";
 
 const valid: ProductInput = {
   name: "Sticker",
   priceCents: 1500,
   costCents: null,
-  category: "Stickers",
+  categoryId,
 };
+
+// The product on the device, and the tenant's category.
+async function localRow(sql: string) {
+  return /FROM products/.test(sql)
+    ? { id: "product-1", category_id: categoryId }
+    : { id: categoryId, name: "Stickers" };
+}
 
 function recordingDb() {
   const statements: { sql: string; params: unknown[] }[] = [];
   const tx = {
-    // The product on the device, and the tenant's category.
-    getOptional: async () => ({ id: "product-1", name: "Stickers" }),
+    getOptional: localRow,
     execute: async (sql: string, params: unknown[] = []) => {
       statements.push({ sql, params });
       return { rowsAffected: 1 };
@@ -43,7 +47,7 @@ test("products are trimmed and keep optional-field presence", () => {
     normalizeProductInput({
       ...valid,
       name: "  Sticker holo ",
-      category: " Pegatinas ",
+      categoryId: categoryId.toUpperCase(),
       costCents: 400,
       imageTone: "coral",
     }),
@@ -51,10 +55,15 @@ test("products are trimmed and keep optional-field presence", () => {
       name: "Sticker holo",
       priceCents: 1500,
       costCents: 400,
-      // Categories are the tenant's own: no name is rewritten to another.
-      category: "Pegatinas",
+      // Lowercase, as Postgres returns ids.
+      categoryId,
       imageTone: "coral",
     }
+  );
+  // An edit that leaves the category as it is.
+  assert.equal(
+    normalizeProductInput({ ...valid, categoryId: undefined }).categoryId,
+    null
   );
 
   const update = normalizeProductInput({
@@ -73,8 +82,9 @@ test("values Postgres would reject or that overflow are refused", () => {
   const invalid: [Partial<Record<keyof ProductInput, unknown>>, RegExp][] = [
     [{ name: "   " }, /nombre/],
     [{ name: "x".repeat(PRODUCT_NAME_MAX_LENGTH + 1) }, /120/],
-    [{ category: "" }, /categoría/],
-    [{ category: "x".repeat(PRODUCT_CATEGORY_MAX_LENGTH + 1) }, /60/],
+    [{ categoryId: "" }, /Elegí una categoría válida/],
+    [{ categoryId: "Stickers" }, /Elegí una categoría válida/],
+    [{ categoryId: 42 }, /Elegí una categoría válida/],
     [{ priceCents: -1 }, /precio/],
     [{ priceCents: 12.5 }, /precio/],
     [{ priceCents: Number.NaN }, /precio/],
@@ -140,7 +150,8 @@ test("a new product always starts with a placeholder image", async () => {
   assert.equal(statements.length, 1);
   const params = statements[0].params;
   assert.equal(params[2], "Pin");
-  assert.equal(params[6], "placeholder:warm");
+  assert.deepEqual(params.slice(5, 7), [categoryId, "Stickers"]);
+  assert.equal(params[7], "placeholder:warm");
 });
 
 test("a product and its initial stock are written in one transaction", async () => {
@@ -150,8 +161,7 @@ test("a product and its initial stock are written in one transaction", async () 
     writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) => {
       transactions += 1;
       return callback({
-        // The product on the device, and the tenant's category.
-        getOptional: async () => ({ id: "product-1", name: "Stickers" }),
+        getOptional: localRow,
         execute: async (sql: string) => {
           statements.push(sql);
         },

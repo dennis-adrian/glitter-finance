@@ -20,7 +20,6 @@ type PosState = {
     expectedCartRevision?: number
   ) => void;
   upsertProduct: (product: Product) => void;
-  renameProductCategory: (currentName: string, nextName: string) => void;
   addToCart: (productId: string) => void;
   decrementCart: (productId: string) => void;
   removeFromCart: (productId: string) => void;
@@ -131,16 +130,6 @@ export const usePosStore = create<PosState>()((set) => ({
             : state.cartRevision,
       };
     }),
-  // Shows a category rename on the products at once, before the next hydrate
-  // brings the renamed rows.
-  renameProductCategory: (currentName, nextName) =>
-    set((state) => ({
-      products: state.products.map((product) =>
-        product.category === currentName
-          ? { ...product, category: nextName, updatedAt: nowIso() }
-          : product
-      ),
-    })),
   addToCart: (productId) =>
     set((state) => {
       const product = state.products.find(

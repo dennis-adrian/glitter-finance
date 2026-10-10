@@ -140,7 +140,9 @@ export function formatDateInputInBolivia(now = new Date()) {
 }
 
 export function formatDateLabelInBolivia(iso: string) {
-  return boliviaDateLabelFormatter.format(new Date(iso));
+  const label = boliviaDateLabelFormatter.format(new Date(iso));
+  // Sentence case: only the weekday is capitalized ("Sábado, 26 de septiembre").
+  return label.charAt(0).toLocaleUpperCase(APP_LOCALE) + label.slice(1);
 }
 
 function formatValidDate(value: string | Date, formatter: Intl.DateTimeFormat) {

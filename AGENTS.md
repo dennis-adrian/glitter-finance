@@ -12,13 +12,14 @@
   drift.
 - The only exception is **hand-written SQL** for things Drizzle cannot model:
   RLS policies, `auth.users` foreign keys, storage policies, grants, triggers,
-  and `ALTER PUBLICATION`. Put these under `supabase/manual/` with a
-  `YYYYMMDDHHMMSS_description.sql` timestamp prefix (same ordering idea as
-  Drizzle migrations). They are run in the SQL editor after `db:push`, in
-  lexicographic order — not tracked in `supabase/migrations/meta/`. Make each
-  file idempotent (`pnpm db:reset` runs them all, and `pnpm test:db` runs them
-  twice), and never edit one that has shipped to an environment: fix forward
-  with a new file.
+  `ALTER PUBLICATION`, and idempotent one-off data backfills that must run in
+  the same transaction as the manual triggers they depend on. Put these under
+  `supabase/manual/` with a `YYYYMMDDHHMMSS_description.sql` timestamp prefix
+  (same ordering idea as Drizzle migrations). They are run in the SQL editor
+  after `db:push`, in lexicographic order — not tracked in
+  `supabase/migrations/meta/`. Make each file idempotent (`pnpm db:reset` runs
+  them all, and `pnpm test:db` runs them twice), and never edit one that has
+  shipped to an environment: fix forward with a new file.
 - **One sanctioned exception:**
   `supabase/migrations/20260628210000_tenant_invitations_rls.sql` is
   hand-written SQL (`auth.users` FKs, `tenant_invitations` RLS and its

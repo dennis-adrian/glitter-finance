@@ -39,7 +39,7 @@ export default async function UpdatePasswordPage({
   return (
     <AuthPageShell>
       <div className="flex min-h-full flex-1 flex-col">
-        <AuthPageHeader title="Nueva Contraseña" />
+        <AuthPageHeader title="Nueva contraseña" />
 
         <div className="flex flex-1 flex-col px-6">
           <p className="pb-5 text-sm leading-snug text-foreground/70">

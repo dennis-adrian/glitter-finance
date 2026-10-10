@@ -101,7 +101,8 @@ export function CategoryFormDrawer({
       }}
       showSwipeHandle
     >
-      <DrawerContent className="mx-auto max-w-[448px]">
+      {/* Lifts above the iOS keyboard while typing the name. */}
+      <DrawerContent className="mx-auto max-w-[448px] data-[swipe-axis=y]:[--drawer-content-max-height:calc(var(--app-height,100dvh)-6rem)] data-[swipe-direction=down]:bottom-(--keyboard-inset,0px)">
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -143,6 +144,8 @@ export function CategoryFormDrawer({
               <p
                 id="category-name-error"
                 role={error ? "alert" : undefined}
+                // Reserves the line's height; hidden from screen readers.
+                aria-hidden={error ? undefined : true}
                 className={error ? "text-destructive" : "text-transparent"}
               >
                 {error ?? "Sin error"}

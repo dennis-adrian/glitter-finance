@@ -125,9 +125,9 @@ Expected:
 
 - Both sales stay pending: correcting the clock does not release the first
   one, and the second waits behind it.
-- Settings and More explain that operations were recorded with the device
-  time ahead and say from when the cloud accepts them; signing out, switching
-  and joining a tenant stay blocked.
+- Más explains that operations were recorded with the device time ahead
+  and says from when the cloud accepts them; signing out, switching and
+  joining a tenant stay blocked.
 - After 10 minutes of waiting, Sentry receives one warning for the
   transaction, `PowerSync upload held by the device clock`, with `held_until`
   in its context and no row data.

@@ -59,6 +59,9 @@ export const products = sqliteTable(
     name: text("name").notNull(),
     priceCents: integer("price_cents").notNull(),
     costCents: integer("cost_cents"),
+    // Source of truth for the category; nullable until the server links rows
+    // written by old clients. `category` is the server-maintained name.
+    categoryId: text("category_id"),
     category: text("category").notNull(),
     imagePath: text("image_path"),
     tracksInventory: integer("tracks_inventory").notNull().default(0),
@@ -67,9 +70,9 @@ export const products = sqliteTable(
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
-  // Renaming or deleting a category looks up the products filed under it
+  // Deleting a category looks up the products filed under it
   // (lib/powersync/write-categories.ts).
-  (table) => [index("category").on(table.category)]
+  (table) => [index("category_id").on(table.categoryId)]
 );
 
 export const sales = sqliteTable("sales", {

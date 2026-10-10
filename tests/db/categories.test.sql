@@ -1,7 +1,8 @@
 -- Tenant categories: who can read and write them through PostgREST, the
--- checks on their names, and the triggers that keep the products that name a
--- category in step with it (renames follow, products take the category's
--- spelling, a used category stays).
+-- checks on their names, and the triggers that keep the products filed under
+-- a category in step with it (renames follow, products take the category's
+-- spelling, a used category stays). tests/db/product-category-ids.test.sql
+-- covers how a product's category_id is resolved.
 
 BEGIN;
 
@@ -191,19 +192,30 @@ SELECT tests.is(
   'a new product takes the tenant''s spelling of its category'
 );
 SELECT tests.is(
-  (SELECT category FROM public.products WHERE id = :'product_misc'),
-  'Varios',
-  'a product keeps a category the tenant does not have'
+  (SELECT p.category || ' ' || c.name FROM public.products p
+    JOIN public.categories c ON c.id = p.category_id
+    WHERE p.id = :'product_misc'),
+  'Varios Varios',
+  'a product filed under a category the tenant does not have creates it'
 );
 
 SELECT tests.authenticate(:'user_a');
-INSERT INTO public.categories (tenant_id, name) VALUES (:'tenant_a', 'VARIOS');
+SELECT tests.throws(
+  format(
+    'INSERT INTO public.categories (tenant_id, name) VALUES (%L, %L)',
+    :'tenant_a', 'VARIOS'
+  ),
+  '23505',
+  'a category created for a product counts like any other for the unique name'
+);
+UPDATE public.categories SET name = 'VARIOS', updated_at = now()
+WHERE tenant_id = :'tenant_a' AND name = 'Varios';
 SELECT tests.as_owner();
 
 SELECT tests.is(
   (SELECT category FROM public.products WHERE id = :'product_misc'),
   'VARIOS',
-  'a new category respells the products already under its name'
+  'a category created for a product renames it like any other'
 );
 
 SELECT tests.authenticate(:'user_a');

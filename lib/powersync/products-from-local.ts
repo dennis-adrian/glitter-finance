@@ -14,6 +14,7 @@ export function mapLocalProductRow(row: LocalProductRow): Product {
     name: row.name,
     priceCents: row.price_cents,
     costCents: row.cost_cents,
+    categoryId: row.category_id,
     category: row.category,
     imagePath: row.image_path,
     tracksInventory: row.tracks_inventory,

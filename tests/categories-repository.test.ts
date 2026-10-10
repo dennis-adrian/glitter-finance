@@ -1,31 +1,58 @@
-// The categories '/' creates from a tenant's catalog
-// (ensureCategoriesForExistingProducts in lib/categories/repository.ts), run
-// against a stand-in for Drizzle.
+// A category rename in the non-PowerSync mode (renameCategoryForTenant in
+// lib/categories/repository.ts), run against a stand-in for Drizzle.
+//
+// Products follow their category by id, and Postgres keeps their name in
+// step. The repository renames them too, for databases without the manual
+// SQL, as a maintenance write: it leaves products.updated_at alone, so a
+// newer edit from a device keeps its per-column time
+// (supabase/manual/20261009120000_product_category_ids.sql, rule I4).
 
 import assert from "node:assert/strict";
 import test from "node:test";
 
 const TENANT_ID = "70000000-0000-4000-8000-000000000001";
+const CATEGORY_ID = "72000000-0000-4000-8000-000000000001";
 
-// The product category names that no category matches yet, as Postgres would
-// return them, and the rows inserted.
-let missingNames: string[] = [];
-const inserted: Record<string, unknown>[][] = [];
+type Write = { table: string; values: Record<string, unknown> };
+
+const writes: Write[] = [];
+let categoryExists = true;
+
+function tableName(table: unknown) {
+  return (table as Record<symbol, string>)[Symbol.for("drizzle:Name")];
+}
+
+function fakeDatabase() {
+  return {
+    update: (table: unknown) => ({
+      set: (values: Record<string, unknown>) => ({
+        where: () => {
+          writes.push({ table: tableName(table), values });
+          return Object.assign(Promise.resolve(), {
+            returning: async () =>
+              categoryExists
+                ? [
+                    {
+                      id: CATEGORY_ID,
+                      tenantId: TENANT_ID,
+                      createdAt: new Date("2026-09-30T12:00:00.000Z"),
+                      updatedAt: new Date("2026-09-30T12:00:00.000Z"),
+                      ...values,
+                    },
+                  ]
+                : [],
+          });
+        },
+      }),
+    }),
+  };
+}
 
 const fakeDb = {
-  selectDistinct: () => ({
-    from: () => ({
-      where: async () => missingNames.map((name) => ({ name })),
-    }),
-  }),
-  // The NOT EXISTS subquery: built, never run on its own.
-  select: () => ({ from: () => ({ where: () => ({}) }) }),
-  insert: () => ({
-    values: (values: Record<string, unknown>[]) => {
-      inserted.push(values);
-      return { onConflictDoNothing: async () => undefined };
-    },
-  }),
+  ...fakeDatabase(),
+  transaction: async <T>(
+    run: (tx: ReturnType<typeof fakeDatabase>) => Promise<T>
+  ) => run(fakeDatabase()),
 };
 
 async function repository() {
@@ -41,34 +68,37 @@ async function repository() {
   return import("@/lib/categories/repository");
 }
 
-test("a tenant whose product categories all exist writes nothing", async () => {
-  const { ensureCategoriesForExistingProducts } = await repository();
-  missingNames = [];
-  inserted.length = 0;
+test("a rename renames the category's products without a newer edit time", async () => {
+  const { renameCategoryForTenant } = await repository();
+  writes.length = 0;
+  categoryExists = true;
 
-  await ensureCategoriesForExistingProducts(TENANT_ID);
+  const renamed = await renameCategoryForTenant(
+    TENANT_ID,
+    CATEGORY_ID,
+    "  Arte   impreso "
+  );
 
-  assert.deepEqual(inserted, []);
+  assert.equal(renamed.name, "Arte impreso");
+  assert.deepEqual(
+    writes.map((write) => write.table),
+    ["categories", "products"]
+  );
+  assert.ok(writes[0].values.updatedAt instanceof Date);
+  assert.deepEqual(writes[1].values, { category: "Arte impreso" });
 });
 
-test("creates one category per missing name, as a category may be named", async () => {
-  const { ensureCategoriesForExistingProducts } = await repository();
-  missingNames = [
-    "  Arte   impreso ",
-    "arte impreso",
-    "Pines",
-    "x".repeat(41),
-    "Todos",
-    "   ",
-  ];
-  inserted.length = 0;
+test("renaming a category the tenant does not have writes no products", async () => {
+  const { renameCategoryForTenant } = await repository();
+  writes.length = 0;
+  categoryExists = false;
 
-  await ensureCategoriesForExistingProducts(TENANT_ID);
-
-  assert.deepEqual(inserted, [
-    [
-      { tenantId: TENANT_ID, name: "Arte impreso" },
-      { tenantId: TENANT_ID, name: "Pines" },
-    ],
-  ]);
+  await assert.rejects(
+    renameCategoryForTenant(TENANT_ID, CATEGORY_ID, "Pines"),
+    { name: "UserFacingError", message: "No se encontró la categoría." }
+  );
+  assert.deepEqual(
+    writes.map((write) => write.table),
+    ["categories"]
+  );
 });

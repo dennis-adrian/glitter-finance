@@ -13,8 +13,8 @@
 //   transactions go through authenticated Postgres RPCs so the remote commit is
 //   atomic. Product, category and inventory transactions are uploaded row by
 //   row through PostgREST, in queue order (a product saved with its initial
-//   stock count is one transaction of two rows, a category rename one with
-//   its products).
+//   stock count is one transaction of two rows). A category rename is one
+//   row: products follow their category by id.
 //   Permanent errors are copied into a local-only dead-letter table while the
 //   transaction remains queued; all errors are re-thrown for PowerSync backoff.
 //   A transaction the server will never accept is discarded from Diagnostics
@@ -193,7 +193,7 @@ function isPrimaryKeyUniqueViolation(
 /**
  * A category write that lost to another device's. A tenant's category names
  * are unique (categories_tenant_name_unique), and a category a product uses
- * cannot be deleted (supabase/manual/20260814235910_category_integrity_triggers.sql),
+ * cannot be deleted (products_category_id_tenant_id_categories_id_tenant_id_fk),
  * so two devices offline at once can each make a change that the other's
  * rules out:
  * - a new category, or a rename, to a name the tenant has since got (23505);
@@ -201,14 +201,16 @@ function isPrimaryKeyUniqueViolation(
  *   it, or this device's own create of it was skipped as above. The UPDATE
  *   then matches no row (UnappliedUpdateError);
  * - deleting a category another device has since filed a product under
- *   (23503; nothing else references categories).
+ *   (23503; only products reference categories).
  * A retry can never apply it, and recording it as a failure would hold every
  * later upload, sales included, until someone discards it. It is skipped
  * instead, like a void that lost to a refund: the next checkpoint gives the
- * device the server's categories back. The rest of its transaction still
- * uploads, so a rename's products move to the name it chose, and a product
- * filed under a dropped create or rename takes the tenant's spelling of the
- * name (supabase/manual/20260930130000_products_use_category_spelling.sql).
+ * device the server's categories back. Products follow their category by
+ * id, so a dropped rename leaves them in it, under its server name. A
+ * product filed under a dropped create carries the category's name as well
+ * as its id, and Postgres links it to the tenant's category of that name
+ * instead (products_category_resolve_id in
+ * supabase/manual/20261009120000_product_category_ids.sql).
  *
  * An UPDATE also matches no row when RLS hides it from a user who is no
  * longer a member of the tenant. Skipping the category change then loses

@@ -1,13 +1,18 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { Minus, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { getProductStock } from "@/lib/inventory";
+import { formatBs } from "@/lib/money";
+import {
+  getProductStock,
+  stockAriaLabel,
+  stockBadgeLabel,
+  stockNeedsGlyph,
+} from "@/lib/inventory";
 import type { Product } from "@/lib/types";
 import { ProductArt } from "@/components/atoms/product-art";
-import { ProductNamePrice } from "@/components/atoms/product-name-price";
-import { StockBadge } from "@/components/atoms/stock-badge";
 
 type ProductTileProps = {
   product: Product;
@@ -55,60 +60,98 @@ export function ProductTile({
   }
 
   return (
-    <button
-      type="button"
-      className={cn(
-        "gesture-surface group relative flex min-h-59 flex-col overflow-hidden rounded-2xl bg-card text-left ring-1 transition-transform active:scale-[0.985]",
-        quantity
-          ? "ring-2 ring-primary"
-          : stockAlert
-            ? "ring-destructive/40"
-            : "ring-foreground/10"
-      )}
-      // Block OS/browser menus that compete with long-press (right-click,
-      // Ctrl-click, Android long-press sheet, image save/share).
-      onContextMenu={(event) => event.preventDefault()}
-      onDragStart={(event) => event.preventDefault()}
-      onPointerDown={(event) => {
-        // Primary button / touch only — ignore secondary pointers,
-        // right-click, and pen barrel.
-        if (!event.isPrimary || event.button !== 0) return;
-        clearTimer();
-        activePointerId.current = event.pointerId;
-        longPressed.current = false;
-        clearDomSelection();
-        timer.current = window.setTimeout(() => {
-          longPressed.current = true;
-          clearDomSelection();
-          decrement();
-        }, 520);
-      }}
-      onPointerUp={(event) => clearActivePointer(event.pointerId)}
-      onPointerLeave={(event) => clearActivePointer(event.pointerId)}
-      onPointerCancel={(event) => {
-        if (activePointerId.current !== event.pointerId) return;
-        clearTimer();
-        activePointerId.current = null;
-        // After a completed long-press, cancel can suppress click; reset
-        // so the next keyboard activation still invokes add().
-        longPressed.current = false;
-      }}
-      onClick={() => {
-        if (longPressed.current) {
+    // The tile itself adds one; a separate "−" button (a sibling, since
+    // buttons can't nest) removes one. Long-press still removes one too.
+    <div className="relative">
+      <button
+        type="button"
+        aria-label={`${product.name}, ${formatBs(product.priceCents, true)}${
+          quantity ? `, ${quantity} en el pedido` : ""
+        }${stock ? `, ${stockAriaLabel(stock)}` : ""}`}
+        className={cn(
+          "gesture-surface group relative flex h-full w-full flex-col overflow-hidden rounded-2xl bg-card text-left ring-1 outline-none transition-transform focus-visible:ring-[3px] focus-visible:ring-ring/50 active:scale-[0.985]",
+          quantity
+            ? "ring-2 ring-primary"
+            : stockAlert
+              ? "ring-destructive/40"
+              : "ring-foreground/10"
+        )}
+        // Block OS/browser menus that compete with long-press (right-click,
+        // Ctrl-click, Android long-press sheet, image save/share).
+        onContextMenu={(event) => event.preventDefault()}
+        onDragStart={(event) => event.preventDefault()}
+        onPointerDown={(event) => {
+          // Primary button / touch only — ignore secondary pointers,
+          // right-click, and pen barrel.
+          if (!event.isPrimary || event.button !== 0) return;
+          clearTimer();
+          activePointerId.current = event.pointerId;
           longPressed.current = false;
-          return;
-        }
-        add();
-      }}
-    >
-      <ProductArt product={product} />
+          clearDomSelection();
+          timer.current = window.setTimeout(() => {
+            longPressed.current = true;
+            clearDomSelection();
+            decrement();
+          }, 520);
+        }}
+        onPointerUp={(event) => clearActivePointer(event.pointerId)}
+        onPointerLeave={(event) => clearActivePointer(event.pointerId)}
+        onPointerCancel={(event) => {
+          if (activePointerId.current !== event.pointerId) return;
+          clearTimer();
+          activePointerId.current = null;
+          // After a completed long-press, cancel can suppress click; reset
+          // so the next keyboard activation still invokes add().
+          longPressed.current = false;
+        }}
+        onClick={() => {
+          if (longPressed.current) {
+            longPressed.current = false;
+            return;
+          }
+          add();
+        }}
+      >
+        <ProductArt product={product} />
+        {quantity ? (
+          <Badge
+            aria-hidden
+            className="absolute top-2 right-2 h-7 min-w-7 rounded-full px-2 text-sm font-bold tabular-nums"
+          >
+            {quantity}×
+          </Badge>
+        ) : null}
+        {stock ? (
+          <Badge
+            variant={stock.state === "oversold" ? "destructive" : "secondary"}
+            className="absolute top-2 left-2 h-6 gap-1 rounded-full font-semibold"
+            aria-hidden
+          >
+            {stockNeedsGlyph(stock.state) ? (
+              <TriangleAlert aria-hidden="true" />
+            ) : null}
+            {stockBadgeLabel(stock)}
+          </Badge>
+        ) : null}
+        <div className={cn("px-3 pt-2.5 pb-3.5", quantity && "pr-13")}>
+          <span className="line-clamp-2 text-[15px] leading-tight text-foreground">
+            {product.name}
+          </span>
+          <strong className="mt-1 block text-xl leading-none font-bold text-primary">
+            {formatBs(product.priceCents, true)}
+          </strong>
+        </div>
+      </button>
       {quantity ? (
-        <Badge className="absolute top-2 right-2 h-7 min-w-7 rounded-full px-2 text-sm font-bold tabular-nums">
-          {quantity}×
-        </Badge>
+        <button
+          type="button"
+          onClick={decrement}
+          aria-label={`Quitar uno de ${product.name}`}
+          className="absolute right-2 bottom-2.5 grid size-10 place-items-center rounded-full bg-muted text-foreground outline-none transition-colors hover:bg-primary/15 focus-visible:ring-[3px] focus-visible:ring-ring/50 active:scale-95 after:absolute after:-inset-1 after:content-['']"
+        >
+          <Minus className="size-4.5" aria-hidden />
+        </button>
       ) : null}
-      {stock ? <StockBadge stock={stock} /> : null}
-      <ProductNamePrice product={product} />
-    </button>
+    </div>
   );
 }

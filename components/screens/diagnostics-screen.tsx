@@ -28,10 +28,10 @@ import { toast } from "sonner";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
-import { BackButton } from "@/components/atoms/back-button";
-import { Header } from "@/components/atoms/header";
 import { DiscardSyncFailureDialog } from "@/components/molecules/discard-sync-failure-dialog";
 import { ReloadAppButton } from "@/components/molecules/reload-app-button";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -118,11 +118,19 @@ function downloadDiagnostic(json: string) {
 
 type DiagnosticsScreenProps = {
   tenantContext: UserTenantContext;
+  /** Records currently loaded on this device, for support. */
+  localCounts: {
+    activeProducts: number;
+    archivedProducts: number;
+    completedSales: number;
+    saleRecords: number;
+  };
   back: () => void;
 };
 
 export function DiagnosticsScreen({
   tenantContext,
+  localCounts,
   back,
 }: DiagnosticsScreenProps) {
   const db = useOptionalPowerSyncDb();
@@ -340,9 +348,10 @@ export function DiagnosticsScreen({
   }
 
   return (
-    <section className="screen">
-      <Header title="Diagnósticos" left={<BackButton back={back} />} />
-
+    <Screen
+      width="narrow"
+      header={<ScreenHeader title="Diagnósticos" onBack={back} />}
+    >
       {details.failures.length ? (
         <div
           className="mt-3 flex gap-2 rounded-xl border border-destructive/35 bg-destructive/10 p-3 text-sm text-destructive"
@@ -497,6 +506,25 @@ export function DiagnosticsScreen({
         />
       </DiagPanel>
 
+      <DiagPanel title="Datos en este dispositivo">
+        <DiagRow
+          label="Productos activos"
+          value={String(localCounts.activeProducts)}
+        />
+        <DiagRow
+          label="Productos archivados"
+          value={String(localCounts.archivedProducts)}
+        />
+        <DiagRow
+          label="Ventas completadas"
+          value={String(localCounts.completedSales)}
+        />
+        <DiagRow
+          label="Registros de ventas"
+          value={String(localCounts.saleRecords)}
+        />
+      </DiagPanel>
+
       <DiagPanel title="Dispositivo">
         <DiagRow
           label="Conexión"
@@ -563,7 +591,7 @@ export function DiagnosticsScreen({
           discarding ? handleDiscard(discarding) : Promise.resolve()
         }
       />
-    </section>
+    </Screen>
   );
 }
 

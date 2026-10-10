@@ -1,15 +1,17 @@
 // No `import "server-only"` here: lib/products/repository.ts imports this
 // module, and scripts/seed-qa.ts imports that one under plain tsx, where the
 // marker throws (tests/server-only-marker.test.ts).
-import { and, asc, count, eq, notExists, sql } from "drizzle-orm";
+import { and, asc, count, eq, isNull, or, sql } from "drizzle-orm";
 import { UserFacingError } from "@/lib/action-result";
 import { db } from "@/lib/db";
 import { categories, products } from "@/lib/db/schema";
 import { postgresErrorCode } from "@/lib/db/errors";
 import { validateCategoryName } from "@/lib/categories/validation";
 import type { Category } from "@/lib/types";
+import { isUuid } from "@/lib/validation";
 
 const CATEGORY_NOT_FOUND_MESSAGE = "No se encontró la categoría.";
+const INVALID_CATEGORY_MESSAGE = "Elegí una categoría válida.";
 
 function mapCategory(row: typeof categories.$inferSelect): Category {
   return {
@@ -42,85 +44,38 @@ export async function getCategoriesForTenant(
   return rows.map(mapCategory);
 }
 
-/**
- * Compatibility bridge for tenants whose products predate categories: every
- * category name their products use becomes one of their categories. It
- * creates categories only from the tenant's own catalog; new or empty tenants
- * still start with none. It reads only the names no category has yet, so once
- * a tenant has them a page load writes nothing.
- */
-export async function ensureCategoriesForExistingProducts(tenantId: string) {
-  const rows = await db
-    .selectDistinct({ name: products.category })
-    .from(products)
-    .where(
-      and(
-        eq(products.tenantId, tenantId),
-        notExists(
-          db
-            .select({ id: categories.id })
-            .from(categories)
-            .where(
-              and(
-                eq(categories.tenantId, tenantId),
-                sql`lower(${categories.name}) = lower(${products.category})`
-              )
-            )
-        )
-      )
-    );
-  const names = new Map<string, string>();
-
-  for (const row of rows) {
-    let name: string;
-    try {
-      name = validateCategoryName(row.name);
-    } catch {
-      // Blank, too long for a category, or the rails' "Todos": the products
-      // keep the name, and their editor asks for a category on a change.
-      continue;
-    }
-    const key = name.toLocaleLowerCase("es");
-    if (!names.has(key)) names.set(key, name);
-  }
-
-  if (names.size > 0) {
-    await db
-      .insert(categories)
-      .values([...names.values()].map((name) => ({ tenantId, name })))
-      .onConflictDoNothing();
-  }
-}
-
 /** Reads through the caller's transaction, when it has one. */
 type CategoryReader = Pick<typeof db, "select">;
 
 /**
- * The tenant's category matching `inputName` (ignoring case), as the tenant
- * spelled it. A product may only be saved in one of the tenant's categories.
+ * The tenant's category with id `categoryId`, with its current name. A
+ * product may only be saved in one of the tenant's categories; the composite
+ * foreign key on products.category_id enforces the same in Postgres.
  */
-export async function resolveCategoryNameForTenant(
+export async function getCategoryForTenant(
   tenantId: string,
-  inputName: string,
+  categoryId: string | null | undefined,
   reader: CategoryReader = db
-) {
-  const name = validateCategoryName(inputName);
+): Promise<{ id: string; name: string }> {
+  if (!isUuid(categoryId)) {
+    throw new UserFacingError(INVALID_CATEGORY_MESSAGE);
+  }
   const [category] = await reader
-    .select({ name: categories.name })
+    .select({ id: categories.id, name: categories.name })
     .from(categories)
     .where(
       and(
         eq(categories.tenantId, tenantId),
-        sql`lower(${categories.name}) = lower(${name})`
+        eq(categories.id, categoryId.toLowerCase())
       )
     )
     .limit(1);
 
   if (!category) {
-    throw new UserFacingError("Elegí una categoría válida.");
+    throw new UserFacingError(INVALID_CATEGORY_MESSAGE);
   }
 
-  return category.name;
+  return category;
 }
 
 export async function createCategoryForTenant(
@@ -154,25 +109,9 @@ export async function renameCategoryForTenant(
 
   try {
     return await db.transaction(async (tx) => {
-      const [current] = await tx
-        .select()
-        .from(categories)
-        .where(
-          and(eq(categories.tenantId, tenantId), eq(categories.id, categoryId))
-        )
-        .limit(1);
-
-      if (!current) {
-        throw new UserFacingError(CATEGORY_NOT_FOUND_MESSAGE);
-      }
-
-      // The app server's clock, like every product write here: Postgres keeps
-      // a product column's newer edit
-      // (supabase/manual/20260926130100_products_last_write_wins.sql).
-      const updatedAt = new Date();
       const [category] = await tx
         .update(categories)
-        .set({ name, updatedAt })
+        .set({ name, updatedAt: new Date() })
         .where(
           and(eq(categories.tenantId, tenantId), eq(categories.id, categoryId))
         )
@@ -182,13 +121,20 @@ export async function renameCategoryForTenant(
         throw new UserFacingError(CATEGORY_NOT_FOUND_MESSAGE);
       }
 
+      // The categories_cascade_name_to_products trigger already does this;
+      // kept for databases without the manual SQL
+      // (supabase/manual/20261009120000_product_category_ids.sql). Products
+      // follow their category by id, and the name is a maintenance write, so
+      // updated_at stays as is: a newer edit on another device keeps its
+      // per-column time (products_keep_latest_edit).
       await tx
         .update(products)
-        .set({ category: name, updatedAt })
+        .set({ category: name })
         .where(
           and(
             eq(products.tenantId, tenantId),
-            eq(products.category, current.name)
+            eq(products.categoryId, categoryId),
+            sql`${products.category} IS DISTINCT FROM ${name}`
           )
         );
 
@@ -210,7 +156,7 @@ export async function deleteCategoryForTenant(
     await deleteUnusedCategory(tenantId, categoryId);
   } catch (error) {
     // A product filed under it after the check below: Postgres refuses the
-    // delete (categories_prevent_delete_when_used).
+    // delete (products_category_id_tenant_id_categories_id_tenant_id_fk).
     if (postgresErrorCode(error) === "23503") {
       throw new UserFacingError(CATEGORY_IN_USE_MESSAGE, { cause: error });
     }
@@ -232,13 +178,20 @@ async function deleteUnusedCategory(tenantId: string, categoryId: string) {
       throw new UserFacingError(CATEGORY_NOT_FOUND_MESSAGE);
     }
 
+    // Rows from old clients may not be linked by id yet; match those by name.
     const [usage] = await tx
       .select({ value: count() })
       .from(products)
       .where(
         and(
           eq(products.tenantId, tenantId),
-          eq(products.category, category.name)
+          or(
+            eq(products.categoryId, categoryId),
+            and(
+              isNull(products.categoryId),
+              sql`lower(${products.category}) = lower(${category.name})`
+            )
+          )
         )
       );
 

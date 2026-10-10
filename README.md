@@ -12,7 +12,7 @@ iPhone Safari and Android Chrome) and
 [`docs/stage-d-acceptance.md`](docs/stage-d-acceptance.md).
 
 - Product catalog with tenant-managed categories, optional cost, archive/restore, and graceful image placeholders.
-- Sell Mode as the default screen with tappable product grid, quantity badges, PowerSync-backed draft cart persistence, and a fixed Cobrar action.
+- Vender as the default screen with tappable product grid, quantity badges, PowerSync-backed draft cart persistence, and a fixed Cobrar action.
 - Cart review surface with quantity controls, per-line discounts, and clear-cart (with undo).
 - Payment screen with sale-level discounts and cash/QR checkout.
 - Immutable local sales with snapshotted price/cost data, a sales list, voids, refunds, and date-range reports.
@@ -308,7 +308,7 @@ Notes:
 - The publication is targeted at exactly the seven synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
 - **Existing environments (Stage D):** if `powersync` was created before `tenant_users` was added to the table list above, run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) in the SQL editor after `pnpm db:push`. It is idempotent and skips quietly when the publication is missing (e.g. local `db:reset` before bootstrap).
 - **Existing environments (inventory):** if `powersync` was created before `inventory_movements` was added, run [`supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql`](supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql) after `pnpm db:push`.
-- **Categories (every environment):** after `pnpm db:push` creates the `categories` table, run in order: [`20260814235900_categories_rls.sql`](supabase/manual/20260814235900_categories_rls.sql) (RLS), [`20260814235910_category_integrity_triggers.sql`](supabase/manual/20260814235910_category_integrity_triggers.sql) (rename cascades to products; delete blocked while in use), and [`20260814235930_powersync_add_categories_to_publication.sql`](supabase/manual/20260814235930_powersync_add_categories_to_publication.sql) (only needed if `powersync` predates categories; idempotent). Then redeploy `powersync/sync-rules.yaml`. Apply before deploying the app — the home page reads `categories` on load. Existing products are backfilled into categories automatically on each tenant's first load.
+- **Categories (every environment):** products reference categories by id (`products.category_id`); `products.category` is the category's name, which the database derives from the id for older app versions and sale lines. `pnpm db:push` creates the table and the column; RLS, the publication, the triggers and the backfill are files 6, 8 and 14 under [Hand-written SQL](#hand-written-sql-supabasemanual), and [`docs/upgrade-notes.md`](docs/upgrade-notes.md) has the release order, pre-checks and verification. File 8 is only needed if `powersync` predates categories; redeploy `powersync/sync-rules.yaml` after it. The database tests run with `pnpm test:db -- categor`.
 - Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Confirm `inventory_movements` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'inventory_movements';`. Confirm `categories` is published the same way, and that `powersync_role` can read it: `SELECT has_table_privilege('powersync_role', 'public.categories', 'SELECT');` (default privileges only cover tables created by the role that ran `ALTER DEFAULT PRIVILEGES`; if `false`, run `GRANT SELECT ON public.categories TO powersync_role;`). Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
 
 #### Atomic financial uploads
@@ -377,8 +377,8 @@ the server clock reaches the stored timestamp minus 5 minutes, and every later
 upload from that device waits behind it. Correcting the device clock does not
 release rows already queued; it only stops new ones from being held. The
 device records the wait in the local-only `upload_holds` table: the sync pill
-reads **Hora adelantada**, Settings and More say from when the cloud accepts
-the rows, and Diagnostics shows **En espera hasta**. Sentry gets a
+reads **Hora adelantada**, Más says from when the cloud accepts the rows,
+and Diagnostics shows **En espera hasta**. Sentry gets a
 `PowerSync upload held by the device clock` warning once a transaction has
 waited 10 minutes. Nothing needs discarding; do not clear browser/PWA storage
 while it waits.
@@ -468,7 +468,7 @@ header's `kid` and `alg` with the keys at the JWKS URI, `iss` with
 `https://<project-ref>.supabase.co/auth/v1`, `aud` with the accepted audience,
 and `app_metadata.tenant_id` with the tenant in Diagnostics.
 
-**After `supabase db reset --linked`:** the reset drops everything in the `public` schema, which includes the `powersync` publication, the grants you gave `powersync_role`, and everything the `supabase/manual/` files installed there: the `inventory_movements` and `categories` RLS, the category triggers, the financial RPCs and triggers, the product last-write-wins trigger and the Storage policy helper. The role itself survives (it's cluster-level, not database-level), and its password is unchanged. To restore the environment:
+**After `supabase db reset --linked`:** the reset drops everything in the `public` schema, which includes the `powersync` publication, the grants you gave `powersync_role`, and everything the `supabase/manual/` files installed there: the `inventory_movements` and `categories` RLS, the category triggers (including the category-id triggers and their grants), the financial RPCs and triggers, the product last-write-wins trigger and the Storage policy helper. The role itself survives (it's cluster-level, not database-level), and its password is unchanged. To restore the environment:
 
 1. Re-run the grants + publication portion of the bootstrap (skip `CREATE ROLE`):
 
@@ -619,9 +619,10 @@ Drizzle does **not** apply migrations in this project, and does **not** own the 
 - **Migration runner.** `supabase db push` applies the SQL files in `supabase/migrations/` against the linked cloud project, tracked in `supabase_migrations.schema_migrations`. `supabase db reset` rebuilds the local database from migrations, then the hand-written SQL and the seed (`[db.seed] sql_paths` in `supabase/config.toml`).
 - **Local development stack.** `supabase start` boots Postgres, Auth, Storage, and the rest of the stack locally via Docker. The project is initialized via `supabase/config.toml`.
 - **Things Drizzle cannot model.** RLS policies, `auth.users` foreign keys,
-  storage policies, `ALTER PUBLICATION`, triggers, and grants are timestamped
-  hand-written SQL under `supabase/manual/` and run in the SQL editor after
-  `db:push` (see Hand-written SQL below). The hand-written files already in
+  storage policies, `ALTER PUBLICATION`, triggers, grants, and idempotent
+  one-off data backfills that must run in the same transaction as those
+  triggers are timestamped hand-written SQL under `supabase/manual/` and run
+  in the SQL editor after `db:push` (see Hand-written SQL below). The hand-written files already in
   `supabase/migrations/` stay there as applied history, and `db:push` applies
   them: the custom Drizzle migrations from before this split
   (`20260607185713`, `20260607185822` and `20260610012303`, all in the Drizzle
@@ -652,9 +653,10 @@ Do not run `drizzle-kit migrate`. The Drizzle `__drizzle_migrations` journal is 
 ### Hand-written SQL (`supabase/manual/`)
 
 For anything Drizzle's schema cannot express (RLS, `auth.users` FKs, storage
-policies, triggers, functions, grants, `ALTER PUBLICATION`), add a new file
-under `supabase/manual/` named `YYYYMMDDHHMMSS_description.sql`, with a
-timestamp after every existing file. Write it so it can be re-run
+policies, triggers, functions, grants, `ALTER PUBLICATION`, and idempotent
+one-off backfills that must run in the same transaction as those triggers),
+add a new file under `supabase/manual/` named
+`YYYYMMDDHHMMSS_description.sql`, with a timestamp after every existing file. Write it so it can be re-run
 (`CREATE OR REPLACE`, `DROP ... IF EXISTS`, guarded `DO` blocks), and never
 edit a file that has shipped to an environment: fix forward with a new file.
 
@@ -669,9 +671,13 @@ below:
   run every file after it as well, in order. Never re-run an older file on its
   own: some files replace what an earlier one installed, and running the
   earlier one again puts the old version back. File 10 replaces file 1's upload
-  policy, file 9 replaces file 5's upload RPCs and void trigger, and file 12
-  replaces file 7's category trigger functions. The verification query below
-  shows all three.
+  policy, file 9 replaces file 5's upload RPCs and void trigger, file 12
+  replaces file 7's category trigger functions, and file 14 replaces the
+  category triggers of files 7, 12 and 13. The verification query below shows
+  all four. File 14 is the one file that may also run out of order: it works
+  without files 9 to 13, and an environment upgrading from v0.8.0 runs it
+  right after `pnpm db:push` as well
+  ([`docs/upgrade-notes.md`](docs/upgrade-notes.md), steps 3 and 6).
 - **Local stack:** `pnpm db:reset` runs all of them after the migrations and
   before `seed.sql`.
 
@@ -700,7 +706,7 @@ below:
 7. [`20260814235910_category_integrity_triggers.sql`](supabase/manual/20260814235910_category_integrity_triggers.sql):
    renaming a category renames it on its products, and a category still used
    by a product cannot be deleted. Sales keep the category they were sold
-   under. Every environment.
+   under. Every environment. File 14 replaces its triggers.
 8. [`20260814235930_powersync_add_categories_to_publication.sql`](supabase/manual/20260814235930_powersync_add_categories_to_publication.sql):
    adds `categories` to the publication. Needed where the publication predates
    categories; skips otherwise. Redeploy `powersync/sync-rules.yaml` after it.
@@ -725,14 +731,34 @@ below:
     replaces file 7's trigger functions. A rename stamps the products with a
     time file 11 never keeps an older edit over, so it reaches a product last
     edited by a device whose clock ran ahead, and a category cannot move to
-    another tenant. Every environment, after files 7 and 11.
+    another tenant. Every environment, after files 7 and 11. File 14 replaces
+    its triggers.
 13. [`20260930130000_products_use_category_spelling.sql`](supabase/manual/20260930130000_products_use_category_spelling.sql):
     a product whose category matches one of its tenant's categories ignoring
     case is stored with that category's spelling, so the rename and delete
     triggers, which match the exact spelling, find it. Covers products that
     arrive after the uploader dropped their category's create or rename, and
     respells the products already stored otherwise. Every environment, after
-    files 11 and 12.
+    files 11 and 12. File 14 replaces its triggers.
+14. [`20261009120000_product_category_ids.sql`](supabase/manual/20261009120000_product_category_ids.sql):
+    products reference their category by id. Installs the triggers that
+    resolve `products.category_id` from the name older app versions send
+    (creating a missing category), derive `products.category` from the id,
+    rename a category's products and keep a category in its tenant; retires
+    the name-based triggers of files 7, 12 and 13, since the foreign key now
+    refuses to delete a category in use; and links every existing product to
+    a category (a blank name or "Todos" goes to "Sin categoría", a name over
+    40 characters is cut). Every environment, after files 6 and 7 and the
+    `pnpm db:push` that adds `products.category_id` and its foreign key, and
+    before an app build that writes `category_id` is deployed: without its
+    triggers, an id the server lacks fails the foreign key (`23503`) and
+    holds that device's uploads. It does not need files 9 to 13, and v0.8.0
+    apps keep working with it. It replaces the category triggers of files 7,
+    12 and 13, so re-run it after re-running any of them: an environment
+    upgrading from v0.8.0 runs it right after `pnpm db:push` and again after
+    file 13. It runs in one transaction with a 5 s `lock_timeout`: if
+    another session holds `products` or `categories`, or any check fails, it
+    rolls back; run it again.
 
 To check an environment, run in its SQL editor:
 
@@ -745,7 +771,27 @@ WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity;
 
 -- A marker for each file that installs RLS, functions, triggers or Storage
 -- rules. Each checks what the file leaves in place, so it also turns false
--- when an older file was re-run over it (expect every column true):
+-- when an older file was re-run over it (expect every column true). Files 7,
+-- 12 and 13 also read true once file 14 has replaced their triggers. File 14
+-- reads false while a product has no category_id or a name-based category
+-- trigger is back (file 7 then usually reads false too); run file 14 again:
+WITH category_ids AS (
+  SELECT
+    (SELECT count(*) = 4 FROM pg_trigger
+      WHERE tgenabled = 'O' AND (
+        (tgrelid = 'public.products'::regclass
+          AND tgname IN ('products_category_resolve_id',
+            'products_sync_category_name'))
+        OR (tgrelid = 'public.categories'::regclass
+          AND tgname IN ('categories_cascade_name_to_products',
+            'categories_prevent_tenant_move'))))
+    AND NOT EXISTS (SELECT 1 FROM pg_trigger
+      WHERE tgname IN ('categories_sync_name_to_products',
+        'categories_prevent_delete_when_used',
+        'categories_use_spelling_on_products',
+        'products_use_category_spelling'))
+    AS installed
+)
 SELECT
   (SELECT relrowsecurity FROM pg_class
     WHERE oid = 'public.inventory_movements'::regclass) AS "20260626170000",
@@ -756,7 +802,8 @@ SELECT
   (SELECT count(*) = 2 FROM pg_trigger
     WHERE tgrelid = 'public.categories'::regclass
       AND tgname IN ('categories_sync_name_to_products',
-        'categories_prevent_delete_when_used')) AS "20260814235910",
+        'categories_prevent_delete_when_used'))
+    OR (SELECT installed FROM category_ids) AS "20260814235910",
   -- File 5's versions of these do not bound device timestamps.
   (SELECT bool_and(coalesce(
       pg_get_functiondef(to_regprocedure(f)) LIKE '%check_upload_timestamp%',
@@ -789,13 +836,16 @@ SELECT
   coalesce(pg_get_functiondef(
       to_regprocedure('public.sync_category_name_to_products()')
     ) LIKE '%greatest(clock_timestamp(), updated_at)%', false)
-    AS "20260930120000",
+    OR (SELECT installed FROM category_ids) AS "20260930120000",
   (SELECT count(*) = 2 FROM pg_trigger
     WHERE (tgrelid = 'public.products'::regclass
         AND tgname = 'products_use_category_spelling')
       OR (tgrelid = 'public.categories'::regclass
         AND tgname = 'categories_use_spelling_on_products'))
-    AS "20260930130000";
+    OR (SELECT installed FROM category_ids) AS "20260930130000",
+  (SELECT installed FROM category_ids)
+    AND NOT EXISTS (SELECT 1 FROM public.products WHERE category_id IS NULL)
+    AS "20261009120000";
 ```
 
 Confirm the publication with the queries under [PowerSync setup](#powersync-setup).

@@ -1,38 +1,37 @@
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 type MetricCardProps = {
   label: string;
   value: string;
-  /** A second figure under the value, such as the count behind an amount. */
-  detail?: string;
   tone?: "green";
   warning?: boolean;
+  /** Secondary line, e.g. a comparison with the previous period. */
+  detail?: ReactNode;
 };
 
 export function MetricCard({
   label,
   value,
-  detail,
   tone,
   warning,
+  detail,
 }: MetricCardProps) {
   return (
-    <article className="rounded-2xl bg-card p-3.5 ring-1 ring-foreground/10">
+    <article className="flex flex-col rounded-2xl bg-card p-3.5 ring-1 ring-foreground/10">
       <span className="text-sm text-muted-foreground">{label}</span>
       <strong
         className={cn(
-          "mt-1 block text-2xl font-bold tabular-nums",
+          "mt-1 block text-2xl font-bold",
           tone === "green" && "text-[var(--green)]"
         )}
       >
         {value}
       </strong>
-      {detail ? (
-        <small className="block text-xs text-muted-foreground">{detail}</small>
-      ) : null}
       {warning ? (
         <small className="text-xs text-[var(--amber)]">Incompleto</small>
       ) : null}
+      {detail}
     </article>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 
 // Small persistent indicator showing the device's sync state with PowerSync
-// Cloud. Pinned top-right inside the phone-frame so it's visible across
-// every screen without interfering with screen-specific layouts.
+// Cloud. Phones render it in each screen header; tablets and desktops render
+// it at the bottom of the side navigation.
 //
 // Collapsed by default (dot + label). Tap to expand pending/failure counts
 // or last successful sync timestamp. After the active tenant changed on
@@ -17,6 +17,7 @@ import { relativeTime } from "@/lib/dates";
 import { countLabel } from "@/lib/plural";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { useSyncStatus, type SyncState } from "@/lib/powersync/use-sync-status";
+import { cn } from "@/lib/utils";
 
 const stateLabels: Record<SyncState, string> = {
   initializing: "Conectando…",
@@ -28,7 +29,16 @@ const stateLabels: Record<SyncState, string> = {
   blocked: "Error de sincronización",
 };
 
-export function SyncStatusPill() {
+type SyncStatusPillProps = {
+  /** `header`: inline pill for phone headers. `nav`: stacked in the rail. */
+  variant?: "header" | "nav";
+  className?: string;
+};
+
+export function SyncStatusPill({
+  variant = "header",
+  className,
+}: SyncStatusPillProps) {
   const { state, lastSyncedAt, pendingCount, failureCount } = useSyncStatus();
   const [expanded, setExpanded] = useState(false);
   const [, setNow] = useState(0);
@@ -67,12 +77,19 @@ export function SyncStatusPill() {
   }
 
   const isExpanded = expanded && hasMeta;
+  const pillClassName = cn(
+    "sync-pill",
+    `sync-pill-${state}`,
+    variant === "nav" && "sync-pill-nav",
+    isExpanded && "sync-pill-expanded",
+    className
+  );
 
   if (state === "tenant-changed") {
     return (
       <button
         type="button"
-        className="sync-pill sync-pill-tenant-changed"
+        className={pillClassName}
         aria-label="Tu puesto activo cambió en otro dispositivo. Recargar la app"
         onClick={() => window.location.reload()}
       >
@@ -85,7 +102,7 @@ export function SyncStatusPill() {
 
   if (!hasMeta) {
     return (
-      <div className={`sync-pill sync-pill-${state}`} role="status">
+      <div className={pillClassName} role="status">
         <span className="sync-pill-dot" />
         <span className="sync-pill-label">{stateLabels[state]}</span>
       </div>
@@ -95,7 +112,7 @@ export function SyncStatusPill() {
   return (
     <button
       type="button"
-      className={`sync-pill sync-pill-${state}${isExpanded ? " sync-pill-expanded" : ""}`}
+      className={pillClassName}
       aria-expanded={isExpanded}
       aria-label={
         isExpanded && meta

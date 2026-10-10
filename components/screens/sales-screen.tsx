@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Info, ReceiptText } from "lucide-react";
-import { BrandMark } from "@/components/atoms/brand-mark";
-import { Header } from "@/components/atoms/header";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { SaleDetailScreen } from "@/components/screens/sale-detail-screen";
+import { Screen } from "@/components/templates/screen";
 import { DateRangePicker } from "@/components/molecules/date-range-picker";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { SaleActionDialog } from "@/components/molecules/sale-action-dialog";
@@ -20,12 +21,14 @@ import {
   DrawerTrigger,
 } from "@/components/ui/drawer";
 import { formatBs } from "@/lib/money";
+import { DESKTOP_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
 import { countLabel } from "@/lib/plural";
 import { computeMetrics, indexSales } from "@/lib/sales";
-import { useRestoredScroll, type ScrollMemory } from "@/lib/scroll-memory";
+import type { ScrollMemory } from "@/lib/scroll-memory";
 import type { Sale } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
 import { useSalesInRange, type SalesRangeState } from "@/lib/use-sales-range";
+import { cn } from "@/lib/utils";
 import {
   canRefundSale,
   canVoidSale,
@@ -42,12 +45,15 @@ type SalesScreenProps = {
   sales: Sale[];
   /**
    * The range, shared with Reports, and the list's page. GlitterPosApp keeps
-   * them, and `scrollMemory`, while a sale's detail is open, so going back
-   * returns to the same rows at the same position.
+   * them, and `scrollMemory`, while Sales is closed, so coming back returns
+   * to the same rows at the same position.
    */
   rangeState: SalesRangeState;
   scrollMemory: ScrollMemory;
+  /** Sale shown in the detail pane (desktop) or full screen (phones). */
+  selectedSaleId: string | null;
   openSale: (saleId: string) => void;
+  closeSale: () => void;
   voidSale: (saleId: string) => Promise<boolean>;
   refundSale: (saleId: string, reason?: string) => Promise<boolean>;
 };
@@ -106,11 +112,14 @@ export function SalesScreen({
   sales,
   rangeState,
   scrollMemory,
+  selectedSaleId,
   openSale,
+  closeSale,
   voidSale,
   refundSale,
 }: SalesScreenProps) {
-  const screenRef = useRestoredScroll<HTMLElement>(scrollMemory);
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  const listScrollRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useNow();
   const [action, setAction] = useState<{
     sale: Sale;
@@ -137,6 +146,18 @@ export function SalesScreen({
     [dayGroups, visibleCount]
   );
 
+  // Phones hide the list while a sale is open, which loses its scroll
+  // position, so it is saved on open and put back once the list shows again
+  // (or the next time Sales mounts), before it is painted.
+  const listHidden = selectedSaleId !== null && !isDesktop;
+  useLayoutEffect(() => {
+    if (listHidden) return;
+    const top = scrollMemory.take();
+    if (top != null && listScrollRef.current) {
+      listScrollRef.current.scrollTop = top;
+    }
+  }, [listHidden, scrollMemory]);
+
   // A refusal is thrown, so the dialog shows why instead of a generic
   // failure; the rows re-check the void window too.
   async function confirmAction(reason?: string) {
@@ -158,7 +179,9 @@ export function SalesScreen({
   }
 
   function handleOpenSale(saleId: string) {
-    scrollMemory.save(screenRef.current?.scrollTop ?? 0);
+    if (!isDesktop) {
+      scrollMemory.save(listScrollRef.current?.scrollTop ?? 0);
+    }
     openSale(saleId);
   }
 
@@ -172,119 +195,142 @@ export function SalesScreen({
   }
 
   return (
-    <section ref={screenRef} className="screen">
-      <Header
-        title="Ventas"
-        left={<BrandMark />}
-        right={
-          <span
-            className="grid size-10 place-items-center text-primary"
-            aria-hidden
-          >
-            <ReceiptText className="size-[23px]" />
-          </span>
-        }
-      />
-
-      <DateRangePicker
-        range={rangeState.range}
-        customStart={rangeState.customStart}
-        customEnd={rangeState.customEnd}
-        error={rangeState.range === "custom" ? rangeError : null}
-        setRange={rangeState.setRange}
-        setCustomStart={rangeState.setCustomStart}
-        setCustomEnd={rangeState.setCustomEnd}
-      />
-
-      <section className="mb-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-        <div className="mb-1 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">Ingresos</h2>
-          <IncomeInfoDrawer />
-        </div>
-        <div className="grid grid-cols-2 divide-x divide-border">
-          <div className="min-w-0 pr-3">
-            <span className="text-sm text-muted-foreground">Bruto</span>
-            <strong className="mt-1 block text-xl font-bold tabular-nums">
-              {formatBs(metrics.grossCents, true)}
-            </strong>
-          </div>
-          <div className="min-w-0 pl-3">
-            <span className="text-sm text-muted-foreground">Neto</span>
-            <strong className="mt-1 block text-xl font-bold text-primary tabular-nums">
-              {formatBs(metrics.netRevenueCents, true)}
-            </strong>
-          </div>
-        </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {countLabel(metrics.transactionCount, "venta", "ventas")}
-          {metrics.refundCount
-            ? ` · ${countLabel(metrics.refundCount, "reembolso", "reembolsos")}`
-            : ""}
-        </p>
-      </section>
-
-      {rangeError ? (
-        <EmptyState
-          icon={<ReceiptText size={46} />}
-          title="Revisá el rango"
-          body={rangeError}
+    // Desktop: list and detail side by side. Phones/tablets: the detail
+    // replaces the list (the list column hides while a sale is open).
+    <div className="flex h-full min-h-0">
+      <Screen
+        width="medium"
+        className={cn(
+          "min-w-0 flex-1 lg:w-[30rem] lg:flex-none lg:border-r lg:border-border xl:w-[34rem]",
+          selectedSaleId && "hidden lg:flex"
+        )}
+        header={<ScreenHeader title="Ventas" />}
+        scrollRef={listScrollRef}
+      >
+        <DateRangePicker
+          range={rangeState.range}
+          customStart={rangeState.customStart}
+          customEnd={rangeState.customEnd}
+          error={rangeState.range === "custom" ? rangeError : null}
+          setRange={rangeState.setRange}
+          setCustomStart={rangeState.setCustomStart}
+          setCustomEnd={rangeState.setCustomEnd}
         />
-      ) : groups.length ? (
-        <div className="grid gap-4">
-          {groups.map((group) => (
-            <section
-              key={group.key}
-              className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10"
-            >
-              <div className="mb-1 flex items-baseline justify-between gap-3 border-b border-border pb-2.5">
-                <h2 className="capitalize text-sm font-bold">{group.label}</h2>
-                <span className="text-sm font-semibold tabular-nums text-muted-foreground">
-                  {formatBs(group.netCents, true)}
-                </span>
-              </div>
-              {group.sales.map((sale) => (
-                <SaleRow
-                  key={sale.id}
-                  sale={sale}
-                  canVoid={canVoidSale(sale, saleIndex, now)}
-                  canRefund={canRefundSale(sale, saleIndex)}
-                  statusLabel={saleStatusLabel(sale, saleIndex)}
-                  openSale={handleOpenSale}
-                  requestVoid={requestVoid}
-                  requestRefund={(selectedSale) =>
-                    setAction({ sale: selectedSale, type: "refund" })
-                  }
-                />
-              ))}
-            </section>
-          ))}
 
-          {visibleCount < salesInRange.length ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="lg"
-              onClick={rangeState.showMoreSales}
-            >
-              Ver más ventas
-            </Button>
-          ) : null}
-        </div>
+        <section className="mb-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold tracking-tight">Ingresos</h2>
+            <IncomeInfoDrawer />
+          </div>
+          <div className="grid grid-cols-2 divide-x divide-border">
+            <div className="min-w-0 pr-3">
+              <span className="text-sm text-muted-foreground">Bruto</span>
+              <strong className="mt-1 block text-xl font-bold tabular-nums">
+                {formatBs(metrics.grossCents, true)}
+              </strong>
+            </div>
+            <div className="min-w-0 pl-3">
+              <span className="text-sm text-muted-foreground">Neto</span>
+              <strong className="mt-1 block text-xl font-bold text-primary tabular-nums">
+                {formatBs(metrics.netRevenueCents, true)}
+              </strong>
+            </div>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {countLabel(metrics.transactionCount, "venta", "ventas")}
+            {metrics.refundCount
+              ? ` · ${countLabel(metrics.refundCount, "reembolso", "reembolsos")}`
+              : ""}
+          </p>
+        </section>
+
+        {rangeError ? (
+          <EmptyState
+            icon={<ReceiptText size={46} />}
+            title="Revisá el rango"
+            body={rangeError}
+          />
+        ) : groups.length ? (
+          <div className="grid gap-4">
+            {groups.map((group) => (
+              <section
+                key={group.key}
+                className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10"
+              >
+                <div className="mb-1 flex items-baseline justify-between gap-3 border-b border-border pb-2.5">
+                  <h2 className="text-sm font-bold">{group.label}</h2>
+                  <span className="text-sm font-semibold tabular-nums text-muted-foreground">
+                    {formatBs(group.netCents, true)}
+                  </span>
+                </div>
+                {group.sales.map((sale) => (
+                  <SaleRow
+                    key={sale.id}
+                    sale={sale}
+                    canVoid={canVoidSale(sale, saleIndex, now)}
+                    canRefund={canRefundSale(sale, saleIndex)}
+                    statusLabel={saleStatusLabel(sale, saleIndex)}
+                    openSale={handleOpenSale}
+                    selected={sale.id === selectedSaleId}
+                    requestVoid={requestVoid}
+                    requestRefund={(selectedSale) =>
+                      setAction({ sale: selectedSale, type: "refund" })
+                    }
+                  />
+                ))}
+              </section>
+            ))}
+
+            {visibleCount < salesInRange.length ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                onClick={rangeState.showMoreSales}
+              >
+                Ver más ventas
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <EmptyState
+            icon={<ReceiptText size={46} />}
+            title="No hay ventas en este rango"
+            body="Probá con otras fechas o registrá una venta desde Vender."
+          />
+        )}
+
+        <SaleActionDialog
+          key={action ? `${action.sale.id}-${action.type}` : "none"}
+          sale={action?.sale ?? null}
+          action={action?.type ?? null}
+          onClose={() => setAction(null)}
+          onConfirm={confirmAction}
+        />
+      </Screen>
+
+      {selectedSaleId ? (
+        <SaleDetailScreen
+          key={selectedSaleId}
+          sale={saleIndex.byId.get(selectedSaleId) ?? null}
+          saleIndex={saleIndex}
+          back={closeSale}
+          voidSale={voidSale}
+          refundSale={refundSale}
+          variant={isDesktop ? "pane" : "screen"}
+          className="min-w-0 flex-1"
+        />
       ) : (
-        <EmptyState
-          icon={<ReceiptText size={46} />}
-          title="No hay ventas en este rango"
-          body="Probá con otras fechas o registrá una venta desde POS Venta."
-        />
+        <div className="hidden min-w-0 flex-1 place-content-center justify-items-center gap-3 p-8 text-center lg:grid">
+          <span className="grid size-16 place-items-center rounded-full bg-muted text-muted-foreground">
+            <ReceiptText className="size-7" aria-hidden />
+          </span>
+          <p className="font-semibold">Seleccioná una venta</p>
+          <p className="max-w-64 text-sm text-muted-foreground">
+            El detalle, los totales y las acciones aparecen acá.
+          </p>
+        </div>
       )}
-
-      <SaleActionDialog
-        key={action ? `${action.sale.id}-${action.type}` : "none"}
-        sale={action?.sale ?? null}
-        action={action?.type ?? null}
-        onClose={() => setAction(null)}
-        onConfirm={confirmAction}
-      />
-    </section>
+    </div>
   );
 }

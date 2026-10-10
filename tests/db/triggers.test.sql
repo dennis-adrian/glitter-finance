@@ -128,10 +128,11 @@ SELECT tests.is(
   'Mismo momento',
   'an edit with the same time as the stored one applies'
 );
-UPDATE public.products SET category = 'Mantenimiento' WHERE id = :'product_a';
+-- Not category: products_sync_category_name derives it from category_id.
+UPDATE public.products SET low_stock_threshold = 3 WHERE id = :'product_a';
 SELECT tests.is(
-  (SELECT category FROM public.products WHERE id = :'product_a'),
-  'Mantenimiento',
+  (SELECT low_stock_threshold FROM public.products WHERE id = :'product_a'),
+  3,
   'a write that leaves updated_at unchanged applies'
 );
 UPDATE public.products SET cost_cents = 100, updated_at = now() - interval '1 minute'

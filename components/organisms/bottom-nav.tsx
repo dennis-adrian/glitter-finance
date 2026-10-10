@@ -1,59 +1,44 @@
-import { Ellipsis, LayoutGrid, ReceiptText, ShoppingCart } from "lucide-react";
-import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import type { View } from "@/lib/views";
+import type { PrimaryView } from "@/lib/views";
+import { navItems } from "@/components/organisms/nav-items";
 
 type BottomNavProps = {
-  view: View;
-  setView: (view: View) => void;
+  active: PrimaryView;
+  onNavigate: (view: PrimaryView) => void;
 };
 
-export function BottomNav({ view, setView }: BottomNavProps) {
-  const items: { view: View; label: string; icon: ReactNode }[] = [
-    {
-      view: "sell",
-      label: "POS Venta",
-      icon: <ShoppingCart className="size-5" />,
-    },
-    {
-      view: "sales",
-      label: "Ventas",
-      icon: <ReceiptText className="size-5" />,
-    },
-    {
-      view: "products",
-      label: "Catálogo",
-      icon: <LayoutGrid className="size-5" />,
-    },
-    {
-      view: "more",
-      label: "Más",
-      icon: <Ellipsis className="size-5" />,
-    },
-  ];
-
+/** Phone navigation (< md). Tablets and desktops use SideNav instead. */
+export function BottomNav({ active, onNavigate }: BottomNavProps) {
   return (
     <nav
-      className="absolute inset-x-0 bottom-0 z-30 grid min-h-[66px] grid-cols-4 border-t border-border bg-card pt-2.5 pb-[max(8px,env(safe-area-inset-bottom))] shadow-[0_-8px_22px_rgba(22,16,35,0.04)]"
+      // Hidden while typing so the keyboard leaves room for the content.
+      className="grid shrink-0 grid-cols-5 border-t border-border bg-card px-1 pt-1.5 pb-[max(6px,env(safe-area-inset-bottom))] in-data-[keyboard=open]:hidden md:hidden"
       aria-label="Navegación principal"
     >
-      {items.map((item) => {
-        const active =
-          view === item.view ||
-          (item.view === "more" && ["reports", "settings"].includes(view));
+      {navItems.map(({ view, label, icon: Icon }) => {
+        const isActive = view === active;
         return (
           <button
-            key={item.view}
+            key={view}
             type="button"
-            onClick={() => setView(item.view)}
+            onClick={() => onNavigate(view)}
             className={cn(
-              "flex min-w-0 flex-col items-center justify-start gap-1 px-1 text-[11px] leading-none transition-colors",
-              active ? "font-bold text-primary" : "text-muted-foreground"
+              "group flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-xl text-xs leading-none outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+              isActive
+                ? "font-bold text-primary"
+                : "font-semibold text-muted-foreground"
             )}
-            aria-current={active ? "page" : undefined}
+            aria-current={isActive ? "page" : undefined}
           >
-            {item.icon}
-            <span>{item.label}</span>
+            <span
+              className={cn(
+                "grid h-7 w-12 place-items-center rounded-full transition-colors",
+                isActive ? "bg-primary/12" : "group-hover:bg-muted"
+              )}
+            >
+              <Icon className="size-5" aria-hidden />
+            </span>
+            <span className="max-w-full truncate">{label}</span>
           </button>
         );
       })}

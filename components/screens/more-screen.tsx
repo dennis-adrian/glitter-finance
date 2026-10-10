@@ -1,16 +1,10 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import {
-  BarChart3,
-  Check,
-  ChevronRight,
-  Loader2,
-  LogOut,
-  Settings,
-} from "lucide-react";
-import { BrandMark } from "@/components/atoms/brand-mark";
+import { Check, ChevronRight, Loader2, LogOut, Settings } from "lucide-react";
 import { ReloadAppButton } from "@/components/molecules/reload-app-button";
+import { ScreenHeader } from "@/components/molecules/screen-header";
+import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,7 +33,7 @@ function describeBlocker(
 ) {
   switch (blocker) {
     case "sync-failures":
-      return "Hay operaciones que no llegaron a la nube. Abrí Diagnósticos desde Ajustes antes de cambiar de puesto o cerrar sesión.";
+      return "Hay operaciones que no llegaron a la nube. Abrí Diagnósticos desde Ajustes, copiá el diagnóstico y resolvelas antes de cambiar de puesto o cerrar sesión.";
     case "tenant-changed":
       return tenantChangedBlockerMessage("cambiar de puesto o cerrar sesión");
     case "pending-uploads":
@@ -55,7 +49,6 @@ function describeBlocker(
 
 type MoreScreenProps = {
   tenantContext: UserTenantContext;
-  openReports: () => void;
   openSettings: () => void;
 };
 
@@ -113,11 +106,7 @@ function MenuItem({
   );
 }
 
-export function MoreScreen({
-  tenantContext,
-  openReports,
-  openSettings,
-}: MoreScreenProps) {
+export function MoreScreen({ tenantContext, openSettings }: MoreScreenProps) {
   const identity =
     tenantContext.user.displayName || tenantContext.user.email || null;
   const initials = initialsOf(identity);
@@ -137,6 +126,7 @@ export function MoreScreen({
   const canSwitchTenant = gate.canChange;
   const [showCreatePrompt, setShowCreatePrompt] = useState(false);
   const [newTenantName, setNewTenantName] = useState("");
+  const signOutFailed = actionError?.action === "sign-out";
 
   const overlayLabel = creatingTenant
     ? "Creando tu puesto…"
@@ -145,7 +135,7 @@ export function MoreScreen({
       : null;
 
   return (
-    <section className="screen more-screen">
+    <Screen width="narrow" header={<ScreenHeader title="Más" />}>
       {overlayLabel ? (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-background/80 backdrop-blur-sm"
@@ -159,20 +149,12 @@ export function MoreScreen({
         </div>
       ) : null}
 
-      <header className="mb-4 flex h-12 items-center gap-2.5">
-        <BrandMark size="small" decorative />
-        <h1 className="font-heading text-[22px] font-extrabold">
-          Billetera Ferial
-        </h1>
-      </header>
-
       <section className="overflow-hidden rounded-3xl border border-primary/10 bg-card shadow-[0_4px_12px_rgba(45,27,20,0.06)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]">
-        <button
-          type="button"
-          onClick={openSettings}
-          className="flex w-full items-center gap-3.5 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
-        >
-          <span className="grid size-14 shrink-0 place-items-center rounded-full bg-primary text-xl font-bold text-primary-foreground">
+        <div className="flex w-full items-center gap-3.5 p-4">
+          <span
+            className="grid size-14 shrink-0 place-items-center rounded-full bg-primary text-xl font-bold text-primary-foreground"
+            aria-hidden
+          >
             {initials}
           </span>
           <span className="min-w-0 flex-1">
@@ -183,8 +165,7 @@ export function MoreScreen({
               {tenantContext.user.email ?? "Usuario autenticado"}
             </small>
           </span>
-          <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
-        </button>
+        </div>
 
         <div className="mx-4 border-t border-border pt-3 pb-4">
           <p className="mb-2 text-xs font-semibold text-muted-foreground">
@@ -300,15 +281,9 @@ export function MoreScreen({
 
       <section className="mt-5 overflow-hidden rounded-3xl border border-primary/10 bg-card shadow-[0_4px_12px_rgba(45,27,20,0.06)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]">
         <MenuItem
-          icon={<BarChart3 className="size-6" />}
-          title="Reportes"
-          description="Revisá tus ventas y estadísticas"
-          onClick={openReports}
-        />
-        <MenuItem
           icon={<Settings className="size-6" />}
           title="Ajustes"
-          description="Configurá tu cuenta y preferencias"
+          description="Equipo, apariencia y diagnósticos"
           onClick={openSettings}
         />
         <MenuItem
@@ -319,13 +294,19 @@ export function MoreScreen({
               <LogOut className="size-6" />
             )
           }
-          title={signingOut ? "Cerrando sesión…" : "Cerrar sesión"}
+          title={
+            signingOut
+              ? "Cerrando sesión…"
+              : signOutFailed
+                ? "Reintentar limpieza y cerrar sesión"
+                : "Cerrar sesión"
+          }
           description="Salí de tu cuenta"
           onClick={() => void signOut()}
           danger
           disabled={signingOut || !canSwitchTenant}
         />
       </section>
-    </section>
+    </Screen>
   );
 }

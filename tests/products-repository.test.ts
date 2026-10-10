@@ -26,9 +26,15 @@ type Write = {
 const writes: Write[] = [];
 let transactions = 0;
 let failMovementInsert = false;
+let productWriteError: unknown = null;
+
+const PRINTS_ID = "72000000-0000-4000-8000-000000000001";
+const STICKERS_ID = "72000000-0000-4000-8000-000000000002";
+const RETIRED_ID = "72000000-0000-4000-8000-000000000003";
+
 // The stored product's category, and the tenant's categories.
-let storedCategory = "Prints";
-let tenantCategories = ["Prints"];
+let storedCategoryId: string | null = PRINTS_ID;
+let tenantCategories = [{ id: PRINTS_ID, name: "Prints" }];
 
 function tableName(table: unknown): Write["table"] {
   return (table as Record<symbol, string>)[Symbol.for("drizzle:Name")] ===
@@ -58,38 +64,43 @@ function returningRow(table: Write["table"], values: Record<string, unknown>) {
   // resolve: the row keeps its stored path.
   const { imagePath, ...columns } = values;
   return {
-    returning: async () => [
-      {
-        id: "80000000-0000-4000-8000-000000000001",
-        name: "Print",
-        priceCents: 4000,
-        costCents: null,
-        category: "Prints",
-        imagePath: "placeholder:violet",
-        tracksInventory: false,
-        lowStockThreshold: null,
-        archivedAt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        ...columns,
-        ...(typeof imagePath === "string" ? { imagePath } : {}),
-      },
-    ],
+    returning: async () => {
+      if (productWriteError) {
+        throw productWriteError;
+      }
+      return [
+        {
+          id: "80000000-0000-4000-8000-000000000001",
+          name: "Print",
+          priceCents: 4000,
+          costCents: null,
+          category: "Prints",
+          imagePath: "placeholder:violet",
+          tracksInventory: false,
+          lowStockThreshold: null,
+          archivedAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          ...columns,
+          ...(typeof imagePath === "string" ? { imagePath } : {}),
+        },
+      ];
+    },
   };
 }
 
 function fakeDatabase(log: Write[]) {
   return {
-    // The stored product's category, and the tenant's category lookup
-    // (resolveCategoryNameForTenant), which ignores case.
+    // The stored product's category, and the tenant's category lookup by id
+    // (getCategoryForTenant): the fake finds the first of the tenant's.
     select: () => ({
       from: (table: unknown) => ({
         where: () => ({
           limit: async () =>
             (table as Record<symbol, string>)[Symbol.for("drizzle:Name")] ===
             "categories"
-              ? tenantCategories.slice(0, 1).map((name) => ({ name }))
-              : [{ category: storedCategory }],
+              ? tenantCategories.slice(0, 1)
+              : [{ categoryId: storedCategoryId }],
         }),
       }),
     }),
@@ -125,8 +136,9 @@ function reset() {
   writes.length = 0;
   transactions = 0;
   failMovementInsert = false;
-  storedCategory = "Prints";
-  tenantCategories = ["Prints"];
+  productWriteError = null;
+  storedCategoryId = PRINTS_ID;
+  tenantCategories = [{ id: PRINTS_ID, name: "Prints" }];
 }
 
 async function repository() {
@@ -152,7 +164,7 @@ test("a new product is stamped by the app server's clock, like its updates", asy
     name: "Print",
     priceCents: 4000,
     costCents: null,
-    category: "Prints",
+    categoryId: PRINTS_ID,
   });
   assert.equal(initialMovement, null);
   await updateProductImageForTenant(
@@ -164,6 +176,9 @@ test("a new product is stamped by the app server's clock, like its updates", asy
 
   const [insert, update] = writes;
   assert.equal(insert?.kind, "insert");
+  // Stored by id, with the category's name next to it.
+  assert.equal(insert.values.categoryId, PRINTS_ID);
+  assert.equal(insert.values.category, "Prints");
   assert.ok(insert.values.createdAt instanceof Date);
   assert.equal(insert.values.updatedAt, insert.values.createdAt);
   const createdAt = (insert.values.createdAt as Date).getTime();
@@ -180,7 +195,7 @@ const trackedProduct = {
   name: "Print",
   priceCents: 4000,
   costCents: null,
-  category: "Prints",
+  categoryId: PRINTS_ID,
   tracksInventory: true,
 };
 
@@ -287,16 +302,36 @@ test("an invalid count is refused before anything is written", async () => {
 
 test("an edit keeps a category the tenant no longer has", async () => {
   const { updateProductForTenant } = await repository();
+
+  // The same category, or none picked (null keeps it).
+  for (const categoryId of [RETIRED_ID, null]) {
+    reset();
+    storedCategoryId = RETIRED_ID;
+    tenantCategories = [];
+
+    await updateProductForTenant(TENANT_ID, PRODUCT_ID, {
+      ...trackedProduct,
+      categoryId,
+    });
+
+    // Neither column is written, so neither gets a newer edit time.
+    assert.equal("categoryId" in (writes[0]?.values ?? {}), false);
+    assert.equal("category" in (writes[0]?.values ?? {}), false);
+  }
+});
+
+test("an edit to another category writes its id and name", async () => {
+  const { updateProductForTenant } = await repository();
   reset();
-  storedCategory = "Retirada";
-  tenantCategories = [];
+  tenantCategories = [{ id: STICKERS_ID, name: "Stickers" }];
 
   await updateProductForTenant(TENANT_ID, PRODUCT_ID, {
     ...trackedProduct,
-    category: "Retirada",
+    categoryId: STICKERS_ID,
   });
 
-  assert.equal(writes[0]?.values.category, "Retirada");
+  assert.equal(writes[0]?.values.categoryId, STICKERS_ID);
+  assert.equal(writes[0]?.values.category, "Stickers");
 });
 
 test("an edit cannot move a product to a category the tenant does not have", async () => {
@@ -307,9 +342,52 @@ test("an edit cannot move a product to a category the tenant does not have", asy
   await assert.rejects(
     updateProductForTenant(TENANT_ID, PRODUCT_ID, {
       ...trackedProduct,
-      category: "Otra",
+      categoryId: STICKERS_ID,
     }),
     { name: "UserFacingError", message: "Elegí una categoría válida." }
   );
   assert.deepEqual(writes, []);
+});
+
+test("a new product needs one of the tenant's categories", async () => {
+  const { createProductForTenant } = await repository();
+  reset();
+  tenantCategories = [];
+
+  for (const categoryId of [STICKERS_ID, null]) {
+    await assert.rejects(
+      createProductForTenant(TENANT_ID, { ...trackedProduct, categoryId }),
+      { name: "UserFacingError", message: "Elegí una categoría válida." }
+    );
+  }
+  assert.deepEqual(writes, []);
+});
+
+test("a category deleted during the save is refused as invalid", async () => {
+  const { createProductForTenant } = await repository();
+  reset();
+  // As Drizzle wraps the postgres.js error.
+  productWriteError = {
+    message: "Failed query",
+    cause: {
+      code: "23503",
+      constraint_name:
+        "products_category_id_tenant_id_categories_id_tenant_id_fk",
+    },
+  };
+
+  await assert.rejects(createProductForTenant(TENANT_ID, trackedProduct), {
+    name: "UserFacingError",
+    message: "Elegí una categoría válida.",
+  });
+
+  // Any other foreign key is not about the category.
+  const otherError = {
+    cause: { code: "23503", constraint_name: "products_tenant_id_fk" },
+  };
+  productWriteError = otherError;
+  await assert.rejects(
+    createProductForTenant(TENANT_ID, trackedProduct),
+    (error) => error === otherError
+  );
 });

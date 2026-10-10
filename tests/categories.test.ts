@@ -4,6 +4,7 @@ import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
 import { UserFacingError } from "@/lib/action-result";
 import { sortCategories } from "@/lib/categories";
 import {
+  categoryNameKey,
   categoryNamesMatch,
   normalizeCategoryName,
   validateCategoryName,
@@ -13,7 +14,7 @@ import {
   createCategoryLocal,
   deleteCategoryLocal,
   renameCategoryLocal,
-  resolveCategoryNameLocal,
+  resolveCategoryLocal,
 } from "@/lib/powersync/write-categories";
 import { updateProductLocal } from "@/lib/powersync/write-products";
 
@@ -29,6 +30,7 @@ test("normalizes category names and compares them without case", () => {
   assert.equal(normalizeCategoryName("  Arte   impreso  "), "Arte impreso");
   assert.equal(validateCategoryName("  Pines "), "Pines");
   assert.equal(categoryNamesMatch("STICKERS", "stickers"), true);
+  assert.equal(categoryNameKey("  Ñandú   Arte "), "ñandú arte");
   assert.equal(validateCategoryName("😀".repeat(40)).length, 80);
 });
 
@@ -68,7 +70,7 @@ function transactionDb(transaction: Partial<Transaction>) {
 test("creates a tenant-owned category in the local PowerSync store", async () => {
   const writes: { sql: string; parameters: unknown[] }[] = [];
   const db = transactionDb({
-    getOptional: async () => null,
+    getAll: async () => [],
     execute: async (sql: string, parameters?: unknown[]) => {
       writes.push({ sql, parameters: parameters ?? [] });
       return {} as never;
@@ -88,54 +90,62 @@ test("creates a tenant-owned category in the local PowerSync store", async () =>
 });
 
 test("a category that already exists on the device is not created twice", async () => {
-  let writes = 0;
-  const db = transactionDb({
-    getOptional: async () => ({ id: "category-1" }) as never,
-    execute: async () => {
-      writes += 1;
-      return {} as never;
-    },
-  });
+  for (const [stored, name] of [
+    ["Stickers", "stickers"],
+    // SQLite's lower() would miss these: names are compared in JavaScript.
+    ["ñandú", " ÑANDÚ "],
+  ]) {
+    let writes = 0;
+    const db = transactionDb({
+      getAll: async () => [{ id: "category-1", name: stored }] as never,
+      execute: async () => {
+        writes += 1;
+        return {} as never;
+      },
+    });
 
-  await assert.rejects(
-    createCategoryLocal(db, { tenantId: "tenant-1", name: "stickers" }),
-    /Ya existe una categoría/
-  );
-  assert.equal(writes, 0);
+    await assert.rejects(
+      createCategoryLocal(db, { tenantId: "tenant-1", name }),
+      /Ya existe una categoría/
+    );
+    assert.equal(writes, 0);
+  }
 });
 
-test("a product takes the tenant's spelling of its category", async () => {
+test("a product's category is looked up by id among the tenant's", async () => {
   const lookups: unknown[][] = [];
   const found = {
     getOptional: async (_sql: string, parameters?: unknown[]) => {
       lookups.push(parameters ?? []);
-      return { name: "Stickers" } as never;
+      return { id: "category-1", name: "Stickers" } as never;
     },
   };
 
-  assert.equal(
-    await resolveCategoryNameLocal(found, {
+  assert.deepEqual(
+    await resolveCategoryLocal(found, {
       tenantId: "tenant-1",
-      name: "  stickers ",
+      categoryId: "category-1",
       hasSynced: true,
     }),
-    "Stickers"
+    { id: "category-1", name: "Stickers" }
   );
-  assert.deepEqual(lookups, [["tenant-1", "stickers"]]);
-  await assert.rejects(
-    resolveCategoryNameLocal(
-      { getOptional: async () => null },
-      { tenantId: "tenant-1", name: "Otra", hasSynced: true }
-    ),
-    /Elegí una categoría válida/
-  );
+  assert.deepEqual(lookups, [["category-1", "tenant-1"]]);
+  for (const categoryId of ["category-2", null]) {
+    await assert.rejects(
+      resolveCategoryLocal(
+        { getOptional: async () => null },
+        { tenantId: "tenant-1", categoryId, hasSynced: true }
+      ),
+      /Elegí una categoría válida/
+    );
+  }
 });
 
 test("before the first sync a missing category may still be on its way", async () => {
   await assert.rejects(
-    resolveCategoryNameLocal(
+    resolveCategoryLocal(
       { getOptional: async () => null },
-      { tenantId: "tenant-1", name: "Stickers", hasSynced: false }
+      { tenantId: "tenant-1", categoryId: "category-1", hasSynced: false }
     ),
     (error: unknown) =>
       error instanceof UserFacingError &&
@@ -143,8 +153,11 @@ test("before the first sync a missing category may still be on its way", async (
   );
 });
 
-function productEditDb(input: { storedCategory: string; synced: boolean }) {
-  const updates: unknown[][] = [];
+const storedCategoryId = "11111111-1111-4111-8111-111111111111";
+const otherCategoryId = "22222222-2222-4222-8222-222222222222";
+
+function productEditDb(input: { synced: boolean }) {
+  const updates: { sql: string; parameters: unknown[] }[] = [];
   const db = {
     currentStatus: { hasSynced: input.synced },
     writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
@@ -152,10 +165,10 @@ function productEditDb(input: { storedCategory: string; synced: boolean }) {
         // The product is on the device; the tenant has no categories.
         getOptional: async (sql: string) =>
           /FROM products/.test(sql)
-            ? { id: "product-1", category: input.storedCategory }
+            ? { id: "product-1", category_id: storedCategoryId }
             : null,
-        execute: async (_sql: string, parameters?: unknown[]) => {
-          updates.push(parameters ?? []);
+        execute: async (sql: string, parameters?: unknown[]) => {
+          updates.push({ sql, parameters: parameters ?? [] });
           return {} as never;
         },
       } as unknown as Transaction),
@@ -171,33 +184,30 @@ const editedProduct = {
 };
 
 test("a product edit keeps a category the tenant no longer has", async () => {
-  const { db, updates } = productEditDb({
-    storedCategory: "Retirada",
-    synced: true,
-  });
+  // The same category, or none picked (null keeps it).
+  for (const categoryId of [storedCategoryId, null]) {
+    const { db, updates } = productEditDb({ synced: true });
 
-  await updateProductLocal(db, {
-    tenantId: "tenant-1",
-    productId: "product-1",
-    product: { ...editedProduct, category: "Retirada" },
-  });
+    await updateProductLocal(db, {
+      tenantId: "tenant-1",
+      productId: "product-1",
+      product: { ...editedProduct, categoryId },
+    });
 
-  assert.equal(updates.length, 1);
-  assert.equal(updates[0][0], "Retirada");
+    assert.equal(updates.length, 1);
+    assert.doesNotMatch(updates[0].sql, /category/);
+  }
 });
 
 test("a product edit cannot move it to a category the tenant does not have", async () => {
   for (const synced of [true, false]) {
-    const { db, updates } = productEditDb({
-      storedCategory: "Stickers",
-      synced,
-    });
+    const { db, updates } = productEditDb({ synced });
 
     await assert.rejects(
       updateProductLocal(db, {
         tenantId: "tenant-1",
         productId: "product-1",
-        product: { ...editedProduct, category: "Otra" },
+        product: { ...editedProduct, categoryId: otherCategoryId },
       }),
       synced ? /Elegí una categoría válida/ : /todavía se están sincronizando/
     );
@@ -205,14 +215,12 @@ test("a product edit cannot move it to a category the tenant does not have", asy
   }
 });
 
-test("renaming a category updates the category and its products together", async () => {
+test("renaming a category only updates the category row", async () => {
   const writes: string[] = [];
-  let reads = 0;
   const db = transactionDb({
-    getOptional: async () => {
-      reads += 1;
-      return (reads === 1 ? categoryRow : null) as never;
-    },
+    getOptional: async () => categoryRow as never,
+    // The duplicate-name check: the category itself is excluded.
+    getAll: async () => [categoryRow] as never,
     execute: async (sql: string) => {
       writes.push(sql);
       return {} as never;
@@ -226,33 +234,60 @@ test("renaming a category updates the category and its products together", async
   });
 
   assert.equal(renamed.name, "Pegatinas");
-  assert.equal(writes.length, 2);
+  // Products follow by id: Postgres renames them, without a newer edit time.
+  assert.equal(writes.length, 1);
   assert.match(writes[0], /UPDATE categories/);
-  assert.match(writes[1], /UPDATE products/);
 });
 
-test("does not delete a category used by any product", async () => {
-  let reads = 0;
-  let writes = 0;
+function deleteDb(
+  products: { category_id: string | null; category: string }[]
+) {
+  const state = { writes: 0, productQuery: [] as unknown[] };
   const db = transactionDb({
-    getOptional: async () => {
-      reads += 1;
-      return (reads === 1 ? categoryRow : { id: "archived-product" }) as never;
+    getOptional: async () => categoryRow as never,
+    getAll: async (_sql: string, parameters?: unknown[]) => {
+      state.productQuery = parameters ?? [];
+      return products as never;
     },
     execute: async () => {
-      writes += 1;
+      state.writes += 1;
       return {} as never;
     },
   });
+  return { db, state };
+}
 
-  await assert.rejects(
-    deleteCategoryLocal(db, {
-      tenantId: "tenant-1",
-      categoryId: "category-1",
-    }),
-    /Mové los productos/
-  );
-  assert.equal(writes, 0);
+test("does not delete a category used by any product", async () => {
+  const cases = [
+    // Linked by id (archived products count too).
+    [{ category_id: "category-1", category: "Stickers" }],
+    // Not linked yet: matched by name.
+    [{ category_id: null, category: " STICKERS " }],
+  ];
+
+  for (const products of cases) {
+    const { db, state } = deleteDb(products);
+    await assert.rejects(
+      deleteCategoryLocal(db, {
+        tenantId: "tenant-1",
+        categoryId: "category-1",
+      }),
+      /Mové los productos/
+    );
+    assert.deepEqual(state.productQuery, ["tenant-1", "category-1"]);
+    assert.equal(state.writes, 0);
+  }
+});
+
+test("deletes a category no product uses", async () => {
+  const { db, state } = deleteDb([{ category_id: null, category: "Prints" }]);
+
+  await deleteCategoryLocal(db, {
+    tenantId: "tenant-1",
+    categoryId: "category-1",
+  });
+
+  assert.equal(state.writes, 1);
 });
 
 test("renaming or deleting a category missing from the device says whether it is still syncing", async () => {

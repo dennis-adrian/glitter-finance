@@ -19,6 +19,8 @@ import {
 import { createCategoryLocal } from "@/lib/powersync/write-categories";
 import type { Product } from "@/lib/types";
 
+const categoryId = "11111111-1111-4111-8111-111111111111";
+
 const cancelled = () => {
   throw new Error("tenant work cancelled");
 };
@@ -30,7 +32,10 @@ test("local writers check cancellation before committing SQLite mutations", asyn
       callback({
         // The product's category, and no duplicate of a new one.
         getOptional: async (sql: string) =>
-          /SELECT name FROM categories/.test(sql) ? { name: "General" } : null,
+          /FROM categories/.test(sql)
+            ? { id: categoryId, name: "General" }
+            : null,
+        getAll: async () => [],
         execute: async () => {
           transactionWrites += 1;
         },
@@ -44,7 +49,7 @@ test("local writers check cancellation before committing SQLite mutations", asyn
         name: "Producto",
         priceCents: 100,
         costCents: null,
-        category: "General",
+        categoryId,
         imageTone: "violet",
         tracksInventory: true,
       },
@@ -160,7 +165,7 @@ test("product edits refuse a product that is not on the device yet", async () =>
     name: "Producto",
     priceCents: 100,
     costCents: null,
-    category: "General",
+    categoryId,
     imageTone: "violet",
     tracksInventory: false,
   };
