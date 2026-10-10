@@ -5,21 +5,26 @@
 // every screen without interfering with screen-specific layouts.
 //
 // Collapsed by default (dot + label). Tap to expand pending/failure counts
-// or last successful sync timestamp.
+// or last successful sync timestamp. After the active tenant changed on
+// another device, a tap reloads the app instead: that is the only way this
+// device syncs again.
 //
 // PRD §9: "A small persistent indicator shows pending mutation count and
 // last successful sync timestamp."
 
 import { useEffect, useState } from "react";
 import { relativeTime } from "@/lib/dates";
+import { countLabel } from "@/lib/plural";
 import { isPowerSyncConfigured } from "@/lib/env";
-import { useSyncStatus } from "@/lib/powersync/use-sync-status";
+import { useSyncStatus, type SyncState } from "@/lib/powersync/use-sync-status";
 
-const stateLabels: Record<ReturnType<typeof useSyncStatus>["state"], string> = {
+const stateLabels: Record<SyncState, string> = {
   initializing: "Conectando…",
   offline: "Sin conexión",
   syncing: "Sincronizando…",
   synced: "Sincronizado",
+  held: "Hora adelantada",
+  "tenant-changed": "Puesto cambiado",
   blocked: "Error de sincronización",
 };
 
@@ -54,14 +59,29 @@ export function SyncStatusPill() {
 
   let meta: string | null = null;
   if (showFailures) {
-    meta = `${failureCount} fallida${failureCount === 1 ? "" : "s"}`;
+    meta = countLabel(failureCount, "fallida", "fallidas");
   } else if (showPending) {
-    meta = `${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}`;
+    meta = countLabel(pendingCount, "pendiente", "pendientes");
   } else if (showTimestamp) {
     meta = relativeTime(lastSyncedAt.toISOString()).toLowerCase();
   }
 
   const isExpanded = expanded && hasMeta;
+
+  if (state === "tenant-changed") {
+    return (
+      <button
+        type="button"
+        className="sync-pill sync-pill-tenant-changed"
+        aria-label="Tu puesto activo cambió en otro dispositivo. Recargar la app"
+        onClick={() => window.location.reload()}
+      >
+        <span className="sync-pill-dot" />
+        <span className="sync-pill-label">{stateLabels[state]}</span>
+        <span className="sync-pill-meta">· Recargar</span>
+      </button>
+    );
+  }
 
   if (!hasMeta) {
     return (

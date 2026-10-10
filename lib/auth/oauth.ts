@@ -1,3 +1,8 @@
+import type {
+  LoginErrorCode,
+  LoginMode,
+  LoginStatusCode,
+} from "@/lib/auth/login-messages";
 import { sanitizeRedirectPath } from "@/lib/auth/redirect";
 import { isAbsoluteHttpUrl } from "@/lib/invitations/validation";
 
@@ -47,11 +52,22 @@ export function resolveAuthRedirectPath(
     : "/";
 }
 
+/**
+ * A /login URL that shows a known message. It takes codes, not text: the
+ * page maps them to its own wording (lib/auth/login-messages.ts).
+ */
 export function buildLoginRedirectPath(
-  params: { error?: string; message?: string },
+  params: {
+    error?: LoginErrorCode;
+    message?: LoginStatusCode;
+    mode?: LoginMode;
+  },
   next: string
 ): string {
   const search = new URLSearchParams();
+  if (params.mode) {
+    search.set("mode", params.mode);
+  }
   if (params.error) {
     search.set("error", params.error);
   }

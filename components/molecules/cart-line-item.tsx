@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Edit3, Minus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clampDiscount, formatBs } from "@/lib/money";
+import { clampDiscount, formatBs, parseDiscountInput } from "@/lib/money";
+import { priceLine } from "@/lib/sales/pricing";
 import type { Product } from "@/lib/types";
+import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import { ProductArt } from "@/components/atoms/product-art";
-import { parseCustomDiscount } from "@/components/screens/payment-screen.helpers";
 
 type CartLineItemProps = {
   productId: string;
@@ -39,6 +40,8 @@ export function CartLineItem({
     lineDiscountCents ? String(lineDiscountCents / 100) : ""
   );
   const [reason, setReason] = useState(lineDiscountReason ?? "");
+  const [discountError, setDiscountError] = useState<string | null>(null);
+  const discountErrorId = useId();
 
   useEffect(() => {
     if (discountOpen) {
@@ -49,19 +52,24 @@ export function CartLineItem({
     }
   }, [lineDiscountCents, lineDiscountReason, discountOpen]);
 
-  const lineSubtotal = product.priceCents * quantity;
-  const discount = clampDiscount(lineDiscountCents, lineSubtotal);
-  const lineTotal = Math.max(0, lineSubtotal - discount);
+  const {
+    grossCents: lineSubtotal,
+    discountCents: discount,
+    totalCents: lineTotal,
+  } = priceLine({
+    priceCents: product.priceCents,
+    quantity,
+    lineDiscountCents,
+  });
 
   function applyDiscount() {
-    setLineDiscount(
-      productId,
-      clampDiscount(
-        parseCustomDiscount(discountInput, lineSubtotal),
-        lineSubtotal
-      ),
-      reason
-    );
+    const value = parseDiscountInput(discountInput, lineSubtotal);
+    if (value == null) {
+      setDiscountError("Escribí un monto (5 o 5,50) o un porcentaje (10%).");
+      return;
+    }
+    setDiscountError(null);
+    setLineDiscount(productId, clampDiscount(value, lineSubtotal), reason);
     setDiscountOpen(false);
   }
 
@@ -94,7 +102,7 @@ export function CartLineItem({
               size="icon-sm"
               className="rounded-full"
               onClick={() => decrementCart(productId)}
-              aria-label="Restar"
+              aria-label={`Restar ${product.name}`}
             >
               <Minus />
             </Button>
@@ -107,7 +115,7 @@ export function CartLineItem({
               size="icon-sm"
               className="rounded-full"
               onClick={() => addToCart(productId)}
-              aria-label="Sumar"
+              aria-label={`Sumar ${product.name}`}
             >
               <Plus />
             </Button>
@@ -119,7 +127,10 @@ export function CartLineItem({
           type="button"
           variant="ghost"
           size="icon-sm"
-          onClick={() => setDiscountOpen((open) => !open)}
+          onClick={() => {
+            setDiscountError(null);
+            setDiscountOpen((open) => !open);
+          }}
           aria-label={`Editar descuento de ${product.name}`}
         >
           <Edit3 />
@@ -139,10 +150,15 @@ export function CartLineItem({
         <div className="mt-1 grid grid-cols-[1fr_1fr_auto_auto] gap-2">
           <Input
             value={discountInput}
-            onChange={(event) => setDiscountInput(event.target.value)}
+            onChange={(event) => {
+              setDiscountInput(event.target.value);
+              setDiscountError(null);
+            }}
             inputMode="decimal"
             placeholder="Descuento"
             aria-label={`Descuento de ${product.name}`}
+            aria-invalid={discountError ? true : undefined}
+            aria-describedby={discountError ? discountErrorId : undefined}
             className="rounded-xl"
           />
           <Input
@@ -150,6 +166,7 @@ export function CartLineItem({
             onChange={(event) => setReason(event.target.value)}
             placeholder="Motivo opcional"
             aria-label={`Motivo opcional del descuento de ${product.name}`}
+            maxLength={MAX_NOTE_LENGTH}
             className="rounded-xl"
           />
           <Button type="button" size="sm" onClick={applyDiscount}>
@@ -162,12 +179,21 @@ export function CartLineItem({
             onClick={() => {
               setDiscountInput("");
               setReason("");
+              setDiscountError(null);
               setLineDiscount(productId, 0);
               setDiscountOpen(false);
             }}
           >
             Quitar
           </Button>
+          {discountError ? (
+            <p
+              id={discountErrorId}
+              className="col-span-full text-sm text-destructive"
+            >
+              {discountError}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </article>

@@ -1,7 +1,7 @@
 # Glitter Finance — Inventory Tracking PRD
 
 **Author:** Adrian Guzman
-**Status:** Draft v1.1
+**Status:** Draft v1.6
 **Date:** June 2026
 **Parent:** `docs/glitter-finance-prd.md` (this feature is Future Feature §11.1, promoted to its own spec)
 
@@ -14,6 +14,26 @@
 > that were open during planning and are now settled in code: full reason enum
 > (§13.4), nullable per-product `low_stock_threshold` + global default (§13.3),
 > and the double-`initial` write-path guard (§5.1).
+>
+> v1.3 — an `initial` movement is now the stock **baseline**: the latest one
+> per product wins, and movements and sales before it are ignored (§3, §7.2).
+> `initial` may be 0, and turning tracking on always records one, so a product
+> with earlier sales no longer starts out oversold (§4, §5.1). The partial
+> unique index on `initial` was dropped, as §5.1 already required.
+>
+> v1.4 — '/' no longer sends the whole ledger for first paint: the server sums
+> everything recorded before a recent cutoff per product (the **opening**,
+> with the same baseline rules) and sends only the later rows (§7.2).
+>
+> v1.5 — §9 no longer claims that clock skew cannot affect stock: the
+> baseline compares device timestamps across devices, so skew near the moment
+> of a count can include or leave out a sale.
+>
+> v1.6 — corrects v1.3: turning tracking on records the count entered, also
+> for a product that was tracked before, so sales made while it was not
+> tracked no longer count against it. A blank field records 0 only when the
+> device knows the product has no count yet; otherwise the earlier count
+> stays the baseline (§4, §5.1, §9).
 
 ---
 
@@ -64,8 +84,9 @@ explicitly rejected.
 
 Sales and refunds are append-only with client-generated UUIDs, so two devices
 never collide: each sale is a brand-new row. But **product edits use
-last-write-wins** (parent §9; the upload connector at
-`lib/powersync/connector.ts` PATCHes changed columns with no merge). A stock
+last-write-wins** (parent §9): for each column, Postgres keeps the change with
+the newer `updated_at`
+(`supabase/manual/20260926130100_products_last_write_wins.sql`). A stock
 counter is a mutable field mutated concurrently by multiple offline writers,
 which is exactly what last-write-wins destroys:
 
@@ -98,6 +119,11 @@ stock(product) =   Σ inventory_movements.delta            (for that product)
                  + Σ sale_line.quantity on refunded sales  (units returned)
 ```
 
+Only rows at or after the product's **baseline** count: its latest `initial`
+movement, which is a stock count taken when tracking started (or started
+again). Earlier movements and sales are already reflected in that count (see
+§7.2).
+
 Negative results are allowed and meaningful (oversold). Nothing in the formula
 prevents or clamps them.
 
@@ -128,7 +154,7 @@ more devices in the same tenant stream.
   extra wiring.
 - **Attribution.** `inventory_movements.user_id` is resolved to a display name
   the same way sale sellers are: against the synced `tenant_users` rows via
-  `resolveUserDisplayName` / `buildUserNameMap`
+  `buildUserNameMap`
   (`lib/powersync/tenant-users-from-local.ts`). Not surfaced in the MVP (movement
   history is out of scope), but recorded so any future "restocked by" view is
   consistent with the rest of the app.
@@ -155,15 +181,16 @@ event for a tracked product.
 | `tenant_id`         | uuid                             | Tenant scope. Composite FK target with `product_id`.                 |
 | `product_id`        | uuid                             | Composite FK `(product_id, tenant_id) → products(id, tenant_id)`.    |
 | `user_id`           | uuid                             | Who recorded it. FK to `auth.users` (hand-written), self-attributed. |
-| `delta`             | integer (signed, non-zero)       | Units added (+) or removed (−).                                      |
+| `delta`             | integer (signed)                 | Units added (+) or removed (−). Only `initial` may be 0.             |
 | `reason`            | enum `inventory_movement_reason` | `initial` \| `restock` \| `adjustment` \| `loss` \| `gift`.          |
 | `note`              | text, nullable                   | Optional free text (e.g. "caja dañada en transporte").               |
-| `created_at`        | timestamptz / text               | Server/display time.                                                 |
-| `client_created_at` | timestamptz / text               | Device clock at creation, for parity with sales/refunds.             |
+| `created_at`        | timestamptz / text               | Business time: the recording device's clock (parent PRD §9).         |
+| `client_created_at` | timestamptz / text               | Same instant as `created_at`, for parity with sales/refunds.         |
 
 Sign discipline (enforced by a CHECK, see §6.2):
 
-- `initial`, `restock` → `delta > 0`.
+- `initial` → `delta >= 0` (a count of 0 is a valid starting point).
+- `restock` → `delta > 0`.
 - `loss`, `gift` → `delta < 0`.
 - `adjustment` → any non-zero (a manual correction in either direction).
 
@@ -173,7 +200,8 @@ Sign discipline (enforced by a CHECK, see §6.2):
   sellable.
 - `true` → stock is derived and surfaced. Toggling it off later hides the badge
   but retains all movement rows (append-only); toggling back on resumes
-  derivation from the existing ledger.
+  derivation from the existing ledger, from a new count when one is entered
+  (§5.1).
 
 Optional, recommended: **`products.low_stock_threshold`** `integer NULL`. When
 null, a global default constant is used for the "low" badge. Lets a vendor set,
@@ -186,26 +214,47 @@ MVP can ship with a single global constant.
 
 In the Product Editor (`components/screens/product-editor.tsx`), a
 `tracks_inventory` toggle. When turned on, an **initial stock** numeric field
-appears. Saving with an initial count writes exactly one `inventory_movements`
-row with `reason = 'initial'` and `delta = <count>`. Setting initial stock is a
-calm catalog-setup action (like images per parent §7.1), not a mid-sale action.
+appears. Saving writes one `inventory_movements` row with `reason = 'initial'`
+and `delta = <count>`, so sales made before tracking started never count
+against it. Setting initial stock is a calm catalog-setup action (like images
+per parent §7.1), not a mid-sale action.
 
-The `initial` movement is written **once per product**. Subsequent changes to
-on-hand stock are made through restock / adjustment (below), never by re-editing
-an "initial" value. This preserves the append-only ledger.
+What the save records (`resolveInitialStockDelta` in `lib/inventory.ts`,
+called from `glitter-pos-app.tsx`; the editor shows the field in the same
+cases, `asksForInitialStock`):
 
-**Double-`initial` rule (decided).** The `initial` movement is written only when
-the product has no existing `initial` movement. This is guarded at two layers:
-the editor hides the initial-stock field once an `initial` movement exists
-(`showInitialStockField` / `hasInitialMovement`), and the save path re-checks
-with `productHasInitialMovement` before writing (`needsInitialMovement` in
-`glitter-pos-app.tsx`), so the UI guard cannot be bypassed. No database
-uniqueness constraint is added: two members enabling tracking offline on the
-same product could each write an `initial`, which is an accepted, rare, and
-self-correcting race — reconcile with a normal `adjustment`, exactly as
-overselling is handled. A partial unique index was rejected because the second
-offline write would fail at upload and leave a phantom local row (the same
-issue documented for refunds in `lib/powersync/write-sales.ts`).
+- **Turning tracking on** (a new product, or one saved untracked until now)
+  always shows the field, also when the product was tracked before. A count
+  entered is recorded as a new `initial`, which becomes the baseline. Left
+  blank, the field records `0` only when the product is known to have no
+  `initial` yet. When it has one, the earlier count stays the baseline and
+  everything sold since counts against it, including sales made while the
+  product was not tracked; the hint under the field says so.
+- **A product that already tracks stock** shows the field only while it has
+  no `initial`, and gets one only when a count is entered, so earlier
+  restocks are not silently discarded.
+
+Whether a product has an `initial` (`lookUpInitialMovement`) comes from the
+ledger in memory (the server's rows and this device's own) and, on a
+PowerSync device, from the local store (`initialMovementStateLocal`). Before
+the device's first sync completes, the local store holds only its own writes,
+so "none found" is **unknown**: a blank field then records nothing, because a
+0 could replace a count another device made. The hint asks for the count
+instead of promising 0. Without PowerSync the server's ledger is all there is.
+
+Subsequent changes to on-hand stock are made through restock / adjustment
+(below), never by re-editing an "initial" value. This preserves the
+append-only ledger.
+
+**Several `initial` rows (decided).** No database uniqueness constraint is
+added. Besides a deliberate new count, two members enabling tracking offline
+on the same product could each write an `initial`, which is an accepted, rare,
+and self-correcting race. Both rows sync, and every device takes the
+**latest** `initial` as the baseline (ties broken by id), so they converge on
+the same count; reconcile with a normal `adjustment` if needed, exactly as
+overselling is handled. A partial unique index was rejected because the
+second offline write would fail at upload and block the device's upload
+queue.
 
 ### 5.2 Restock and adjustment
 
@@ -282,7 +331,7 @@ for this release.
 ### 6.1 Drizzle schema (`lib/db/schema.ts`)
 
 Add the enum, the table, and the product column. Generate the migration with
-`npm run db:generate` (Drizzle owns migrations — never hand-edit the files).
+`pnpm db:generate` (Drizzle owns migrations — never hand-edit the files).
 
 - `inventory_movements`: single-column `id` PK (PowerSync requires it); columns
   per §4; composite FK `(product_id, tenant_id) → products(id, tenant_id)
@@ -312,7 +361,7 @@ Drizzle migrations that create `inventory_movements`.
   - SELECT `USING current_user_has_tenant(tenant_id)`.
   - INSERT `WITH CHECK current_user_has_tenant(tenant_id) AND user_id = auth.uid()`.
 
-Domain checks (`delta <> 0`, sign discipline for `reason`) and indexes on
+Domain checks (sign discipline for `reason`, see §4) and indexes on
 `(tenant_id, product_id)` / `(tenant_id, created_at)` live in
 `lib/db/schema.ts` and are applied via Drizzle-generated migrations — not in
 this hand-written file.
@@ -332,7 +381,7 @@ Add an idempotent script
 mirroring the tenant_users one: skip if the `powersync` publication is missing,
 skip if `inventory_movements` is already published, else `ALTER PUBLICATION
 powersync ADD TABLE inventory_movements`. Run it in the Supabase SQL editor
-after `npm run db:push`, against **every** environment (staging and prod).
+after `pnpm db:push`, against **every** environment (staging and prod).
 
 Also update the README PowerSync setup section, which currently hardcodes the
 five-table list in two places (the `CREATE PUBLICATION powersync FOR TABLE ...`
@@ -369,6 +418,10 @@ Add one query to the `by_tenant` stream, mirroring the existing tables (same
 Deploy by pasting into the PowerSync Cloud Sync Streams editor → Validate →
 Deploy.
 
+> Later every query in the stream, this one included, also gained a
+> `tenant_users` membership subquery on `auth.user_id()` (multi-tenant PRD
+> §6.4). `powersync/sync-rules.yaml` is the current form.
+
 ### 6.5 Deploy ordering (all-or-nothing, per environment)
 
 Stage D showed a partial deploy fails _subtly_, not loudly. For inventory the
@@ -378,7 +431,7 @@ replicate to PowerSync but never reach the client; sync-rules-without-client-sch
 → the client can't read the table. Deploy all four together, in order, per
 environment:
 
-1. `npm run db:push` (Drizzle-generated schema migrations only).
+1. `pnpm db:push` (Drizzle-generated schema migrations only).
 2. Run the manual SQL from §6.2 (`supabase/manual/20260626170000_inventory_movements_rls.sql`) in the Supabase SQL editor.
 3. Run the manual publication script (§6.3); confirm with the query above.
 4. Deploy sync rules in PowerSync Cloud (§6.4).
@@ -395,14 +448,28 @@ pattern (`lib/powersync/write-sales.ts`): a single `addInventoryMovement(db,
 INSERT path. No upload-connector changes are needed — append-only INSERT is
 already handled.
 
-The Product Editor's initial-stock save and the restock/adjust actions call this
-helper.
+The restock/adjust actions call this helper. The Product Editor's
+initial-stock save writes its `initial` row in the same transaction as the
+product (`createProductLocal` / `updateProductLocal` take an `initialStock`), so
+a product is never stored without the count it was saved with. Both paths
+check the row with `normalizeInventoryMovement` (`lib/inventory.ts`).
+
+Local-only mode (no PowerSync) records the same movements through the
+`addInventoryMovement` server action (`app/inventory/actions.ts`, backed by
+`addInventoryMovementForTenant` in `lib/inventory/repository.ts`), with the
+same checks, and adds the returned row to the in-memory ledger. Its initial
+count goes with the `createProduct` / `updateProduct` actions instead, which
+write it in the product's own transaction (`createProductForTenant` /
+`updateProductForTenant` take an `initialStock`), as the PowerSync path does.
 
 ### 7.2 Derivation
 
 A pure selector, e.g. `computeStockByProduct(movements, sales)` in
 `lib/inventory.ts`, returning `Map<productId, number>`:
 
+- Find each product's baseline: its latest `initial` movement (by
+  `created_at`, then `id`). Ignore earlier `initial` rows, and any other
+  movement or sale created before the baseline.
 - Sum `movements.delta` per `product_id`.
 - Subtract sold units using the **same sign convention as `computeMetrics` /
   `computeProductTotals`**: iterate sales with `status !== 'voided'`, sign =
@@ -420,6 +487,19 @@ It is **off the tap critical path** — the sale write does no inventory work, s
 checkout latency is unchanged. At festival scale (hundreds of `sale_lines` and a
 handful of movements per product) the SUM is trivial in SQLite / memory.
 
+**Opening.** The server-rendered first paint does not carry the whole ledger.
+`getInventorySnapshotForTenant` (`lib/inventory/repository.ts`) sums, in one
+SQL query, every movement, sale and refund recorded more than 35 days before
+the request, per product and by the rules above (timestamps truncated to
+milliseconds, as `Date.parse` reads them), together with each product's latest
+`initial` among them. It sends that opening plus the movements since the
+cutoff as rows. `computeStockByProduct(movements, sales, opening)` skips rows
+before the cutoff and adds the opening's units unless a later `initial`
+replaced its baseline. Without PowerSync the opening stays for the whole
+session. With PowerSync, once the first sync has filled the local store, stock
+counts from the local rows alone again, so rows that reach the server late
+with an old date (a device that was offline for weeks) count too.
+
 Expose a small derived shape per product for the UI: `{ remaining, state:
 'normal' | 'low' | 'out' | 'oversold' }`, where `state` is computed from
 `remaining` and the threshold (per-product `low_stock_threshold` or the global
@@ -429,8 +509,8 @@ default constant).
 
 - **Product Editor** (`components/screens/product-editor.tsx`,
   `product-editor.helpers.ts`): `tracks_inventory` toggle, initial-stock field
-  (first enable only), restock / adjustment / loss / gift actions with optional
-  note.
+  (whenever tracking is turned on, and for a tracked product without a count),
+  restock / adjustment / loss / gift actions with optional note.
 - **Product Tile** (`components/molecules/product-tile.tsx`): stock figure and
   low/out/oversold treatment for tracked products; nothing for untracked.
 - **Products list** (`components/screens/products-screen.tsx`): optional
@@ -449,7 +529,9 @@ default constant).
 - **Untracked products:** never show stock, never blocked — current behavior,
   fully preserved. Mixed catalogs (some tracked, some not) must work.
 - **Toggling tracking off:** retains movement rows; hides the badge. Toggling
-  back on resumes derivation. No data loss.
+  back on resumes derivation: from the count entered then, or, with the field
+  left blank, from the earlier count, less everything sold since (sales made
+  while untracked included). No row is lost either way.
 - **Archived products:** archiving is independent of stock; archived products are
   not sold so their derived stock is inert. Movements are retained.
 - **Oversold across devices:** if two offline phones each oversell, the ledger +
@@ -459,9 +541,25 @@ default constant).
 - **`tracks_inventory` is itself LWW** (it's a product column). Acceptable: it's
   a rare setup-time toggle, not a per-sale mutation. The _counts_ are never LWW
   because they live in the append-only ledger.
-- **Clock skew:** movements carry `client_created_at`; ordering of supply events
-  does not affect the SUM (addition is commutative), so skew cannot corrupt the
-  derived total.
+- **Clock skew:** movements and sales carry the recording device's time in
+  `created_at` (parent PRD §9). After the baseline their order does not matter,
+  because the total is a sum. The baseline itself is a timestamp comparison
+  across devices, though (§3, §7.2): a movement or sale counts only when its
+  `created_at` is at or after the latest `initial` count's. So a device whose
+  clock is **behind** the one that took the count can stamp a sale made just
+  after the count before it, and that sale is ignored (stock overstated). A
+  device whose clock is **ahead** can stamp a sale made just before the count
+  after it, and that sale is subtracted although the count already reflects
+  it (stock understated). Only rows within the clock difference of the count
+  are affected, and an `adjustment` corrects the result, as for any
+  miscount. Postgres holds back (retryably) a row stamped more than 5 minutes
+  ahead of its clock, which bounds the ahead case but not the behind one.
+  The opening cutoff (§7.2) compares timestamps the same way: before a
+  PowerSync device's first sync completes, a local row stamped more than 35
+  days in the past is taken as already inside the opening and does not count
+  until the sync completes. Comparing against a server-assigned time, or
+  having the count record the last sale it covers, would remove this risk;
+  neither is built.
 
 ## 10. Performance
 
@@ -474,7 +572,7 @@ default constant).
 
 1. **Schema** — add the enum, `inventory_movements`, and `products`
    columns to `lib/db/schema.ts` and `lib/db/client-schema.ts`; run
-   `npm run db:generate`.
+   `pnpm db:generate`.
 2. **RLS migration** — hand-written RLS/FK/CHECK migration (§6.2).
 3. **Replication + sync** — manual publication script + README updates (§6.3),
    then the sync-rules query (§6.4) deployed to PowerSync Cloud. Follow the
@@ -505,7 +603,7 @@ with the parent PRD's dual-platform gate.
 **Offline multi-user (the decisive test)**
 
 Run with **two different users** on one tenant (a primary and an invited member,
-provisioned via `npm run db:invite:tenant-user` per the Stage D setup), one on
+provisioned via `pnpm db:invite:tenant-user` per the Stage D setup), one on
 each device — not one user on two devices.
 
 1. User A (device A) and User B (device B) signed into the same tenant, product

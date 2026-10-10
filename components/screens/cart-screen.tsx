@@ -1,7 +1,7 @@
-import { ChevronLeft, ShoppingBag } from "lucide-react";
+import { ShoppingBag } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
+import { BackButton } from "@/components/atoms/back-button";
 import { Header } from "@/components/atoms/header";
-import { Button } from "@/components/ui/button";
 import { CartLineItem } from "@/components/molecules/cart-line-item";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { CartSummary } from "@/components/organisms/cart-summary";
@@ -33,16 +33,7 @@ export function CartScreen(props: CartScreenProps) {
     <section className="screen cart-screen">
       <Header
         title="Tu Carrito"
-        left={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={props.back}
-            aria-label="Volver"
-          >
-            <ChevronLeft className="size-6" />
-          </Button>
-        }
+        left={<BackButton back={props.back} />}
         right={<BrandMark size="small" />}
       />
       <div className="grid gap-3">
@@ -65,7 +56,7 @@ export function CartScreen(props: CartScreenProps) {
         <EmptyState
           icon={<ShoppingBag size={46} />}
           title="Carrito vacío"
-          body="Toca productos para empezar una venta."
+          body="Tocá productos para empezar una venta."
         />
       ) : null}
       <CartSummary

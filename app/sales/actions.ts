@@ -1,65 +1,78 @@
 "use server";
 
-import { ensureUserTenantContext } from "@/lib/auth/user-context";
+import { toActionResult } from "@/lib/action-result";
+import { requireExpectedTenantContext } from "@/lib/auth/user-context";
+import {
+  parseCheckoutRequest,
+  type CheckoutRequest,
+} from "@/lib/sales/checkout-request";
 import {
   createSaleForTenant,
   refundSaleForTenant,
-  type CreateSaleLineInput,
   voidSaleForTenant,
 } from "@/lib/sales/repository";
-import type { PaymentMethod } from "@/lib/types";
+import { requireUuid } from "@/lib/validation";
 
-export type CreateSaleActionInput = {
-  paymentMethod: PaymentMethod;
-  saleDiscountCents: number;
-  saleDiscountReason?: string;
-  lines: CreateSaleLineInput[];
-};
+const SALE_NOT_FOUND_MESSAGE = "No se encontró la venta.";
 
-export async function createSale(input: CreateSaleActionInput) {
-  const context = await ensureUserTenantContext();
+// Every action takes `expectedTenantId`, the tenant the calling screen
+// renders, and refuses to run once another tenant became the active one.
+// Arguments come from the browser, so they are checked before any database
+// work. Expected failures come back as `{ ok: false, error }`
+// (lib/action-result.ts).
 
-  if (!context?.tenant) {
-    throw new Error("Se requiere una cuenta para registrar una venta.");
-  }
+export async function createSale(
+  expectedTenantId: string,
+  input: CheckoutRequest
+) {
+  return toActionResult(async () => {
+    const context = await requireExpectedTenantContext(
+      expectedTenantId,
+      "Se requiere un puesto para registrar una venta."
+    );
+    const request = parseCheckoutRequest(input);
 
-  return createSaleForTenant({
-    tenantId: context.tenant.id,
-    userId: context.user.id,
-    userName: context.user.displayName,
-    paymentMethod: input.paymentMethod,
-    saleDiscountCents: input.saleDiscountCents,
-    saleDiscountReason: input.saleDiscountReason,
-    lines: input.lines,
+    return createSaleForTenant({
+      tenantId: context.tenant.id,
+      userId: context.user.id,
+      userName: context.user.displayName,
+      ...request,
+    });
   });
 }
 
-export async function voidSale(saleId: string) {
-  const context = await ensureUserTenantContext();
+export async function voidSale(expectedTenantId: string, saleId: string) {
+  return toActionResult(async () => {
+    const context = await requireExpectedTenantContext(
+      expectedTenantId,
+      "Se requiere un puesto para anular una venta."
+    );
 
-  if (!context?.tenant) {
-    throw new Error("Se requiere una cuenta para anular una venta.");
-  }
-
-  return voidSaleForTenant({
-    tenantId: context.tenant.id,
-    userId: context.user.id,
-    saleId,
+    return voidSaleForTenant({
+      tenantId: context.tenant.id,
+      userId: context.user.id,
+      saleId: requireUuid(saleId, SALE_NOT_FOUND_MESSAGE),
+    });
   });
 }
 
-export async function refundSale(saleId: string, reason?: string) {
-  const context = await ensureUserTenantContext();
+export async function refundSale(
+  expectedTenantId: string,
+  saleId: string,
+  reason?: string
+) {
+  return toActionResult(async () => {
+    const context = await requireExpectedTenantContext(
+      expectedTenantId,
+      "Se requiere un puesto para registrar un reembolso."
+    );
 
-  if (!context?.tenant) {
-    throw new Error("Se requiere una cuenta para registrar un reembolso.");
-  }
-
-  return refundSaleForTenant({
-    tenantId: context.tenant.id,
-    userId: context.user.id,
-    userName: context.user.displayName,
-    saleId,
-    reason,
+    return refundSaleForTenant({
+      tenantId: context.tenant.id,
+      userId: context.user.id,
+      userName: context.user.displayName,
+      saleId: requireUuid(saleId, SALE_NOT_FOUND_MESSAGE),
+      reason,
+    });
   });
 }

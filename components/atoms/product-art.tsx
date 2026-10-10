@@ -34,6 +34,14 @@ export function ProductArt({ product, compact = false }: ProductArtProps) {
         <img
           src={imageUrl}
           alt={product.name}
+          // A CORS request, so the service worker can cache the photo for
+          // offline tiles (app/sw.ts); Storage allows any origin.
+          crossOrigin="anonymous"
+          // Intrinsic size in the tile's proportions; CSS sets the real one.
+          width={compact ? 58 : 339}
+          height={compact ? 58 : 300}
+          loading="lazy"
+          decoding="async"
           draggable={false}
           onError={() => setFailedImageUrl(imageUrl)}
         />

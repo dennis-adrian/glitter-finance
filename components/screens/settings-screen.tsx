@@ -4,31 +4,38 @@ import { useState } from "react";
 import {
   Box,
   Check,
+  CloudUpload,
   CreditCard,
   Loader2,
   Plus,
   ReceiptText,
-  RotateCcw,
   Stethoscope,
 } from "lucide-react";
-import { signOut } from "@/app/auth/actions";
-import { createTenant, switchTenant } from "@/app/tenants/actions";
-import { signOutAfterLocalTeardown } from "@/lib/auth/client-logout";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
 import { InviteTeamCard } from "@/components/molecules/invite-team-card";
+import { ReloadAppButton } from "@/components/molecules/reload-app-button";
 import { SettingsItem } from "@/components/molecules/settings-item";
 import { ThemePicker } from "@/components/molecules/theme-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { usePowerSyncControls } from "@/components/providers/powersync-provider";
-import type { UserTenantContext } from "@/lib/auth/user-context";
-import { useSyncStatus } from "@/lib/powersync/use-sync-status";
-import { isPowerSyncConfigured } from "@/lib/env";
-import { createClient } from "@/lib/supabase/client";
+import {
+  useTenantSessionActions,
+  type TenantSessionCopy,
+} from "@/lib/auth/use-tenant-session-actions";
+import type { UserTenantContext } from "@/lib/auth/tenant-context";
+import {
+  pendingUploadsBlockerMessage,
+  tenantChangedBlockerMessage,
+} from "@/lib/powersync/local-data-gate";
 import type { TenantInvitation, TenantMember } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, initialsOf } from "@/lib/utils";
+
+const tenantSessionCopy: TenantSessionCopy = {
+  switchFailed: "No se pudo cambiar de puesto.",
+  createFailed: "No se pudo crear el puesto.",
+};
 
 type SettingsScreenProps = {
   tenantContext: UserTenantContext;
@@ -39,7 +46,6 @@ type SettingsScreenProps = {
   onInvitationChange?: (invitation: TenantInvitation | null) => void;
   productCount: number;
   saleCount: number;
-  pendingCount: number;
   openDiagnostics: () => void;
 };
 
@@ -52,181 +58,57 @@ export function SettingsScreen({
   onInvitationChange,
   productCount,
   saleCount,
-  pendingCount,
   openDiagnostics,
 }: SettingsScreenProps) {
-  const identity =
-    tenantContext.user.displayName ||
-    tenantContext.user.email ||
-    "Billetera Ferial";
-  const initials = identity.slice(0, 2).toUpperCase();
-  const powerSyncControls = usePowerSyncControls();
-  const {
-    state: syncState,
-    pendingCount: syncPendingCount,
-    failureCount: syncFailureCount,
-  } = useSyncStatus();
-  const canSwitchTenant =
-    !isPowerSyncConfigured() ||
-    (syncState === "synced" &&
-      syncPendingCount === 0 &&
-      syncFailureCount === 0);
-  const [signingOut, setSigningOut] = useState(false);
-  const [signOutFailed, setSignOutFailed] = useState(false);
-  const [switchingTenantId, setSwitchingTenantId] = useState<string | null>(
-    null
+  const initials = initialsOf(
+    tenantContext.user.displayName || tenantContext.user.email
   );
+  const {
+    gate,
+    switchingTenantId,
+    creatingTenant,
+    signingOut,
+    error: actionError,
+    switchTenant,
+    createTenant,
+    signOut,
+  } = useTenantSessionActions({
+    activeTenantId: tenantContext.tenant?.id ?? null,
+    copy: tenantSessionCopy,
+  });
+  const canSwitchTenant = gate.canChange;
+  const syncFailureCount = gate.failureCount;
   const [showCreatePrompt, setShowCreatePrompt] = useState(false);
   const [newTenantName, setNewTenantName] = useState("");
-  const [creatingTenant, setCreatingTenant] = useState(false);
-  const [tenantActionError, setTenantActionError] = useState<string | null>(
-    null
-  );
+  const tenantActionError =
+    actionError && actionError.action !== "sign-out"
+      ? actionError.message
+      : null;
+  const signOutError =
+    actionError?.action === "sign-out" ? actionError.message : null;
   const syncFailureExplanation =
     syncFailureCount === 1
-      ? "Hay una operación que no llegó a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión."
-      : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abre Diagnósticos y guarda el reporte antes de cerrar sesión.`;
-
-  async function refreshTenantSessionAndReload() {
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.refreshSession();
-      if (error) {
-        console.error("[tenant-change] refreshSession failed", error);
-        setTenantActionError(
-          "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
-        );
-        return false;
-      }
-    } catch (error) {
-      console.error("[tenant-change] refreshSession failed", error);
-      setTenantActionError(
-        "La sesión no se actualizó. Cierra sesión y vuelve a entrar, o recarga la página."
-      );
-      return false;
-    }
-    window.location.assign("/");
-    return true;
-  }
-
-  async function teardownForTenantChange() {
-    if (!powerSyncControls) {
-      throw new Error("La limpieza local aún no está disponible.");
-    }
-    await powerSyncControls.teardownForTenantChange();
-  }
-
-  async function handleTenantSwitch(tenantId: string) {
-    if (
-      switchingTenantId ||
-      tenantId === tenantContext.tenant?.id ||
-      !canSwitchTenant
-    ) {
-      return;
-    }
-
-    setTenantActionError(null);
-    setSwitchingTenantId(tenantId);
-    try {
-      // Do this before committing the server-side tenant change. If cleanup
-      // fails, the current authenticated session and tenant remain intact.
-      await teardownForTenantChange();
-    } catch (error) {
-      console.error("[switchTenant] local teardown failed", error);
-      setTenantActionError(
-        error instanceof Error
-          ? error.message
-          : "No se pudo limpiar los datos locales ni cambiar de cuenta."
-      );
-      setSwitchingTenantId(null);
-      return;
-    }
-
-    try {
-      await switchTenant(tenantId);
-    } catch (error) {
-      console.error("[switchTenant] failed", error);
-      setTenantActionError(
-        error instanceof Error ? error.message : "No se pudo cambiar de cuenta."
-      );
-      setSwitchingTenantId(null);
-      window.location.assign("/");
-      return;
-    }
-
-    if (!(await refreshTenantSessionAndReload())) {
-      setSwitchingTenantId(null);
-    }
-  }
-
-  async function handleCreateTenant() {
-    const trimmedName = newTenantName.trim();
-    if (!trimmedName || creatingTenant || !canSwitchTenant) {
-      return;
-    }
-
-    setTenantActionError(null);
-    setCreatingTenant(true);
-    try {
-      await teardownForTenantChange();
-    } catch (error) {
-      console.error("[createTenant] local teardown failed", error);
-      setTenantActionError(
-        error instanceof Error ? error.message : "No se pudo crear la cuenta."
-      );
-      setCreatingTenant(false);
-      return;
-    }
-
-    try {
-      await createTenant(trimmedName);
-    } catch (error) {
-      console.error("[createTenant] failed", error);
-      setTenantActionError(
-        error instanceof Error ? error.message : "No se pudo crear la cuenta."
-      );
-      setCreatingTenant(false);
-      window.location.assign("/");
-      return;
-    }
-
-    if (!(await refreshTenantSessionAndReload())) {
-      setCreatingTenant(false);
-    }
-  }
-
-  async function handleSignOut(_formData: FormData) {
-    if (signingOut) return;
-    setSignOutFailed(false);
-    if (syncFailureCount > 0) {
-      setTenantActionError(syncFailureExplanation);
-      return;
-    }
-    setSigningOut(true);
-    try {
-      if (!powerSyncControls) {
-        throw new Error("La limpieza local aún no está disponible.");
-      }
-      await signOutAfterLocalTeardown(
-        () => powerSyncControls.teardownForLogout(),
-        signOut
-      );
-    } catch (error) {
-      console.error("[signOut] signOut failed", error);
-      setSignOutFailed(true);
-      setTenantActionError(
-        error instanceof Error
-          ? `${error.message} Reintenta la limpieza segura antes de cerrar sesión.`
-          : "No se pudieron eliminar los datos locales. Reintenta la limpieza segura antes de cerrar sesión."
-      );
-      setSigningOut(false);
-    }
-  }
+      ? "Hay una operación que no llegó a la nube. Abrí Diagnósticos, copiá el diagnóstico y resolvela antes de cerrar sesión."
+      : `Hay ${syncFailureCount} operaciones que no llegaron a la nube. Abrí Diagnósticos, copiá el diagnóstico y resolvelas antes de cerrar sesión.`;
+  const signOutBlockedExplanation =
+    gate.blocker === "sync-failures"
+      ? syncFailureExplanation
+      : gate.blocker === "tenant-changed"
+        ? tenantChangedBlockerMessage("cerrar sesión")
+        : gate.blocker === "pending-uploads"
+          ? pendingUploadsBlockerMessage(
+              gate.pendingCount,
+              "cerrar sesión",
+              gate.uploadHold
+            )
+          : gate.blocker === "not-synced"
+            ? "Esperá a que termine la sincronización antes de cerrar sesión."
+            : null;
 
   const switchOverlayLabel = creatingTenant
-    ? "Creando tu cuenta…"
+    ? "Creando tu puesto…"
     : switchingTenantId
-      ? "Cambiando de cuenta…"
+      ? "Cambiando de puesto…"
       : null;
 
   return (
@@ -241,7 +123,7 @@ export function SettingsScreen({
             <Loader2 className="size-7 animate-spin text-primary" />
             <p className="text-sm font-medium">{switchOverlayLabel}</p>
             <p className="max-w-60 text-center text-xs text-muted-foreground">
-              Sincronizando los datos de esta cuenta.
+              Sincronizando los datos de este puesto.
             </p>
           </div>
         </div>
@@ -255,21 +137,36 @@ export function SettingsScreen({
             {initials}
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold">Tus cuentas</h2>
+            <h2 className="text-lg font-semibold">Tus puestos</h2>
             <p className="text-sm text-muted-foreground">
               {tenantContext.user.email ?? "Usuario autenticado"}
             </p>
           </div>
         </div>
 
-        {syncFailureCount > 0 ? (
+        {gate.blocker === "sync-failures" ? (
           <p className="mb-3 text-xs leading-relaxed text-destructive">
-            La sincronización requiere recuperación. Abre Diagnósticos antes de
-            cambiar de cuenta o cerrar sesión.
+            La sincronización requiere recuperación. Abrí Diagnósticos antes de
+            cambiar de puesto o cerrar sesión.
           </p>
-        ) : !canSwitchTenant ? (
+        ) : gate.blocker === "tenant-changed" ? (
+          <div className="mb-3 grid gap-2">
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {tenantChangedBlockerMessage("cambiar de puesto")}
+            </p>
+            <ReloadAppButton />
+          </div>
+        ) : gate.blocker === "pending-uploads" ? (
           <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-            Espera a que termine la sincronización antes de cambiar de cuenta.
+            {pendingUploadsBlockerMessage(
+              gate.pendingCount,
+              "cambiar de puesto o cerrar sesión",
+              gate.uploadHold
+            )}
+          </p>
+        ) : gate.blocker === "not-synced" ? (
+          <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+            Esperá a que termine la sincronización antes de cambiar de puesto.
           </p>
         ) : null}
         {tenantActionError ? (
@@ -287,7 +184,7 @@ export function SettingsScreen({
                 disabled={
                   !canSwitchTenant || isActive || Boolean(switchingTenantId)
                 }
-                onClick={() => void handleTenantSwitch(tenant.id)}
+                onClick={() => void switchTenant(tenant.id)}
                 className={cn(
                   "flex items-center justify-between rounded-xl px-3 py-2.5 text-left transition-colors",
                   isActive
@@ -310,7 +207,7 @@ export function SettingsScreen({
           {showCreatePrompt ? (
             <div className="mt-2 grid gap-2 rounded-xl border border-border p-3">
               <Label className="grid gap-1.5 text-sm">
-                Nombre de la cuenta
+                Nombre del puesto
                 <Input
                   value={newTenantName}
                   onChange={(event) => setNewTenantName(event.target.value)}
@@ -335,7 +232,7 @@ export function SettingsScreen({
                 <Button
                   type="button"
                   className="rounded-2xl"
-                  onClick={() => void handleCreateTenant()}
+                  onClick={() => void createTenant(newTenantName)}
                   disabled={
                     creatingTenant || !newTenantName.trim() || !canSwitchTenant
                   }
@@ -352,7 +249,7 @@ export function SettingsScreen({
               className="mt-1 flex items-center gap-2 rounded-xl px-3 py-2.5 text-left text-primary hover:bg-muted disabled:opacity-50"
             >
               <Plus className="size-4" />
-              <span className="font-medium">Crear nueva cuenta</span>
+              <span className="font-medium">Crear nuevo puesto</span>
             </button>
           )}
         </div>
@@ -370,9 +267,9 @@ export function SettingsScreen({
           value={String(saleCount)}
         />
         <SettingsItem
-          icon={<RotateCcw size={21} />}
-          label="Ventas cargadas"
-          value={String(pendingCount)}
+          icon={<CloudUpload size={21} />}
+          label="Operaciones sin subir"
+          value={String(gate.pendingCount)}
         />
         <SettingsItem
           icon={<CreditCard size={21} />}
@@ -388,6 +285,7 @@ export function SettingsScreen({
             icon={<Stethoscope size={21} />}
             label="Diagnósticos"
             value="Estado de sincronización y dispositivo"
+            showChevron
           />
         </button>
       </section>
@@ -399,6 +297,7 @@ export function SettingsScreen({
 
       {tenantContext.tenant ? (
         <InviteTeamCard
+          tenantId={tenantContext.tenant.id}
           initialInvitation={activeInvitation}
           origin={inviteOrigin}
           onInvitationChange={onInvitationChange}
@@ -409,7 +308,7 @@ export function SettingsScreen({
         <h2 className="mb-3 text-lg font-semibold">Equipo</h2>
         {teamSyncPending ? (
           <p className="mb-3 text-sm leading-snug text-muted-foreground">
-            Sincronizando el equipo… Si esto persiste, revisa la conexión en
+            Sincronizando el equipo… Si esto persiste, revisá la conexión en
             Diagnósticos.
           </p>
         ) : null}
@@ -421,8 +320,8 @@ export function SettingsScreen({
               member.userId === tenantContext.tenant.createdByUserId;
             const roleLabel = isOwner
               ? "Propietario"
-              : "Vendedor en esta cuenta";
-            const memberInitials = member.displayName.slice(0, 2).toUpperCase();
+              : "Vendedor en este puesto";
+            const memberInitials = initialsOf(member.displayName);
             return (
               <div
                 className="flex items-center gap-2.5 border-b border-border py-2 last:border-b-0"
@@ -437,7 +336,7 @@ export function SettingsScreen({
                   </strong>
                   <small className="block text-xs text-muted-foreground">
                     {isCurrentUser
-                      ? `Tú · ${roleLabel}${tenantContext.user.email ? ` · ${tenantContext.user.email}` : ""}`
+                      ? `Vos · ${roleLabel}${tenantContext.user.email ? ` · ${tenantContext.user.email}` : ""}`
                       : roleLabel}
                   </small>
                 </span>
@@ -446,32 +345,48 @@ export function SettingsScreen({
           })}
         </div>
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          Varios vendedores pueden registrar ventas en la misma cuenta desde sus
-          propios teléfonos. Comparte el enlace de invitación para agregar
+          Varios vendedores pueden registrar ventas en el mismo puesto desde sus
+          propios teléfonos. Compartí el enlace de invitación para agregar
           miembros al equipo.
         </p>
       </section>
 
-      <form action={handleSignOut} className="mt-5">
-        {syncFailureCount > 0 ? (
-          <p className="mb-3 text-xs leading-relaxed text-destructive">
-            {syncFailureExplanation}
+      <section className="mt-5">
+        {signOutBlockedExplanation ? (
+          <p
+            className={cn(
+              "mb-3 text-xs leading-relaxed",
+              gate.blocker === "sync-failures"
+                ? "text-destructive"
+                : "text-muted-foreground"
+            )}
+          >
+            {signOutBlockedExplanation}
+          </p>
+        ) : null}
+        {gate.blocker === "tenant-changed" ? (
+          <ReloadAppButton className="mb-3" />
+        ) : null}
+        {signOutError ? (
+          <p className="mb-3 text-sm text-destructive" role="alert">
+            {signOutError}
           </p>
         ) : null}
         <Button
           variant="outline"
           size="lg"
-          type="submit"
-          disabled={signingOut || syncFailureCount > 0}
+          type="button"
+          onClick={() => void signOut()}
+          disabled={signingOut || !canSwitchTenant}
           className="w-full"
         >
           {signingOut
             ? "Cerrando sesión…"
-            : signOutFailed
+            : signOutError
               ? "Reintentar limpieza y cerrar sesión"
               : "Cerrar sesión"}
         </Button>
-      </form>
+      </section>
     </section>
   );
 }

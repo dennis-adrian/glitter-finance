@@ -1,12 +1,11 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   ArchiveRestore,
   Camera,
   Check,
-  ChevronLeft,
   Edit3,
   Minus,
   Plus,
@@ -14,6 +13,7 @@ import {
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { CategoryFormDrawer } from "@/components/molecules/category-form-drawer";
 import { FormField } from "@/components/atoms/form-field";
+import { BackButton } from "@/components/atoms/back-button";
 import { Header } from "@/components/atoms/header";
 import { ProductArt } from "@/components/atoms/product-art";
 import { Button } from "@/components/ui/button";
@@ -29,49 +29,86 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
+  asksForInitialStock,
   getProductStock,
   stockValueLabel,
+  type InitialMovementState,
   type InventoryMovementReason,
 } from "@/lib/inventory";
-import { parseBolivianos } from "@/lib/money";
 import {
-  productImageMaxBytes,
-  productImageMimeTypes,
+  defaultPlaceholderImageTone,
+  placeholderImageToneLabels,
+  placeholderImageTones,
+  productImageAccept,
+  productImageFileError,
+  productImageFormatsLabel,
 } from "@/lib/product-image-config";
-import { emptyProduct } from "@/lib/products";
-import type { Category, Product } from "@/lib/types";
+import { downscaleProductImage } from "@/lib/product-image-downscale";
+import { emptyProduct, PRODUCT_NAME_MAX_LENGTH } from "@/lib/products";
+import type { Category, Product, ProductInput } from "@/lib/types";
+import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import {
-  hasValidProductForm,
+  INITIAL_STOCK_ERROR,
+  initialStockHint,
+  parseNonNegativeInteger,
   parsePositiveInteger,
   parseSignedInteger,
+  stockAmountError,
+  validateProductForm,
 } from "@/components/screens/product-editor.helpers";
+
+/** The category select's last option, which opens the new-category drawer. */
+const CREATE_CATEGORY_VALUE = "__create_category__";
+
+/**
+ * What a save sends: the product fields the editor owns (no low-stock
+ * threshold, which a save must keep), the reduced photo, uploaded on its own
+ * after the product is written, and the initial count.
+ */
+export type ProductEditorSaveInput = {
+  product: Required<
+    Pick<
+      ProductInput,
+      | "name"
+      | "priceCents"
+      | "costCents"
+      | "category"
+      | "imageTone"
+      | "imagePath"
+      | "tracksInventory"
+    >
+  >;
+  imageFile: File | null;
+  initialStock?: number;
+};
 
 type ProductEditorProps = {
   product: Product | null;
   categories: Category[];
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
-  hasInitialMovement: boolean;
+  /** Whether the product already has its initial count. */
+  initialMovement: InitialMovementState;
+  /**
+   * A product write still running: this editor's save or archive, or
+   * another one ("busy"), such as a restore from the catalog or a save from
+   * an editor closed since. One runs at a time, so both buttons wait for it.
+   */
+  pendingWrite: "save" | "archive" | "busy" | null;
   back: () => void;
-  createCategory: (name: string) => Promise<Category>;
-  save: (input: {
-    name: string;
-    priceCents: number;
-    costCents: number | null;
-    category: string;
-    imageTone: string;
-    imagePath?: string | null;
-    imageFile?: File | null;
-    tracksInventory: boolean;
-    initialStock?: number;
-  }) => Promise<void> | void;
+  /**
+   * Creates a category from the editor and resolves to it, to select it, or
+   * to null when the write was cancelled.
+   */
+  createCategory: (name: string) => Promise<Category | null>;
+  save: (input: ProductEditorSaveInput) => Promise<void>;
   onInventoryMovement: (input: {
     productId: string;
     delta: number;
     reason: InventoryMovementReason;
     note?: string;
-  }) => Promise<void> | void;
-  archive: (productId: string) => void;
+  }) => Promise<void>;
+  archive: (productId: string) => Promise<void>;
 };
 
 export function ProductEditor({
@@ -79,7 +116,8 @@ export function ProductEditor({
   categories,
   stockByProduct,
   inventoryStockReady,
-  hasInitialMovement,
+  initialMovement,
+  pendingWrite,
   back,
   createCategory,
   save,
@@ -95,7 +133,9 @@ export function ProductEditor({
   );
   const [category, setCategory] = useState(product?.category ?? "");
   const [categoryDrawerOpen, setCategoryDrawerOpen] = useState(false);
-  const [imageTone, setImageTone] = useState(product?.imageTone ?? "violet");
+  const [imageTone, setImageTone] = useState(
+    product?.imageTone ?? defaultPlaceholderImageTone
+  );
   const [tracksInventory, setTracksInventory] = useState(
     product?.tracksInventory ?? false
   );
@@ -111,18 +151,39 @@ export function ProductEditor({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [imagePreparing, setImagePreparing] = useState(false);
   const [inventoryActionError, setInventoryActionError] = useState<
     string | null
   >(null);
   const [inventoryMovementSubmitting, setInventoryMovementSubmitting] =
     useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const canSave = hasValidProductForm(name, price) && Boolean(category);
+  const fieldId = useId();
+  const ids = {
+    image: `${fieldId}-image`,
+    tone: `${fieldId}-tone`,
+    restock: `${fieldId}-restock`,
+    restockError: `${fieldId}-restock-error`,
+    adjustment: `${fieldId}-adjustment`,
+    adjustmentError: `${fieldId}-adjustment-error`,
+    loss: `${fieldId}-loss`,
+    lossError: `${fieldId}-loss-error`,
+    gift: `${fieldId}-gift`,
+    giftError: `${fieldId}-gift-error`,
+  };
+  // Counts picks, so a slow reduction of an earlier photo cannot replace a
+  // later one.
+  const imagePickRef = useRef(0);
+  const productForm = validateProductForm({ name, price, cost });
+  const canSave = productForm.values != null && Boolean(category);
   const trackingPersisted = product?.tracksInventory ?? false;
   const trackingDirty =
     Boolean(product) && tracksInventory !== trackingPersisted;
-  const showInitialStockField =
-    tracksInventory && (!product || !hasInitialMovement);
+  const showInitialStockField = asksForInitialStock({
+    tracksInventory,
+    wasTrackingInventory: trackingPersisted,
+    initialMovement,
+  });
   const currentStock =
     product && trackingPersisted && inventoryStockReady
       ? getProductStock(product, stockByProduct)
@@ -131,6 +192,10 @@ export function ProductEditor({
   const canAdjust = parseSignedInteger(adjustmentAmount) != null;
   const canLoss = parsePositiveInteger(lossAmount) != null;
   const canGift = parsePositiveInteger(giftAmount) != null;
+  const restockError = stockAmountError(restockAmount);
+  const adjustmentError = stockAmountError(adjustmentAmount, true);
+  const lossError = stockAmountError(lossAmount);
+  const giftError = stockAmountError(giftAmount);
   const previewProduct = {
     ...(product ?? emptyProduct),
     name: name || "Producto",
@@ -152,30 +217,35 @@ export function ProductEditor({
     return () => URL.revokeObjectURL(objectUrl);
   }, [imageFile]);
 
-  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
+  async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.target;
+    const file = input.files?.[0] ?? null;
+    const pick = ++imagePickRef.current;
     setImageError(null);
 
     if (!file) {
+      setImagePreparing(false);
       setImageFile(null);
       return;
     }
 
-    if (!productImageMimeTypes.some((type) => type === file.type)) {
+    // Both upload paths send the reduced photo; the size limit applies to it.
+    setImagePreparing(true);
+    const prepared = await downscaleProductImage(file);
+    if (pick !== imagePickRef.current) {
+      return;
+    }
+    setImagePreparing(false);
+
+    const fileError = productImageFileError(prepared);
+    if (fileError) {
       setImageFile(null);
-      setImageError("La imagen debe estar en formato JPG o PNG.");
-      event.target.value = "";
+      setImageError(fileError);
+      input.value = "";
       return;
     }
 
-    if (file.size > productImageMaxBytes) {
-      setImageFile(null);
-      setImageError("La imagen no puede superar 5MB.");
-      event.target.value = "";
-      return;
-    }
-
-    setImageFile(file);
+    setImageFile(prepared);
   }
 
   async function submitMovement(
@@ -191,7 +261,7 @@ export function ProductEditor({
     }
     if (!product.tracksInventory) {
       setInventoryActionError(
-        "Guarda el producto con inventario activado antes de ajustar stock."
+        "Guardá el producto con inventario activado antes de ajustar stock."
       );
       return;
     }
@@ -199,11 +269,7 @@ export function ProductEditor({
       ? parseSignedInteger(rawAmount)
       : parsePositiveInteger(rawAmount);
     if (amount == null) {
-      if (rawAmount.trim()) {
-        setInventoryActionError(
-          "Usa un número entero sin decimales ni texto extra."
-        );
-      }
+      setInventoryActionError(stockAmountError(rawAmount, options?.signed));
       return;
     }
     const delta =
@@ -247,22 +313,15 @@ export function ProductEditor({
     <section className="screen editor-screen">
       <Header
         title={product ? "Editar producto" : "Nuevo producto"}
-        left={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={back}
-            aria-label="Volver"
-          >
-            <ChevronLeft className="size-6" />
-          </Button>
-        }
+        left={<BackButton back={back} />}
         right={<BrandMark size="small" />}
       />
 
       {/* Bespoke image uploader + tone picker keep their existing styles since
           they're coupled to ProductArt's gradient placeholders. */}
-      <label className="field-label">Imagen del producto</label>
+      <label className="field-label" htmlFor={ids.image}>
+        Imagen del producto
+      </label>
       <div
         className={clsx(
           "image-uploader",
@@ -270,11 +329,15 @@ export function ProductEditor({
         )}
       >
         <ProductArt product={previewProduct} />
+        {/* Opened by the two buttons below, so it stays out of the tab
+            order: a hidden focus stop would show no focus ring. */}
         <input
           ref={imageInputRef}
+          id={ids.image}
           className="sr-only"
+          tabIndex={-1}
           type="file"
-          accept="image/jpeg,image/png"
+          accept={productImageAccept}
           onChange={handleImageChange}
         />
         <button
@@ -286,7 +349,7 @@ export function ProductEditor({
           <strong>
             {previewProduct.imageUrl ? "Cambiar imagen" : "Subir imagen"}
           </strong>
-          <span>Formatos JPG y PNG (máx. 5 MB)</span>
+          <span>Formatos {productImageFormatsLabel}</span>
         </button>
         <button
           type="button"
@@ -299,16 +362,34 @@ export function ProductEditor({
       </div>
       {imageError ? (
         <p className="mt-1.5 text-sm text-destructive">{imageError}</p>
+      ) : imagePreparing ? (
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Preparando la imagen…
+        </p>
       ) : null}
-      <div className="tone-picker" aria-label="Color del marcador de posición">
-        {["aurora", "coral", "linen", "violet", "warm"].map((tone) => (
-          <button
-            key={tone}
-            className={clsx("tone-dot", tone, imageTone === tone && "active")}
-            onClick={() => setImageTone(tone)}
-          >
-            {imageTone === tone ? <Check size={14} /> : null}
-          </button>
+      <div
+        className="tone-picker"
+        role="radiogroup"
+        aria-label="Color del marcador de posición"
+      >
+        {placeholderImageTones.map((tone) => (
+          <label key={tone} className="tone-option">
+            <input
+              type="radio"
+              name={ids.tone}
+              value={tone}
+              checked={imageTone === tone}
+              onChange={() => setImageTone(tone)}
+              className="sr-only"
+            />
+            <span
+              className={clsx("tone-dot", tone, imageTone === tone && "active")}
+              aria-hidden="true"
+            >
+              {imageTone === tone ? <Check size={14} /> : null}
+            </span>
+            <span className="sr-only">{placeholderImageToneLabels[tone]}</span>
+          </label>
         ))}
       </div>
 
@@ -317,27 +398,46 @@ export function ProductEditor({
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Ej. Llaveros artesanales"
+          maxLength={PRODUCT_NAME_MAX_LENGTH}
+          aria-invalid={productForm.errors.name ? true : undefined}
           className="h-12 rounded-xl"
         />
       </FormField>
+      {productForm.errors.name ? (
+        <p className="mt-1.5 text-sm text-destructive">
+          {productForm.errors.name}
+        </p>
+      ) : null}
       <FormField label="Precio de venta">
         <Input
           value={price}
           onChange={(event) => setPrice(event.target.value)}
           inputMode="decimal"
           placeholder="Ej. 15"
+          aria-invalid={productForm.errors.price ? true : undefined}
           className="h-12 rounded-xl"
         />
       </FormField>
+      {productForm.errors.price ? (
+        <p className="mt-1.5 text-sm text-destructive">
+          {productForm.errors.price}
+        </p>
+      ) : null}
       <FormField label="Costo unitario" hint="Opcional">
         <Input
           value={cost}
           onChange={(event) => setCost(event.target.value)}
           inputMode="decimal"
           placeholder="Desconocido"
+          aria-invalid={productForm.errors.cost ? true : undefined}
           className="h-12 rounded-xl"
         />
       </FormField>
+      {productForm.errors.cost ? (
+        <p className="mt-1.5 text-sm text-destructive">
+          {productForm.errors.cost}
+        </p>
+      ) : null}
       <p className="mt-1.5 text-sm text-muted-foreground">
         Se usa para calcular ganancias. Si queda vacío, el costo se marca como
         desconocido.
@@ -346,7 +446,7 @@ export function ProductEditor({
         <Select
           value={category || null}
           onValueChange={(value) => {
-            if (value === "__create_category__") {
+            if (value === CREATE_CATEGORY_VALUE) {
               setCategoryDrawerOpen(true);
               return;
             }
@@ -357,7 +457,7 @@ export function ProductEditor({
             id="product-category"
             className="h-12 w-full rounded-xl"
           >
-            <SelectValue placeholder="Selecciona una categoría" />
+            <SelectValue placeholder="Elegí una categoría" />
           </SelectTrigger>
           <SelectContent>
             {product?.category &&
@@ -372,7 +472,7 @@ export function ProductEditor({
               </SelectItem>
             ))}
             {categories.length ? <SelectSeparator /> : null}
-            <SelectItem value="__create_category__" className="text-primary">
+            <SelectItem value={CREATE_CATEGORY_VALUE} className="text-primary">
               <Plus />
               Crear categoría
             </SelectItem>
@@ -381,7 +481,7 @@ export function ProductEditor({
       </FormField>
       {!category ? (
         <p className="mt-1.5 text-sm text-muted-foreground">
-          Selecciona o crea una categoría para poder guardar el producto.
+          Elegí o creá una categoría para poder guardar el producto.
         </p>
       ) : null}
 
@@ -403,23 +503,32 @@ export function ProductEditor({
         </Label>
 
         {showInitialStockField ? (
-          <FormField label="Stock inicial">
-            <Input
-              value={initialStock}
-              onChange={(event) => {
-                setInitialStock(event.target.value);
-                setInventoryActionError(null);
-              }}
-              inputMode="numeric"
-              placeholder="Ej. 10"
-              className="h-12 rounded-xl"
-            />
-          </FormField>
+          <>
+            <FormField label="Stock inicial">
+              <Input
+                value={initialStock}
+                onChange={(event) => {
+                  setInitialStock(event.target.value);
+                  setInventoryActionError(null);
+                }}
+                inputMode="numeric"
+                placeholder="Ej. 10"
+                className="h-12 rounded-xl"
+              />
+            </FormField>
+            {/* The count is a baseline: earlier sales are not subtracted. */}
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              {initialStockHint({
+                wasTrackingInventory: trackingPersisted,
+                initialMovement,
+              })}
+            </p>
+          </>
         ) : null}
 
         {trackingDirty ? (
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Guarda los cambios para activar los ajustes de inventario.
+            Guardá los cambios para activar los ajustes de inventario.
           </p>
         ) : null}
 
@@ -435,15 +544,21 @@ export function ProductEditor({
             ) : null}
 
             <div>
-              <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+              <Label
+                htmlFor={ids.restock}
+                className="mb-1.5 block text-sm font-semibold text-muted-foreground"
+              >
                 Reabastecer
               </Label>
               <div className="flex gap-2">
                 <Input
+                  id={ids.restock}
                   value={restockAmount}
                   onChange={(event) => setRestockAmount(event.target.value)}
                   inputMode="numeric"
                   placeholder="Ej. +5"
+                  aria-invalid={restockError ? true : undefined}
+                  aria-describedby={restockError ? ids.restockError : undefined}
                   className="h-14 flex-1 rounded-xl"
                 />
                 <Button
@@ -457,6 +572,14 @@ export function ProductEditor({
                   <Plus />
                 </Button>
               </div>
+              {restockError ? (
+                <p
+                  id={ids.restockError}
+                  className="mt-1.5 text-sm text-destructive"
+                >
+                  {restockError}
+                </p>
+              ) : null}
             </div>
 
             <Button
@@ -473,24 +596,42 @@ export function ProductEditor({
             {showMoreActions ? (
               <>
                 <div>
-                  <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+                  <Label
+                    htmlFor={ids.adjustment}
+                    className="mb-1.5 block text-sm font-semibold text-muted-foreground"
+                  >
                     Ajuste
                   </Label>
                   <div className="flex flex-col gap-2">
                     <Input
+                      id={ids.adjustment}
                       value={adjustmentAmount}
                       onChange={(event) =>
                         setAdjustmentAmount(event.target.value)
                       }
                       placeholder="Ej. -2 o +3"
+                      aria-invalid={adjustmentError ? true : undefined}
+                      aria-describedby={
+                        adjustmentError ? ids.adjustmentError : undefined
+                      }
                       className="h-14 rounded-xl"
                     />
+                    {adjustmentError ? (
+                      <p
+                        id={ids.adjustmentError}
+                        className="text-sm text-destructive"
+                      >
+                        {adjustmentError}
+                      </p>
+                    ) : null}
                     <Input
                       value={adjustmentNote}
+                      aria-label="Nota del ajuste (opcional)"
                       onChange={(event) =>
                         setAdjustmentNote(event.target.value)
                       }
                       placeholder="Nota opcional"
+                      maxLength={MAX_NOTE_LENGTH}
                       className="h-14 rounded-xl"
                     />
                     <Button
@@ -511,21 +652,37 @@ export function ProductEditor({
                 </div>
 
                 <div>
-                  <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+                  <Label
+                    htmlFor={ids.loss}
+                    className="mb-1.5 block text-sm font-semibold text-muted-foreground"
+                  >
                     Pérdida
                   </Label>
                   <div className="flex flex-col gap-2">
                     <Input
+                      id={ids.loss}
                       value={lossAmount}
                       onChange={(event) => setLossAmount(event.target.value)}
                       inputMode="numeric"
                       placeholder="Ej. 2"
+                      aria-invalid={lossError ? true : undefined}
+                      aria-describedby={lossError ? ids.lossError : undefined}
                       className="h-14 rounded-xl"
                     />
+                    {lossError ? (
+                      <p
+                        id={ids.lossError}
+                        className="text-sm text-destructive"
+                      >
+                        {lossError}
+                      </p>
+                    ) : null}
                     <Input
                       value={lossNote}
+                      aria-label="Nota de la pérdida (opcional)"
                       onChange={(event) => setLossNote(event.target.value)}
                       placeholder="Nota opcional"
+                      maxLength={MAX_NOTE_LENGTH}
                       className="h-14 rounded-xl"
                     />
                     <Button
@@ -547,21 +704,37 @@ export function ProductEditor({
                 </div>
 
                 <div>
-                  <Label className="mb-1.5 block text-sm font-semibold text-muted-foreground">
+                  <Label
+                    htmlFor={ids.gift}
+                    className="mb-1.5 block text-sm font-semibold text-muted-foreground"
+                  >
                     Regalo
                   </Label>
                   <div className="flex flex-col gap-2">
                     <Input
+                      id={ids.gift}
                       value={giftAmount}
                       onChange={(event) => setGiftAmount(event.target.value)}
                       inputMode="numeric"
                       placeholder="Ej. 1"
+                      aria-invalid={giftError ? true : undefined}
+                      aria-describedby={giftError ? ids.giftError : undefined}
                       className="h-14 rounded-xl"
                     />
+                    {giftError ? (
+                      <p
+                        id={ids.giftError}
+                        className="text-sm text-destructive"
+                      >
+                        {giftError}
+                      </p>
+                    ) : null}
                     <Input
                       value={giftNote}
+                      aria-label="Nota del regalo (opcional)"
                       onChange={(event) => setGiftNote(event.target.value)}
                       placeholder="Nota opcional"
+                      maxLength={MAX_NOTE_LENGTH}
                       className="h-14 rounded-xl"
                     />
                     <Button
@@ -586,7 +759,7 @@ export function ProductEditor({
           </div>
         ) : null}
         {inventoryActionError ? (
-          <p className="mt-2 text-sm text-destructive">
+          <p className="mt-2 text-sm text-destructive" role="alert">
             {inventoryActionError}
           </p>
         ) : null}
@@ -596,12 +769,13 @@ export function ProductEditor({
         <Button
           type="button"
           variant="ghost"
+          disabled={pendingWrite != null}
           onClick={() => archive(product.id)}
           className="mt-6 mb-20 h-auto w-full flex-col gap-1 py-4 text-destructive hover:text-destructive"
         >
           <span className="flex items-center gap-2 font-bold">
             <ArchiveRestore className="size-[18px]" />
-            Archivar producto
+            {pendingWrite === "archive" ? "Archivando…" : "Archivar producto"}
           </span>
           <span className="text-sm font-normal text-muted-foreground">
             El producto ya no aparecerá en el menú de ventas.
@@ -610,35 +784,41 @@ export function ProductEditor({
       ) : null}
       <Button
         size="lg"
-        disabled={!canSave}
+        disabled={!canSave || imagePreparing || pendingWrite != null}
         className="sticky bottom-0 mt-4 w-full font-extrabold tracking-wide shadow-lg shadow-primary/25 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none"
-        onClick={() => {
+        onClick={async () => {
+          const values = productForm.values;
+          if (!values) {
+            return;
+          }
           if (
             showInitialStockField &&
             initialStock.trim() &&
-            parsePositiveInteger(initialStock) == null
+            parseNonNegativeInteger(initialStock) == null
           ) {
-            setInventoryActionError(
-              "El stock inicial debe ser un número entero sin decimales."
-            );
+            setInventoryActionError(INITIAL_STOCK_ERROR);
             return;
           }
-          save({
-            name: name.trim(),
-            priceCents: parseBolivianos(price),
-            costCents: cost.trim() ? parseBolivianos(cost) : null,
-            category,
-            imageTone,
-            imagePath: product?.imagePath ?? null,
+          await save({
+            product: {
+              ...values,
+              category,
+              imageTone,
+              imagePath: product?.imagePath ?? null,
+              tracksInventory,
+            },
             imageFile,
-            tracksInventory,
             initialStock: showInitialStockField
-              ? (parsePositiveInteger(initialStock) ?? undefined)
+              ? (parseNonNegativeInteger(initialStock) ?? undefined)
               : undefined,
           });
         }}
       >
-        GUARDAR CAMBIOS
+        {pendingWrite === "save"
+          ? "Guardando…"
+          : pendingWrite === "busy"
+            ? "Esperá…"
+            : "GUARDAR CAMBIOS"}
       </Button>
 
       <CategoryFormDrawer
@@ -647,8 +827,9 @@ export function ProductEditor({
         onOpenChange={setCategoryDrawerOpen}
         onSave={async (categoryName) => {
           const created = await createCategory(categoryName);
-          setCategory(created.name);
-          return created;
+          if (created) {
+            setCategory(created.name);
+          }
         }}
       />
     </section>

@@ -6,6 +6,9 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
+    // Same files as eslint-config-next, which only registers the react-hooks
+    // plugin for these extensions (ESLint also lints *.cjs by default).
+    files: ["**/*.{js,jsx,mjs,ts,tsx,mts,cts}"],
     rules: {
       "@typescript-eslint/no-explicit-any": "warn",
       "react-hooks/immutability": "warn",
@@ -19,7 +22,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "public/**",
-    "docs/research/**",
+    // Local agent settings and git worktrees of other sessions.
+    ".claude/**",
   ]),
 ]);
 

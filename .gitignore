@@ -14,3 +14,6 @@ public/@powersync/
 .env.sentry-build-plugin
 # next-agents-md
 .next-docs/
+
+# Git worktrees created by Claude Code sessions
+.claude/worktrees/

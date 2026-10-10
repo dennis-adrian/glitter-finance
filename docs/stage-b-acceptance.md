@@ -9,7 +9,7 @@ and on real installed PWAs for both iPhone Safari and Android Chrome.
 - Confirm Supabase migrations are applied.
 - Confirm PowerSync role, publication, and sync rules are active.
 - Confirm `NEXT_PUBLIC_POWERSYNC_URL` points at the staging PowerSync instance.
-- Seed the QA account with `npm run db:seed:qa`.
+- Seed the QA account with `pnpm db:seed:qa`.
 - Install the PWA on one iPhone using Safari and one Android phone using Chrome.
 
 ## Automated Checks
@@ -17,13 +17,17 @@ and on real installed PWAs for both iPhone Safari and Android Chrome.
 Run locally before manual QA:
 
 ```bash
-npm exec -- tsc --noEmit
-npm run build
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
 ```
 
 Expected:
 
 - TypeScript passes.
+- Lint reports no errors.
+- Unit tests pass.
 - Production build passes.
 - `/manifest.webmanifest` includes app icons.
 - `/serwist/sw.js` is served by the app.
@@ -80,16 +84,64 @@ Expected:
 
 ## Offline PWA Relaunch
 
-1. Launch the installed PWA online and wait for synced state.
+1. Launch the installed PWA online and wait for synced state. Scroll Sell
+   Mode so every product photo has loaded once.
 2. Close the PWA.
 3. Enable airplane mode.
 4. Relaunch the installed PWA.
+5. Leave the PWA closed and offline for more than 24 hours, then relaunch it
+   in airplane mode again.
+6. Close it again, disable airplane mode, sign out, enable airplane mode and
+   relaunch the installed PWA.
 
 Expected:
 
-- The app shell loads offline.
-- Sell Mode renders from cached shell and local PowerSync data.
+- Steps 4 and 5 open Sell Mode from the saved app shell and local PowerSync
+  data, not the "Sin conexión" screen, with the product photos seen in step
+  1. Neither the shell nor the PowerSync SQLite files expire.
+- Step 6 shows the "Sin conexión" screen: signing out removed the saved app
+  shell. After disabling airplane mode, "Reintentar" opens the login screen.
 - First-ever offline login is not required and remains out of scope.
+
+## Offline Relaunch Right After Signing In
+
+Run on a PWA that is signed out, so no app shell is saved yet. Never relaunch
+it online between signing in (or switching accounts) and the airplane mode
+relaunch that follows.
+
+1. In the installed PWA, sign in with email and password. Wait for synced
+   state and leave Sell Mode on screen for a few seconds.
+2. Close the PWA, enable airplane mode and relaunch it.
+3. Disable airplane mode and open the PWA. In Settings, under "Tus puestos",
+   switch to another account (or create one) and wait for synced state.
+4. Close the PWA, enable airplane mode and relaunch it.
+5. Sign out, then repeat steps 1 and 2 signing in with Google.
+
+Expected:
+
+- Steps 2, 4 and 5 open Sell Mode offline for the account just signed in or
+  switched to, not the "Sin conexión" screen. The PWA saves its app shell
+  once the local data is ready, so no online relaunch is needed first.
+
+## Offline Relaunch After An Update
+
+1. Launch the installed PWA online and wait for synced state. Leave it open.
+2. Deploy a new build to staging.
+3. Let the service worker update without reloading the page: with remote
+   debugging (Chrome for Android, Safari Web Inspector for iPhone), run
+   `(await navigator.serviceWorker.getRegistration()).update()` in the page's
+   console and wait a few seconds.
+4. Close the PWA, enable airplane mode and relaunch it.
+
+Expected:
+
+- Sell Mode opens offline with its normal styling and works (add to cart,
+  record a cash sale), now running the new build.
+- If the update could not refresh the saved app shell (network lost during
+  the update, a 408/429/5xx, or "/" redirecting to the login screen because
+  Supabase Auth could not confirm the session), the previous build keeps
+  working offline and updates on a later launch. Only a 404 or 410 for "/"
+  removes the saved app shell.
 
 ## Diagnostics
 

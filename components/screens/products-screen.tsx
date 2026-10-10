@@ -1,4 +1,4 @@
-import { Download, PackagePlus, Plus, Search, Tags } from "lucide-react";
+import { PackagePlus, Plus, Search, Tags } from "lucide-react";
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { Header } from "@/components/atoms/header";
 import { Button } from "@/components/ui/button";
@@ -6,8 +6,11 @@ import { Input } from "@/components/ui/input";
 import { CategoryRail } from "@/components/molecules/category-rail";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { ProductCatalogCard } from "@/components/molecules/product-catalog-card";
+import { ALL_CATEGORIES } from "@/lib/categories";
+import { filterProducts } from "@/lib/products";
 import type { Product } from "@/lib/types";
 import { getProductStock } from "@/lib/inventory";
+import { initialsOf } from "@/lib/utils";
 
 type ProductsScreenProps = {
   products: Product[];
@@ -22,31 +25,27 @@ type ProductsScreenProps = {
   setQuery: (value: string) => void;
   openEditor: (product: Product | null) => void;
   restoreProduct: (productId: string) => void;
-  onImport: () => void;
+  /** A product save, archive or restore is still running. */
+  productWritePending: boolean;
+  restoringProductId: string | null;
   openCategories: () => void;
 };
 
 export function ProductsScreen(props: ProductsScreenProps) {
   const identity = props.userDisplayName || props.userEmail || null;
-  const initials = identity ? identity.slice(0, 2).toUpperCase() : "?";
+  const initials = initialsOf(identity);
 
-  const filtered = props.products.filter((product) => {
-    const matchesCategory =
-      props.category === "Todos" || product.category === props.category;
-    const matchesQuery = product.name
-      .toLowerCase()
-      .includes(props.query.toLowerCase());
-    return matchesCategory && matchesQuery;
-  });
+  const filtered = filterProducts(props.products, props.category, props.query);
 
   return (
     <section className="screen">
       <Header
         title="Billetera Ferial"
-        left={<BrandMark />}
+        left={<BrandMark decorative />}
         right={
           <span
             className="grid size-10 place-items-center rounded-full bg-primary/10 text-sm font-bold text-primary"
+            role="img"
             aria-label={identity ? `Perfil de ${identity}` : "Perfil"}
           >
             {initials}
@@ -78,7 +77,7 @@ export function ProductsScreen(props: ProductsScreenProps) {
       </div>
       <CategoryRail
         active={props.category}
-        categories={["Todos", ...props.categories]}
+        categories={[ALL_CATEGORIES, ...props.categories]}
         setActive={props.setCategory}
       />
       {filtered.length ? (
@@ -94,10 +93,12 @@ export function ProductsScreen(props: ProductsScreenProps) {
               }
               openEditor={props.openEditor}
               restoreProduct={props.restoreProduct}
+              restoreDisabled={props.productWritePending}
+              restoring={props.restoringProductId === product.id}
             />
           ))}
         </div>
-      ) : (
+      ) : props.products.length === 0 ? (
         <EmptyState
           icon={<PackagePlus size={46} />}
           title="Nada por aquí todavía"
@@ -113,6 +114,12 @@ export function ProductsScreen(props: ProductsScreenProps) {
             </Button>
           }
         />
+      ) : (
+        <EmptyState
+          icon={<Search size={46} />}
+          title="No se encontraron productos"
+          body="Probá con otra categoría o término de búsqueda."
+        />
       )}
       <Button
         size="icon"
@@ -121,15 +128,6 @@ export function ProductsScreen(props: ProductsScreenProps) {
         className="absolute right-[18px] bottom-[84px] size-16 rounded-full shadow-lg shadow-primary/30"
       >
         <Plus className="size-8" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        className="absolute bottom-[88px] left-1/2 -translate-x-1/2 text-primary hover:text-primary"
-        onClick={props.onImport}
-      >
-        <Download className="size-4" />
-        Importar desde Excel
       </Button>
     </section>
   );

@@ -3,58 +3,88 @@
 // but write to the per-device PowerSync SQLite store; PowerSync's CRUD
 // queue uploads the changes to Supabase via SupabaseConnector.uploadData.
 //
+// Every UPDATE sets updated_at to the device time of the edit. Postgres keeps,
+// column by column, the newer of two edits by that value
+// (supabase/manual/20260926130100_products_last_write_wins.sql), so an UPDATE
+// without it could never win over an edit another device made meanwhile.
+//
 // Image upload goes directly from the browser to Supabase Storage using the
-// user's JWT (gated by the policy in supabase/migrations/...product_image_upload_policy.sql).
+// user's JWT, within the bucket limits and tenant-folder policies in
+// supabase/manual/20260926130000_product_images_storage_rules.sql.
 // The metadata write to products.image_path stays in the local SQLite store,
-// which PowerSync replicates to Postgres alongside other product writes.
+// which PowerSync replicates to Postgres alongside other product writes. The
+// connector deletes the image an upload replaced once Postgres has applied the
+// new path.
 
-import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
+import { nowIso } from "@/lib/dates";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { encodePlaceholderImagePath } from "@/lib/product-mapper";
 import {
+  buildProductImageObjectPath,
+  encodePlaceholderImagePath,
+  productImageCacheControl,
   isPlaceholderImagePath,
-  productImageMaxBytes,
-  productImageMimeTypes,
+  placeholderImagePathPattern,
+  productImageFileError,
   productImagesBucket,
 } from "@/lib/product-image-config";
+import { removeProductImageObjects } from "@/lib/product-images";
+import { resolveCategoryNameLocal } from "@/lib/powersync/write-categories";
+import {
+  insertInventoryMovement,
+  prepareInventoryMovement,
+} from "@/lib/powersync/write-inventory";
+import { normalizeProductInput } from "@/lib/products";
 import type { ProductInput } from "@/lib/types";
-import { validateCategoryName } from "@/lib/categories/validation";
 
-const imageExtensionByMimeType: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-};
+/**
+ * Before the first sync completes, the local store holds only this device's
+ * own writes, so a product listed from the server-rendered catalog may not
+ * be there yet. An UPDATE would then match no row and the edit would be
+ * dropped without a word.
+ */
+export const PRODUCT_NOT_ON_DEVICE_MESSAGE =
+  "Este producto todavía se está sincronizando en este dispositivo. Intentalo de nuevo en un momento.";
 
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function uuid() {
-  return crypto.randomUUID();
-}
-
-function resolveInputImagePath(input: ProductInput): string {
-  if (isPlaceholderImagePath(input.imagePath)) {
-    return encodePlaceholderImagePath(input.imageTone);
-  }
-  return input.imagePath as string;
-}
-
-async function resolveProductCategoryLocal(
-  db: AbstractPowerSyncDatabase,
-  tenantId: string,
-  inputName: string
+async function assertProductOnDevice(
+  db: Pick<Transaction, "getOptional">,
+  input: { tenantId: string; productId: string }
 ) {
-  const name = validateCategoryName(inputName);
-  const rows = await db.getAll<{ name: string }>(
-    `SELECT name FROM categories
-     WHERE tenant_id = ? AND lower(name) = lower(?) LIMIT 1`,
-    [tenantId, name]
+  const row = await db.getOptional<{ id: string; category: string }>(
+    `SELECT id, category FROM products WHERE id = ? AND tenant_id = ?`,
+    [input.productId, input.tenantId]
   );
-  if (!rows[0]) {
-    throw new Error("Selecciona una categoría válida.");
+  if (!row) {
+    throw new Error(PRODUCT_NOT_ON_DEVICE_MESSAGE);
   }
-  return rows[0].name;
+  return row;
+}
+
+function hasSynced(db: Pick<AbstractPowerSyncDatabase, "currentStatus">) {
+  return db.currentStatus?.hasSynced ?? false;
+}
+
+/**
+ * The count a product is saved with, recorded as an `initial` movement in the
+ * same transaction as the product write: a failed save leaves neither, so a
+ * product is never stored without the stock it was entered with.
+ */
+export type InitialStockInput = { userId: string; delta: number };
+
+function prepareInitialStock(
+  tenantId: string,
+  productId: string,
+  initialStock: InitialStockInput | undefined
+) {
+  return initialStock
+    ? prepareInventoryMovement({
+        tenantId,
+        productId,
+        userId: initialStock.userId,
+        delta: initialStock.delta,
+        reason: "initial",
+      })
+    : null;
 }
 
 export async function createProductLocal(
@@ -62,37 +92,51 @@ export async function createProductLocal(
   input: {
     tenantId: string;
     product: ProductInput;
+    initialStock?: InitialStockInput;
     assertCurrent?: () => void;
   }
 ): Promise<{ productId: string }> {
-  const productId = uuid();
-  const now = nowIso();
-  input.assertCurrent?.();
-  const category = await resolveProductCategoryLocal(
-    db,
+  // Checked here so a row Postgres would reject never enters the upload queue.
+  const product = normalizeProductInput(input.product);
+  const productId = crypto.randomUUID();
+  const initialMovement = prepareInitialStock(
     input.tenantId,
-    input.product.category
+    productId,
+    input.initialStock
   );
-  input.assertCurrent?.();
-  await db.execute(
-    `INSERT INTO products
-      (id, tenant_id, name, price_cents, cost_cents, category, image_path,
-       tracks_inventory, low_stock_threshold, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      productId,
-      input.tenantId,
-      input.product.name,
-      input.product.priceCents,
-      input.product.costCents,
-      category,
-      resolveInputImagePath(input.product),
-      input.product.tracksInventory ? 1 : 0,
-      input.product.lowStockThreshold ?? null,
-      now,
-      now,
-    ]
-  );
+  const now = nowIso();
+  await db.writeTransaction(async (tx) => {
+    const category = await resolveCategoryNameLocal(tx, {
+      tenantId: input.tenantId,
+      name: product.category,
+      hasSynced: hasSynced(db),
+    });
+    input.assertCurrent?.();
+    await tx.execute(
+      `INSERT INTO products
+        (id, tenant_id, name, price_cents, cost_cents, category, image_path,
+         tracks_inventory, low_stock_threshold, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        productId,
+        input.tenantId,
+        product.name,
+        product.priceCents,
+        product.costCents,
+        category,
+        // A new product starts with a placeholder. An image is attached after
+        // the insert, by uploadProductImageLocal.
+        encodePlaceholderImagePath(product.imageTone),
+        product.tracksInventory ? 1 : 0,
+        product.lowStockThreshold ?? null,
+        now,
+        now,
+      ]
+    );
+    if (initialMovement) {
+      await insertInventoryMovement(tx, initialMovement);
+    }
+  });
   return { productId };
 }
 
@@ -102,35 +146,80 @@ export async function updateProductLocal(
     tenantId: string;
     productId: string;
     product: ProductInput;
+    initialStock?: InitialStockInput;
     assertCurrent?: () => void;
   }
 ): Promise<void> {
-  input.assertCurrent?.();
-  const category = await resolveProductCategoryLocal(
-    db,
+  // The editor only picks a placeholder tone; uploaded images change through
+  // uploadProductImageLocal. The tone applies while the row still shows a
+  // placeholder, and an uploaded image is never rewritten here: the editor's
+  // copy of image_path can be older than an image another device uploaded
+  // meanwhile, and writing it back would restore a replaced (deleted) image.
+  // This device's row can be stale too, so the tone may still reach the
+  // server over an image another device uploaded; Postgres keeps the image
+  // (products_keep_latest_edit), and the connector deletes nothing.
+  const product = normalizeProductInput(input.product);
+  const placeholderPath = isPlaceholderImagePath(product.imagePath)
+    ? encodePlaceholderImagePath(product.imageTone)
+    : null;
+  const assignments = [
+    "name = ?",
+    "price_cents = ?",
+    "cost_cents = ?",
+    `image_path = CASE
+       WHEN image_path IS NULL OR image_path LIKE ?
+         THEN coalesce(?, image_path)
+       ELSE image_path
+     END`,
+  ];
+  const params: (string | number | null)[] = [
+    product.name,
+    product.priceCents,
+    product.costCents,
+    placeholderImagePathPattern,
+    placeholderPath,
+  ];
+  // Like updateProductForTenant, only the optional fields the caller sent:
+  // the editor has no low-stock threshold field, and saving it must not
+  // clear a threshold set elsewhere.
+  if ("tracksInventory" in product) {
+    assignments.push("tracks_inventory = ?");
+    params.push(product.tracksInventory ? 1 : 0);
+  }
+  if ("lowStockThreshold" in product) {
+    assignments.push("low_stock_threshold = ?");
+    params.push(product.lowStockThreshold ?? null);
+  }
+  assignments.push("updated_at = ?");
+  params.push(nowIso());
+  const initialMovement = prepareInitialStock(
     input.tenantId,
-    input.product.category
+    input.productId,
+    input.initialStock
   );
-  input.assertCurrent?.();
-  await db.execute(
-    `UPDATE products
-       SET name = ?, price_cents = ?, cost_cents = ?, category = ?,
-           image_path = ?, tracks_inventory = ?, low_stock_threshold = ?,
-           updated_at = ?
-     WHERE id = ? AND tenant_id = ?`,
-    [
-      input.product.name,
-      input.product.priceCents,
-      input.product.costCents,
-      category,
-      resolveInputImagePath(input.product),
-      input.product.tracksInventory ? 1 : 0,
-      input.product.lowStockThreshold ?? null,
-      nowIso(),
-      input.productId,
-      input.tenantId,
-    ]
-  );
+
+  await db.writeTransaction(async (tx) => {
+    const current = await assertProductOnDevice(tx, input);
+    // A category the edit leaves as it was is kept, even when the tenant has
+    // no such category (any more): the editor lists it for this product.
+    const category =
+      product.category === current.category
+        ? current.category
+        : await resolveCategoryNameLocal(tx, {
+            tenantId: input.tenantId,
+            name: product.category,
+            hasSynced: hasSynced(db),
+          });
+    input.assertCurrent?.();
+    await tx.execute(
+      `UPDATE products SET category = ?, ${assignments.join(", ")}
+       WHERE id = ? AND tenant_id = ?`,
+      [category, ...params, input.productId, input.tenantId]
+    );
+    if (initialMovement) {
+      await insertInventoryMovement(tx, initialMovement);
+    }
+  });
 }
 
 export async function archiveProductLocal(
@@ -138,24 +227,30 @@ export async function archiveProductLocal(
   input: { tenantId: string; productId: string; assertCurrent?: () => void }
 ): Promise<void> {
   const now = nowIso();
-  input.assertCurrent?.();
-  await db.execute(
-    `UPDATE products SET archived_at = ?, updated_at = ?
-     WHERE id = ? AND tenant_id = ? AND archived_at IS NULL`,
-    [now, now, input.productId, input.tenantId]
-  );
+  await db.writeTransaction(async (tx) => {
+    await assertProductOnDevice(tx, input);
+    input.assertCurrent?.();
+    await tx.execute(
+      `UPDATE products SET archived_at = ?, updated_at = ?
+       WHERE id = ? AND tenant_id = ? AND archived_at IS NULL`,
+      [now, now, input.productId, input.tenantId]
+    );
+  });
 }
 
 export async function restoreProductLocal(
   db: AbstractPowerSyncDatabase,
   input: { tenantId: string; productId: string; assertCurrent?: () => void }
 ): Promise<void> {
-  input.assertCurrent?.();
-  await db.execute(
-    `UPDATE products SET archived_at = NULL, updated_at = ?
-     WHERE id = ? AND tenant_id = ?`,
-    [nowIso(), input.productId, input.tenantId]
-  );
+  await db.writeTransaction(async (tx) => {
+    await assertProductOnDevice(tx, input);
+    input.assertCurrent?.();
+    await tx.execute(
+      `UPDATE products SET archived_at = NULL, updated_at = ?
+       WHERE id = ? AND tenant_id = ?`,
+      [nowIso(), input.productId, input.tenantId]
+    );
+  });
 }
 
 /**
@@ -177,24 +272,26 @@ export async function uploadProductImageLocal(
 ): Promise<void> {
   const { file, tenantId, productId } = input;
 
-  if (file.size <= 0) {
-    throw new Error("La imagen seleccionada está vacía.");
-  }
-  if (file.size > productImageMaxBytes) {
-    throw new Error("La imagen no puede superar 5MB.");
-  }
-  if (!productImageMimeTypes.some((type) => type === file.type)) {
-    throw new Error("La imagen debe estar en formato JPG o PNG.");
+  const fileError = productImageFileError(file);
+  if (fileError) {
+    throw new Error(fileError);
   }
 
-  const extension = imageExtensionByMimeType[file.type] ?? "jpg";
-  const objectPath = `${tenantId}/products/${productId}/${uuid()}.${extension}`;
+  const objectPath = buildProductImageObjectPath(
+    tenantId,
+    productId,
+    file.type
+  );
 
+  // Checked before uploading, so no object is stored for a row that the
+  // metadata write below could not update.
+  await assertProductOnDevice(db, { tenantId, productId });
   input.assertCurrent?.();
   const { error } = await supabase.storage
     .from(productImagesBucket)
     .upload(objectPath, file, {
       contentType: file.type,
+      cacheControl: productImageCacheControl,
       upsert: false,
     });
 
@@ -212,20 +309,12 @@ export async function uploadProductImageLocal(
   } catch (dbError) {
     // Storage upload already succeeded; we couldn't persist the link in
     // local SQLite. Remove the now-orphaned object so the bucket doesn't
-    // accumulate dead files. Best-effort: log if removal also fails, but
-    // surface the original DB error to the caller. We don't gate on a
+    // accumulate dead files. Best-effort: a failed removal is logged, and the
+    // caller gets the original DB error. We don't gate on a
     // "no rows affected" check because PowerSync's view system can report
     // rowsAffected: 0 even for successful UPDATEs without a RETURNING
     // clause — false positives there would delete just-uploaded images.
-    const { error: removeError } = await supabase.storage
-      .from(productImagesBucket)
-      .remove([objectPath]);
-    if (removeError) {
-      console.error(
-        "[uploadProductImageLocal] orphan cleanup failed after DB error",
-        { objectPath, removeError }
-      );
-    }
+    await removeProductImageObjects(supabase, [objectPath]);
     throw dbError;
   }
 }

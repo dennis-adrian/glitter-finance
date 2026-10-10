@@ -78,6 +78,13 @@
       "when": 1786715768575,
       "tag": "20260814135608_glorious_agent_zero",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790740700010,
+      "tag": "20260930035820_schema_integrity_and_product_field_times",
+      "breakpoints": true
     }
   ]
 }

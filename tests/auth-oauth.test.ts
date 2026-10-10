@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  LOGIN_ERROR_MESSAGES,
+  LOGIN_STATUS_MESSAGES,
+  loginErrorMessage,
+  loginStatusMessage,
+} from "@/lib/auth/login-messages";
+import {
   buildAuthCallbackUrl,
   buildLoginRedirectPath,
   resolveAuthRedirectPath,
@@ -56,9 +62,39 @@ test("rejects external and protocol-relative post-auth redirects", () => {
 test("preserves next when returning an OAuth error to login", () => {
   assert.equal(
     buildLoginRedirectPath(
-      { error: "No se pudo iniciar sesión." },
+      { error: "google_sign_in_failed" },
       "/join/invite-123"
     ),
-    "/login?error=No+se+pudo+iniciar+sesi%C3%B3n.&next=%2Fjoin%2Finvite-123"
+    "/login?error=google_sign_in_failed&next=%2Fjoin%2Finvite-123"
   );
+  assert.equal(
+    buildLoginRedirectPath({ message: "signup_check_email" }, "/"),
+    "/login?message=signup_check_email"
+  );
+  assert.equal(buildLoginRedirectPath({}, "/"), "/login");
+});
+
+test("login banners show only known message codes", () => {
+  assert.equal(
+    loginErrorMessage("google_sign_in_failed"),
+    LOGIN_ERROR_MESSAGES.google_sign_in_failed
+  );
+  assert.equal(
+    loginStatusMessage("signup_check_email"),
+    LOGIN_STATUS_MESSAGES.signup_check_email
+  );
+  for (const code of [
+    undefined,
+    "",
+    "Tu cuenta fue suspendida. Llamá al 555-0100.",
+    "toString",
+    "__proto__",
+    "signup_check_email ",
+  ]) {
+    assert.equal(loginErrorMessage(code), null, String(code));
+    assert.equal(loginStatusMessage(code), null, String(code));
+  }
+  // An error code is not a status code and the other way around.
+  assert.equal(loginStatusMessage("google_sign_in_failed"), null);
+  assert.equal(loginErrorMessage("signup_check_email"), null);
 });

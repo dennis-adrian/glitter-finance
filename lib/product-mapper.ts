@@ -1,9 +1,10 @@
 import type { Product } from "@/lib/types";
+import { toIso } from "@/lib/dates";
 import {
-  getProductImagePublicUrl,
-  isPlaceholderImagePath,
-  placeholderImagePrefix,
-} from "@/lib/product-images";
+  placeholderImageTone,
+  placeholderImageTones,
+} from "@/lib/product-image-config";
+import { getProductImagePublicUrl } from "@/lib/product-images";
 
 type DbProduct = {
   id: string;
@@ -19,34 +20,15 @@ type DbProduct = {
   updatedAt: Date | string;
 };
 
-const tones = ["aurora", "coral", "linen", "violet", "warm"];
-
-function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : value;
-}
-
 function deriveImageTone(seed: string) {
   const total = [...seed].reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return tones[total % tones.length];
+  return placeholderImageTones[total % placeholderImageTones.length];
 }
 
-export function encodePlaceholderImagePath(tone?: string) {
-  return `${placeholderImagePrefix}${tones.includes(tone ?? "") ? tone : "violet"}`;
-}
-
+// Uploaded images (and unknown tones) get a tone derived from the product,
+// which the tile shows when the image cannot load.
 function imageToneFromPath(path: string | null, fallbackSeed: string) {
-  if (!isPlaceholderImagePath(path)) {
-    return deriveImageTone(fallbackSeed);
-  }
-
-  if (path) {
-    const tone = path.slice(placeholderImagePrefix.length);
-    if (tones.includes(tone)) {
-      return tone;
-    }
-  }
-
-  return deriveImageTone(fallbackSeed);
+  return placeholderImageTone(path) ?? deriveImageTone(fallbackSeed);
 }
 
 export function mapDbProductToProduct(product: DbProduct): Product {

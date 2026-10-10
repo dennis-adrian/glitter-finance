@@ -1,30 +1,17 @@
 import * as Sentry from "@sentry/nextjs";
-import {
-  sanitizeSentryBreadcrumb,
-  sanitizeSentryEvent,
-  sanitizeSentrySpan,
-  sanitizeSentryTransaction,
-} from "@/lib/observability/sentry-privacy";
+import { sentryInitOptions } from "@/lib/observability/sentry-options";
 
-const configuredDsn = process.env.NEXT_PUBLIC_SENTRY_DSN?.trim();
-const dsn =
-  configuredDsn ||
-  "https://ebc41c13114ef132f379395e1545a6b9@o4511878224150528.ingest.us.sentry.io/4511878230245376";
+// Stalls are often offline, and the service worker never queues /monitoring.
+// Events are stored in IndexedDB after beforeSend has scrubbed them, and sent
+// when the device is back online or the app next opens.
+const offlineTransport = Sentry.makeBrowserOfflineTransport(
+  Sentry.makeFetchTransport
+);
 
 Sentry.init({
-  dsn,
-  enabled: process.env.NODE_ENV === "production" || Boolean(configuredDsn),
-  environment: process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.NODE_ENV,
-  sendDefaultPii: false,
-  tracesSampleRate: 0.1,
-  dataCollection: {
-    userInfo: false,
-    httpBodies: [],
-  },
-  beforeSend: sanitizeSentryEvent,
-  beforeSendTransaction: sanitizeSentryTransaction,
-  beforeSendSpan: sanitizeSentrySpan,
-  beforeBreadcrumb: sanitizeSentryBreadcrumb,
+  ...sentryInitOptions(process.env.NEXT_PUBLIC_VERCEL_ENV),
+  transport: (options: Parameters<typeof Sentry.makeFetchTransport>[0]) =>
+    offlineTransport({ ...options, flushAtStartup: true }),
 });
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

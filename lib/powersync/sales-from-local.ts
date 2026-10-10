@@ -3,58 +3,33 @@
 // SQLite store: sales, sale_lines, refunds.
 //
 // Mirrors the server-side reconstruction in lib/sales/repository.ts
-// (mapSaleRowsForTenant + mapRefundRows). Kept as a pure function so it can
+// (mapSaleRows + mapRefundRows). Kept as a pure function so it can
 // be called from a watch handler without React glue.
 //
 // Caller supplies display names from synced tenant_users rows (see
 // lib/powersync/tenant-users-from-local.ts).
 
+import type {
+  LocalRow,
+  refunds,
+  saleLines,
+  sales,
+} from "@/lib/db/client-schema";
+import { sortSalesNewestFirst } from "@/lib/sales";
 import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
 
-export type LocalSaleRow = {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  payment_method: string;
-  sale_discount_cents: number;
-  sale_discount_reason: string | null;
-  voided_at: string | null;
-  voided_by_user_id: string | null;
-  created_at: string;
-  client_created_at: string;
-};
-
-export type LocalSaleLineRow = {
-  id: string;
-  sale_id: string;
-  tenant_id: string;
-  product_id: string | null;
-  product_name: string;
-  category: string;
-  quantity: number;
-  unit_price_cents: number;
-  unit_cost_cents: number | null;
-  line_discount_cents: number;
-  line_discount_reason: string | null;
-  line_total_cents: number;
-  created_at: string;
-};
-
-export type LocalRefundRow = {
-  id: string;
-  tenant_id: string;
-  original_sale_id: string;
-  user_id: string;
-  reason: string | null;
-  created_at: string;
-  client_created_at: string;
-};
+export type LocalSaleRow = LocalRow<typeof sales>;
+export type LocalSaleLineRow = LocalRow<typeof saleLines>;
+export type LocalRefundRow = LocalRow<typeof refunds>;
 
 function mapLine(row: LocalSaleLineRow): SaleLine {
   return {
     id: row.id,
-    productId: row.product_id ?? "",
+    productId: row.product_id,
     productName: row.product_name,
+    // The category the product had when it was sold: renaming a category
+    // does not rewrite sales (supabase/manual/
+    // 20260814235910_category_integrity_triggers.sql).
     category: row.category,
     quantity: row.quantity,
     unitPriceCents: row.unit_price_cents,
@@ -116,13 +91,13 @@ export function buildSalesFromLocal(
         clientCreatedAt: row.client_created_at,
         status: "refunded",
         refundOfSaleId: original.id,
+        refundOfSaleUserId: original.userId,
+        refundOfSaleUserName: original.userName,
         refundedAt: row.created_at,
         refundReason: row.reason ?? undefined,
       },
     ];
   });
 
-  return [...completedSales, ...refundSales].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  return sortSalesNewestFirst([...completedSales, ...refundSales]);
 }

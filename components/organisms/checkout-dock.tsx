@@ -1,6 +1,7 @@
 import { ReceiptText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatBs } from "@/lib/money";
+import { countLabel } from "@/lib/plural";
 
 type CheckoutDockProps = {
   cartCount: number;
@@ -24,7 +25,7 @@ export function CheckoutDock({
         onClick={openCart}
         aria-label={
           cartCount
-            ? `Ver carrito, ${cartCount} ${cartCount === 1 ? "producto" : "productos"}`
+            ? `Ver carrito, ${countLabel(cartCount, "producto", "productos")}`
             : "Ver carrito"
         }
         className="relative"
