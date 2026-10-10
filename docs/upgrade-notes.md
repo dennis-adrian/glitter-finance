@@ -15,7 +15,7 @@ README and empty this file for the release after.
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | App environment       | The server now checks at startup that the required variables, `INVITATION_SECRET_KEY` included, are set. Browser Sentry reports only from Vercel production and preview deployments.                                                                                                                                                                                                                                                                                                 |
 | Product categories    | Products now point to their category by id (`products.category_id`, a foreign key to the puesto's `categories` row) instead of by name. `products.category` stays, derived from the id, for v0.7.0 and v0.8.0 devices and for sale lines. Existing products are linked by the category SQL file, run in step 3 right after `db:push` and again at the end of step 6, no longer on the first load of `/`.                                                                             |
-| Database schema       | Three Drizzle migrations: stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times; then the nullable `products.category_id` with its index; then its foreign key.                                                                                                                                                                                                           |
+| Database schema       | Four Drizzle migrations: stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times; then the nullable `products.category_id` with its index; then its foreign key; then the product name cap raised from 120 to 240 characters.                                                                                                                                               |
 | Hand-written SQL      | Six new `supabase/manual/` files: upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, per-field last-write-wins product edits, category renames that win over those edit times, products stored with their category's spelling, and products linked to their category by id. The last one replaces the name-based category triggers (v0.8.0's and the two before it); it runs before the app deploy and again at the end of step 6. |
 | PowerSync             | Every sync stream now also requires a `tenant_users` membership, so the streams must be redeployed.                                                                                                                                                                                                                                                                                                                                                                                  |
 | Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                                                                                                                  |
@@ -130,7 +130,9 @@ SELECT
     AS movements_breaking_sign_rules;
 ```
 
-Every column must be `0`. For `long_products`, find the rows and shorten the
+Every column must be `0`. `long_products` checks names against 120
+characters, not 240: the first migration of step 3 adds the 120 cap, and
+only the fourth raises it. For `long_products`, find the rows and shorten the
 names or categories in the app first:
 
 ```sql
@@ -176,9 +178,12 @@ SELECT 'column already exists: products.' || attname FROM pg_attribute
 WHERE attrelid = 'public.products'::regclass AND attname IN ('field_updated_at','category_id') AND NOT attisdropped;
 ```
 
-If it reports a name taken by an index with the same definition, drop that
-index before `db:push`: the migration creates it again. For any other row,
-stop and compare with the migration before pushing.
+It is written for an environment on v0.8.0, whose migration list does not
+show `20260930035820`. On one that already has that migration, it lists that
+migration's own objects, which is expected. If it reports a name taken by an
+index with the same definition, drop that index before `db:push`: the
+migration creates it again. For any other row, stop and compare with the
+migration before pushing.
 
 Then see what the category SQL of step 3 will do to the categories. It links
 every product to the category of its name and creates the ones that are
@@ -221,7 +226,8 @@ None of these blocks the release:
    - `supabase/migrations/20260930035820_schema_integrity_and_product_field_times.sql`:
      `CHECK` constraints for blank names, sale line totals and the stock
      movement sign rules (an `initial` count may now be 0), product names up
-     to 120 characters and categories up to 60, `NOT NULL` on
+     to 120 characters (the fourth migration raises it to 240) and
+     categories up to 60, `NOT NULL` on
      `sale_lines.product_id`, index changes (3 dropped, 6 created) and
      `products.field_updated_at`, the per-column edit times that file 3 of
      step 6 keeps. Existing products start with none, and devices ignore the
@@ -236,13 +242,17 @@ None of these blocks the release:
      foreign key from `(category_id, tenant_id)` to the category's
      `(id, tenant_id)`, which refuses to delete a category a product uses.
      `NULL` ids are not checked, so it adds without touching existing rows.
+   - `supabase/migrations/20261010121713_product_name_240_chars.sql`: raises
+     the product name cap from 120 to 240 characters. It drops and re-adds
+     `products_name_length_check`, which briefly locks `products` like the
+     first migration.
 
    An environment that already runs a `develop` build has the first one, and
-   `db:push` applies only the other two. An environment still on v0.7.0 also
+   `db:push` applies only the others. An environment still on v0.7.0 also
    gets `20260814135608_glorious_agent_zero.sql`, the `categories` table.
 
    From this push on, a device still on v0.8.0 cannot save a product name
-   longer than 120 characters (see
+   longer than 240 characters (see
    [What users may notice](#what-users-may-notice)).
 
    The first migration holds an exclusive lock on `products`, `sale_lines`,
@@ -599,8 +609,8 @@ Right After Signing In** on installed production PWAs as well.
   loses to a refund is reverted at the next sync. Nothing is lost unless the
   user signs out from **Ajustes** on the old build while uploads wait, which
   deletes them (see step 6).
-- A device still on v0.8.0 that saves a product name longer than 120
-  characters (v0.8.0 sets no limit; this release's editor stops at 120)
+- A device still on v0.8.0 that saves a product name longer than 240
+  characters (v0.8.0 sets no limit; this release's editor stops at 240)
   fails that upload with `23514` once step 3's migrations are in. Its sync
   pill shows an error, and every later upload from it, sales included, waits
   behind that one. v0.8.0 cannot discard it: update the app, then use

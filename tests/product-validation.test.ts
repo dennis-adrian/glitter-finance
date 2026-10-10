@@ -81,7 +81,7 @@ test("products are trimmed and keep optional-field presence", () => {
 test("values Postgres would reject or that overflow are refused", () => {
   const invalid: [Partial<Record<keyof ProductInput, unknown>>, RegExp][] = [
     [{ name: "   " }, /nombre/],
-    [{ name: "x".repeat(PRODUCT_NAME_MAX_LENGTH + 1) }, /120/],
+    [{ name: "x".repeat(PRODUCT_NAME_MAX_LENGTH + 1) }, /240/],
     [{ categoryId: "" }, /Elegí una categoría válida/],
     [{ categoryId: "Stickers" }, /Elegí una categoría válida/],
     [{ categoryId: 42 }, /Elegí una categoría válida/],

@@ -203,7 +203,7 @@ export const products = pgTable(
     // PRODUCT_NAME_MAX_LENGTH and PRODUCT_CATEGORY_MAX_LENGTH in
     // lib/products.ts. PowerSync uploads product rows straight through
     // PostgREST, so the server actions are not the only writers.
-    check("products_name_length_check", sql`char_length(${table.name}) <= 120`),
+    check("products_name_length_check", sql`char_length(${table.name}) <= 240`),
     check(
       "products_category_length_check",
       sql`char_length(${table.category}) <= 60`

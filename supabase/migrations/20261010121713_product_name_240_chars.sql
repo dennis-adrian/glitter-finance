@@ -1,0 +1,2 @@
+ALTER TABLE "products" DROP CONSTRAINT "products_name_length_check";--> statement-breakpoint
+ALTER TABLE "products" ADD CONSTRAINT "products_name_length_check" CHECK (char_length("products"."name") <= 240);
