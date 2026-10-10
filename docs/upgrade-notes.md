@@ -11,17 +11,17 @@ README and empty this file for the release after.
 
 ## What changes for operators
 
-| Area                  | Change                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App environment       | The server now checks at startup that the required variables, `INVITATION_SECRET_KEY` included, are set. Browser Sentry reports only from Vercel production and preview deployments.                                                                                                                                                                                                                                                                 |
-| Product categories    | Products now point to their category by id (`products.category_id`, a foreign key to the puesto's `categories` row) instead of by name. `products.category` stays, derived from the id, for v0.7.0 and v0.8.0 devices and for sale lines. Existing products are linked by the last SQL file of step 6, no longer on the first load of `/`.                                                                                                           |
-| Database schema       | Three Drizzle migrations: stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times; then the nullable `products.category_id` with its index; then its foreign key.                                                                                                                                                                           |
-| Hand-written SQL      | Six new `supabase/manual/` files: upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, per-field last-write-wins product edits, category renames that win over those edit times, products stored with their category's spelling, and products linked to their category by id. The last one replaces the name-based category triggers (v0.8.0's and the two before it) and runs after the app deploy. |
-| PowerSync             | Every sync stream now also requires a `tenant_users` membership, so the streams must be redeployed.                                                                                                                                                                                                                                                                                                                                                  |
-| Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                                                                                  |
-| Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                                                                                                                                     |
-| App screens           | A responsive layout for phones, tablets and desktops, a new order and checkout flow, and Reportes in the main navigation (see [What users may notice](#what-users-may-notice)). Nothing to configure.                                                                                                                                                                                                                                                |
-| Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                                                                                                                                          |
+| Area                  | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| App environment       | The server now checks at startup that the required variables, `INVITATION_SECRET_KEY` included, are set. Browser Sentry reports only from Vercel production and preview deployments.                                                                                                                                                                                                                                                                                                 |
+| Product categories    | Products now point to their category by id (`products.category_id`, a foreign key to the puesto's `categories` row) instead of by name. `products.category` stays, derived from the id, for v0.7.0 and v0.8.0 devices and for sale lines. Existing products are linked by the category SQL file, run in step 3 right after `db:push` and again at the end of step 6, no longer on the first load of `/`.                                                                             |
+| Database schema       | Three Drizzle migrations: stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times; then the nullable `products.category_id` with its index; then its foreign key.                                                                                                                                                                                                           |
+| Hand-written SQL      | Six new `supabase/manual/` files: upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, per-field last-write-wins product edits, category renames that win over those edit times, products stored with their category's spelling, and products linked to their category by id. The last one replaces the name-based category triggers (v0.8.0's and the two before it); it runs before the app deploy and again at the end of step 6. |
+| PowerSync             | Every sync stream now also requires a `tenant_users` membership, so the streams must be redeployed.                                                                                                                                                                                                                                                                                                                                                                                  |
+| Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                                                                                                                  |
+| Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                                                                                                                                                                     |
+| App screens           | A responsive layout for phones, tablets and desktops, a new order and checkout flow, and Reportes in the main navigation (see [What users may notice](#what-users-may-notice)). Nothing to configure.                                                                                                                                                                                                                                                                                |
+| Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                                                                                                                                                                          |
 
 ## Once, before the first environment
 
@@ -141,8 +141,9 @@ WHERE char_length(name) > 120 OR char_length(category) > 60;
 Any other non-zero count means bad data in a financial or stock record: stop
 and investigate before pushing.
 
-Then see what step 6's last file will do to the categories. It links every
-product to the category of its name and creates the ones that are missing:
+Then see what the category SQL of step 3 will do to the categories. It links
+every product to the category of its name and creates the ones that are
+missing:
 
 ```sql
 WITH p AS (
@@ -166,8 +167,9 @@ SELECT
 None of these blocks the release:
 
 - `products_without_category`: products whose name has no category yet. The
-  file gives them one, except that v0.7.0's names Pegatina(s), Lámina(s) and
-  Pins join Stickers, Prints and Pines when the puesto has those.
+  file gives them one. v0.7.0's old names Pegatina(s), Lámina(s) and Pins go
+  to Stickers, Prints and Pines, which the file creates if the puesto lacks
+  them, unless the puesto already has a category with the old name (in any case).
 - `names_cut_to_40`: their new category gets the first 40 characters of the
   name. To avoid that, move those products to another category in the app
   first.
@@ -189,8 +191,8 @@ None of these blocks the release:
    - `supabase/migrations/20261010021758_product_category_id.sql`: the
      nullable `products.category_id`, its index, and the unique
      `(id, tenant_id)` on `categories` that the foreign key needs. The old
-     app ignores the column; every product keeps `NULL` there until step 6's
-     last file links it.
+     app ignores the column; every product keeps `NULL` there until item 3
+     links it.
    - `supabase/migrations/20261010022414_product_category_fk.sql`: the
      foreign key from `(category_id, tenant_id)` to the category's
      `(id, tenant_id)`, which refuses to delete a category a product uses.
@@ -219,6 +221,36 @@ None of these blocks the release:
       `powersync_role` can read the new table (the query is under
       [PowerSync setup](../README.md#powersync-setup)); if it returns
       `false`, run `GRANT SELECT ON public.categories TO powersync_role;`.
+
+3. Right after that, before the app deploy of step 5, run
+   [`supabase/manual/20261009120000_product_category_ids.sql`](../supabase/manual/20261009120000_product_category_ids.sql),
+   the file that links products to their category by id. It runs again as
+   the last file of step 6, but does not need that step's files 1 to 5.
+   - It installs the id triggers: they resolve the category name that
+     v0.7.0 and v0.8.0 devices send, creating a category that is missing;
+     derive `products.category` from the id; rename a category's products
+     by id without touching `updated_at`; and refuse to move a category to
+     another puesto (`23514`). It grants `authenticated` what the uploads
+     need. It retires the name-based triggers of item 2's `20260814235910`:
+     the foreign key now refuses to delete a category in use, with `23503`,
+     as that trigger did. Then it links every existing product to its
+     category (see step 2's last query).
+   - It must run before the new app is deployed. That app writes
+     `category_id`, and an id the server does not have (a category whose
+     create lost to another device's same name, or one deleted on another
+     device) fails the foreign key with `23503` without these triggers,
+     which holds every later upload from that device. With them, such an id
+     resolves by the category's name.
+   - The old app keeps working with it: v0.8.0 sends and reads only the
+     name, and the triggers keep the name in step with the id.
+   - It runs in one transaction with a 5 s `lock_timeout`, and rolls back if
+     another session holds `products` or `categories` or if any of its
+     checks fails; just run it again. While it runs, writes to both tables
+     wait, and so do reads, until it commits (well under a second at current
+     sizes).
+   - It rewrites every product row once, so every device, old build
+     included, downloads all the products again at its next sync. No stream
+     change is needed.
 
 ### 4. PowerSync Sync Streams
 
@@ -250,9 +282,9 @@ preview, and on production before merging.
 
 The new app reads `products.field_updated_at` and `products.category_id` when
 `/` loads, so it fails on a database without them. It also writes
-`category_id` whenever it files a product under a category, and tolerates
-products that have none: until step 6's last file links them, it files them
-under the category of the same name. It also writes an `initial`
+`category_id` whenever it files a product under a category, which is why
+step 3's category SQL comes first: an id the server lacks then resolves by
+name instead of holding the device's uploads. It also writes an `initial`
 stock movement of 0 when tracking is switched on with the count left blank,
 and the old constraint rejects it (`23514`). A device that uploads one before
 the migration shows a red sync pill, and every later upload from it (sales
@@ -325,26 +357,20 @@ file run on its own can put back what a newer one replaced.
    name in another case) counted for no category: that category could be
    renamed or deleted without it. It must run after files 3 and 4.
 6. [`supabase/manual/20261009120000_product_category_ids.sql`](../supabase/manual/20261009120000_product_category_ids.sql),
-   last: products reference their category by id. It installs the id
-   triggers (they resolve the category name that v0.7.0 and v0.8.0 devices
-   send, creating a category that is missing; derive `products.category` from
-   the id; rename a category's products by id without touching `updated_at`;
-   and refuse to move a category to another puesto, `23514`) and the grants
-   for `authenticated`. It retires the name-based triggers of step 3's
-   `20260814235910` and of files 4 and 5: the foreign key now refuses to
-   delete a category in use, with `23503`. Then it links every existing
-   product to its category (see step 2's last query). It runs in one
-   transaction with a 5 s `lock_timeout`, and rolls back if another session
-   holds `products` or `categories` or if any of its checks fails; just run
-   it again.
-   - It must run after files 3 to 5 and after the app deploy. Re-running
-     `20260814235910` or files 4 or 5 puts the name triggers back: run this
-     file after them again.
-   - While it runs, writes to `products` and `categories` wait. On its first
-     run reads wait too, until it commits (well under a second at current
-     sizes), so run it outside selling hours.
-   - It rewrites every product row once, so every device downloads all the
-     products again at its next sync. No stream change is needed.
+   again, right after file 5: step 3 ran it already, and files 4 and 5 put
+   name-based triggers back next to its id triggers (until this run, a
+   category rename also stamps its products' `updated_at`). This run
+   retires them again, links any product still without an id and checks the
+   result. Products are already linked, so it rewrites none.
+   - If it is skipped, step 7's `"20261009120000"` and `"20260814235910"`
+     markers read `false` (file 4 replaces the functions of
+     `20260814235910` but not the delete trigger step 3's run dropped). Run
+     this file again; no older file needs to run first.
+   - Re-running `20260814235910` or files 4 or 5 later puts the name
+     triggers back too: run this file after them again.
+   - It drops those triggers, so reads of `products` and `categories` wait
+     until it commits, as in step 3 (well under a second). If it rolls back
+     on its 5 s `lock_timeout`, run it again.
 
 An environment that has not had every older `supabase/manual/` file must run
 those first, in order (see
@@ -359,10 +385,12 @@ In the SQL editor:
    table without RLS, and every marker column `true`. A `false` marker names a
    file that has not been run, or that an older file run after it undid; run
    that file and every later one, in order. The `"20261009120000"` column is
-   new: it checks step 6's last file, and reads `false` while any product has
-   no `category_id`. The `"20260814235910"`, `"20260930120000"` and
-   `"20260930130000"` columns also read `true` once that file has replaced
-   their triggers.
+   new: it checks the category SQL of steps 3 and 6, and reads `false` while
+   any product has no `category_id` or while a name-based category trigger is
+   back (step 6's run of it was skipped, or an older file ran after it;
+   `"20260814235910"` then usually reads `false` too). Run that file again.
+   The `"20260814235910"`, `"20260930120000"` and `"20260930130000"` columns
+   also read `true` once that file has replaced their triggers.
 2. Check the category grants and links. The first query must return `0`, the
    second `true`:
 
@@ -511,13 +539,14 @@ Right After Signing In** on installed production PWAs as well.
     them as chips, with **Nueva categoría** at the end.
 - Products now belong to their category by id. A rename keeps every product
   in the category, on every device, offline ones included; sales keep the
-  category they were sold under. Until step 6's last file runs, products
-  saved before this release show under the category of their name.
-- When step 6's last file runs, every device downloads all its products again
-  at its next sync, which may take a moment on a slow connection. Products
-  filed under "Todos" move to "Sin categoría", and products whose category
-  name is over 40 characters (v0.8.0 created no category for them) get one
-  named with its first 40.
+  category they were sold under.
+- When step 3's category SQL runs, every device downloads all its products
+  again at its next sync, which may take a moment on a slow connection.
+  Products filed under "Todos" move to "Sin categoría", and products whose
+  category name is over 40 characters (v0.8.0 created no category for them)
+  get one named with its first 40. Products filed under v0.7.0's old names
+  Pegatina(s), Lámina(s) or Pins go to Stickers, Prints or Pines, created if
+  the puesto has none, unless the puesto has a category with the old name.
 - When two devices offline create the same category, rename one to a name
   the other has just created, rename one the other has just deleted, or one
   deletes a category the other has just filed a product under, the change
@@ -526,8 +555,11 @@ Right After Signing In** on installed production PWAs as well.
   whose create was dropped. A product filed under a category whose create
   was dropped joins the puesto's category of the same name; a dropped rename
   leaves its products in the category, under its name on the server.
-- A device still on v0.7.0 or v0.8.0 that files a product under a category
-  deleted on another device brings that category back. A v0.8.0 device that
+- A device still on v0.7.0 or v0.8.0 that files a new product under a
+  category deleted on another device brings that category back. Moving an
+  existing product there is ignored, and the product stays in its category,
+  unless it is one of v0.7.0's four fixed categories (Stickers, Prints,
+  Pines, Accesorios), which come back. A v0.8.0 device that
   deletes a category in use, or creates or renames one to a name the puesto
   already has, holds its uploads until it is updated, as on v0.8.0 today.
 - The app now addresses users as vos on every screen (before, only the

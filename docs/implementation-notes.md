@@ -51,10 +51,14 @@ triggers in
 That file replaces the name-based triggers of `20260814235910`,
 `20260930120000` and `20260930130000`, which may already be on an environment
 and so are not edited: it drops their triggers and functions, and must run
-again after any re-run of them. `category_id` stays nullable (see the end
-condition below). Until the file has linked every product, the app files a
-product without an id under the category of the same name
-(`effectiveCategoryId` in `lib/products.ts`).
+again after any re-run of them. It needs none of the later manual files, so
+an upgrade runs it right after `db:push`, before the app build that writes
+`category_id` is deployed (without its triggers, an id the server lacks fails
+the FK with 23503 and holds that device's uploads), and again after
+`20260930130000` (`docs/upgrade-notes.md`, steps 3 and 6). `category_id`
+stays nullable (see the end condition below). Until the file has linked every
+product, the app files a product without an id under the category of the
+same name (`effectiveCategoryId` in `lib/products.ts`).
 
 Invariants:
 
@@ -112,8 +116,10 @@ Mixed fleet (v0.7.0, v0.8.0 and this build side by side):
   uploads the categories PATCH, then products PATCHes with the new name: the
   cascade has already renamed those products, and the name resolves to the
   same id, so nothing moves.
-- A v0.7.0 or v0.8.0 product filed under a category another device deleted
-  brings that category back (I2).
+- A new v0.7.0 or v0.8.0 product filed under a category another device
+  deleted brings that category back (I2). Moving an existing product there
+  is ignored, and the product keeps its category (I3), unless the name is one
+  of v0.7.0's four fixed categories, which is re-created.
 - v0.7.0 and v0.8.0 treat every 23xxx error as fatal and cannot discard an
   upload. A v0.8.0 create or rename that collides with a server name (23505),
   or a delete of a category in use (23503), holds that device's queue until
@@ -156,6 +162,7 @@ Deferred items that are acceptable for now but should be revisited.
 ### Categories
 
 - **Products keep a derived name.** `products.category` and the name resolution in `products_category_resolve_id` are there only for v0.7.0 and v0.8.0 clients and the uploads they have queued. Once none remain (see the end condition under Categories by id), `category_id` can become `NOT NULL` and the name column can go.
-- **Older clients can bring a deleted category back.** A v0.7.0 or v0.8.0 write that names a category another device deleted re-creates it, since the server cannot tell the name is stale. Deleting it again once those devices have updated is the way out.
+- **Older clients can bring a deleted category back.** A new product from a v0.7.0 or v0.8.0 client that names a category another device deleted re-creates it, since the server cannot tell the name is stale. Deleting it again once those devices have updated is the way out.
+- **Older clients' moves into a deleted category are dropped.** A v0.7.0 or v0.8.0 edit that only changes an existing product's category name to a category another device deleted is ignored (I3): the product keeps its category, and the device gets no error. Only v0.7.0's four fixed categories are re-created. Resolving such names would also take stale names from replayed uploads as moves.
 - **Undone category changes are silent.** When the connector skips a category change that lost to another device's (I6), the device only logs it to the console; the next checkpoint puts the server's categories back without a toast.
 - **Existing catalogs are linked in SQL, not on load.** The manual file links every product to its category in the same transaction as its triggers, creating the categories that are missing, so `/` no longer backfills categories (`ensureCategoriesForExistingProducts` is gone). Until the file runs, products without an id are grouped by their name in the filters and the editor.

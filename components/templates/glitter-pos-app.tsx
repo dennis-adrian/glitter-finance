@@ -41,6 +41,7 @@ import {
 import { SaleCompleteScreen } from "@/components/screens/sale-complete-screen";
 import {
   ProductEditor,
+  type ProductEditorLeaveGuard,
   type ProductEditorSaveInput,
 } from "@/components/screens/product-editor";
 import { ProductsScreen } from "@/components/screens/products-screen";
@@ -107,7 +108,7 @@ import {
   type PrimaryView,
   type View,
 } from "@/lib/views";
-import { useAppRoute } from "@/lib/hooks/use-app-route";
+import { guardHistoryBack, useAppRoute } from "@/lib/hooks/use-app-route";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
 import { useVirtualKeyboard } from "@/lib/hooks/use-virtual-keyboard";
 import type { UserTenantContext } from "@/lib/auth/tenant-context";
@@ -204,6 +205,11 @@ type GlitterPosAppProps = {
   initialCategories: Category[];
   initialProducts: Product[];
   initialSales: Sale[];
+  /**
+   * Where initialSales start when '/' sent only recent history (with
+   * PowerSync, until the device's first sync); null when they are all of it.
+   */
+  initialSalesSince: string | null;
   initialTenantMembers: TenantMember[];
   /** Null without a tenant. */
   initialInventory: InventorySnapshot | null;
@@ -216,6 +222,7 @@ export function GlitterPosApp({
   initialCategories,
   initialProducts,
   initialSales,
+  initialSalesSince,
   initialTenantMembers,
   initialInventory,
   activeInvitation,
@@ -402,6 +409,12 @@ export function GlitterPosApp({
     localLedgerLoaded.movements && localLedgerLoaded.sales
       ? null
       : openingStock;
+  // Likewise, `sales` start at initialSalesSince until the sales watch reads
+  // the synced local store.
+  const salesHistoryStart =
+    localLedgerLoaded.sales || !initialSalesSince
+      ? null
+      : Date.parse(initialSalesSince);
   const stockByProduct = useMemo(
     () => computeStockByProduct(inventoryMovements, sales, stockOpening),
     [inventoryMovements, sales, stockOpening]
@@ -468,11 +481,33 @@ export function GlitterPosApp({
     setEditorSession(editorSessions.next());
   }, [editorRouteKey, editorSessions]);
 
-  // Route states that can't render: the order sheet on desktop (the order
-  // panel is always visible there) and a confirmation with no sale behind
-  // it (e.g. after a reload).
+  // The open editor's unsaved-changes check: leaving it through the nav or
+  // the browser's (or phone's) Back asks first, like its back button.
+  const editorLeaveGuardRef = useRef<ProductEditorLeaveGuard | null>(null);
+  const registerEditorLeaveGuard = useCallback(
+    (guard: ProductEditorLeaveGuard | null) => {
+      editorLeaveGuardRef.current = guard;
+    },
+    []
+  );
   useEffect(() => {
-    if (view === "cart" && isDesktop) {
+    if (editorRouteKey === null) return;
+    return guardHistoryBack(() => editorLeaveGuardRef.current);
+  }, [editorRouteKey]);
+
+  const orderEmpty = cartCount === 0;
+  const orderEmptyRef = useRef(orderEmpty);
+  useLayoutEffect(() => {
+    orderEmptyRef.current = orderEmpty;
+  }, [orderEmpty]);
+
+  // Route states that can't render: the order sheet on desktop (the order
+  // panel is always visible there) or reached with an empty order (a stale
+  // entry, e.g. Back after a sale or a reload before the draft order
+  // loaded), and a confirmation with no sale behind it (e.g. after a
+  // reload). Emptying the open sheet keeps it open: only arriving counts.
+  useEffect(() => {
+    if (view === "cart" && (isDesktop || orderEmptyRef.current)) {
       navigate({ view: "sell" }, { replace: true });
     } else if (view === "saleComplete" && !completedSale) {
       navigate({ view: "sell" }, { replace: true });
@@ -1038,7 +1073,13 @@ export function GlitterPosApp({
   }
 
   function goToPrimary(next: PrimaryView) {
-    navigate({ view: next });
+    const go = () => navigate({ view: next });
+    const confirmLeave = editorLeaveGuardRef.current;
+    if (confirmLeave) {
+      confirmLeave(go);
+    } else {
+      go();
+    }
   }
 
   async function runProductWrite(
@@ -1656,7 +1697,11 @@ export function GlitterPosApp({
         removeFromCart,
         setLineDiscount,
         clearCart: handleClearCart,
-        charge: () => navigate({ view: "checkout" }),
+        // From the order sheet, checkout takes its place in history: Back
+        // from checkout or the sale's confirmation returns to Vender, never
+        // to a sheet emptied by the sale.
+        charge: () =>
+          navigate({ view: "checkout" }, { replace: view === "cart" }),
       }}
       orderSheetOpen={orderSheetOpen}
       openOrderSheet={() => navigate({ view: "cart" })}
@@ -1696,6 +1741,7 @@ export function GlitterPosApp({
         products={activeProducts}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
+        salesHistoryStart={salesHistoryStart}
       />
     ),
     sales: salesScreen,
@@ -1762,7 +1808,8 @@ export function GlitterPosApp({
       <SaleCompleteScreen
         sale={completedSale}
         storeName={tenantContext.tenant?.name}
-        newSale={() => navigate({ view: "sell" }, { replace: true })}
+        // Back to the Vender entry below, so sales don't stack entries.
+        newSale={() => back({ view: "sell" })}
         openSale={openSaleDetail}
         notify={showToast}
       />
@@ -1784,6 +1831,7 @@ export function GlitterPosApp({
         initialMovement={editorInitialMovementState}
         onInventoryMovement={handleInventoryMovement}
         back={closeEditor}
+        registerLeaveGuard={registerEditorLeaveGuard}
         pendingWrite={editorPendingWrite(productWrite, editorSession)}
         createCategory={handleCreateCategory}
         save={handleSaveProduct}

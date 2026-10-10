@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import {
   evaluateCashTender,
+  isDiscountPresetPressed,
   suggestCashAmounts,
 } from "@/components/screens/checkout-screen.helpers";
 
@@ -293,24 +294,29 @@ export function CheckoutScreen({
               Descuento
             </h2>
             <div className="grid grid-cols-4 gap-2">
-              {DISCOUNT_PRESETS_CENTS.map((value) => (
-                <Button
-                  key={value}
-                  type="button"
-                  size="sm"
-                  variant={
-                    discount === value && !customOpen ? "default" : "outline"
-                  }
-                  aria-pressed={discount === value && !customOpen}
-                  className="h-10 tabular-nums"
-                  onClick={() => {
-                    setCustomOpen(false);
-                    applyDiscount(discount === value ? 0 : value);
-                  }}
-                >
-                  {formatBs(value, true)}
-                </Button>
-              ))}
+              {DISCOUNT_PRESETS_CENTS.map((value) => {
+                const pressed = isDiscountPresetPressed(
+                  discount,
+                  value,
+                  customOpen
+                );
+                return (
+                  <Button
+                    key={value}
+                    type="button"
+                    size="sm"
+                    variant={pressed ? "default" : "outline"}
+                    aria-pressed={pressed}
+                    className="h-10 tabular-nums"
+                    onClick={() => {
+                      setCustomOpen(false);
+                      applyDiscount(pressed ? 0 : value);
+                    }}
+                  >
+                    {formatBs(value, true)}
+                  </Button>
+                );
+              })}
               <Button
                 type="button"
                 size="sm"

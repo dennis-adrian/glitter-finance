@@ -3,16 +3,24 @@
 --     index, categories_id_tenant_id_unique) and
 --   20261010022414_product_category_fk.sql (the composite FK; a category
 --     in use cannot be deleted),
--- and after every earlier hand-written file, in particular
--- 20260814235900_categories_rls.sql, 20260814235910_category_integrity_triggers.sql,
--- 20260926130100_products_last_write_wins.sql,
--- 20260930120000_category_triggers_follow_latest_edit.sql and
--- 20260930130000_products_use_category_spelling.sql, in the Supabase SQL
--- editor, as the last step of the release, after the app build that reads
--- and writes category_id is deployed. Until it runs, products written by
--- older clients have no category_id, and that build files them under their
--- category's name. The whole file runs in one transaction and can be
--- re-run; a second run changes nothing.
+-- and after 20260814235900_categories_rls.sql and
+-- 20260814235910_category_integrity_triggers.sql, in the Supabase SQL
+-- editor. It does not need the later files (20260926120000 to
+-- 20260930130000), and the v0.8.0 app keeps working with it. On an
+-- environment upgrading from v0.8.0 it runs twice (docs/upgrade-notes.md,
+-- steps 3 and 6):
+--   * right after db:push, before the app build that writes category_id is
+--     deployed. Without it, an id the server lacks (a category whose create
+--     lost to another device's, or one deleted on another device) fails the
+--     FK with 23503 and holds that device's uploads; with it, the id
+--     resolves by name;
+--   * again as the last step of the release, after
+--     20260926130100_products_last_write_wins.sql,
+--     20260930120000_category_triggers_follow_latest_edit.sql and
+--     20260930130000_products_use_category_spelling.sql: the last two put
+--     name-based triggers back.
+-- The whole file runs in one transaction and can be re-run; run twice in a
+-- row, the second run changes nothing.
 --
 -- Supersedes the name-based category triggers of 20260814235910,
 -- 20260930120000 and 20260930130000, which may have shipped and are
@@ -43,8 +51,10 @@
 --   * v0.8.0 sends any of the tenant's category names. Its rename uploads
 --     the categories PATCH and then products PATCHes with the new name: the
 --     cascade has already moved the text, and the name resolves to the same
---     id. A product it files under a category deleted on another device
---     brings that category back.
+--     id. A new product it files under a category deleted on another
+--     device brings that category back (I2); moving an existing product
+--     there is ignored and the product keeps its category (I3), unless the
+--     name is one of v0.7.0's four fixed categories.
 --   * A v0.7.0 or v0.8.0 delete of a category still in use fails with 23503
 --     (the FK), as the name-based trigger did.
 --
@@ -66,11 +76,12 @@
 -- any case, the rails' show-everything filter) files the product under
 -- 'Sin categoría'.
 --
--- Locking: writes to products and categories wait while it runs. The first
--- run also makes reads of both tables wait until it commits, because
--- dropping a trigger locks its table; re-runs skip the drops. lock_timeout
--- makes it fail fast, and roll back, if another session holds those tables;
--- just run it again.
+-- Locking: writes to products and categories wait while it runs. A run that
+-- drops name-based triggers (the first, and one after an older file put them
+-- back) also makes reads of both tables wait until it commits, because
+-- dropping a trigger locks its table; other re-runs skip the drops.
+-- lock_timeout makes it fail fast, and roll back, if another session holds
+-- those tables; just run it again.
 --
 -- Rules mirrored in TypeScript (keep them in step):
 --   a product's category is a category of its tenant
@@ -372,10 +383,10 @@ DROP FUNCTION IF EXISTS public.products_use_category_spelling();
 
 -- 6. Backfill through the same triggers (one normalization implementation).
 --    updated_at is untouched (I4); every updated row is re-sent by PowerSync.
---    products_keep_latest_edit is off for these statements only: it would
---    revert them on a row whose updated_at is older than its created_at
---    (a column's time defaults to created_at), and these writes are not
---    edits to judge.
+--    products_keep_latest_edit (20260926130100), where installed, is off for
+--    these statements only: it would revert them on a row whose updated_at
+--    is older than its created_at (a column's time defaults to created_at),
+--    and these writes are not edits to judge.
 DO $$
 BEGIN
   IF EXISTS (
@@ -424,7 +435,8 @@ BEGIN
   END IF;
 END $$;
 
--- 7. Verify. Any failure rolls the whole file back.
+-- 7. Verify. Any failure rolls the whole file back. Checks nothing that only
+--    the later files install, so it also passes on the v0.8.0 state.
 DO $$
 DECLARE
   v_count bigint;

@@ -84,8 +84,8 @@ Expected:
 
 ## Offline PWA Relaunch
 
-1. Launch the installed PWA online and wait for synced state. Scroll Sell
-   Mode so every product photo has loaded once.
+1. Launch the installed PWA online and wait for synced state. Scroll Vender
+   so every product photo has loaded once.
 2. Close the PWA.
 3. Enable airplane mode.
 4. Relaunch the installed PWA.
@@ -96,7 +96,7 @@ Expected:
 
 Expected:
 
-- Steps 4 and 5 open Sell Mode from the saved app shell and local PowerSync
+- Steps 4 and 5 open Vender from the saved app shell and local PowerSync
   data, not the "Sin conexión" screen, with the product photos seen in step
   1. Neither the shell nor the PowerSync SQLite files expire.
 - Step 6 shows the "Sin conexión" screen: signing out removed the saved app
@@ -110,16 +110,16 @@ it online between signing in (or switching accounts) and the airplane mode
 relaunch that follows.
 
 1. In the installed PWA, sign in with email and password. Wait for synced
-   state and leave Sell Mode on screen for a few seconds.
+   state and leave Vender on screen for a few seconds.
 2. Close the PWA, enable airplane mode and relaunch it.
-3. Disable airplane mode and open the PWA. In Settings, under "Tus puestos",
+3. Disable airplane mode and open the PWA. In Más, under "Tus puestos",
    switch to another account (or create one) and wait for synced state.
 4. Close the PWA, enable airplane mode and relaunch it.
 5. Sign out, then repeat steps 1 and 2 signing in with Google.
 
 Expected:
 
-- Steps 2, 4 and 5 open Sell Mode offline for the account just signed in or
+- Steps 2, 4 and 5 open Vender offline for the account just signed in or
   switched to, not the "Sin conexión" screen. The PWA saves its app shell
   once the local data is ready, so no online relaunch is needed first.
 
@@ -135,7 +135,7 @@ Expected:
 
 Expected:
 
-- Sell Mode opens offline with its normal styling and works (add to cart,
+- Vender opens offline with its normal styling and works (add to cart,
   record a cash sale), now running the new build.
 - If the update could not refresh the saved app shell (network lost during
   the update, a 408/429/5xx, or "/" redirecting to the login screen because

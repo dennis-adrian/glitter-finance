@@ -16,7 +16,10 @@ import { getRequestOrigin } from "@/lib/request-origin";
  * and Reports ("Esta semana", "Este mes"), and far longer than the void
  * window, so stock counts a sale that can still be voided from its row. The
  * stock from before it arrives summed per product
- * (getInventorySnapshotForTenant).
+ * (getInventorySnapshotForTenant). Reports' comparison with the previous
+ * period can reach further back ("Este mes" late in the month): until the
+ * device's first sync, Reports hides a comparison that starts before this
+ * history (initialSalesSince).
  */
 const RECENT_HISTORY_DAYS = 35;
 
@@ -26,6 +29,7 @@ async function loadTenantData(tenantId: string) {
   const recentHistoryStart = new Date(
     Date.now() - RECENT_HISTORY_DAYS * DAY_MS
   );
+  const salesSince = isPowerSyncConfigured() ? recentHistoryStart : undefined;
   // Seven reads run at once, each on its own pooled connection; lib/db sizes
   // the pool for them, so keep its count in step when adding one.
   const members = getTenantMembersForTenant(tenantId);
@@ -45,10 +49,7 @@ async function loadTenantData(tenantId: string) {
     // its first sync completes; these rows only paint the screens until
     // then, so recent sales are enough. Without it these sales are the
     // whole history the screens have, so custom ranges need all of them.
-    getSalesForTenant(tenantId, {
-      since: isPowerSyncConfigured() ? recentHistoryStart : undefined,
-      members,
-    }),
+    getSalesForTenant(tenantId, { since: salesSince, members }),
     members,
     getInventorySnapshotForTenant(tenantId, recentHistoryStart),
     getActiveInvitationForTenant(tenantId),
@@ -58,6 +59,7 @@ async function loadTenantData(tenantId: string) {
     categories: tenantCategories,
     products,
     sales,
+    salesSince: salesSince?.toISOString() ?? null,
     tenantMembers,
     inventory,
     activeInvitation,
@@ -79,6 +81,7 @@ export default async function Home() {
         categories: [],
         products: [],
         sales: [],
+        salesSince: null,
         tenantMembers: [],
         inventory: null,
         activeInvitation: null,
@@ -97,6 +100,7 @@ export default async function Home() {
         initialCategories={data.categories}
         initialProducts={data.products}
         initialSales={data.sales}
+        initialSalesSince={data.salesSince}
         initialTenantMembers={data.tenantMembers}
         initialInventory={data.inventory}
         activeInvitation={data.activeInvitation}

@@ -10,6 +10,14 @@ import type { ReportRange, Sale } from "@/lib/types";
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
+export type ComparisonWindow = {
+  bounds: SalesRangeBounds;
+  /** Next to a change ("vs. ayer"). */
+  label: string;
+  /** After "para comparar" when there is no change ("con ayer"). */
+  against: string;
+};
+
 /**
  * The window to compare against, covering the same elapsed time so a
  * partial day or week isn't compared with a complete one:
@@ -21,31 +29,70 @@ export function comparisonWindow(
   range: ReportRange,
   bounds: SalesRangeBounds,
   now: number
-): { bounds: SalesRangeBounds; label: string } {
+): ComparisonWindow {
   const end = Math.min(bounds.end, Math.max(now, bounds.start));
   const elapsed = end - bounds.start;
 
-  if (range === "today" || range === "week") {
-    const shift = range === "today" ? DAY_MS : 7 * DAY_MS;
+  if (range === "today") {
+    return {
+      bounds: {
+        start: bounds.start - DAY_MS,
+        end: bounds.start - DAY_MS + elapsed,
+      },
+      label: "vs. ayer",
+      against: "con ayer",
+    };
+  }
+
+  if (range === "week") {
+    const shift = 7 * DAY_MS;
     return {
       bounds: {
         start: bounds.start - shift,
         end: bounds.start - shift + elapsed,
       },
-      label: range === "today" ? "vs. ayer" : "vs. semana pasada",
+      label: "vs. semana pasada",
+      against: "con la semana pasada",
     };
   }
 
   return {
     bounds: { start: bounds.start - elapsed, end: bounds.start },
     label: "vs. período anterior",
+    against: "con el período anterior",
   };
+}
+
+/**
+ * Whether the loaded sales cover the whole comparison window. Before a
+ * PowerSync device's first sync, `sales` holds only the recent history '/'
+ * sent (from `historyStart` on); a window that starts earlier would be
+ * undercounted. A null `historyStart` means every sale is loaded.
+ */
+export function comparisonCovered(
+  window: SalesRangeBounds,
+  historyStart: number | null
+) {
+  return historyStart == null || window.start >= historyStart;
 }
 
 /** Percent change, or null when there's nothing to compare against. */
 export function percentChange(current: number, previous: number) {
   if (previous === 0) return null;
   return Math.round(((current - previous) / Math.abs(previous)) * 100);
+}
+
+/**
+ * Shown instead of the net revenue change when the previous window's net is
+ * 0: it had no sales, or its sales were refunded or discounted to nothing.
+ */
+export function noComparisonText(
+  previousSaleCount: number,
+  window: Pick<ComparisonWindow, "against">
+) {
+  return previousSaleCount === 0
+    ? `Sin ventas para comparar ${window.against}`
+    : `Sin ingreso neto para comparar ${window.against}`;
 }
 
 export type TrendBucket = {

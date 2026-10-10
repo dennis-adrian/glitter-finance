@@ -1,6 +1,13 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import clsx from "clsx";
 import {
   Archive,
@@ -102,6 +109,12 @@ export type ProductEditorProps = {
   pendingWrite: "save" | "archive" | "busy" | null;
   back: () => void;
   /**
+   * Receives the editor's discard confirmation while it has unsaved changes
+   * (null otherwise), so the app's nav and the browser's Back ask like the
+   * back button. The confirmation runs `leave` when confirmed.
+   */
+  registerLeaveGuard?: (guard: ProductEditorLeaveGuard | null) => void;
+  /**
    * Creates a category from the editor and resolves to it, to select it, or
    * to null when the write was cancelled.
    */
@@ -116,6 +129,8 @@ export type ProductEditorProps = {
   }) => Promise<void>;
   archive: (productId: string) => Promise<void>;
 };
+
+export type ProductEditorLeaveGuard = (leave: () => void) => void;
 
 type StockCorrection = "adjustment" | "loss" | "gift";
 
@@ -164,6 +179,7 @@ export function ProductEditor({
   initialMovement,
   pendingWrite,
   back,
+  registerLeaveGuard,
   createCategory,
   save,
   onInventoryMovement,
@@ -206,6 +222,9 @@ export function ProductEditor({
   const [inventoryMovementSubmitting, setInventoryMovementSubmitting] =
     useState(false);
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
+  // Where confirming the discard goes: back, or the screen picked in the
+  // app's nav or reached with the browser's Back.
+  const discardLeaveRef = useRef(back);
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
   const [categoryDrawerOpen, setCategoryDrawerOpen] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -296,8 +315,22 @@ export function ProductEditor({
     return () => window.removeEventListener("beforeunload", warn);
   }, [isDirty, saving]);
 
+  const asksBeforeLeaving = isDirty && !saving;
+
+  // A layout effect, so the app's nav and route store see the change in the
+  // same commit.
+  useLayoutEffect(() => {
+    if (!registerLeaveGuard || !asksBeforeLeaving) return;
+    registerLeaveGuard((leave) => {
+      discardLeaveRef.current = leave;
+      setConfirmDiscardOpen(true);
+    });
+    return () => registerLeaveGuard(null);
+  }, [asksBeforeLeaving, registerLeaveGuard]);
+
   function requestBack() {
-    if (isDirty && !saving) {
+    if (asksBeforeLeaving) {
+      discardLeaveRef.current = back;
       setConfirmDiscardOpen(true);
     } else {
       back();
@@ -857,7 +890,7 @@ export function ProductEditor({
         description="Los cambios de este producto no se guardaron."
         cancelLabel="Seguir editando"
         confirmLabel="Descartar"
-        onConfirm={back}
+        onConfirm={() => discardLeaveRef.current()}
       />
       <CategoryFormDrawer
         open={categoryDrawerOpen}

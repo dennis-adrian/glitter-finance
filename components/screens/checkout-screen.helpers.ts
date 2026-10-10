@@ -35,3 +35,16 @@ export function evaluateCashTender(
   }
   return { state: "change", changeCents: receivedCents - totalCents };
 }
+
+/**
+ * Whether a discount preset shows as selected: its amount is applied and the
+ * custom amount panel is closed. Tapping a selected preset removes the
+ * discount; tapping any other applies its amount.
+ */
+export function isDiscountPresetPressed(
+  discountCents: number,
+  presetCents: number,
+  customOpen: boolean
+) {
+  return discountCents === presetCents && !customOpen;
+}

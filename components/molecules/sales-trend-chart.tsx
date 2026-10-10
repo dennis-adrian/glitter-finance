@@ -68,6 +68,9 @@ export function SalesTrendChart({ buckets, title }: SalesTrendChartProps) {
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={buckets}
+            // The wrapper is hidden from assistive tech (the table below
+            // carries the values), so the chart must not take keyboard focus.
+            accessibilityLayer={false}
             margin={{ top: 8, right: 4, bottom: 0, left: 0 }}
             barCategoryGap="20%"
           >

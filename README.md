@@ -12,7 +12,7 @@ iPhone Safari and Android Chrome) and
 [`docs/stage-d-acceptance.md`](docs/stage-d-acceptance.md).
 
 - Product catalog with tenant-managed categories, optional cost, archive/restore, and graceful image placeholders.
-- Sell Mode as the default screen with tappable product grid, quantity badges, PowerSync-backed draft cart persistence, and a fixed Cobrar action.
+- Vender as the default screen with tappable product grid, quantity badges, PowerSync-backed draft cart persistence, and a fixed Cobrar action.
 - Cart review surface with quantity controls, per-line discounts, and clear-cart (with undo).
 - Payment screen with sale-level discounts and cash/QR checkout.
 - Immutable local sales with snapshotted price/cost data, a sales list, voids, refunds, and date-range reports.
@@ -377,8 +377,8 @@ the server clock reaches the stored timestamp minus 5 minutes, and every later
 upload from that device waits behind it. Correcting the device clock does not
 release rows already queued; it only stops new ones from being held. The
 device records the wait in the local-only `upload_holds` table: the sync pill
-reads **Hora adelantada**, Settings and More say from when the cloud accepts
-the rows, and Diagnostics shows **En espera hasta**. Sentry gets a
+reads **Hora adelantada**, Más says from when the cloud accepts the rows,
+and Diagnostics shows **En espera hasta**. Sentry gets a
 `PowerSync upload held by the device clock` warning once a transaction has
 waited 10 minutes. Nothing needs discarding; do not clear browser/PWA storage
 while it waits.
@@ -674,7 +674,10 @@ below:
   policy, file 9 replaces file 5's upload RPCs and void trigger, file 12
   replaces file 7's category trigger functions, and file 14 replaces the
   category triggers of files 7, 12 and 13. The verification query below shows
-  all four.
+  all four. File 14 is the one file that may also run out of order: it works
+  without files 9 to 13, and an environment upgrading from v0.8.0 runs it
+  right after `pnpm db:push` as well
+  ([`docs/upgrade-notes.md`](docs/upgrade-notes.md), steps 3 and 6).
 - **Local stack:** `pnpm db:reset` runs all of them after the migrations and
   before `seed.sql`.
 
@@ -745,14 +748,17 @@ below:
     the name-based triggers of files 7, 12 and 13, since the foreign key now
     refuses to delete a category in use; and links every existing product to
     a category (a blank name or "Todos" goes to "Sin categoría", a name over
-    40 characters is cut). Every environment, after files 7, 11, 12 and 13
-    and after the `pnpm db:push` that adds `products.category_id` and its
-    foreign key; on an existing environment, as the last step of the release,
-    after the app deploy. It replaces the category triggers of files 7, 12
-    and 13, so re-run it after re-running any of them. It runs in one
-    transaction with a 5 s `lock_timeout`: if another session holds
-    `products` or `categories`, or any check fails, it rolls back; run it
-    again.
+    40 characters is cut). Every environment, after files 6 and 7 and the
+    `pnpm db:push` that adds `products.category_id` and its foreign key, and
+    before an app build that writes `category_id` is deployed: without its
+    triggers, an id the server lacks fails the foreign key (`23503`) and
+    holds that device's uploads. It does not need files 9 to 13, and v0.8.0
+    apps keep working with it. It replaces the category triggers of files 7,
+    12 and 13, so re-run it after re-running any of them: an environment
+    upgrading from v0.8.0 runs it right after `pnpm db:push` and again after
+    file 13. It runs in one transaction with a 5 s `lock_timeout`: if
+    another session holds `products` or `categories`, or any check fails, it
+    rolls back; run it again.
 
 To check an environment, run in its SQL editor:
 
@@ -766,7 +772,9 @@ WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity;
 -- A marker for each file that installs RLS, functions, triggers or Storage
 -- rules. Each checks what the file leaves in place, so it also turns false
 -- when an older file was re-run over it (expect every column true). Files 7,
--- 12 and 13 also read true once file 14 has replaced their triggers:
+-- 12 and 13 also read true once file 14 has replaced their triggers. File 14
+-- reads false while a product has no category_id or a name-based category
+-- trigger is back (file 7 then usually reads false too); run file 14 again:
 WITH category_ids AS (
   SELECT
     (SELECT count(*) = 4 FROM pg_trigger

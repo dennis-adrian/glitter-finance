@@ -27,7 +27,9 @@ import {
 } from "@/lib/inventory";
 import {
   buildTrendBuckets,
+  comparisonCovered,
   comparisonWindow,
+  noComparisonText,
   percentChange,
   trendGranularity,
 } from "@/lib/reports";
@@ -54,6 +56,12 @@ type ReportsScreenProps = {
   products: Product[];
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
+  /**
+   * Where the loaded sales start when they are not the whole history (before
+   * a PowerSync device's first sync); null when every sale is loaded. A
+   * comparison that reaches before it is hidden rather than undercounted.
+   */
+  salesHistoryStart: number | null;
 };
 
 function ReportList({
@@ -92,6 +100,7 @@ export function ReportsScreen({
   products,
   stockByProduct,
   inventoryStockReady,
+  salesHistoryStart,
 }: ReportsScreenProps) {
   const [now] = useNow();
   const [showAllProducts, setShowAllProducts] = useState(false);
@@ -157,7 +166,9 @@ export function ReportsScreen({
     const rangeBounds = { start, end };
     const previous = comparisonWindow(range, rangeBounds, now);
     return {
-      comparison: previous,
+      comparison: comparisonCovered(previous.bounds, salesHistoryStart)
+        ? previous
+        : null,
       previousMetrics: computeMetrics(
         filterSalesByBounds(sales, previous.bounds)
       ),
@@ -168,7 +179,7 @@ export function ReportsScreen({
         week: "Ingreso neto por semana",
       }[trendGranularity(rangeBounds, now)],
     };
-  }, [sales, salesInRange, range, start, end, now]);
+  }, [sales, salesInRange, range, start, end, now, salesHistoryStart]);
 
   return (
     <Screen header={<ScreenHeader title="Reportes" />}>
@@ -197,6 +208,10 @@ export function ReportsScreen({
                 previousMetrics.netRevenueCents
               )}
               label={comparison.label}
+              emptyText={noComparisonText(
+                previousMetrics.transactionCount,
+                comparison
+              )}
             />
           ) : null}
         </div>
@@ -383,16 +398,15 @@ export function ReportsScreen({
 function DeltaBadge({
   change,
   label,
+  emptyText,
 }: {
   change: number | null;
   label: string;
+  /** Shown when there is no change to show. */
+  emptyText: string;
 }) {
   if (change == null) {
-    return (
-      <span className="text-sm text-muted-foreground">
-        Sin ventas para comparar {label.replace("vs. ", "con ")}
-      </span>
-    );
+    return <span className="text-sm text-muted-foreground">{emptyText}</span>;
   }
   const up = change >= 0;
   const Icon = up ? TrendingUp : TrendingDown;

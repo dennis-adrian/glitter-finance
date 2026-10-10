@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   evaluateCashTender,
+  isDiscountPresetPressed,
   suggestCashAmounts,
 } from "@/components/screens/checkout-screen.helpers";
 import { buildReceiptText, type CompletedSaleSummary } from "@/lib/receipt";
@@ -25,6 +26,14 @@ test("cash tender reports exact, short, and change states", () => {
     state: "change",
     changeCents: 4000,
   });
+});
+
+test("a discount preset only shows as pressed with the custom panel closed", () => {
+  assert.equal(isDiscountPresetPressed(500, 500, false), true);
+  // The same amount applied from "Otro" (panel still open): tapping the
+  // preset applies it instead of removing the discount.
+  assert.equal(isDiscountPresetPressed(500, 500, true), false);
+  assert.equal(isDiscountPresetPressed(200, 500, false), false);
 });
 
 test("receipt lists lines, discount, payment, and change", () => {

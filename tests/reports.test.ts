@@ -3,7 +3,9 @@ import test from "node:test";
 import { resolveSalesRange } from "@/lib/dates";
 import {
   buildTrendBuckets,
+  comparisonCovered,
   comparisonWindow,
+  noComparisonText,
   percentChange,
   trendGranularity,
 } from "@/lib/reports";
@@ -57,6 +59,45 @@ test("custom ranges compare with the equally long window before", () => {
   assert.equal(window.label, "vs. período anterior");
   assert.equal(window.bounds.start, Date.parse("2026-09-07T00:00:00-04:00"));
   assert.equal(window.bounds.end, Date.parse("2026-09-10T00:00:00-04:00"));
+});
+
+test("each comparison window has its own phrase for the empty state", () => {
+  const now = new Date("2026-10-25T18:00:00.000Z");
+  const against = (range: "today" | "week" | "month") =>
+    comparisonWindow(
+      range,
+      resolveSalesRange(range, "", "", now).bounds!,
+      now.getTime()
+    ).against;
+
+  assert.equal(against("today"), "con ayer");
+  assert.equal(against("week"), "con la semana pasada");
+  assert.equal(against("month"), "con el período anterior");
+});
+
+test("the empty comparison says whether the previous window had sales", () => {
+  const window = { against: "con la semana pasada" };
+  assert.equal(
+    noComparisonText(0, window),
+    "Sin ventas para comparar con la semana pasada"
+  );
+  // Sales that were refunded or discounted to nothing.
+  assert.equal(
+    noComparisonText(2, window),
+    "Sin ingreso neto para comparar con la semana pasada"
+  );
+});
+
+test("a comparison is only covered from the loaded history start on", () => {
+  // Late in the month the previous window reaches past a 35-day history.
+  const now = new Date("2026-10-25T18:00:00.000Z");
+  const { bounds } = resolveSalesRange("month", "", "", now);
+  const previous = comparisonWindow("month", bounds!, now.getTime()).bounds;
+  const historyStart = now.getTime() - 35 * 24 * 60 * 60 * 1000;
+
+  assert.equal(comparisonCovered(previous, historyStart), false);
+  assert.equal(comparisonCovered(previous, null), true);
+  assert.equal(comparisonCovered(previous, previous.start), true);
 });
 
 test("percent change is null without a baseline", () => {
