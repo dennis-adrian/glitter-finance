@@ -1,6 +1,14 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   archiveProduct as archiveProductAction,
   createProduct,
@@ -13,12 +21,13 @@ import {
   deleteCategory as deleteCategoryAction,
   renameCategory as renameCategoryAction,
 } from "@/app/categories/actions";
-import { createInventoryMovement as createInventoryMovementAction } from "@/app/inventory/actions";
 import {
   createSale,
   refundSale as refundSaleAction,
   voidSale as voidSaleAction,
 } from "@/app/sales/actions";
+import { addInventoryMovement as addInventoryMovementAction } from "@/app/inventory/actions";
+import type { AbstractPowerSyncDatabase } from "@powersync/web";
 import { flushSync } from "react-dom";
 import { toast as sonnerToast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
@@ -30,7 +39,10 @@ import {
   type CheckoutPayment,
 } from "@/components/screens/checkout-screen";
 import { SaleCompleteScreen } from "@/components/screens/sale-complete-screen";
-import { ProductEditor } from "@/components/screens/product-editor";
+import {
+  ProductEditor,
+  type ProductEditorSaveInput,
+} from "@/components/screens/product-editor";
 import { ProductsScreen } from "@/components/screens/products-screen";
 import { ReportsScreen } from "@/components/screens/reports-screen";
 import { SalesScreen } from "@/components/screens/sales-screen";
@@ -39,8 +51,9 @@ import { MoreScreen } from "@/components/screens/more-screen";
 import { SettingsScreen } from "@/components/screens/settings-screen";
 import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
 import { MissingRecordScreen } from "@/components/screens/missing-record-screen";
-import { clampDiscount } from "@/lib/money";
-import { mapDbProductToProduct } from "@/lib/product-mapper";
+import { unwrapActionResult } from "@/lib/action-result";
+import { sortCategories } from "@/lib/categories";
+import { nowIso } from "@/lib/dates";
 import {
   allCategoriesOption,
   categoryIndex as buildCategoryIndex,
@@ -48,6 +61,16 @@ import {
   categoryOptions,
   effectiveCategoryId,
 } from "@/lib/products";
+import { saleNetCents, sortSalesNewestFirst } from "@/lib/sales";
+import { cartSubtotalCents, priceLine } from "@/lib/sales/pricing";
+import {
+  mapLocalProductRow,
+  type LocalProductRow,
+} from "@/lib/powersync/products-from-local";
+import {
+  mapLocalInventoryMovementRow,
+  type LocalInventoryMovementRow,
+} from "@/lib/powersync/inventory-from-local";
 import {
   buildSalesFromLocal,
   type LocalRefundRow,
@@ -61,7 +84,14 @@ import {
   mergeTenantMembersFromWatch,
   type LocalTenantUserRow,
 } from "@/lib/powersync/tenant-users-from-local";
+import {
+  createProductEditorSessions,
+  editorPendingWrite,
+  type ProductWrite,
+} from "@/lib/product-editor-sessions";
+import { createScrollMemory } from "@/lib/scroll-memory";
 import { usePosStore } from "@/lib/store";
+import { useSalesRangeState } from "@/lib/use-sales-range";
 import type {
   Category,
   CartLine,
@@ -69,10 +99,10 @@ import type {
   Sale,
   TenantInvitation,
   TenantMember,
-  ToastMessage,
 } from "@/lib/types";
 import {
   isPrimaryView,
+  parseRouteHash,
   primaryViewFor,
   type PrimaryView,
   type View,
@@ -80,7 +110,7 @@ import {
 import { useAppRoute } from "@/lib/hooks/use-app-route";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
 import { useVirtualKeyboard } from "@/lib/hooks/use-virtual-keyboard";
-import type { UserTenantContext } from "@/lib/auth/user-context";
+import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import { useOptionalPowerSyncDb } from "@/components/providers/powersync-provider";
 import { isPowerSyncConfigured } from "@/lib/env";
 import {
@@ -95,120 +125,79 @@ import {
   updateProductLocal,
   uploadProductImageLocal,
 } from "@/lib/powersync/write-products";
+import { powerSyncDraftCartStorage } from "@/lib/powersync/draft-cart";
+import { browserDraftCartStorage } from "@/lib/browser-draft-cart";
+import type { DraftCartStorage } from "@/lib/draft-cart";
+import { onLocalDataEvent } from "@/lib/powersync/local-data-teardown";
+import { keepAppShellForOfflineLaunch } from "@/lib/pwa/keep-app-shell";
+import {
+  mergeLocalRowsOverServer,
+  watchLocalTables,
+  watchTenantRows,
+} from "@/lib/powersync/local-watch";
+import type { TenantWork } from "@/lib/powersync/tenant-work";
+import { useTenantWork } from "@/lib/powersync/use-tenant-work";
 import {
   createCategoryLocal,
   deleteCategoryLocal,
   renameCategoryLocal,
 } from "@/lib/powersync/write-categories";
 import {
-  clearDraftCartLocal,
-  loadDraftCartLocal,
-  migrateLegacyDraftCartLocal,
-  saveDraftCartLocal,
-} from "@/lib/powersync/draft-cart";
-import {
-  onLocalDataCleared,
-  onLocalDataTeardownFailed,
-  onLocalDataTeardownStarting,
-} from "@/lib/powersync/local-data-teardown";
-import { TenantWorkController } from "@/lib/powersync/tenant-work";
+  mapLocalCategoryRow,
+  type LocalCategoryRow,
+} from "@/lib/powersync/categories-from-local";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
+  compareMovementsOldestFirst,
   computeStockByProduct,
-  productHasInitialMovement,
+  lookUpInitialMovement,
+  resolveInitialStockDelta,
+  type InitialMovementState,
   type InventoryMovement,
   type InventoryMovementReason,
+  type InventorySnapshot,
+  type OpeningStock,
 } from "@/lib/inventory";
 import {
   addInventoryMovement,
-  productHasInitialMovementLocal,
+  initialMovementStateLocal,
 } from "@/lib/powersync/write-inventory";
 import type { CompletedSaleSummary } from "@/lib/receipt";
+import { randomUuid } from "@/lib/uuid";
+import {
+  reportClientFailure,
+  type ClientFailureComponent,
+} from "@/lib/observability/report-client-failure";
 
-// Shape of a row coming back from the local SQLite store. Column names are
-// snake_case (matching Postgres) because PowerSync replicates with the
-// source column names verbatim.
-type ProductRow = {
-  id: string;
-  name: string;
-  price_cents: number;
-  cost_cents: number | null;
-  category_id: string | null;
-  category: string;
-  image_path: string | null;
-  tracks_inventory: number | null;
-  low_stock_threshold: number | null;
-  archived_at: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type CategoryRow = {
-  id: string;
-  tenant_id: string;
-  name: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type InventoryMovementRow = {
-  id: string;
-  tenant_id: string;
-  product_id: string;
-  user_id: string;
-  delta: number;
-  reason: InventoryMovementReason;
-  note: string | null;
-  created_at: string;
-  client_created_at: string;
-};
-
-function rowToProduct(row: ProductRow): Product {
-  return mapDbProductToProduct({
-    id: row.id,
-    name: row.name,
-    priceCents: row.price_cents,
-    costCents: row.cost_cents,
-    categoryId: row.category_id,
-    category: row.category,
-    imagePath: row.image_path,
-    tracksInventory: row.tracks_inventory,
-    lowStockThreshold: row.low_stock_threshold,
-    archivedAt: row.archived_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  });
-}
-
-function rowToCategory(row: CategoryRow): Category {
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    name: row.name,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+/** Logs and reports a failed local watch, which would otherwise go quiet. */
+function watchFailed(message: string, component: ClientFailureComponent) {
+  return (error: unknown) => {
+    console.error(`[PowerSync] ${message}`, error);
+    reportClientFailure(component, error);
   };
 }
 
-function rowToInventoryMovement(row: InventoryMovementRow): InventoryMovement {
-  return {
-    id: row.id,
-    tenantId: row.tenant_id,
-    productId: row.product_id,
-    userId: row.user_id,
-    delta: row.delta,
-    reason: row.reason,
-    note: row.note,
-    createdAt: row.created_at,
-    clientCreatedAt: row.client_created_at,
-  };
-}
+type ToastTone = "success" | "info" | "danger";
 
-function sortCategories(items: Category[]) {
-  return [...items].sort((first, second) =>
-    first.name.localeCompare(second.name, "es", { sensitivity: "base" })
-  );
-}
+const NO_TENANT_MESSAGE = "Tu puesto aún no está configurado.";
+
+/** What a write for the active tenant gets (see runTenantWrite). */
+type TenantWriteInput = {
+  tenant: NonNullable<UserTenantContext["tenant"]>;
+  work: ReturnType<TenantWork["begin"]>;
+};
+
+/** A write for the active tenant, with and without PowerSync. */
+type TenantWrite<T> = {
+  local: (
+    input: TenantWriteInput & { db: AbstractPowerSyncDatabase }
+  ) => Promise<T>;
+  server: (input: TenantWriteInput) => Promise<T>;
+  /** Set while the write runs; not cleared once its work was cancelled. */
+  pending?: (pending: boolean) => void;
+};
+
+const noLocalLedgerLoaded = { movements: false, sales: false };
 
 type GlitterPosAppProps = {
   tenantContext: UserTenantContext;
@@ -216,7 +205,8 @@ type GlitterPosAppProps = {
   initialProducts: Product[];
   initialSales: Sale[];
   initialTenantMembers: TenantMember[];
-  initialInventoryMovements: InventoryMovement[];
+  /** Null without a tenant. */
+  initialInventory: InventorySnapshot | null;
   activeInvitation: TenantInvitation | null;
   inviteOrigin: string;
 };
@@ -227,7 +217,7 @@ export function GlitterPosApp({
   initialProducts,
   initialSales,
   initialTenantMembers,
-  initialInventoryMovements,
+  initialInventory,
   activeInvitation,
   inviteOrigin,
 }: GlitterPosAppProps) {
@@ -239,6 +229,8 @@ export function GlitterPosApp({
   const removeFromCart = usePosStore((state) => state.removeFromCart);
   const setLineDiscount = usePosStore((state) => state.setLineDiscount);
   const clearCart = usePosStore((state) => state.clearCart);
+  const restoreCart = usePosStore((state) => state.restoreCart);
+  const cartRevision = usePosStore((state) => state.cartRevision);
   const hydrateCart = usePosStore((state) => state.hydrateCart);
   const recordSale = usePosStore((state) => state.recordSale);
   const upsertSale = usePosStore((state) => state.upsertSale);
@@ -250,7 +242,9 @@ export function GlitterPosApp({
   const view = route.view;
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   useVirtualKeyboard();
-  const [categories, setCategories] = useState<Category[]>(initialCategories);
+  const [categories, setCategories] = useState(() =>
+    sortCategories(initialCategories)
+  );
   const [activeInvitationState, setActiveInvitationState] =
     useState(activeInvitation);
   // Selected filter option ids (category id, or allCategoriesOption).
@@ -260,45 +254,92 @@ export function GlitterPosApp({
   );
   const [query, setQuery] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
+  // Kept here rather than in the screens, which unmount on every view
+  // change: the range Sales and Reports share, the Sales list's page, and
+  // its scroll position while a sale's detail is open.
+  const salesRange = useSalesRangeState();
+  const [salesScrollMemory] = useState(createScrollMemory);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  // The sale the confirmation screen shows (route `#/cobrado`).
   const [completedSale, setCompletedSale] =
     useState<CompletedSaleSummary | null>(null);
+  // The product save, archive or restore in progress. One runs at a time: a
+  // second tap while a slow photo upload or server round-trip is still
+  // running would repeat it, and a repeated create adds a duplicate product.
+  const [productWrite, setProductWrite] = useState<ProductWrite | null>(null);
+  const productWriteRef = useRef<ProductWrite | null>(null);
+  // Each opening of the product editor is a session. A save that finishes
+  // after its editor closed does not leave the editor opened since, and a
+  // product a save created is updated by a retry in that session only, never
+  // by a save in a later one.
+  const [editorSessions] = useState(() =>
+    createProductEditorSessions<Pick<Product, "id" | "tracksInventory">>()
+  );
+  // The open session's number, for rendering: set with each editorSessions
+  // change.
+  const [editorSession, setEditorSession] = useState(editorSessions.current);
+  // The server-action checkout's sale id, kept while the same checkout is
+  // retried (see handlePayment).
+  const checkoutAttemptRef = useRef<{ key: string; saleId: string } | null>(
+    null
+  );
   const [tenantMembers, setTenantMembers] =
     useState<TenantMember[]>(initialTenantMembers);
   const [inventoryMovements, setInventoryMovements] = useState<
     InventoryMovement[]
-  >(initialInventoryMovements);
-  const [editorHasInitialMovement, setEditorHasInitialMovement] =
-    useState(false);
-  const [inventoryWatchReady, setInventoryWatchReady] = useState(
-    () => !isPowerSyncConfigured() || initialInventoryMovements.length > 0
+  >(() => initialInventory?.movements ?? []);
+  const [openingStock, setOpeningStock] = useState<OpeningStock | null>(
+    () => initialInventory?.opening ?? null
+  );
+  // Which of the movements and sales hold the device's whole ledger: with
+  // PowerSync, once their watch reads the local store after the first sync.
+  // Until both do, stock counts from the server's opening (see stockOpening).
+  const [localLedgerLoaded, setLocalLedgerLoaded] =
+    useState(noLocalLedgerLoaded);
+  // Whether the product in the editor already has its initial count (see
+  // lookUpInitialMovement), for the product it was looked up for.
+  const [editorInitialMovement, setEditorInitialMovement] = useState<{
+    productId: string;
+    state: InitialMovementState;
+  } | null>(null);
+  // Whether stock counts can be shown. With PowerSync, once the server sent
+  // movements or the inventory watch read the synced local store.
+  const [inventoryStockReady, setInventoryStockReady] = useState(
+    () => !isPowerSyncConfigured() || (initialInventory?.hasMovements ?? false)
   );
   const [teamSyncConfirmed, setTeamSyncConfirmed] = useState(
     () => initialTenantMembers.length === 0
   );
   const initialTenantMembersRef = useRef(initialTenantMembers);
+  // The server-rendered data the local rows are merged over until the first
+  // sync completes (see the watches below).
+  const initialCategoriesRef = useRef(initialCategories);
+  const initialProductsRef = useRef(initialProducts);
+  const initialSalesRef = useRef(initialSales);
+  const initialInventoryRef = useRef(initialInventory);
   const teamSyncEverConfirmedRef = useRef(false);
-  const [tenantWorkGeneration, setTenantWorkGeneration] = useState(0);
-  const tenantWorkGenerationRef = useRef(0);
-  const tenantWorkControllerRef = useRef<TenantWorkController | null>(null);
-  if (!tenantWorkControllerRef.current) {
-    tenantWorkControllerRef.current = new TenantWorkController({
-      userId: tenantContext.user.id,
-      tenantId: tenantContext.tenant?.id ?? null,
-    });
-  }
+  const [tenantWorkGeneration, tenantWork] = useTenantWork({
+    userId: tenantContext.user.id,
+    tenantId: tenantContext.tenant?.id ?? null,
+  });
+  // The "Pedido vaciado" toast whose Deshacer can still bring the lines back.
+  const clearedCartToastRef = useRef<{
+    toastId: string | number;
+    cartRevision: number;
+  } | null>(null);
   const draftCartReadyRef = useRef(false);
-  // Stable handle for teardown callbacks registered once on mount.
-  const navigateRef = useRef(navigate);
-  navigateRef.current = navigate;
   const cartRef = useRef(cart);
   const cartUpdatedAtRef = useRef<string | null>(null);
 
   const activeProducts = products.filter((product) => !product.archivedAt);
+  // Products point at their category by id; the index gives each one its
+  // current name, so a rename shows everywhere without rewriting products.
   const categoryIndex = useMemo(
     () => buildCategoryIndex(categories),
     [categories]
   );
+  // The rails' options: the tenant's categories, then any a product still
+  // names that is not on this device yet (see categoryOptions).
   const categoryFilterOptions = useMemo(
     () => categoryOptions(categories, products, categoryIndex),
     [categories, products, categoryIndex]
@@ -315,19 +356,7 @@ export function GlitterPosApp({
         ),
     [cart, products]
   );
-  const cartSubtotal = cartDetails.reduce(
-    (total, line) =>
-      total +
-      Math.max(
-        0,
-        line.product.priceCents * line.quantity -
-          clampDiscount(
-            line.lineDiscountCents ?? 0,
-            line.product.priceCents * line.quantity
-          )
-      ),
-    0
-  );
+  const cartSubtotal = cartSubtotalCents(cartDetails);
   const cartCount = cartDetails.reduce(
     (total, line) => total + line.quantity,
     0
@@ -363,41 +392,60 @@ export function GlitterPosApp({
     () => buildUserNameMap(membersForNames),
     [membersForNames]
   );
+  // '/' sends the ledger up to a recent cutoff summed per product (the
+  // opening), and the movements and sales after it as rows. Without
+  // PowerSync that stays so. With it, the local store holds every row once
+  // the first sync completes, and stock counts from those alone, so rows
+  // that reach the server late with an old date (a device offline for
+  // weeks) count as well.
+  const stockOpening =
+    localLedgerLoaded.movements && localLedgerLoaded.sales
+      ? null
+      : openingStock;
   const stockByProduct = useMemo(
-    () => computeStockByProduct(inventoryMovements, sales),
-    [inventoryMovements, sales]
+    () => computeStockByProduct(inventoryMovements, sales, stockOpening),
+    [inventoryMovements, sales, stockOpening]
   );
   const activeTenantId = tenantContext.tenant?.id ?? null;
+
+  // This only mounts once the local data is ready for the signed-in identity
+  // (PowerSyncProvider), after any teardown that deleted the previous
+  // session's saved app shell. Saving this one lets the next launch open
+  // Sell Mode offline, even with no online launch after a sign-in or a
+  // tenant change.
+  useEffect(() => keepAppShellForOfflineLaunch(), []);
 
   // Teardown is initiated from Settings, outside this component's local React
   // state. Clear every tenant-derived value immediately so a failed navigation
   // or a recovery screen cannot expose data from the previous account.
   useEffect(() => {
-    const stopTenantWork = onLocalDataTeardownStarting(() => {
-      cancelTenantWork();
+    const stopTenantWork = onLocalDataEvent("teardown-starting", () => {
+      tenantWork.cancel();
       setIsCheckingOut(false);
     });
-    const resumeTenantWork = onLocalDataTeardownFailed(() => {
-      tenantWorkControllerRef.current?.resumeAfterFailedTeardown();
-      bumpTenantWorkGeneration();
+    const resumeTenantWork = onLocalDataEvent("teardown-failed", () => {
+      tenantWork.resumeAfterFailedTeardown();
     });
-    const clearTenantState = onLocalDataCleared(() => {
-      cancelTenantWork();
+    const clearTenantState = onLocalDataEvent("cleared", () => {
+      tenantWork.cancel();
       draftCartReadyRef.current = false;
-      navigateRef.current({ view: "sell" }, { replace: true });
+      navigate({ view: "sell" }, { replace: true });
       setCategory(allCategoriesOption.id);
       setCatalogCategory(allCategoriesOption.id);
       setQuery("");
       setCatalogQuery("");
+      setEditorSession(editorSessions.next());
       setIsCheckingOut(false);
       setCompletedSale(null);
       setActiveInvitationState(null);
       setCategories([]);
       setTenantMembers([]);
       setInventoryMovements([]);
-      setInventoryWatchReady(false);
+      setOpeningStock(null);
+      setLocalLedgerLoaded(noLocalLedgerLoaded);
+      setInventoryStockReady(false);
       setTeamSyncConfirmed(false);
-      setEditorHasInitialMovement(false);
+      setEditorInitialMovement(null);
     });
 
     return () => {
@@ -405,7 +453,20 @@ export function GlitterPosApp({
       resumeTenantWork();
       clearTenantState();
     };
-  }, []);
+  }, [editorSessions, navigate, tenantWork]);
+
+  // Each entry to and exit from the editor route starts a new editor
+  // session, however the route changed: a button, the browser's back or
+  // forward, or an edited hash. A layout effect, so the session ends in the
+  // same commit as the route (closeEditorAfterWrite also reads the hash).
+  const editorRouteKey =
+    view === "editor" ? `editor:${route.id ?? "new"}` : null;
+  const editorRouteKeyRef = useRef(editorRouteKey);
+  useLayoutEffect(() => {
+    if (editorRouteKeyRef.current === editorRouteKey) return;
+    editorRouteKeyRef.current = editorRouteKey;
+    setEditorSession(editorSessions.next());
+  }, [editorRouteKey, editorSessions]);
 
   // Route states that can't render: the order sheet on desktop (the order
   // panel is always visible there) and a confirmation with no sale behind
@@ -424,38 +485,56 @@ export function GlitterPosApp({
     setTeamSyncConfirmed(initialTenantMembers.length === 0);
   }, [initialTenantMembers]);
 
-  useEffect(() => {
+  // The store starts empty, and a passive effect runs after the browser has
+  // painted: the first frame would show the empty catalog's first-product
+  // prompt to a vendor with a full catalog. A layout effect installs the
+  // server rows before that paint.
+  useLayoutEffect(() => {
+    initialCategoriesRef.current = initialCategories;
+    initialProductsRef.current = initialProducts;
+    initialSalesRef.current = initialSales;
+    initialInventoryRef.current = initialInventory;
     hydrateProducts(initialProducts);
     hydrateSales(initialSales);
-    setCategories(sortCategories(initialCategories));
+  }, [
+    hydrateProducts,
+    hydrateSales,
+    initialCategories,
+    initialProducts,
+    initialSales,
+    initialInventory,
+  ]);
+
+  useEffect(() => {
     setTenantMembers(initialTenantMembers);
-    setInventoryMovements(initialInventoryMovements);
+    // The first render already has them (the state's initial value).
+    setCategories(sortCategories(initialCategories));
+    setInventoryMovements(initialInventory?.movements ?? []);
+    setOpeningStock(initialInventory?.opening ?? null);
+    setLocalLedgerLoaded(noLocalLedgerLoaded);
     if (!isPowerSyncConfigured()) {
-      setInventoryWatchReady(Boolean(activeTenantId));
+      setInventoryStockReady(Boolean(activeTenantId));
     } else {
-      setInventoryWatchReady(initialInventoryMovements.length > 0);
+      setInventoryStockReady(initialInventory?.hasMovements ?? false);
     }
 
     // PowerSyncProvider only renders this tree once this exact identity's
     // local store is ready. Resume after its server-hydrated data is installed.
-    const resumed =
-      tenantWorkControllerRef.current?.resumeForReadyIdentity({
-        userId: tenantContext.user.id,
-        tenantId: activeTenantId,
-      }) ?? false;
-    if (resumed) {
-      bumpTenantWorkGeneration();
-    }
+    tenantWork.resumeForReadyIdentity({
+      userId: tenantContext.user.id,
+      tenantId: activeTenantId,
+    });
+    // New server data (the products and sales installed above) puts the
+    // ledger back to it as well.
   }, [
-    hydrateProducts,
-    hydrateSales,
-    initialProducts,
     initialCategories,
+    initialProducts,
     initialSales,
     initialTenantMembers,
-    initialInventoryMovements,
+    initialInventory,
     activeTenantId,
     tenantContext.user.id,
+    tenantWork,
   ]);
 
   useEffect(() => {
@@ -463,312 +542,222 @@ export function GlitterPosApp({
     cartUpdatedAtRef.current = usePosStore.getState().cartUpdatedAt;
   }, [cart]);
 
+  // Once the cart changes after it was emptied (a product added, the undo
+  // itself, a sale or a teardown), Deshacer no longer applies.
+  useEffect(() => {
+    const clearedCartToast = clearedCartToastRef.current;
+    if (clearedCartToast && clearedCartToast.cartRevision !== cartRevision) {
+      sonnerToast.dismiss(clearedCartToast.toastId);
+      clearedCartToastRef.current = null;
+    }
+  }, [cartRevision]);
+
   // Subscribe to the local PowerSync SQLite store and push updates into
-  // Zustand. Server-prop hydration above gives the first paint; this watch
-  // takes over once PowerSync has finished its initial sync, then keeps the
-  // UI live as new rows replicate down. We gate on `hasSynced` so the first
-  // onResult doesn't fire with an empty store and wipe the server data.
+  // Zustand. Server-prop hydration above gives the first paint. Until the
+  // first sync completes, the local store holds only this device's own
+  // writes, so they are merged over the server data (an empty store must not
+  // wipe it); from then on the local rows replace it and keep the UI live as
+  // new rows replicate down. See lib/powersync/local-watch.ts.
   //
   // Tenant filter: sync rules already scope replication by tenant_id and
   // sign-out wipes the local store via disconnectAndClear, but we also
   // filter the read in case a race or a future code path leaves stale
   // rows on disk under a different tenant_id.
   const powerSyncDb = useOptionalPowerSyncDb();
-  const inventoryStockReady = inventoryWatchReady;
 
-  function beginTenantWork() {
-    return tenantWorkControllerRef.current!.begin();
-  }
+  // Whether a product already has its initial count, from the ledger in
+  // memory and, with PowerSync, the local store (see lookUpInitialMovement).
+  const initialMovementOf = useCallback(
+    (productId: string, db: AbstractPowerSyncDatabase | null) =>
+      lookUpInitialMovement({
+        productId,
+        movements: inventoryMovements,
+        opening: stockOpening,
+        readLocal: db ? (id) => initialMovementStateLocal(db, id) : null,
+        ledgerReady: inventoryStockReady,
+      }),
+    [inventoryMovements, stockOpening, inventoryStockReady]
+  );
 
-  function cancelTenantWork() {
-    tenantWorkControllerRef.current?.cancel();
-    bumpTenantWorkGeneration();
-  }
-
-  function bumpTenantWorkGeneration() {
-    tenantWorkGenerationRef.current += 1;
-    setTenantWorkGeneration(tenantWorkGenerationRef.current);
-  }
-
+  // The same for the product in the editor. Only looked up while the editor
+  // is open (editingProduct comes from its route): every stock change would
+  // otherwise query SQLite again.
+  const editingProductId = editingProduct?.id ?? null;
   useEffect(() => {
-    const generation = tenantWorkGenerationRef.current;
-    if (!editingProduct) {
-      setEditorHasInitialMovement(false);
-      return;
-    }
-
+    if (!editingProductId) return;
+    const isCurrentGeneration = tenantWork.captureGeneration();
     let cancelled = false;
-    const isCurrent = () =>
-      !cancelled && tenantWorkGenerationRef.current === generation;
-    const productId = editingProduct.id;
-    const productTracksInventory = editingProduct.tracksInventory;
+    const isCurrent = () => !cancelled && isCurrentGeneration();
+    const productId = editingProductId;
 
-    async function loadEditorInitialMovementState() {
-      if (productHasInitialMovement(productId, inventoryMovements)) {
+    initialMovementOf(productId, powerSyncDb).then(
+      (state) => {
         if (isCurrent()) {
-          setEditorHasInitialMovement(true);
+          setEditorInitialMovement({ productId, state });
         }
-        return;
-      }
-
-      if (powerSyncDb?.currentStatus?.hasSynced && inventoryWatchReady) {
-        try {
-          const hasInitial = await productHasInitialMovementLocal(
-            powerSyncDb,
-            productId
-          );
-          if (isCurrent()) {
-            setEditorHasInitialMovement(hasInitial);
-          }
-        } catch (error) {
-          if (isCurrent()) {
-            console.error("[PowerSync] initial movement lookup failed", error);
-          }
+      },
+      (error: unknown) => {
+        if (isCurrent()) {
+          console.error("[PowerSync] initial movement lookup failed", error);
+          reportClientFailure("powersync_initial_movement_lookup", error);
         }
-        return;
       }
-
-      if (isCurrent()) {
-        setEditorHasInitialMovement(
-          !inventoryWatchReady && productTracksInventory
-        );
-      }
-    }
-
-    void loadEditorInitialMovementState();
+    );
 
     return () => {
       cancelled = true;
     };
-  }, [editingProduct, powerSyncDb, inventoryMovements, inventoryWatchReady]);
+  }, [editingProductId, powerSyncDb, initialMovementOf, tenantWork]);
+  // A new product has no count yet. One not looked up yet (or whose lookup
+  // failed) is unknown until it is.
+  const editorInitialMovementState: InitialMovementState = !editingProductId
+    ? "none"
+    : editorInitialMovement?.productId === editingProductId
+      ? editorInitialMovement.state
+      : "unknown";
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
-
-    const controller = new AbortController();
-    const generation = tenantWorkGenerationRef.current;
-    const isCurrent = () =>
-      !controller.signal.aborted &&
-      tenantWorkGenerationRef.current === generation;
-    let unregister: (() => void) | undefined;
-
-    function startWatching(db: NonNullable<typeof powerSyncDb>) {
-      db.watch(
-        "SELECT * FROM products WHERE tenant_id = ? ORDER BY created_at DESC",
-        [activeTenantId],
-        {
-          onResult: (results) => {
-            if (!isCurrent() || !db.currentStatus?.hasSynced) {
-              return;
-            }
-            const rows = ((results.rows as unknown as { _array?: ProductRow[] })
-              ?._array ?? []) as ProductRow[];
-            hydrateProducts(rows.map(rowToProduct));
-          },
-          onError: (error) => {
-            console.error("[PowerSync] products watch error", error);
-          },
-        },
-        { signal: controller.signal }
-      );
-    }
-
-    if (powerSyncDb.currentStatus?.hasSynced) {
-      startWatching(powerSyncDb);
-    } else {
-      unregister = powerSyncDb.registerListener({
-        statusChanged: (status) => {
-          if (status.hasSynced && isCurrent()) {
-            startWatching(powerSyncDb);
-            unregister?.();
-            unregister = undefined;
-          }
-        },
-      });
-    }
-
-    return () => {
-      controller.abort();
-      unregister?.();
-    };
-  }, [powerSyncDb, hydrateProducts, activeTenantId, tenantWorkGeneration]);
+    return watchTenantRows<LocalProductRow>(powerSyncDb, {
+      sql: "SELECT * FROM products WHERE tenant_id = ? ORDER BY created_at DESC",
+      tenantId: activeTenantId,
+      isCurrent: tenantWork.captureGeneration(),
+      onRows: (rows, synced) => {
+        const localProducts = rows.map(mapLocalProductRow);
+        hydrateProducts(
+          synced
+            ? localProducts
+            : mergeLocalRowsOverServer(
+                initialProductsRef.current,
+                localProducts
+              )
+        );
+      },
+      onError: watchFailed("products watch error", "powersync_products_watch"),
+    });
+    // The server rows are read through refs, but they are dependencies all
+    // the same: when '/' renders again (a server action that set a cookie
+    // re-renders it), the effect above puts the server rows back, and
+    // subscribing again reads the local rows over them.
+  }, [
+    powerSyncDb,
+    hydrateProducts,
+    activeTenantId,
+    tenantWork,
+    tenantWorkGeneration,
+    initialProducts,
+  ]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
-
-    const controller = new AbortController();
-    const generation = tenantWorkGenerationRef.current;
-    const isCurrent = () =>
-      !controller.signal.aborted &&
-      tenantWorkGenerationRef.current === generation;
-    let unregister: (() => void) | undefined;
-
-    function startWatching(db: NonNullable<typeof powerSyncDb>) {
-      db.watch(
-        "SELECT * FROM categories WHERE tenant_id = ? ORDER BY name ASC",
-        [activeTenantId],
-        {
-          onResult: (results) => {
-            if (!isCurrent() || !db.currentStatus?.hasSynced) return;
-            const rows = ((
-              results.rows as unknown as { _array?: CategoryRow[] }
-            )?._array ?? []) as CategoryRow[];
-            setCategories(sortCategories(rows.map(rowToCategory)));
-          },
-          onError: (error) => {
-            console.error("[PowerSync] categories watch error", error);
-          },
-        },
-        { signal: controller.signal }
-      );
-    }
-
-    if (powerSyncDb.currentStatus?.hasSynced) {
-      startWatching(powerSyncDb);
-    } else {
-      unregister = powerSyncDb.registerListener({
-        statusChanged: (status) => {
-          if (status.hasSynced && isCurrent()) {
-            startWatching(powerSyncDb);
-            unregister?.();
-            unregister = undefined;
-          }
-        },
-      });
-    }
-
-    return () => {
-      controller.abort();
-      unregister?.();
-    };
-  }, [powerSyncDb, activeTenantId, tenantWorkGeneration]);
+    return watchTenantRows<LocalCategoryRow>(powerSyncDb, {
+      sql: "SELECT * FROM categories WHERE tenant_id = ? ORDER BY name ASC",
+      tenantId: activeTenantId,
+      isCurrent: tenantWork.captureGeneration(),
+      onRows: (rows, synced) => {
+        const localCategories = rows.map(mapLocalCategoryRow);
+        setCategories(
+          sortCategories(
+            synced
+              ? localCategories
+              : mergeLocalRowsOverServer(
+                  initialCategoriesRef.current,
+                  localCategories
+                )
+          )
+        );
+      },
+      onError: watchFailed(
+        "categories watch error",
+        "powersync_categories_watch"
+      ),
+    });
+    // initialCategories: see the products watch.
+  }, [
+    powerSyncDb,
+    activeTenantId,
+    tenantWork,
+    tenantWorkGeneration,
+    initialCategories,
+  ]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
-
-    const controller = new AbortController();
-    const generation = tenantWorkGenerationRef.current;
-    const isCurrent = () =>
-      !controller.signal.aborted &&
-      tenantWorkGenerationRef.current === generation;
-    let unregister: (() => void) | undefined;
-
-    function startWatching(db: NonNullable<typeof powerSyncDb>) {
-      db.watch(
-        "SELECT * FROM inventory_movements WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
-        [activeTenantId],
-        {
-          onResult: (results) => {
-            if (!isCurrent() || !db.currentStatus?.hasSynced) {
-              return;
-            }
-            const rows = ((
-              results.rows as unknown as { _array?: InventoryMovementRow[] }
-            )?._array ?? []) as InventoryMovementRow[];
-            setInventoryMovements(rows.map(rowToInventoryMovement));
-            setInventoryWatchReady(true);
-          },
-          onError: (error) => {
-            console.error("[PowerSync] inventory_movements watch error", error);
-          },
-        },
-        { signal: controller.signal }
-      );
-    }
-
-    if (powerSyncDb.currentStatus?.hasSynced) {
-      startWatching(powerSyncDb);
-    } else {
-      unregister = powerSyncDb.registerListener({
-        statusChanged: (status) => {
-          if (status.hasSynced && isCurrent()) {
-            startWatching(powerSyncDb);
-            unregister?.();
-            unregister = undefined;
-          }
-        },
-      });
-    }
-
-    return () => {
-      controller.abort();
-      unregister?.();
-    };
-  }, [powerSyncDb, activeTenantId, tenantWorkGeneration]);
+    return watchTenantRows<LocalInventoryMovementRow>(powerSyncDb, {
+      sql: "SELECT * FROM inventory_movements WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
+      tenantId: activeTenantId,
+      isCurrent: tenantWork.captureGeneration(),
+      onRows: (rows, synced) => {
+        const localMovements = rows.map(mapLocalInventoryMovementRow);
+        if (synced) {
+          setInventoryMovements(localMovements);
+          setLocalLedgerLoaded((loaded) =>
+            loaded.movements ? loaded : { ...loaded, movements: true }
+          );
+          setInventoryStockReady(true);
+        } else {
+          // Stock readiness still follows the server data until then.
+          setInventoryMovements(
+            mergeLocalRowsOverServer(
+              initialInventoryRef.current?.movements ?? [],
+              localMovements
+            ).sort(compareMovementsOldestFirst)
+          );
+        }
+      },
+      onError: watchFailed(
+        "inventory_movements watch error",
+        "powersync_inventory_watch"
+      ),
+    });
+    // initialInventory: see the products watch.
+  }, [
+    powerSyncDb,
+    activeTenantId,
+    tenantWork,
+    tenantWorkGeneration,
+    initialInventory,
+  ]);
 
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
-
-    const generation = tenantWorkGenerationRef.current;
-    const controller = new AbortController();
-    const isCurrent = () =>
-      !controller.signal.aborted &&
-      tenantWorkGenerationRef.current === generation;
+    const db = powerSyncDb;
     setTeamSyncConfirmed(initialTenantMembersRef.current.length === 0);
     teamSyncEverConfirmedRef.current = false;
-    let unregister: (() => void) | undefined;
 
-    function startWatching(db: NonNullable<typeof powerSyncDb>) {
-      db.watch(
-        "SELECT * FROM tenant_users WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
-        [activeTenantId],
-        {
-          onResult: (results) => {
-            if (!isCurrent()) {
-              return;
-            }
-            const rows = ((
-              results.rows as unknown as { _array?: LocalTenantUserRow[] }
-            )?._array ?? []) as LocalTenantUserRow[];
-            const mapped = rows.map(mapTenantUserRow);
-            const serverMembers = initialTenantMembersRef.current;
-            const hasSynced = db.currentStatus?.hasSynced ?? false;
-            const confirmed = isTeamReplicationConfirmed(
-              mapped,
-              serverMembers,
-              hasSynced
-            );
-            if (confirmed) {
-              teamSyncEverConfirmedRef.current = true;
-            }
-            setTeamSyncConfirmed(confirmed);
-            setTenantMembers((prev) =>
-              mergeTenantMembersFromWatch(prev, mapped, {
-                allowMemberShrink: teamSyncEverConfirmedRef.current,
-                replicationConfirmed: confirmed,
-              })
-            );
-          },
-          onError: (error) => {
-            console.error("[PowerSync] tenant_users watch error", error);
-          },
-        },
-        { signal: controller.signal }
-      );
-    }
-
-    // Require hasSynced on this connection — do not use hasCompletedInitialSync()
-    // here. The localStorage flag can be true from a prior app version that did
-    // not replicate tenant_users yet.
-    if (powerSyncDb.currentStatus?.hasSynced) {
-      startWatching(powerSyncDb);
-    } else {
-      unregister = powerSyncDb.registerListener({
-        statusChanged: (status) => {
-          if (status.hasSynced && isCurrent()) {
-            startWatching(powerSyncDb);
-            unregister?.();
-            unregister = undefined;
-          }
-        },
-      });
-    }
-
-    return () => {
-      controller.abort();
-      unregister?.();
-    };
-  }, [powerSyncDb, activeTenantId, tenantWorkGeneration]);
+    return watchTenantRows<LocalTenantUserRow>(db, {
+      sql: "SELECT * FROM tenant_users WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
+      tenantId: activeTenantId,
+      isCurrent: tenantWork.captureGeneration(),
+      // Memberships are never written on the device: before the first sync
+      // there is nothing local to show, and the server members stay.
+      syncedOnly: true,
+      onRows: (rows) => {
+        const mapped = rows.map(mapTenantUserRow);
+        const serverMembers = initialTenantMembersRef.current;
+        const hasSynced = db.currentStatus?.hasSynced ?? false;
+        const confirmed = isTeamReplicationConfirmed(
+          mapped,
+          serverMembers,
+          hasSynced
+        );
+        if (confirmed) {
+          teamSyncEverConfirmedRef.current = true;
+        }
+        setTeamSyncConfirmed(confirmed);
+        setTenantMembers((prev) =>
+          mergeTenantMembersFromWatch(prev, mapped, {
+            allowMemberShrink: teamSyncEverConfirmedRef.current,
+            replicationConfirmed: confirmed,
+          })
+        );
+      },
+      onError: watchFailed(
+        "tenant_users watch error",
+        "powersync_tenant_users_watch"
+      ),
+    });
+  }, [powerSyncDb, activeTenantId, tenantWork, tenantWorkGeneration]);
 
   // Subscribe to sales + sale_lines + refunds. PowerSync's onChange fires
   // whenever any of the three tables mutates; we requery all three and
@@ -780,12 +769,10 @@ export function GlitterPosApp({
   useEffect(() => {
     if (!powerSyncDb || !activeTenantId) return;
 
-    const controller = new AbortController();
-    const generation = tenantWorkGenerationRef.current;
-    const isCurrent = () =>
-      !controller.signal.aborted &&
-      tenantWorkGenerationRef.current === generation;
-    let unregister: (() => void) | undefined;
+    const db = powerSyncDb;
+    const isCurrentGeneration = tenantWork.captureGeneration();
+    const isCurrent = (signal: AbortSignal) =>
+      !signal.aborted && isCurrentGeneration();
 
     function resolveUserName(userId: string) {
       return (
@@ -794,10 +781,8 @@ export function GlitterPosApp({
       );
     }
 
-    async function rebuildSales(db: NonNullable<typeof powerSyncDb>) {
-      if (!isCurrent() || !db.currentStatus?.hasSynced) {
-        return;
-      }
+    async function rebuildSales(signal: AbortSignal, synced: boolean) {
+      if (!isCurrent(signal)) return;
       try {
         // Tenant-scoped reads: see the note on the products watch above.
         const [saleRows, lineRows, refundRows] = await Promise.all([
@@ -814,51 +799,46 @@ export function GlitterPosApp({
             [activeTenantId]
           ),
         ]);
-        if (!isCurrent()) return;
-        hydrateSales(
-          buildSalesFromLocal(saleRows, lineRows, refundRows, resolveUserName)
+        if (!isCurrent(signal)) return;
+        const localSales = buildSalesFromLocal(
+          saleRows,
+          lineRows,
+          refundRows,
+          resolveUserName
         );
+        if (synced) {
+          hydrateSales(localSales);
+          setLocalLedgerLoaded((loaded) =>
+            loaded.sales ? loaded : { ...loaded, sales: true }
+          );
+        } else {
+          hydrateSales(
+            sortSalesNewestFirst(
+              mergeLocalRowsOverServer(initialSalesRef.current, localSales)
+            )
+          );
+        }
       } catch (error) {
-        if (isCurrent()) {
+        if (isCurrent(signal)) {
           console.error("[PowerSync] sales rebuild failed", error);
+          reportClientFailure("powersync_sales_rebuild", error);
         }
       }
     }
 
-    function startWatching(db: NonNullable<typeof powerSyncDb>) {
+    return watchLocalTables(db, ({ signal, synced }) => {
       db.onChange(
         {
-          onChange: () => rebuildSales(db),
-          onError: (error) => {
-            console.error("[PowerSync] sales onChange error", error);
-          },
+          onChange: () => rebuildSales(signal, synced),
+          onError: watchFailed("sales onChange error", "powersync_sales_watch"),
         },
         {
-          signal: controller.signal,
+          signal,
           tables: ["sales", "sale_lines", "refunds"],
           triggerImmediate: true,
         }
       );
-    }
-
-    if (powerSyncDb.currentStatus?.hasSynced) {
-      startWatching(powerSyncDb);
-    } else {
-      unregister = powerSyncDb.registerListener({
-        statusChanged: (status) => {
-          if (status.hasSynced && isCurrent()) {
-            startWatching(powerSyncDb);
-            unregister?.();
-            unregister = undefined;
-          }
-        },
-      });
-    }
-
-    return () => {
-      controller.abort();
-      unregister?.();
-    };
+    });
   }, [
     powerSyncDb,
     hydrateSales,
@@ -866,83 +846,84 @@ export function GlitterPosApp({
     currentUserName,
     activeTenantId,
     userNameById,
+    tenantWork,
     tenantWorkGeneration,
+    // See the products watch.
+    initialSales,
   ]);
 
-  useEffect(() => {
-    if (!powerSyncDb) return;
-    const db = powerSyncDb;
+  // The draft cart survives a reload: in the local SQLite store with
+  // PowerSync, in this browser's storage without it (lib/draft-cart.ts).
+  const draftCartStorage = useMemo(
+    () =>
+      powerSyncDb
+        ? powerSyncDraftCartStorage(powerSyncDb)
+        : isPowerSyncConfigured()
+          ? null
+          : browserDraftCartStorage(),
+    [powerSyncDb]
+  );
 
-    const generation = tenantWorkGenerationRef.current;
+  useEffect(() => {
+    if (!draftCartStorage) return;
+
+    const isCurrentGeneration = tenantWork.captureGeneration();
     let cancelled = false;
-    const isCurrent = () =>
-      !cancelled && tenantWorkGenerationRef.current === generation;
+    const isCurrent = () => !cancelled && isCurrentGeneration();
     draftCartReadyRef.current = false;
     const expectedCartRevision = usePosStore.getState().cartRevision;
 
-    async function hydrateDraftCart() {
+    async function hydrateDraftCart(storage: DraftCartStorage) {
       try {
-        await migrateLegacyDraftCartLocal(db);
-        if (!isCurrent()) return;
-        const draft = await loadDraftCartLocal(db);
+        const draft = await storage.load();
         if (!isCurrent()) return;
 
         hydrateCart(draft.cart, draft.updatedAt, expectedCartRevision);
         draftCartReadyRef.current = true;
       } catch (error) {
         if (isCurrent()) {
-          console.error("[PowerSync] draft cart hydrate failed", error);
+          console.error("[draft cart] hydrate failed", error);
+          reportClientFailure("powersync_draft_cart_hydrate", error);
           draftCartReadyRef.current = true;
         }
       }
     }
 
-    void hydrateDraftCart();
+    void hydrateDraftCart(draftCartStorage);
 
     return () => {
       cancelled = true;
     };
-  }, [powerSyncDb, hydrateCart, tenantWorkGeneration]);
+  }, [draftCartStorage, hydrateCart, tenantWork, tenantWorkGeneration]);
 
   useEffect(() => {
-    if (!powerSyncDb || !draftCartReadyRef.current) {
+    if (!draftCartStorage || !draftCartReadyRef.current) {
       return;
     }
 
-    const generation = tenantWorkGenerationRef.current;
+    const isCurrentGeneration = tenantWork.captureGeneration();
     const timeout = window.setTimeout(() => {
-      if (
-        tenantWorkGenerationRef.current !== generation ||
-        !draftCartReadyRef.current
-      ) {
+      if (!isCurrentGeneration() || !draftCartReadyRef.current) {
         return;
       }
-      void saveDraftCartLocal(
-        powerSyncDb,
-        cart,
-        usePosStore.getState().cartUpdatedAt
-      );
+      void draftCartStorage.save(cart, usePosStore.getState().cartUpdatedAt);
     }, 450);
 
     return () => window.clearTimeout(timeout);
-  }, [powerSyncDb, cart, tenantWorkGeneration]);
+  }, [draftCartStorage, cart, tenantWork, tenantWorkGeneration]);
 
   useEffect(() => {
-    const generation = tenantWorkGenerationRef.current;
+    const isCurrentGeneration = tenantWork.captureGeneration();
     function flushDraftCart() {
       if (
-        !powerSyncDb ||
+        !draftCartStorage ||
         !draftCartReadyRef.current ||
-        tenantWorkGenerationRef.current !== generation
+        !isCurrentGeneration()
       ) {
         return;
       }
 
-      void saveDraftCartLocal(
-        powerSyncDb,
-        cartRef.current,
-        cartUpdatedAtRef.current
-      );
+      void draftCartStorage.save(cartRef.current, cartUpdatedAtRef.current);
     }
 
     function flushWhenHidden() {
@@ -958,9 +939,9 @@ export function GlitterPosApp({
       window.removeEventListener("pagehide", flushDraftCart);
       document.removeEventListener("visibilitychange", flushWhenHidden);
     };
-  }, [powerSyncDb, tenantWorkGeneration]);
+  }, [draftCartStorage, tenantWork, tenantWorkGeneration]);
 
-  function showToast(text: string, tone: ToastMessage["tone"] = "success") {
+  function showToast(text: string, tone: ToastTone = "success") {
     if (tone === "danger") {
       sonnerToast.error(text);
     } else if (tone === "info") {
@@ -970,6 +951,66 @@ export function GlitterPosApp({
     }
   }
 
+  /**
+   * Runs a write for the active tenant. The environment picks the path: with
+   * PowerSync configured, the provider renders the app only once the local
+   * store is ready, so `local` writes to it and the upload queue replicates
+   * the rows to Supabase in the background. (db is null there only during a
+   * local teardown, which has already cancelled tenant work, so `server` is
+   * not called then.) Without PowerSync (local-only mode), `server` calls
+   * the server actions.
+   *
+   * Resolves to the write's result, or to null once its tenant work was
+   * cancelled (a teardown started), which callers ignore. Any other failure,
+   * and a missing tenant, is thrown.
+   */
+  async function runTenantWrite<T>(
+    write: TenantWrite<T>
+  ): Promise<{ value: T } | null> {
+    const tenant = tenantContext.tenant;
+    if (!tenant) {
+      throw new Error(NO_TENANT_MESSAGE);
+    }
+    const work = tenantWork.begin();
+    const db = powerSyncDb;
+    try {
+      work.assertCurrent();
+      write.pending?.(true);
+      const value = db
+        ? await write.local({ tenant, work, db })
+        : await write.server({ tenant, work });
+      work.assertCurrent();
+      return { value };
+    } catch (error) {
+      if (!work.isCurrent()) {
+        return null;
+      }
+      throw error;
+    } finally {
+      if (work.isCurrent()) {
+        write.pending?.(false);
+      }
+    }
+  }
+
+  /** runTenantWrite for a screen that shows a failure as a toast. */
+  async function runTenantWriteWithToast<T>(
+    failureMessage: string,
+    write: TenantWrite<T>
+  ): Promise<{ value: T } | null> {
+    try {
+      return await runTenantWrite(write);
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : failureMessage,
+        "danger"
+      );
+      return null;
+    }
+  }
+
+  // Opening and closing the editor change its route, which starts a new
+  // editor session (see editorRouteKey).
   function openEditor(product: Product | null) {
     navigate({ view: "editor", id: product?.id });
   }
@@ -978,272 +1019,391 @@ export function GlitterPosApp({
     back({ view: "products" });
   }
 
+  /**
+   * After a save or archive: returns to the catalog only from the editor the
+   * write started in. An editor opened while the write ran keeps what was
+   * typed in it, and once the vendor already left the editor, going back
+   * would leave whatever screen they are on now. The hash is read as well as
+   * the session, in case the write finishes before the route change renders.
+   */
+  function closeEditorAfterWrite(session: number) {
+    const current = parseRouteHash(window.location.hash);
+    if (
+      editorSessions.current() === session &&
+      current.view === "editor" &&
+      (current.id ?? null) === editorProductId
+    ) {
+      closeEditor();
+    }
+  }
+
   function goToPrimary(next: PrimaryView) {
     navigate({ view: next });
   }
 
-  async function handleCreateCategory(name: string): Promise<Category> {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      throw new Error("Tu puesto aún no está configurado.");
-    }
-
-    const work = beginTenantWork();
-    const db = powerSyncDb;
-    const created = db
-      ? await createCategoryLocal(db, {
-          tenantId: tenant.id,
-          name,
-          assertCurrent: work.assertCurrent,
-        })
-      : await createCategoryAction(name);
-    work.assertCurrent();
-    setCategories((current) =>
-      sortCategories([
-        created,
-        ...current.filter((item) => item.id !== created.id),
-      ])
-    );
-    showToast("Categoría creada", "success");
-    return created;
-  }
-
-  async function handleRenameCategory(
-    categoryId: string,
-    name: string
-  ): Promise<Category> {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      throw new Error("Tu puesto aún no está configurado.");
-    }
-    const work = beginTenantWork();
-    const db = powerSyncDb;
-    const renamed = db
-      ? await renameCategoryLocal(db, {
-          tenantId: tenant.id,
-          categoryId,
-          name,
-          assertCurrent: work.assertCurrent,
-        })
-      : await renameCategoryAction(categoryId, name);
-    work.assertCurrent();
-    setCategories((current) =>
-      sortCategories(
-        current.map((item) => (item.id === categoryId ? renamed : item))
-      )
-    );
-    showToast("Categoría renombrada", "info");
-    return renamed;
-  }
-
-  async function handleDeleteCategory(categoryId: string): Promise<void> {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      throw new Error("Tu puesto aún no está configurado.");
-    }
-    const work = beginTenantWork();
-    const db = powerSyncDb;
-    if (db) {
-      await deleteCategoryLocal(db, {
-        tenantId: tenant.id,
-        categoryId,
-        assertCurrent: work.assertCurrent,
-      });
-    } else {
-      await deleteCategoryAction(categoryId);
-    }
-    work.assertCurrent();
-    setCategories((current) =>
-      current.filter((item) => item.id !== categoryId)
-    );
-    if (category === categoryId) setCategory(allCategoriesOption.id);
-    if (catalogCategory === categoryId) {
-      setCatalogCategory(allCategoriesOption.id);
-    }
-    showToast("Categoría eliminada", "info");
-  }
-
-  async function handleSaveProduct(input: {
-    name: string;
-    priceCents: number;
-    costCents: number | null;
-    categoryId: string | null;
-    imageTone: string;
-    imagePath?: string | null;
-    imageFile?: File | null;
-    tracksInventory: boolean;
-    initialStock?: number;
-  }) {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      showToast("Tu puesto aún no está configurado.", "danger");
+  async function runProductWrite(
+    write: ProductWrite,
+    run: () => Promise<void>
+  ) {
+    if (productWriteRef.current) {
+      // Its buttons wait for the write in progress, but say so if a tap
+      // still gets here instead of dropping it silently.
+      showToast("Esperá a que termine el cambio en curso", "info");
       return;
     }
-    const work = beginTenantWork();
-    const db = powerSyncDb;
+    productWriteRef.current = write;
+    setProductWrite(write);
     try {
-      let uploadFailed = false;
-      let initialStockFailed = false;
-      let hasInitial = false;
-      if (editingProduct) {
-        if (productHasInitialMovement(editingProduct.id, inventoryMovements)) {
-          hasInitial = true;
-        } else if (db?.currentStatus?.hasSynced && inventoryWatchReady) {
-          hasInitial = await productHasInitialMovementLocal(
-            db,
-            editingProduct.id
-          );
-          work.assertCurrent();
-        } else if (!inventoryWatchReady && editingProduct.tracksInventory) {
-          hasInitial = true;
-        }
-      }
-      const needsInitialMovement =
-        input.tracksInventory &&
-        input.initialStock != null &&
-        input.initialStock > 0 &&
-        !hasInitial;
+      await run();
+    } finally {
+      productWriteRef.current = null;
+      setProductWrite(null);
+    }
+  }
 
-      if (db) {
+  function handleSaveProduct(input: ProductEditorSaveInput) {
+    return runProductWrite(
+      {
+        kind: "save",
+        productId: editingProduct?.id ?? null,
+        editorSession: editorSessions.current(),
+      },
+      () => saveProduct(input)
+    );
+  }
+
+  async function saveProduct({
+    product: productInput,
+    imageFile,
+    initialStock,
+  }: ProductEditorSaveInput) {
+    const session = editorSessions.current();
+    const existingProduct = editingProduct ?? editorSessions.createdIn(session);
+
+    // The initial count to write with the product, if any
+    // (resolveInitialStockDelta). A new product has none yet.
+    async function initialStockDeltaToWrite(
+      db: AbstractPowerSyncDatabase | null,
+      work: TenantWriteInput["work"]
+    ) {
+      let initialMovement: InitialMovementState = "none";
+      if (existingProduct) {
+        initialMovement = await initialMovementOf(existingProduct.id, db);
         work.assertCurrent();
-        const productId = editingProduct
-          ? (await updateProductLocal(db, {
-              tenantId: tenant.id,
-              productId: editingProduct.id,
-              product: input,
-              assertCurrent: work.assertCurrent,
-            }),
-            editingProduct.id)
-          : (
-              await createProductLocal(db, {
+      }
+      return resolveInitialStockDelta({
+        tracksInventory: productInput.tracksInventory,
+        wasTrackingInventory: existingProduct?.tracksInventory ?? false,
+        initialMovement,
+        initialStock,
+      });
+    }
+
+    // Each path resolves to whether the photo upload failed: the product
+    // itself is saved by then.
+    const saved = await runTenantWriteWithToast(
+      "No se pudo guardar el producto",
+      {
+        local: async ({ tenant, work, db }) => {
+          const initialStockDelta = await initialStockDeltaToWrite(db, work);
+          // The initial count is written in the product's own transaction.
+          const initialStockMovement =
+            initialStockDelta != null
+              ? { userId: tenantContext.user.id, delta: initialStockDelta }
+              : undefined;
+          const productId = existingProduct
+            ? (await updateProductLocal(db, {
                 tenantId: tenant.id,
-                product: input,
+                productId: existingProduct.id,
+                product: productInput,
+                initialStock: initialStockMovement,
                 assertCurrent: work.assertCurrent,
-              })
-            ).productId;
+              }),
+              existingProduct.id)
+            : (
+                await createProductLocal(db, {
+                  tenantId: tenant.id,
+                  product: productInput,
+                  initialStock: initialStockMovement,
+                  assertCurrent: work.assertCurrent,
+                })
+              ).productId;
+          if (!editingProduct) {
+            editorSessions.rememberCreated(session, {
+              id: productId,
+              tracksInventory: productInput.tracksInventory,
+            });
+          }
 
-        if (needsInitialMovement) {
-          work.assertCurrent();
-          await addInventoryMovement(db, {
-            tenantId: tenant.id,
-            userId: tenantContext.user.id,
-            productId,
-            delta: input.initialStock!,
-            reason: "initial",
-            assertCurrent: work.assertCurrent,
-          });
-        }
-
-        if (input.imageFile) {
+          if (!imageFile) {
+            return false;
+          }
           try {
             work.assertCurrent();
             await uploadProductImageLocal(createSupabaseBrowserClient(), db, {
               tenantId: tenant.id,
               productId,
-              file: input.imageFile,
+              file: imageFile,
               assertCurrent: work.assertCurrent,
             });
+            return false;
           } catch (error) {
             if (!work.isCurrent()) {
               throw error;
             }
-            uploadFailed = true;
+            return true;
           }
-        }
-      } else {
-        work.assertCurrent();
-        let product = editingProduct
-          ? await updateProductAction(editingProduct.id, input)
-          : await createProduct(input);
-        work.assertCurrent();
+        },
+        server: async ({ tenant, work }) => {
+          const initialStockDelta = await initialStockDeltaToWrite(null, work);
+          let uploadFailed = false;
+          // The initial count is written in the product's own transaction.
+          const saved = await unwrapActionResult(
+            () =>
+              existingProduct
+                ? updateProductAction(
+                    tenant.id,
+                    existingProduct.id,
+                    productInput,
+                    initialStockDelta
+                  )
+                : createProduct(tenant.id, productInput, initialStockDelta),
+            "No se pudo guardar el producto"
+          );
+          work.assertCurrent();
+          let product = saved.product;
+          upsertProduct(product);
+          if (saved.initialMovement) {
+            addInventoryMovementToState(saved.initialMovement);
+          }
+          if (!editingProduct) {
+            editorSessions.rememberCreated(session, product);
+          }
 
-        if (needsInitialMovement) {
-          try {
-            const movement = await createInventoryMovementAction({
-              productId: product.id,
-              delta: input.initialStock!,
-              reason: "initial",
-            });
-            work.assertCurrent();
-            setInventoryMovements((current) => [...current, movement]);
-          } catch (error) {
-            if (!work.isCurrent()) {
-              throw error;
+          if (imageFile) {
+            const productId = product.id;
+            const formData = new FormData();
+            formData.set("image", imageFile);
+            try {
+              work.assertCurrent();
+              product = await unwrapActionResult(
+                () => uploadProductImage(tenant.id, productId, formData),
+                "No se pudo subir la imagen"
+              );
+              work.assertCurrent();
+            } catch (error) {
+              if (!work.isCurrent()) {
+                throw error;
+              }
+              uploadFailed = true;
             }
-            initialStockFailed = true;
           }
-        }
-
-        if (input.imageFile) {
-          const formData = new FormData();
-          formData.set("image", input.imageFile);
-          try {
-            work.assertCurrent();
-            product = await uploadProductImage(product.id, formData);
-            work.assertCurrent();
-          } catch (error) {
-            if (!work.isCurrent()) {
-              throw error;
-            }
-            uploadFailed = true;
-          }
-        }
-        work.assertCurrent();
-        upsertProduct(product);
+          work.assertCurrent();
+          upsertProduct(product);
+          return uploadFailed;
+        },
       }
-
-      work.assertCurrent();
-      if (initialStockFailed && uploadFailed) {
-        showToast(
-          "Producto guardado, pero no se pudo registrar el stock inicial ni subir la imagen",
-          "danger"
-        );
-      } else if (initialStockFailed) {
-        showToast(
-          "Producto guardado, pero no se pudo registrar el stock inicial",
-          "danger"
-        );
-      } else if (uploadFailed) {
-        showToast(
-          "Producto guardado, pero no se pudo subir la imagen",
-          "danger"
-        );
-      } else {
-        showToast(
-          editingProduct ? "Producto actualizado" : "Producto agregado",
-          editingProduct ? "info" : "success"
-        );
-      }
-      closeEditor();
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return;
-      }
+    );
+    if (!saved) {
+      return;
+    }
+    if (saved.value) {
+      showToast("Producto guardado, pero no se pudo subir la imagen", "danger");
+    } else {
       showToast(
-        error instanceof Error
-          ? error.message
-          : "No se pudo guardar el producto",
-        "danger"
+        editingProduct ? "Producto actualizado" : "Producto agregado",
+        editingProduct ? "info" : "success"
       );
+    }
+    closeEditorAfterWrite(session);
+  }
+
+  function handleArchiveProduct(productId: string) {
+    return runProductWrite(
+      {
+        kind: "archive",
+        productId,
+        editorSession: editorSessions.current(),
+      },
+      () => archiveProduct(productId)
+    );
+  }
+
+  async function archiveProduct(productId: string) {
+    const session = editorSessions.current();
+    const archived = await runTenantWriteWithToast(
+      "No se pudo archivar el producto",
+      {
+        local: ({ tenant, work, db }) =>
+          archiveProductLocal(db, {
+            tenantId: tenant.id,
+            productId,
+            assertCurrent: work.assertCurrent,
+          }),
+        server: async ({ tenant, work }) => {
+          const product = await unwrapActionResult(
+            () => archiveProductAction(tenant.id, productId),
+            "No se pudo archivar el producto"
+          );
+          work.assertCurrent();
+          upsertProduct(product);
+        },
+      }
+    );
+    if (!archived) {
+      return;
+    }
+    showToast("Producto archivado", "info");
+    closeEditorAfterWrite(session);
+  }
+
+  function handleRestoreProduct(productId: string) {
+    return runProductWrite({ kind: "restore", productId }, () =>
+      restoreProduct(productId)
+    );
+  }
+
+  async function restoreProduct(productId: string) {
+    const restored = await runTenantWriteWithToast(
+      "No se pudo restaurar el producto",
+      {
+        local: ({ tenant, work, db }) =>
+          restoreProductLocal(db, {
+            tenantId: tenant.id,
+            productId,
+            assertCurrent: work.assertCurrent,
+          }),
+        server: async ({ tenant, work }) => {
+          const product = await unwrapActionResult(
+            () => restoreProductAction(tenant.id, productId),
+            "No se pudo restaurar el producto"
+          );
+          work.assertCurrent();
+          upsertProduct(product);
+        },
+      }
+    );
+    if (restored) {
+      showToast("Producto restaurado", "info");
     }
   }
 
+  // Category writes, from the category screen and the product editor. Their
+  // drawers show a failure next to the name, so these throw it; they resolve
+  // to null once the write was cancelled (see runTenantWrite). With PowerSync
+  // the categories watch shows the change; without it the server action's
+  // result is applied here.
+  async function handleCreateCategory(name: string) {
+    const created = await runTenantWrite({
+      local: ({ tenant, work, db }) =>
+        createCategoryLocal(db, {
+          tenantId: tenant.id,
+          name,
+          assertCurrent: work.assertCurrent,
+        }),
+      server: async ({ tenant, work }) => {
+        const category = await unwrapActionResult(
+          () => createCategoryAction(tenant.id, name),
+          "No se pudo crear la categoría"
+        );
+        work.assertCurrent();
+        setCategories((current) =>
+          sortCategories([
+            category,
+            ...current.filter((item) => item.id !== category.id),
+          ])
+        );
+        return category;
+      },
+    });
+    if (!created) {
+      return null;
+    }
+    showToast("Categoría creada", "success");
+    return created.value;
+  }
+
+  // Filters and labels go by category id, so a rename needs nothing else
+  // here: the rails keep a renamed category selected, and products show its
+  // new name through the category index.
+  async function handleRenameCategory(categoryId: string, name: string) {
+    const renamed = await runTenantWrite({
+      local: ({ tenant, work, db }) =>
+        renameCategoryLocal(db, {
+          tenantId: tenant.id,
+          categoryId,
+          name,
+          assertCurrent: work.assertCurrent,
+        }),
+      server: async ({ tenant, work }) => {
+        const category = await unwrapActionResult(
+          () => renameCategoryAction(tenant.id, categoryId, name),
+          "No se pudo renombrar la categoría"
+        );
+        work.assertCurrent();
+        setCategories((current) =>
+          sortCategories(
+            current.map((item) => (item.id === categoryId ? category : item))
+          )
+        );
+        return category;
+      },
+    });
+    if (!renamed) {
+      return null;
+    }
+    showToast("Categoría renombrada", "info");
+    return renamed.value;
+  }
+
+  async function handleDeleteCategory(categoryId: string) {
+    const deleted = await runTenantWrite({
+      local: ({ tenant, work, db }) =>
+        deleteCategoryLocal(db, {
+          tenantId: tenant.id,
+          categoryId,
+          assertCurrent: work.assertCurrent,
+        }),
+      server: async ({ tenant, work }) => {
+        await unwrapActionResult(
+          () => deleteCategoryAction(tenant.id, categoryId),
+          "No se pudo eliminar la categoría"
+        );
+        work.assertCurrent();
+        setCategories((current) =>
+          current.filter((item) => item.id !== categoryId)
+        );
+      },
+    });
+    if (!deleted) {
+      return;
+    }
+    // A rail filtered by the deleted category shows every product again.
+    const reset = (current: string) =>
+      current === categoryId ? allCategoriesOption.id : current;
+    setCategory(reset);
+    setCatalogCategory(reset);
+    showToast("Categoría eliminada", "info");
+  }
+
+  // Without PowerSync nothing watches inventory_movements, so a movement the
+  // server action recorded is added here; stock is derived from this list.
+  function addInventoryMovementToState(movement: InventoryMovement) {
+    setInventoryMovements((current) =>
+      [...current, movement].sort(compareMovementsOldestFirst)
+    );
+  }
+
+  // Throws when the movement was not recorded: the editor shows the message
+  // next to the stock fields and keeps what was typed.
   async function handleInventoryMovement(input: {
     productId: string;
     delta: number;
     reason: InventoryMovementReason;
     note?: string;
   }) {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      showToast("Tu puesto aún no está configurado.", "danger");
-      return;
-    }
-    const db = powerSyncDb;
-    const work = beginTenantWork();
-    try {
-      work.assertCurrent();
-      if (db) {
+    const recorded = await runTenantWrite({
+      local: async ({ tenant, work, db }) => {
         await addInventoryMovement(db, {
           tenantId: tenant.id,
           userId: tenantContext.user.id,
@@ -1253,24 +1413,24 @@ export function GlitterPosApp({
           note: input.note,
           assertCurrent: work.assertCurrent,
         });
+      },
+      server: async ({ tenant, work }) => {
+        const movement = await unwrapActionResult(
+          () =>
+            addInventoryMovementAction(tenant.id, {
+              productId: input.productId,
+              delta: input.delta,
+              reason: input.reason,
+              note: input.note,
+            }),
+          "No se pudo actualizar el inventario"
+        );
         work.assertCurrent();
-      } else {
-        const movement = await createInventoryMovementAction(input);
-        work.assertCurrent();
-        setInventoryMovements((current) => [...current, movement]);
-      }
+        addInventoryMovementToState(movement);
+      },
+    });
+    if (recorded) {
       showToast("Inventario actualizado", "success");
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return;
-      }
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "No se pudo actualizar el inventario",
-        "danger"
-      );
-      throw error;
     }
   }
 
@@ -1283,33 +1443,104 @@ export function GlitterPosApp({
     if (isCheckingOut || !cartDetails.length) {
       return;
     }
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      showToast("Tu puesto aún no está configurado.", "danger");
+
+    // The order as it was charged, taken before the sale clears the cart,
+    // for the confirmation screen and the shareable receipt.
+    const chargedLines = cartDetails.map((line) => ({
+      name: line.product.name,
+      quantity: line.quantity,
+      totalCents: priceLine({
+        priceCents: line.product.priceCents,
+        quantity: line.quantity,
+        lineDiscountCents: line.lineDiscountCents,
+      }).totalCents,
+    }));
+    const chargedCount = cartCount;
+    const chargedSubtotal = cartSubtotal;
+
+    // Each path resolves to the sale's id and total, for the confirmation.
+    const recorded = await runTenantWriteWithToast(
+      "No se pudo registrar la venta",
+      {
+        pending: setIsCheckingOut,
+        local: async ({ tenant, work, db }) => {
+          const sale = await createSaleLocal(db, {
+            tenantId: tenant.id,
+            userId: tenantContext.user.id,
+            paymentMethod: method,
+            saleDiscountCents: discount,
+            saleDiscountReason: reason,
+            lines: cartDetails.map((line) => ({
+              product: line.product,
+              // The line keeps the category's current name, which the
+              // product's own copy may not have caught up with yet.
+              categoryName: categoryLabel(line.product, categoryIndex),
+              quantity: line.quantity,
+              lineDiscountCents: line.lineDiscountCents,
+              lineDiscountReason: line.lineDiscountReason,
+            })),
+            assertCurrent: work.assertCurrent,
+          });
+          work.assertCurrent();
+          clearCart();
+          void draftCartStorage?.clear();
+          return sale;
+        },
+        server: async ({ tenant, work }) => {
+          const lines = cartDetails.map((line) => ({
+            productId: line.productId,
+            quantity: line.quantity,
+            lineDiscountCents: line.lineDiscountCents,
+            lineDiscountReason: line.lineDiscountReason,
+          }));
+          // A retry of the same checkout (the response was lost, or the
+          // network failed after the server recorded it) reuses the sale id,
+          // so the server returns the recorded sale instead of a duplicate.
+          // Any change to the checkout starts a new attempt.
+          const checkoutKey = JSON.stringify([
+            tenant.id,
+            method,
+            discount,
+            reason ?? "",
+            lines,
+          ]);
+          if (checkoutAttemptRef.current?.key !== checkoutKey) {
+            checkoutAttemptRef.current = {
+              key: checkoutKey,
+              saleId: randomUuid(),
+            };
+          }
+          const { saleId } = checkoutAttemptRef.current;
+          const sale = await unwrapActionResult(
+            () =>
+              createSale(tenant.id, {
+                saleId,
+                paymentMethod: method,
+                saleDiscountCents: discount,
+                saleDiscountReason: reason,
+                lines,
+              }),
+            "No se pudo registrar la venta"
+          );
+          checkoutAttemptRef.current = null;
+          work.assertCurrent();
+          recordSale(sale);
+          void draftCartStorage?.clear();
+          return { saleId: sale.id, totalCents: saleNetCents(sale) };
+        },
+      }
+    );
+    if (!recorded) {
       return;
     }
-
-    const work = beginTenantWork();
-    const db = powerSyncDb;
-    setIsCheckingOut(true);
-    // Snapshot the order before the cart is cleared, for the confirmation
-    // screen and the shareable receipt.
-    const totalCents = Math.max(0, cartSubtotal - discount);
-    const summary: Omit<CompletedSaleSummary, "saleId" | "createdAt"> = {
+    const { saleId, totalCents } = recorded.value;
+    const summary: CompletedSaleSummary = {
+      saleId,
+      createdAt: nowIso(),
       paymentMethod: method,
-      lines: cartDetails.map((line) => {
-        const gross = line.product.priceCents * line.quantity;
-        return {
-          name: line.product.name,
-          quantity: line.quantity,
-          totalCents: Math.max(
-            0,
-            gross - clampDiscount(line.lineDiscountCents ?? 0, gross)
-          ),
-        };
-      }),
-      itemCount: cartCount,
-      subtotalCents: cartSubtotal,
+      lines: chargedLines,
+      itemCount: chargedCount,
+      subtotalCents: chargedSubtotal,
       discountCents: discount,
       totalCents,
       receivedCents: method === "cash" ? receivedCents : null,
@@ -1318,165 +1549,83 @@ export function GlitterPosApp({
           ? Math.max(0, receivedCents - totalCents)
           : null,
     };
-
-    try {
-      let saleId: string;
-      // Local-first when PowerSync is initialized; the watch subscription
-      // picks up the new rows and updates the sales list, and the upload
-      // queue replicates to Supabase in the background. Fall back to the
-      // server action during the brief window before PowerSync is ready.
-      if (db) {
-        work.assertCurrent();
-        ({ saleId } = await createSaleLocal(db, {
-          tenantId: tenant.id,
-          userId: tenantContext.user.id,
-          paymentMethod: method,
-          saleDiscountCents: discount,
-          saleDiscountReason: reason,
-          lines: cartDetails.map((line) => ({
-            product: line.product,
-            categoryName: categoryLabel(line.product, categoryIndex),
-            quantity: line.quantity,
-            lineDiscountCents: line.lineDiscountCents,
-            lineDiscountReason: line.lineDiscountReason,
-          })),
-          assertCurrent: work.assertCurrent,
-        }));
-        work.assertCurrent();
-        clearCart();
-        void clearDraftCartLocal(db);
-      } else {
-        work.assertCurrent();
-        const sale = await createSale({
-          paymentMethod: method,
-          saleDiscountCents: discount,
-          saleDiscountReason: reason,
-          lines: cartDetails.map((line) => ({
-            productId: line.productId,
-            quantity: line.quantity,
-            lineDiscountCents: line.lineDiscountCents,
-            lineDiscountReason: line.lineDiscountReason,
-          })),
-        });
-        work.assertCurrent();
-        recordSale(sale);
-        saleId = sale.id;
-      }
-      work.assertCurrent();
-      // Commit the summary before the route changes: the route store
-      // re-renders synchronously, and the confirmation screen redirects to
-      // Vender if it renders without a sale.
-      flushSync(() =>
-        setCompletedSale({
-          ...summary,
-          saleId,
-          createdAt: new Date().toISOString(),
-        })
-      );
-      // Replace checkout so Back from the confirmation doesn't reopen it.
-      navigate({ view: "saleComplete" }, { replace: true });
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return;
-      }
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "No se pudo registrar la venta",
-        "danger"
-      );
-    } finally {
-      if (work.isCurrent()) {
-        setIsCheckingOut(false);
-      }
-    }
+    // Commit the summary before the route changes: the route store
+    // re-renders synchronously, and the confirmation screen redirects to
+    // Vender if it renders without a sale.
+    flushSync(() => setCompletedSale(summary));
+    // Replace checkout so Back from the confirmation doesn't reopen it.
+    navigate({ view: "saleComplete" }, { replace: true });
   }
 
+  // Void and refund are confirmed in SaleActionDialog: a refusal is thrown,
+  // so the dialog shows its reason, and false means the work was cancelled.
   async function handleVoidSale(saleId: string) {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      showToast("Tu puesto aún no está configurado.", "danger");
-      return false;
-    }
-    const work = beginTenantWork();
-    const db = powerSyncDb;
-    try {
-      if (db) {
-        work.assertCurrent();
-        await voidSaleLocal(db, {
+    const voided = await runTenantWrite({
+      local: ({ tenant, work, db }) =>
+        voidSaleLocal(db, {
           saleId,
           userId: tenantContext.user.id,
           tenantId: tenant.id,
           assertCurrent: work.assertCurrent,
-        });
-      } else {
-        work.assertCurrent();
-        const sale = await voidSaleAction(saleId);
+        }),
+      server: async ({ tenant, work }) => {
+        const sale = await unwrapActionResult(
+          () => voidSaleAction(tenant.id, saleId),
+          "No se pudo anular la venta"
+        );
         work.assertCurrent();
         upsertSale(sale);
-      }
-      work.assertCurrent();
-      showToast("Venta anulada", "info");
-      return true;
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return false;
-      }
-      showToast(
-        error instanceof Error ? error.message : "No se pudo anular la venta",
-        "danger"
-      );
+      },
+    });
+    if (!voided) {
       return false;
     }
+    showToast("Venta anulada", "info");
+    return true;
   }
 
   async function handleRefundSale(saleId: string, reason?: string) {
-    const tenant = tenantContext.tenant;
-    if (!tenant) {
-      showToast("Tu puesto aún no está configurado.", "danger");
-      return false;
-    }
-    const work = beginTenantWork();
-    const db = powerSyncDb;
-    try {
-      if (db) {
-        work.assertCurrent();
-        await refundSaleLocal(db, {
+    const refunded = await runTenantWrite({
+      local: ({ tenant, work, db }) =>
+        refundSaleLocal(db, {
           saleId,
           userId: tenantContext.user.id,
           tenantId: tenant.id,
           reason,
           assertCurrent: work.assertCurrent,
-        });
-      } else {
-        work.assertCurrent();
-        const sale = await refundSaleAction(saleId, reason);
+        }),
+      server: async ({ tenant, work }) => {
+        const sale = await unwrapActionResult(
+          () => refundSaleAction(tenant.id, saleId, reason),
+          "No se pudo registrar el reembolso"
+        );
         work.assertCurrent();
         upsertSale(sale);
-      }
-      work.assertCurrent();
-      showToast("Reembolso registrado", "info");
-      return true;
-    } catch (error) {
-      if (!work.isCurrent()) {
-        return false;
-      }
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "No se pudo registrar el reembolso",
-        "danger"
-      );
+      },
+    });
+    if (!refunded) {
       return false;
     }
+    showToast("Reembolso registrado", "info");
+    return true;
   }
 
   function handleClearCart() {
-    clearCart();
-    if (powerSyncDb) {
-      void clearDraftCartLocal(powerSyncDb);
+    const clearedLines = usePosStore.getState().cart;
+    if (!clearedLines.length) {
+      return;
     }
-    showToast("Pedido vaciado", "info");
+    clearCart();
+    void draftCartStorage?.clear();
+    const clearedRevision = usePosStore.getState().cartRevision;
+    const toastId = sonnerToast.info("Pedido vaciado", {
+      duration: 6000,
+      action: {
+        label: "Deshacer",
+        onClick: () => restoreCart(clearedLines, clearedRevision),
+      },
+    });
+    clearedCartToastRef.current = { toastId, cartRevision: clearedRevision };
     if (view === "cart") {
       back({ view: "sell" });
     }
@@ -1521,6 +1670,8 @@ export function GlitterPosApp({
   const salesScreen = (
     <SalesScreen
       sales={sales}
+      rangeState={salesRange}
+      scrollMemory={salesScrollMemory}
       selectedSaleId={view === "saleDetail" ? (route.id ?? null) : null}
       openSale={(saleId) =>
         navigate(
@@ -1541,6 +1692,7 @@ export function GlitterPosApp({
     reports: (
       <ReportsScreen
         sales={sales}
+        rangeState={salesRange}
         products={activeProducts}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
@@ -1561,42 +1713,11 @@ export function GlitterPosApp({
         setQuery={setCatalogQuery}
         openEditor={openEditor}
         openCategories={() => navigate({ view: "categories" })}
-        restoreProduct={async (productId) => {
-          const tenant = tenantContext.tenant;
-          if (!tenant) {
-            showToast("Tu puesto aún no está configurado.", "danger");
-            return;
-          }
-          const work = beginTenantWork();
-          const db = powerSyncDb;
-          try {
-            if (db) {
-              work.assertCurrent();
-              await restoreProductLocal(db, {
-                tenantId: tenant.id,
-                productId,
-                assertCurrent: work.assertCurrent,
-              });
-            } else {
-              work.assertCurrent();
-              const product = await restoreProductAction(productId);
-              work.assertCurrent();
-              upsertProduct(product);
-            }
-            work.assertCurrent();
-            showToast("Producto restaurado", "info");
-          } catch (error) {
-            if (!work.isCurrent()) {
-              return;
-            }
-            showToast(
-              error instanceof Error
-                ? error.message
-                : "No se pudo restaurar el producto",
-              "danger"
-            );
-          }
-        }}
+        productWritePending={productWrite != null}
+        restoringProductId={
+          productWrite?.kind === "restore" ? productWrite.productId : null
+        }
+        restoreProduct={handleRestoreProduct}
       />
     ),
     categories: (
@@ -1660,48 +1781,13 @@ export function GlitterPosApp({
         defaultCategoryId={newProductCategoryId}
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
-        hasInitialMovement={editorHasInitialMovement}
+        initialMovement={editorInitialMovementState}
         onInventoryMovement={handleInventoryMovement}
         back={closeEditor}
+        pendingWrite={editorPendingWrite(productWrite, editorSession)}
         createCategory={handleCreateCategory}
         save={handleSaveProduct}
-        archive={async (productId) => {
-          const tenant = tenantContext.tenant;
-          if (!tenant) {
-            showToast("Tu puesto aún no está configurado.", "danger");
-            return;
-          }
-          const work = beginTenantWork();
-          const db = powerSyncDb;
-          try {
-            if (db) {
-              work.assertCurrent();
-              await archiveProductLocal(db, {
-                tenantId: tenant.id,
-                productId,
-                assertCurrent: work.assertCurrent,
-              });
-            } else {
-              work.assertCurrent();
-              const product = await archiveProductAction(productId);
-              work.assertCurrent();
-              upsertProduct(product);
-            }
-            work.assertCurrent();
-            showToast("Producto archivado", "info");
-            closeEditor();
-          } catch (error) {
-            if (!work.isCurrent()) {
-              return;
-            }
-            showToast(
-              error instanceof Error
-                ? error.message
-                : "No se pudo archivar el producto",
-              "danger"
-            );
-          }
-        }}
+        archive={handleArchiveProduct}
       />
     ),
     diagnostics: (
@@ -1710,6 +1796,8 @@ export function GlitterPosApp({
         localCounts={{
           activeProducts: activeProducts.length,
           archivedProducts: products.length - activeProducts.length,
+          // Every original sale that was not voided, refunded or not: refund
+          // records carry status "refunded" and voided sales "voided".
           completedSales: sales.filter((sale) => sale.status === "completed")
             .length,
           saleRecords: sales.length,

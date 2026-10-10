@@ -1,6 +1,7 @@
 import { ChevronUp, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatBs } from "@/lib/money";
+import { countLabel } from "@/lib/plural";
 
 type CheckoutBarProps = {
   count: number;
@@ -34,7 +35,7 @@ export function CheckoutBar({
         aria-label={
           isEmpty
             ? "Pedido vacío"
-            : `Ver pedido, ${count} ${count === 1 ? "producto" : "productos"}`
+            : `Ver pedido, ${countLabel(count, "producto", "productos")}`
         }
       >
         <span className="relative grid size-10 shrink-0 place-items-center rounded-full bg-card text-primary">

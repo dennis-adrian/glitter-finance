@@ -3,12 +3,66 @@ import { GlitterPosApp } from "@/components/templates/glitter-pos-app";
 import { PowerSyncProvider } from "@/components/providers/powersync-provider";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import { getTenantMembersForTenant } from "@/lib/auth/tenant-members";
-import { getInventoryMovementsForTenant } from "@/lib/inventory/repository";
+import { getCategoriesForTenant } from "@/lib/categories/repository";
+import { isPowerSyncConfigured } from "@/lib/env";
+import { getInventorySnapshotForTenant } from "@/lib/inventory/repository";
 import { getActiveInvitationForTenant } from "@/lib/invitations/repository";
 import { getProductsForTenant } from "@/lib/products/repository";
 import { getSalesForTenant } from "@/lib/sales/repository";
 import { getRequestOrigin } from "@/lib/request-origin";
-import { getCategoriesForTenant } from "@/lib/categories/repository";
+
+/**
+ * How much history '/' sends as rows: enough for every preset range of Sales
+ * and Reports ("Esta semana", "Este mes"), and far longer than the void
+ * window, so stock counts a sale that can still be voided from its row. The
+ * stock from before it arrives summed per product
+ * (getInventorySnapshotForTenant).
+ */
+const RECENT_HISTORY_DAYS = 35;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+async function loadTenantData(tenantId: string) {
+  const recentHistoryStart = new Date(
+    Date.now() - RECENT_HISTORY_DAYS * DAY_MS
+  );
+  // Seven reads run at once, each on its own pooled connection; lib/db sizes
+  // the pool for them, so keep its count in step when adding one.
+  const members = getTenantMembersForTenant(tenantId);
+  const categories = getCategoriesForTenant(tenantId);
+
+  const [
+    tenantCategories,
+    products,
+    sales,
+    tenantMembers,
+    inventory,
+    activeInvitation,
+  ] = await Promise.all([
+    categories,
+    getProductsForTenant(tenantId),
+    // With PowerSync the device's local store holds the whole history once
+    // its first sync completes; these rows only paint the screens until
+    // then, so recent sales are enough. Without it these sales are the
+    // whole history the screens have, so custom ranges need all of them.
+    getSalesForTenant(tenantId, {
+      since: isPowerSyncConfigured() ? recentHistoryStart : undefined,
+      members,
+    }),
+    members,
+    getInventorySnapshotForTenant(tenantId, recentHistoryStart),
+    getActiveInvitationForTenant(tenantId),
+  ]);
+
+  return {
+    categories: tenantCategories,
+    products,
+    sales,
+    tenantMembers,
+    inventory,
+    activeInvitation,
+  };
+}
 
 export default async function Home() {
   const context = await ensureUserTenantContext();
@@ -19,39 +73,33 @@ export default async function Home() {
 
   const inviteOrigin = await getRequestOrigin();
 
-  const [
-    initialCategories,
-    initialProducts,
-    initialSales,
-    initialTenantMembers,
-    initialInventoryMovements,
-    activeInvitation,
-  ] = context.tenant
-    ? await Promise.all([
-        getCategoriesForTenant(context.tenant.id),
-        getProductsForTenant(context.tenant.id),
-        getSalesForTenant(context.tenant.id),
-        getTenantMembersForTenant(context.tenant.id),
-        getInventoryMovementsForTenant(context.tenant.id),
-        getActiveInvitationForTenant(context.tenant.id),
-      ])
-    : [[], [], [], [], [], null];
+  const data = context.tenant
+    ? await loadTenantData(context.tenant.id)
+    : {
+        categories: [],
+        products: [],
+        sales: [],
+        tenantMembers: [],
+        inventory: null,
+        activeInvitation: null,
+      };
 
   return (
     <PowerSyncProvider
       identity={{
         userId: context.user.id,
         tenantId: context.tenant?.id ?? null,
+        email: context.user.email,
       }}
     >
       <GlitterPosApp
         tenantContext={context}
-        initialCategories={initialCategories}
-        initialProducts={initialProducts}
-        initialSales={initialSales}
-        initialTenantMembers={initialTenantMembers}
-        initialInventoryMovements={initialInventoryMovements}
-        activeInvitation={activeInvitation}
+        initialCategories={data.categories}
+        initialProducts={data.products}
+        initialSales={data.sales}
+        initialTenantMembers={data.tenantMembers}
+        initialInventory={data.inventory}
+        activeInvitation={data.activeInvitation}
         inviteOrigin={inviteOrigin ?? ""}
       />
     </PowerSyncProvider>

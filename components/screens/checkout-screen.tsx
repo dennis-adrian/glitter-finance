@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   Banknote,
   ChevronDown,
@@ -17,12 +17,23 @@ import type { CartDetail } from "@/components/organisms/order-panel";
 import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clampDiscount, formatBs, parseBolivianos } from "@/lib/money";
+import {
+  clampDiscount,
+  formatBs,
+  parseBolivianos,
+  parseDiscountInput,
+} from "@/lib/money";
+import { countLabel } from "@/lib/plural";
+import {
+  isWithinSaleLimit,
+  priceLine,
+  saleTotalCents,
+} from "@/lib/sales/pricing";
 import type { PaymentMethod } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import {
   evaluateCashTender,
-  parseCustomDiscount,
   suggestCashAmounts,
 } from "@/components/screens/checkout-screen.helpers";
 
@@ -34,8 +45,9 @@ export type CheckoutPayment = {
   receivedCents: number | null;
 };
 
-type CheckoutScreenProps = {
+export type CheckoutScreenProps = {
   lines: CartDetail[];
+  /** Sum of the line totals (cartSubtotalCents). */
   subtotal: number;
   count: number;
   back: () => void;
@@ -45,9 +57,12 @@ type CheckoutScreenProps = {
 
 const DISCOUNT_PRESETS_CENTS = [200, 500, 1000];
 
-function lineTotal(line: CartDetail) {
-  const gross = line.product.priceCents * line.quantity;
-  return Math.max(0, gross - clampDiscount(line.lineDiscountCents ?? 0, gross));
+function priceCartLine(line: CartDetail) {
+  return priceLine({
+    priceCents: line.product.priceCents,
+    quantity: line.quantity,
+    lineDiscountCents: line.lineDiscountCents,
+  });
 }
 
 /**
@@ -67,19 +82,45 @@ export function CheckoutScreen({
   const [reason, setReason] = useState("");
   const [custom, setCustom] = useState("");
   const [customOpen, setCustomOpen] = useState(false);
+  const [customError, setCustomError] = useState<string | null>(null);
+  const customErrorId = useId();
   // Cash is the most common payment at fairs, so it starts selected.
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [received, setReceived] = useState("");
   const [showLines, setShowLines] = useState(false);
-  const total = Math.max(0, subtotal - discount);
+  const receivedErrorId = useId();
+  const total = saleTotalCents(subtotal, discount);
+  // Never offer to charge an amount that cannot be recorded as a sale.
+  const totalError =
+    !Number.isSafeInteger(total) || total < 0
+      ? "No se pudo calcular el total. Volvé al carrito y revisá los descuentos."
+      : !isWithinSaleLimit(subtotal)
+        ? "El total supera el máximo que se puede registrar en una venta."
+        : null;
+  // Blank means exact; anything typed that is not an amount blocks the sale
+  // instead of silently counting as exact.
   const receivedCents = received.trim() ? parseBolivianos(received) : null;
+  const receivedError =
+    received.trim() && receivedCents == null
+      ? "Escribí el monto recibido como 50 o 50,50."
+      : null;
   const tender = evaluateCashTender(total, receivedCents);
-  const cashSuggestions = suggestCashAmounts(total);
+  const cashSuggestions = totalError ? [] : suggestCashAmounts(total);
 
   function applyDiscount(value: number) {
     const next = clampDiscount(value, subtotal);
     setDiscount(next);
     if (next === 0) setReason("");
+  }
+
+  function applyCustom() {
+    const value = parseDiscountInput(custom, subtotal);
+    if (value == null) {
+      setCustomError("Escribí un monto (7 o 7,50) o un porcentaje (10%).");
+      return;
+    }
+    setCustomError(null);
+    applyDiscount(value);
   }
 
   if (!lines.length) {
@@ -103,12 +144,17 @@ export function CheckoutScreen({
   }
 
   const cashShort = method === "cash" && tender.state === "short";
-  const canSubmit = !cashShort && !isSubmitting;
+  const cashInvalid = method === "cash" && receivedError != null;
+  const canSubmit =
+    !cashShort && !cashInvalid && totalError == null && !isSubmitting;
+  const totalLabel = totalError ? "—" : formatBs(total, true);
   const submitLabel = isSubmitting
     ? "Registrando…"
-    : cashShort
-      ? `Faltan ${formatBs(tender.missingCents, true)}`
-      : `Registrar venta · ${formatBs(total, true)}`;
+    : totalError
+      ? "Registrar venta"
+      : cashShort
+        ? `Faltan ${formatBs(tender.missingCents, true)}`
+        : `Registrar venta · ${formatBs(total, true)}`;
 
   return (
     <Screen
@@ -127,7 +173,7 @@ export function CheckoutScreen({
               Total a cobrar
             </span>
             <strong className="font-heading text-2xl font-extrabold tabular-nums">
-              {formatBs(total, true)}
+              {totalLabel}
             </strong>
           </div>
           <Button
@@ -154,10 +200,15 @@ export function CheckoutScreen({
         <section className="rounded-3xl bg-card p-5 ring-1 ring-foreground/10">
           <span className="text-sm text-muted-foreground">Total a cobrar</span>
           <strong className="mt-1 block font-heading text-4xl leading-none font-extrabold tabular-nums">
-            {formatBs(total, true)}
+            {totalLabel}
           </strong>
+          {totalError ? (
+            <p className="mt-2 text-sm text-destructive" role="alert">
+              {totalError}
+            </p>
+          ) : null}
           <p className="mt-2 text-sm text-muted-foreground">
-            {count} {count === 1 ? "producto" : "productos"}
+            {countLabel(count, "producto", "productos")}
             {discount ? (
               <span className="ml-2 inline-block rounded-full bg-primary/10 px-2.5 py-0.5 font-bold text-primary">
                 −{formatBs(discount, true)} de descuento
@@ -187,29 +238,32 @@ export function CheckoutScreen({
             )}
           >
             <ul className="grid">
-              {lines.map((line) => (
-                <li
-                  key={line.productId}
-                  className="flex items-center gap-3 border-b border-border py-2.5 last:border-b-0"
-                >
-                  <ProductArt product={line.product} compact />
-                  <span className="min-w-0 flex-1">
-                    <strong className="line-clamp-2 text-sm font-semibold">
-                      {line.product.name}
-                    </strong>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {line.quantity} ×{" "}
-                      {formatBs(line.product.priceCents, true)}
-                      {line.lineDiscountCents
-                        ? ` · −${formatBs(line.lineDiscountCents, true)}`
-                        : ""}
+              {lines.map((line) => {
+                const priced = priceCartLine(line);
+                return (
+                  <li
+                    key={line.productId}
+                    className="flex items-center gap-3 border-b border-border py-2.5 last:border-b-0"
+                  >
+                    <ProductArt product={line.product} compact />
+                    <span className="min-w-0 flex-1">
+                      <strong className="line-clamp-2 text-sm font-semibold">
+                        {line.product.name}
+                      </strong>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {line.quantity} ×{" "}
+                        {formatBs(line.product.priceCents, true)}
+                        {priced.discountCents
+                          ? ` · −${formatBs(priced.discountCents, true)}`
+                          : ""}
+                      </span>
                     </span>
-                  </span>
-                  <b className="text-sm tabular-nums">
-                    {formatBs(lineTotal(line), true)}
-                  </b>
-                </li>
-              ))}
+                    <b className="text-sm tabular-nums">
+                      {formatBs(priced.totalCents, true)}
+                    </b>
+                  </li>
+                );
+              })}
             </ul>
             <dl className="mt-2 grid gap-1.5 border-t border-border pt-3 text-sm">
               <div className="flex justify-between">
@@ -226,7 +280,7 @@ export function CheckoutScreen({
               ) : null}
               <div className="flex justify-between text-base font-bold">
                 <dt>Total</dt>
-                <dd className="tabular-nums">{formatBs(total, true)}</dd>
+                <dd className="tabular-nums">{totalLabel}</dd>
               </div>
             </dl>
           </div>
@@ -263,7 +317,10 @@ export function CheckoutScreen({
                 variant={customOpen ? "default" : "outline"}
                 aria-expanded={customOpen}
                 className="h-10"
-                onClick={() => setCustomOpen((open) => !open)}
+                onClick={() => {
+                  setCustomError(null);
+                  setCustomOpen((open) => !open);
+                }}
               >
                 <Edit3 />
                 Otro
@@ -273,21 +330,26 @@ export function CheckoutScreen({
               <div className="mt-2.5 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                 <Input
                   value={custom}
-                  onChange={(event) => setCustom(event.target.value)}
+                  onChange={(event) => {
+                    setCustom(event.target.value);
+                    setCustomError(null);
+                  }}
                   inputMode="decimal"
                   placeholder="Ej. 7 o 10%"
                   aria-label="Monto o porcentaje de descuento"
+                  aria-invalid={customError ? true : undefined}
+                  aria-describedby={customError ? customErrorId : undefined}
                   autoFocus
                 />
-                <Button
-                  type="button"
-                  onClick={() =>
-                    applyDiscount(parseCustomDiscount(custom, subtotal))
-                  }
-                >
+                <Button type="button" onClick={applyCustom}>
                   Aplicar
                 </Button>
               </div>
+            ) : null}
+            {customOpen && customError ? (
+              <p id={customErrorId} className="mt-1.5 text-sm text-destructive">
+                {customError}
+              </p>
             ) : null}
             {discount ? (
               <Input
@@ -295,6 +357,7 @@ export function CheckoutScreen({
                 onChange={(event) => setReason(event.target.value)}
                 placeholder="Motivo del descuento (opcional)"
                 aria-label="Motivo del descuento"
+                maxLength={MAX_NOTE_LENGTH}
                 className="mt-2.5"
               />
             ) : null}
@@ -322,8 +385,8 @@ export function CheckoutScreen({
                   <Button
                     type="button"
                     size="sm"
-                    variant={receivedCents == null ? "default" : "outline"}
-                    aria-pressed={receivedCents == null}
+                    variant={received.trim() ? "outline" : "default"}
+                    aria-pressed={!received.trim()}
                     className="h-10"
                     onClick={() => setReceived("")}
                   >
@@ -350,36 +413,48 @@ export function CheckoutScreen({
                     inputMode="decimal"
                     placeholder="Otro monto"
                     aria-label="Monto recibido en efectivo"
-                    aria-invalid={cashShort || undefined}
+                    aria-invalid={cashShort || cashInvalid || undefined}
+                    aria-describedby={
+                      receivedError ? receivedErrorId : undefined
+                    }
                     className="pr-12"
                   />
                   <span className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-sm text-muted-foreground">
                     Bs
                   </span>
                 </div>
-                <div
-                  className={cn(
-                    "flex items-center justify-between rounded-2xl px-4 py-3",
-                    tender.state === "short"
-                      ? "bg-destructive/10 text-destructive"
-                      : "bg-primary/10 text-primary"
-                  )}
-                  role="status"
-                >
-                  <span className="text-sm font-semibold">
-                    {tender.state === "short" ? "Falta" : "Cambio"}
-                  </span>
-                  <strong className="font-heading text-2xl font-extrabold tabular-nums">
-                    {formatBs(
+                {receivedError ? (
+                  <p
+                    id={receivedErrorId}
+                    className="-mt-1 text-sm text-destructive"
+                  >
+                    {receivedError}
+                  </p>
+                ) : (
+                  <div
+                    className={cn(
+                      "flex items-center justify-between rounded-2xl px-4 py-3",
                       tender.state === "short"
-                        ? tender.missingCents
-                        : tender.state === "change"
-                          ? tender.changeCents
-                          : 0,
-                      true
+                        ? "bg-destructive/10 text-destructive"
+                        : "bg-primary/10 text-primary"
                     )}
-                  </strong>
-                </div>
+                    role="status"
+                  >
+                    <span className="text-sm font-semibold">
+                      {tender.state === "short" ? "Falta" : "Cambio"}
+                    </span>
+                    <strong className="font-heading text-2xl font-extrabold tabular-nums">
+                      {formatBs(
+                        tender.state === "short"
+                          ? tender.missingCents
+                          : tender.state === "change"
+                            ? tender.changeCents
+                            : 0,
+                        true
+                      )}
+                    </strong>
+                  </div>
+                )}
               </div>
             ) : null}
 

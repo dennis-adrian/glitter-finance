@@ -5,6 +5,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -13,7 +14,9 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+
+// No Drizzle relations() are declared: queries use the core query builder
+// (db.select / db.insert), never the relational db.query API.
 
 export const paymentMethodEnum = pgEnum("payment_method", [
   "cash",
@@ -28,27 +31,24 @@ export const inventoryMovementReasonEnum = pgEnum("inventory_movement_reason", [
   "gift",
 ]);
 
-export const tenants = pgTable("tenants", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  createdByUserId: uuid("created_by_user_id"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-export const tenantsRelations = relations(tenants, ({ many }) => ({
-  users: many(tenantUsers),
-  invitations: many(tenantInvitations),
-  categories: many(categories),
-  products: many(products),
-  sales: many(sales),
-  refunds: many(refunds),
-  inventoryMovements: many(inventoryMovements),
-}));
+export const tenants = pgTable(
+  "tenants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    createdByUserId: uuid("created_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Backs the hand-written auth.users FK (ON DELETE SET NULL).
+    index("tenants_created_by_user_id_idx").on(table.createdByUserId),
+  ]
+);
 
 export const categories = pgTable(
   "categories",
@@ -81,14 +81,6 @@ export const categories = pgTable(
   ]
 );
 
-export const categoriesRelations = relations(categories, ({ one, many }) => ({
-  tenant: one(tenants, {
-    fields: [categories.tenantId],
-    references: [tenants.id],
-  }),
-  products: many(products),
-}));
-
 export const tenantInvitations = pgTable(
   "tenant_invitations",
   {
@@ -99,7 +91,8 @@ export const tenantInvitations = pgTable(
     token: text("token").notNull(),
     // AES-GCM ciphertext of the raw bearer token for link re-display; lookup
     // uses the HMAC hash in `token`. Nullable for rows created before delivery
-    // encryption existed (those links must be rotated to recover).
+    // encryption existed (like any undecryptable link, the next generated
+    // link replaces them).
     tokenDeliveryCiphertext: text("token_delivery_ciphertext"),
     // Nullable so the hand-written auth.users FK can ON DELETE SET NULL (the
     // value is kept as an audit field); the app always sets it on insert.
@@ -113,17 +106,11 @@ export const tenantInvitations = pgTable(
   (table) => [
     unique("tenant_invitations_token_unique").on(table.token),
     index("tenant_invitations_tenant_id_idx").on(table.tenantId),
+    // Backs the hand-written auth.users FK (ON DELETE SET NULL).
+    index("tenant_invitations_created_by_user_id_idx").on(
+      table.createdByUserId
+    ),
   ]
-);
-
-export const tenantInvitationsRelations = relations(
-  tenantInvitations,
-  ({ one }) => ({
-    tenant: one(tenants, {
-      fields: [tenantInvitations.tenantId],
-      references: [tenants.id],
-    }),
-  })
 );
 
 export const tenantUsers = pgTable(
@@ -141,21 +128,15 @@ export const tenantUsers = pgTable(
       .defaultNow(),
   },
   (table) => [
+    // Its (tenant_id, user_id) index also serves tenant_id-only lookups and
+    // the tenants FK, so there is no separate tenant_id index.
     unique("tenant_users_tenant_id_user_id_unique").on(
       table.tenantId,
       table.userId
     ),
     index("tenant_users_user_id_idx").on(table.userId),
-    index("tenant_users_tenant_id_idx").on(table.tenantId),
   ]
 );
-
-export const tenantUsersRelations = relations(tenantUsers, ({ one }) => ({
-  tenant: one(tenants, {
-    fields: [tenantUsers.tenantId],
-    references: [tenants.id],
-  }),
-}));
 
 export const products = pgTable(
   "products",
@@ -167,12 +148,15 @@ export const products = pgTable(
     name: text("name").notNull(),
     priceCents: integer("price_cents").notNull(),
     costCents: integer("cost_cents"),
-    // Source of truth for the product's category. Nullable while clients that
-    // only send a category name (v0.7.0 and older builds) can still upload;
-    // supabase/manual triggers resolve those names to an id.
+    // The product's category. Nullable while v0.7.0 and v0.8.0 clients, which
+    // only send a category name, can still upload: the products_category_
+    // resolve_id trigger resolves their names to an id
+    // (supabase/manual/20261009120000_product_category_ids.sql).
     categoryId: uuid("category_id"),
-    // Denormalized category name, kept in sync with category_id by triggers.
-    // Old clients read it, and it seeds sale-line category snapshots.
+    // The category's name, derived from category_id by triggers (the
+    // products_sync_category_name and categories_cascade_name_to_products
+    // triggers in the same file). v0.7.0 and v0.8.0 clients read and write
+    // it, and sale lines copy it.
     category: text("category").notNull(),
     imagePath: text("image_path"),
     tracksInventory: boolean("tracks_inventory").notNull().default(false),
@@ -184,25 +168,60 @@ export const products = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // When each column last changed, by the updated_at of the edit that
+    // changed it: { "<column>": "<timestamptz>" }. Edits are last-write-wins
+    // per column, so a late offline edit still applies to the columns no
+    // newer edit touched. Only the products_keep_latest_edit trigger writes
+    // it (supabase/manual/20260926130100_products_last_write_wins.sql); a
+    // column missing from it last changed when the product was created.
+    // Server-only: devices never read or send it, so the client schema has
+    // no mirror (tests/schema-parity.test.ts).
+    fieldUpdatedAt: jsonb("field_updated_at")
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
   },
   (table) => [
-    index("products_tenant_id_idx").on(table.tenantId),
+    // Leading tenant_id also serves tenant_id-only lookups and the tenants FK.
     index("products_tenant_archived_idx").on(table.tenantId, table.archivedAt),
-    // Serves the category FK's RESTRICT check and the category-rename cascade.
-    index("products_tenant_category_idx").on(table.tenantId, table.categoryId),
+    // Backs the composite categories FK below (column order matches it): the
+    // RESTRICT check on a category delete and the category-rename cascade.
+    index("products_category_id_tenant_id_idx").on(
+      table.categoryId,
+      table.tenantId
+    ),
     // Target for the tenant-scoped composite FK on sale_lines.product_id.
     // (id) is already unique as the PK; this pair makes the composite FK legal.
     unique("products_id_tenant_id_unique").on(table.id, table.tenantId),
+    // Sale lines copy name and category, and the sale RPC rejects blank ones,
+    // so a blank product could never be sold through PowerSync.
+    check("products_name_not_blank_check", sql`btrim(${table.name}) <> ''`),
+    check(
+      "products_category_not_blank_check",
+      sql`btrim(${table.category}) <> ''`
+    ),
+    // PRODUCT_NAME_MAX_LENGTH and PRODUCT_CATEGORY_MAX_LENGTH in
+    // lib/products.ts. PowerSync uploads product rows straight through
+    // PostgREST, so the server actions are not the only writers.
+    check("products_name_length_check", sql`char_length(${table.name}) <= 120`),
+    check(
+      "products_category_length_check",
+      sql`char_length(${table.category}) <= 60`
+    ),
     // Composite FK so a product can only point at its own tenant's category.
-    // RESTRICT (not SET NULL): tenant_id is NOT NULL and cannot be half-nulled.
-    // MATCH SIMPLE (the default) skips rows whose category_id is still NULL.
-    // Generated after categories_id_tenant_id_unique on purpose: drizzle-kit
-    // emits FKs before new unique constraints within one migration.
+    // A category in use cannot be deleted (tenant_id is NOT NULL, so SET NULL
+    // could not half-null it). NO ACTION rather than RESTRICT: both refuse
+    // the delete, but only NO ACTION reports 23503 on every Postgres version
+    // (18 reports a RESTRICT violation as 23001), and the app and the
+    // uploader read 23503 as "category in use". MATCH SIMPLE (the default)
+    // skips rows whose category_id is still NULL. Generated in a migration
+    // after categories_id_tenant_id_unique on purpose: drizzle-kit emits FKs
+    // before new unique constraints within one migration.
     foreignKey({
       name: "products_category_id_tenant_id_categories_id_tenant_id_fk",
       columns: [table.categoryId, table.tenantId],
       foreignColumns: [categories.id, categories.tenantId],
-    }).onDelete("restrict"),
+    }).onDelete("no action"),
     check(
       "products_price_cents_nonnegative_check",
       sql`${table.priceCents} >= 0`
@@ -217,18 +236,6 @@ export const products = pgTable(
     ),
   ]
 );
-
-export const productsRelations = relations(products, ({ one, many }) => ({
-  tenant: one(tenants, {
-    fields: [products.tenantId],
-    references: [tenants.id],
-  }),
-  category: one(categories, {
-    fields: [products.categoryId],
-    references: [categories.id],
-  }),
-  inventoryMovements: many(inventoryMovements),
-}));
 
 export const inventoryMovements = pgTable(
   "inventory_movements",
@@ -263,33 +270,22 @@ export const inventoryMovements = pgTable(
       table.tenantId,
       table.createdAt
     ),
-    uniqueIndex("inventory_movements_one_initial_per_product_idx")
-      .on(table.tenantId, table.productId)
-      .where(sql`${table.reason} = 'initial'`),
-    check("inventory_movements_delta_nonzero_check", sql`${table.delta} <> 0`),
+    // Backs the hand-written auth.users FK (ON DELETE RESTRICT).
+    index("inventory_movements_user_id_idx").on(table.userId),
+    // No uniqueness on `initial`: two offline devices may each record one,
+    // and the latest becomes the stock baseline (see computeStockByProduct).
+    // An `initial` of 0 is legal: it starts tracking a product that already
+    // has sales without counting those sales against the new stock.
     check(
       "inventory_movements_sign_discipline_check",
       sql`(
-        (${table.reason} IN ('initial', 'restock') AND ${table.delta} > 0)
+        (${table.reason} = 'initial' AND ${table.delta} >= 0)
+        OR (${table.reason} = 'restock' AND ${table.delta} > 0)
         OR (${table.reason} IN ('loss', 'gift') AND ${table.delta} < 0)
-        OR (${table.reason} = 'adjustment')
+        OR (${table.reason} = 'adjustment' AND ${table.delta} <> 0)
       )`
     ),
   ]
-);
-
-export const inventoryMovementsRelations = relations(
-  inventoryMovements,
-  ({ one }) => ({
-    tenant: one(tenants, {
-      fields: [inventoryMovements.tenantId],
-      references: [tenants.id],
-    }),
-    product: one(products, {
-      fields: [inventoryMovements.productId],
-      references: [products.id],
-    }),
-  })
 );
 
 export const sales = pgTable(
@@ -315,6 +311,11 @@ export const sales = pgTable(
   (table) => [
     index("sales_tenant_created_at_idx").on(table.tenantId, table.createdAt),
     index("sales_user_id_idx").on(table.userId),
+    // Backs the hand-written auth.users FK (ON DELETE RESTRICT). Partial
+    // because almost every sale is never voided.
+    index("sales_voided_by_user_id_idx")
+      .on(table.voidedByUserId)
+      .where(sql`${table.voidedByUserId} IS NOT NULL`),
     // Target for the tenant-scoped composite FKs on sale_lines and refunds.
     // (id) is already unique as the PK; this pair makes the composite FK legal.
     unique("sales_id_tenant_id_unique").on(table.id, table.tenantId),
@@ -332,15 +333,6 @@ export const sales = pgTable(
   ]
 );
 
-export const salesRelations = relations(sales, ({ one, many }) => ({
-  tenant: one(tenants, {
-    fields: [sales.tenantId],
-    references: [tenants.id],
-  }),
-  lines: many(saleLines),
-  refunds: many(refunds),
-}));
-
 export const saleLines = pgTable(
   "sale_lines",
   {
@@ -356,8 +348,9 @@ export const saleLines = pgTable(
     // tenant. ON DELETE RESTRICT (not SET NULL) because tenant_id is NOT NULL
     // and cannot be half-nulled; products are soft-deleted via archived_at in
     // practice, and sales/sale_lines are append-only, so a real product delete
-    // with referencing lines never happens.
-    productId: uuid("product_id"),
+    // with referencing lines never happens. NOT NULL because every writer sets
+    // it, and a NULL would skip the MATCH SIMPLE composite FK check entirely.
+    productId: uuid("product_id").notNull(),
     productName: text("product_name").notNull(),
     category: text("category").notNull(),
     quantity: integer("quantity").notNull(),
@@ -373,6 +366,11 @@ export const saleLines = pgTable(
   (table) => [
     index("sale_lines_sale_id_idx").on(table.saleId),
     index("sale_lines_tenant_id_idx").on(table.tenantId),
+    // Backs the composite products FK below (column order matches it).
+    index("sale_lines_product_id_tenant_id_idx").on(
+      table.productId,
+      table.tenantId
+    ),
     foreignKey({
       name: "sale_lines_sale_id_tenant_id_sales_id_tenant_id_fk",
       columns: [table.saleId, table.tenantId],
@@ -383,6 +381,17 @@ export const saleLines = pgTable(
       columns: [table.productId, table.tenantId],
       foreignColumns: [products.id, products.tenantId],
     }).onDelete("restrict"),
+    // The line checks mirror the validation in powersync_create_sale
+    // (supabase/manual/20260808235900_powersync_atomic_financial_mutations.sql)
+    // so the server-action path is held to the same invariants.
+    check(
+      "sale_lines_product_name_not_blank_check",
+      sql`btrim(${table.productName}) <> ''`
+    ),
+    check(
+      "sale_lines_category_not_blank_check",
+      sql`btrim(${table.category}) <> ''`
+    ),
     check("sale_lines_quantity_positive_check", sql`${table.quantity} > 0`),
     check(
       "sale_lines_unit_price_cents_nonnegative_check",
@@ -397,26 +406,19 @@ export const saleLines = pgTable(
       sql`${table.lineDiscountCents} >= 0`
     ),
     check(
+      "sale_lines_discount_within_gross_check",
+      sql`${table.lineDiscountCents} <= ${table.unitPriceCents}::bigint * ${table.quantity}`
+    ),
+    check(
       "sale_lines_total_cents_nonnegative_check",
       sql`${table.lineTotalCents} >= 0`
     ),
+    check(
+      "sale_lines_total_coherence_check",
+      sql`${table.lineTotalCents}::bigint = ${table.unitPriceCents}::bigint * ${table.quantity} - ${table.lineDiscountCents}`
+    ),
   ]
 );
-
-export const saleLinesRelations = relations(saleLines, ({ one }) => ({
-  sale: one(sales, {
-    fields: [saleLines.saleId],
-    references: [sales.id],
-  }),
-  tenant: one(tenants, {
-    fields: [saleLines.tenantId],
-    references: [tenants.id],
-  }),
-  product: one(products, {
-    fields: [saleLines.productId],
-    references: [products.id],
-  }),
-}));
 
 export const refunds = pgTable(
   "refunds",
@@ -440,6 +442,8 @@ export const refunds = pgTable(
   (table) => [
     uniqueIndex("refunds_original_sale_id_unique").on(table.originalSaleId),
     index("refunds_tenant_created_at_idx").on(table.tenantId, table.createdAt),
+    // Backs the hand-written auth.users FK (ON DELETE RESTRICT).
+    index("refunds_user_id_idx").on(table.userId),
     foreignKey({
       name: "refunds_original_sale_id_tenant_id_sales_id_tenant_id_fk",
       columns: [table.originalSaleId, table.tenantId],
@@ -447,14 +451,3 @@ export const refunds = pgTable(
     }).onDelete("restrict"),
   ]
 );
-
-export const refundsRelations = relations(refunds, ({ one }) => ({
-  tenant: one(tenants, {
-    fields: [refunds.tenantId],
-    references: [tenants.id],
-  }),
-  originalSale: one(sales, {
-    fields: [refunds.originalSaleId],
-    references: [sales.id],
-  }),
-}));

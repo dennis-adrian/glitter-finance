@@ -68,7 +68,14 @@ schema_paths = []
 enabled = true
 # Specifies an ordered list of seed files to load during db reset.
 # Supports glob patterns relative to supabase directory: "./seeds/*.sql"
-sql_paths = ["./seed.sql"]
+# The hand-written SQL in manual/ runs first, in lexicographic order, so a
+# local reset gets the same RLS, triggers, functions and Storage rules as a
+# hosted project. Every manual file is idempotent, and the publication scripts
+# skip when there is no powersync publication. seed.sql is local demo data:
+# never run it against a hosted project (pass --no-seed to `db reset --linked`
+# and never --include-seed to `db push`); hosted projects get the manual files
+# from the SQL editor, as the README describes.
+sql_paths = ["./manual/*.sql", "./seed.sql"]
 
 [db.network_restrictions]
 # Enable management of network restrictions.
@@ -118,6 +125,9 @@ enabled = true
 file_size_limit = "50MiB"
 
 [storage.buckets.product-images]
+# Local stack only. Hosted projects get the same limits from
+# supabase/manual/20260926130000_product_images_storage_rules.sql; keep both in
+# step with lib/product-image-config.ts.
 public = true
 file_size_limit = "5MiB"
 allowed_mime_types = ["image/png", "image/jpeg"]
@@ -181,7 +191,10 @@ enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
-minimum_password_length = 6
+# Same minimum as the app (MIN_PASSWORD_LENGTH in lib/auth/password.ts), so a
+# sign-up that skips the app's form cannot set a shorter password. Hosted
+# projects need the same value in their Auth settings (see README).
+minimum_password_length = 8
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
 # are: `letters_digits`, `lower_upper_letters_digits`, `lower_upper_letters_digits_symbols`
 password_requirements = ""
@@ -225,6 +238,9 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
+# Off locally, so a sign-up signs in at once; hosted projects have it on. To
+# try the confirmation email, set it to true, restart the stack and open the
+# email in Mailpit (see README: Testing auth emails locally).
 enable_confirmations = false
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
@@ -244,6 +260,17 @@ otp_expiry = 3600
 # pass = "env(SENDGRID_API_KEY)"
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
+
+# The app's auth emails, exported from emails/ by `pnpm email:export`. Hosted
+# projects get the same subjects and HTML (see README: Auth email templates).
+# Template paths are relative to the repository root.
+[auth.email.template.confirmation]
+subject = "Confirmá tu correo | Billetera Ferial"
+content_path = "./supabase/templates/account-confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Creá una contraseña nueva | Billetera Ferial"
+content_path = "./supabase/templates/password-recovery.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

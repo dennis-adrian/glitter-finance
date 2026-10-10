@@ -1,23 +1,14 @@
-import { BOLIVIA_TIME_ZONE, type SalesRangeBounds } from "@/lib/dates";
+import {
+  APP_LOCALE,
+  BOLIVIA_TIME_ZONE,
+  filterSalesByBounds,
+  type SalesRangeBounds,
+} from "@/lib/dates";
 import { computeMetrics } from "@/lib/sales";
 import type { ReportRange, Sale } from "@/lib/types";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
-
-export function filterByBounds<T extends { createdAt: string }>(
-  records: T[],
-  bounds: SalesRangeBounds
-) {
-  return records.filter((record) => {
-    const createdAt = new Date(record.createdAt).getTime();
-    return (
-      !Number.isNaN(createdAt) &&
-      createdAt >= bounds.start &&
-      createdAt < bounds.end
-    );
-  });
-}
 
 /**
  * The window to compare against, covering the same elapsed time so a
@@ -67,22 +58,22 @@ export type TrendBucket = {
   count: number;
 };
 
-const hourFormatter = new Intl.DateTimeFormat("es-BO", {
+const hourFormatter = new Intl.DateTimeFormat(APP_LOCALE, {
   timeZone: BOLIVIA_TIME_ZONE,
   hour: "2-digit",
   hourCycle: "h23",
 });
-const dayAxisFormatter = new Intl.DateTimeFormat("es-BO", {
+const dayAxisFormatter = new Intl.DateTimeFormat(APP_LOCALE, {
   timeZone: BOLIVIA_TIME_ZONE,
   day: "numeric",
   month: "short",
 });
-const weekdayAxisFormatter = new Intl.DateTimeFormat("es-BO", {
+const weekdayAxisFormatter = new Intl.DateTimeFormat(APP_LOCALE, {
   timeZone: BOLIVIA_TIME_ZONE,
   weekday: "short",
   day: "numeric",
 });
-const dayTitleFormatter = new Intl.DateTimeFormat("es-BO", {
+const dayTitleFormatter = new Intl.DateTimeFormat(APP_LOCALE, {
   timeZone: BOLIVIA_TIME_ZONE,
   weekday: "long",
   day: "numeric",
@@ -136,7 +127,7 @@ export function buildTrendBuckets(
       const hour = first + index;
       const start = bounds.start + hour * HOUR_MS;
       const metrics = computeMetrics(
-        filterByBounds(sales, { start, end: start + HOUR_MS })
+        filterSalesByBounds(sales, { start, end: start + HOUR_MS })
       );
       return {
         key: String(hour),
@@ -154,7 +145,7 @@ export function buildTrendBuckets(
   return Array.from({ length: Math.ceil(dayCount / step) }, (_, index) => {
     const start = bounds.start + index * step * DAY_MS;
     const metrics = computeMetrics(
-      filterByBounds(sales, { start, end: start + step * DAY_MS })
+      filterSalesByBounds(sales, { start, end: start + step * DAY_MS })
     );
     // Format at midday so the label is always the bucket's calendar day.
     const labelDate = new Date(start + DAY_MS / 2);

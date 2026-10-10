@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   Archive,
@@ -23,70 +23,99 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
+  asksForInitialStock,
   getProductStock,
   stockValueLabel,
+  type InitialMovementState,
   type InventoryMovementReason,
 } from "@/lib/inventory";
-import { parseBolivianos } from "@/lib/money";
 import {
-  productImageMaxBytes,
-  productImageMimeTypes,
+  defaultPlaceholderImageTone,
+  placeholderImageToneLabels,
+  placeholderImageTones,
+  productImageAccept,
+  productImageFileError,
+  productImageFormatsLabel,
 } from "@/lib/product-image-config";
+import { downscaleProductImage } from "@/lib/product-image-downscale";
 import {
   categoryIndex,
   effectiveCategoryId,
   emptyProduct,
+  PRODUCT_NAME_MAX_LENGTH,
 } from "@/lib/products";
-import type { Category, Product } from "@/lib/types";
+import type { Category, Product, ProductInput } from "@/lib/types";
+import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import {
-  hasValidProductForm,
+  INITIAL_STOCK_ERROR,
+  initialStockHint,
+  parseNonNegativeInteger,
   parsePositiveInteger,
   parseSignedInteger,
+  stockAmountError,
+  validateProductForm,
 } from "@/components/screens/product-editor.helpers";
 
 // Selection value for a product whose category isn't linked by id yet and
 // isn't available on this device.
 const currentCategoryValue = "current";
 
-type ProductEditorProps = {
+/**
+ * What a save sends: the product fields the editor owns (no low-stock
+ * threshold, which a save must keep), the reduced photo, uploaded on its own
+ * after the product is written, and the initial count. `categoryId` is null
+ * when an edited product keeps its category, so a category not synced to
+ * this device yet is never replaced.
+ */
+export type ProductEditorSaveInput = {
+  product: Required<
+    Pick<
+      ProductInput,
+      | "name"
+      | "priceCents"
+      | "costCents"
+      | "categoryId"
+      | "imageTone"
+      | "imagePath"
+      | "tracksInventory"
+    >
+  >;
+  imageFile: File | null;
+  initialStock?: number;
+};
+
+export type ProductEditorProps = {
   product: Product | null;
   /** The puesto's managed categories. */
   categories: Category[];
   /** Preselected category id for new products. */
   defaultCategoryId?: string;
-  createCategory: (name: string) => Promise<Category>;
   stockByProduct: Map<string, number>;
   inventoryStockReady: boolean;
-  hasInitialMovement: boolean;
+  /** Whether the product already has its initial count. */
+  initialMovement: InitialMovementState;
+  /**
+   * A product write still running: this editor's save or archive, or
+   * another one ("busy"), such as a restore from the catalog or a save from
+   * an editor closed since. One runs at a time, so both buttons wait for it.
+   */
+  pendingWrite: "save" | "archive" | "busy" | null;
   back: () => void;
-  save: (input: {
-    name: string;
-    priceCents: number;
-    costCents: number | null;
-    /** Null leaves the product's category unchanged. */
-    categoryId: string | null;
-    imageTone: string;
-    imagePath?: string | null;
-    imageFile?: File | null;
-    tracksInventory: boolean;
-    initialStock?: number;
-  }) => Promise<void> | void;
+  /**
+   * Creates a category from the editor and resolves to it, to select it, or
+   * to null when the write was cancelled.
+   */
+  createCategory: (name: string) => Promise<Category | null>;
+  save: (input: ProductEditorSaveInput) => Promise<void>;
+  /** Throws the message to show when the movement was not recorded. */
   onInventoryMovement: (input: {
     productId: string;
     delta: number;
     reason: InventoryMovementReason;
     note?: string;
-  }) => Promise<void> | void;
-  archive: (productId: string) => void;
+  }) => Promise<void>;
+  archive: (productId: string) => Promise<void>;
 };
-
-const TONES: { value: string; label: string }[] = [
-  { value: "aurora", label: "Rosa" },
-  { value: "coral", label: "Coral" },
-  { value: "linen", label: "Arena" },
-  { value: "violet", label: "Violeta" },
-  { value: "warm", label: "Ámbar" },
-];
 
 type StockCorrection = "adjustment" | "loss" | "gift";
 
@@ -132,7 +161,8 @@ export function ProductEditor({
   defaultCategoryId = "",
   stockByProduct,
   inventoryStockReady,
-  hasInitialMovement,
+  initialMovement,
+  pendingWrite,
   back,
   createCategory,
   save,
@@ -149,7 +179,7 @@ export function ProductEditor({
       ? (effectiveCategoryId(product, categoryIndex(categories)) ??
         currentCategoryValue)
       : defaultCategoryId,
-    imageTone: product?.imageTone ?? "violet",
+    imageTone: product?.imageTone ?? defaultPlaceholderImageTone,
     tracksInventory: product?.tracksInventory ?? false,
   }));
   const [name, setName] = useState(initial.name);
@@ -169,16 +199,31 @@ export function ProductEditor({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [imagePreparing, setImagePreparing] = useState(false);
   const [inventoryActionError, setInventoryActionError] = useState<
     string | null
   >(null);
   const [inventoryMovementSubmitting, setInventoryMovementSubmitting] =
     useState(false);
-  const [saving, setSaving] = useState(false);
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
   const [categoryDrawerOpen, setCategoryDrawerOpen] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  // Counts picks, so a slow reduction of an earlier photo cannot replace a
+  // later one.
+  const imagePickRef = useRef(0);
+  const fieldId = useId();
+  const ids = {
+    tone: `${fieldId}-tone`,
+    toneLabel: `${fieldId}-tone-label`,
+    category: `${fieldId}-category`,
+    nameError: `${fieldId}-name-error`,
+    priceError: `${fieldId}-price-error`,
+    costError: `${fieldId}-cost-error`,
+    restock: `${fieldId}-restock`,
+    restockError: `${fieldId}-restock-error`,
+    correctionError: `${fieldId}-correction-error`,
+  };
   // The product's category as it was, when it isn't available on this device
   // (not synced yet); keeping it selected saves without changing it.
   const currentCategory =
@@ -188,12 +233,17 @@ export function ProductEditor({
   const hasCategory =
     categories.some((item) => item.id === categoryId) ||
     (currentCategory !== null && categoryId === currentCategory.id);
-  const canSave = hasValidProductForm(name, price) && hasCategory && !saving;
+  const productForm = validateProductForm({ name, price, cost });
+  const canSave = productForm.values != null && hasCategory;
+  const saving = pendingWrite === "save";
   const trackingPersisted = product?.tracksInventory ?? false;
   const trackingDirty =
     Boolean(product) && tracksInventory !== trackingPersisted;
-  const showInitialStockField =
-    tracksInventory && (!product || !hasInitialMovement);
+  const showInitialStockField = asksForInitialStock({
+    tracksInventory,
+    wasTrackingInventory: trackingPersisted,
+    initialMovement,
+  });
   const currentStock =
     product && trackingPersisted && inventoryStockReady
       ? getProductStock(product, stockByProduct)
@@ -203,6 +253,11 @@ export function ProductEditor({
     (correction === "adjustment"
       ? parseSignedInteger(correctionAmount)
       : parsePositiveInteger(correctionAmount)) != null;
+  const restockError = stockAmountError(restockAmount);
+  const correctionError = stockAmountError(
+    correctionAmount,
+    correction === "adjustment"
+  );
   const isDirty =
     name !== initial.name ||
     price !== initial.price ||
@@ -249,30 +304,35 @@ export function ProductEditor({
     }
   }
 
-  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
+  async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.target;
+    const file = input.files?.[0] ?? null;
+    const pick = ++imagePickRef.current;
     setImageError(null);
 
     if (!file) {
+      setImagePreparing(false);
       setImageFile(null);
       return;
     }
 
-    if (!productImageMimeTypes.some((type) => type === file.type)) {
+    // Both upload paths send the reduced photo; the size limit applies to it.
+    setImagePreparing(true);
+    const prepared = await downscaleProductImage(file);
+    if (pick !== imagePickRef.current) {
+      return;
+    }
+    setImagePreparing(false);
+
+    const fileError = productImageFileError(prepared);
+    if (fileError) {
       setImageFile(null);
-      setImageError("La imagen debe estar en formato JPG o PNG.");
-      event.target.value = "";
+      setImageError(fileError);
+      input.value = "";
       return;
     }
 
-    if (file.size > productImageMaxBytes) {
-      setImageFile(null);
-      setImageError("La imagen no puede superar 5MB.");
-      event.target.value = "";
-      return;
-    }
-
-    setImageFile(file);
+    setImageFile(prepared);
   }
 
   async function submitMovement(
@@ -296,11 +356,7 @@ export function ProductEditor({
       ? parseSignedInteger(rawAmount)
       : parsePositiveInteger(rawAmount);
     if (amount == null) {
-      if (rawAmount.trim()) {
-        setInventoryActionError(
-          "Usá un número entero sin decimales ni texto extra."
-        );
-      }
+      setInventoryActionError(stockAmountError(rawAmount, options?.signed));
       return;
     }
     const delta =
@@ -332,38 +388,34 @@ export function ProductEditor({
   }
 
   async function handleSave() {
-    if (!canSave) return;
+    const values = productForm.values;
+    if (!values || !hasCategory || imagePreparing || pendingWrite != null) {
+      return;
+    }
     if (
       showInitialStockField &&
       initialStock.trim() &&
-      parsePositiveInteger(initialStock) == null
+      parseNonNegativeInteger(initialStock) == null
     ) {
-      setInventoryActionError(
-        "El stock inicial debe ser un número entero sin decimales."
-      );
+      setInventoryActionError(INITIAL_STOCK_ERROR);
       return;
     }
-    setSaving(true);
-    try {
-      await save({
-        name: name.trim(),
-        priceCents: parseBolivianos(price),
-        costCents: cost.trim() ? parseBolivianos(cost) : null,
+    await save({
+      product: {
+        ...values,
+        // An edited product left on its category sends null, which keeps
+        // it as stored (see ProductEditorSaveInput).
         categoryId:
-          categoryId === initial.categoryId && product
-            ? product.categoryId
-            : categoryId,
+          product && categoryId === initial.categoryId ? null : categoryId,
         imageTone,
         imagePath: product?.imagePath ?? null,
-        imageFile,
         tracksInventory,
-        initialStock: showInitialStockField
-          ? (parsePositiveInteger(initialStock) ?? undefined)
-          : undefined,
-      });
-    } finally {
-      setSaving(false);
-    }
+      },
+      imageFile,
+      initialStock: showInitialStockField
+        ? (parseNonNegativeInteger(initialStock) ?? undefined)
+        : undefined,
+    });
   }
 
   const correctionCopy = STOCK_CORRECTIONS[correction];
@@ -391,15 +443,17 @@ export function ProductEditor({
           <Button
             type="button"
             size="lg"
-            disabled={!canSave}
+            disabled={!canSave || imagePreparing || pendingWrite != null}
             className="flex-1 shadow-lg shadow-primary/20 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none md:min-w-56 md:flex-none"
             onClick={() => void handleSave()}
           >
-            {saving
+            {pendingWrite === "save"
               ? "Guardando…"
-              : product
-                ? "Guardar cambios"
-                : "Agregar producto"}
+              : pendingWrite === "busy"
+                ? "Esperá…"
+                : product
+                  ? "Guardar cambios"
+                  : "Agregar producto"}
           </Button>
         </div>
       }
@@ -419,8 +473,8 @@ export function ProductEditor({
               ref={imageInputRef}
               className="sr-only"
               type="file"
-              accept="image/jpeg,image/png"
-              onChange={handleImageChange}
+              accept={productImageAccept}
+              onChange={(event) => void handleImageChange(event)}
               aria-label="Elegir imagen del producto"
               tabIndex={-1}
             />
@@ -433,7 +487,7 @@ export function ProductEditor({
               <strong>
                 {previewProduct.imageUrl ? "Cambiar imagen" : "Subir imagen"}
               </strong>
-              <span>Formatos JPG y PNG (máx. 5 MB)</span>
+              <span>Formatos {productImageFormatsLabel}</span>
             </button>
             <button
               type="button"
@@ -448,9 +502,13 @@ export function ProductEditor({
             <p className="mt-1.5 text-sm text-destructive" role="alert">
               {imageError}
             </p>
+          ) : imagePreparing ? (
+            <p className="mt-1.5 text-sm text-muted-foreground" role="status">
+              Preparando la imagen…
+            </p>
           ) : null}
           <p
-            id="tone-picker-label"
+            id={ids.toneLabel}
             className="mt-4 text-sm font-medium text-muted-foreground"
           >
             Color sin imagen
@@ -458,30 +516,30 @@ export function ProductEditor({
           <div
             className="tone-picker"
             role="radiogroup"
-            aria-labelledby="tone-picker-label"
+            aria-labelledby={ids.toneLabel}
           >
-            {TONES.map((tone) => {
-              const selected = imageTone === tone.value;
+            {placeholderImageTones.map((tone) => {
+              const selected = imageTone === tone;
               return (
-                <button
-                  key={tone.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  aria-label={tone.label}
-                  className="grid size-11 place-items-center rounded-full outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                  onClick={() => setImageTone(tone.value)}
-                >
+                <label key={tone} className="tone-option">
+                  <input
+                    type="radio"
+                    name={ids.tone}
+                    value={tone}
+                    checked={selected}
+                    onChange={() => setImageTone(tone)}
+                    className="sr-only"
+                  />
                   <span
-                    className={clsx(
-                      "tone-dot",
-                      tone.value,
-                      selected && "active"
-                    )}
+                    className={clsx("tone-dot", tone, selected && "active")}
+                    aria-hidden="true"
                   >
-                    {selected ? <Check size={14} aria-hidden /> : null}
+                    {selected ? <Check size={14} /> : null}
                   </span>
-                </button>
+                  <span className="sr-only">
+                    {placeholderImageToneLabels[tone]}
+                  </span>
+                </label>
               );
             })}
           </div>
@@ -494,23 +552,61 @@ export function ProductEditor({
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Ej. Llaveros artesanales"
+              maxLength={PRODUCT_NAME_MAX_LENGTH}
+              aria-invalid={productForm.errors.name ? true : undefined}
+              aria-describedby={
+                productForm.errors.name ? ids.nameError : undefined
+              }
             />
           </FormField>
+          {productForm.errors.name ? (
+            <p id={ids.nameError} className="mt-1.5 text-sm text-destructive">
+              {productForm.errors.name}
+            </p>
+          ) : null}
           <div className="grid gap-x-3 sm:grid-cols-2">
-            <FormField label="Precio de venta">
-              <MoneyInput
-                value={price}
-                onChange={(event) => setPrice(event.target.value)}
-                placeholder="Ej. 15"
-              />
-            </FormField>
-            <FormField label="Costo unitario" hint="Opcional">
-              <MoneyInput
-                value={cost}
-                onChange={(event) => setCost(event.target.value)}
-                placeholder="Desconocido"
-              />
-            </FormField>
+            <div>
+              <FormField label="Precio de venta">
+                <MoneyInput
+                  value={price}
+                  onChange={(event) => setPrice(event.target.value)}
+                  placeholder="Ej. 15"
+                  aria-invalid={productForm.errors.price ? true : undefined}
+                  aria-describedby={
+                    productForm.errors.price ? ids.priceError : undefined
+                  }
+                />
+              </FormField>
+              {productForm.errors.price ? (
+                <p
+                  id={ids.priceError}
+                  className="mt-1.5 text-sm text-destructive"
+                >
+                  {productForm.errors.price}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <FormField label="Costo unitario" hint="Opcional">
+                <MoneyInput
+                  value={cost}
+                  onChange={(event) => setCost(event.target.value)}
+                  placeholder="Desconocido"
+                  aria-invalid={productForm.errors.cost ? true : undefined}
+                  aria-describedby={
+                    productForm.errors.cost ? ids.costError : undefined
+                  }
+                />
+              </FormField>
+              {productForm.errors.cost ? (
+                <p
+                  id={ids.costError}
+                  className="mt-1.5 text-sm text-destructive"
+                >
+                  {productForm.errors.cost}
+                </p>
+              ) : null}
+            </div>
           </div>
           <p className="mt-1.5 text-sm text-muted-foreground">
             El costo se usa para calcular ganancias. Si queda vacío, se marca
@@ -518,7 +614,7 @@ export function ProductEditor({
           </p>
 
           <div className="mt-5 grid gap-2">
-            <p id="product-category-label" className="text-sm font-medium">
+            <p id={ids.category} className="text-sm font-medium">
               Categoría
             </p>
             <CategoryPicker
@@ -527,7 +623,7 @@ export function ProductEditor({
               categories={categories}
               currentCategory={currentCategory}
               onCreate={() => setCategoryDrawerOpen(true)}
-              labelledBy="product-category-label"
+              labelledBy={ids.category}
             />
             {!hasCategory ? (
               <p className="text-sm text-muted-foreground">
@@ -554,17 +650,26 @@ export function ProductEditor({
             </Label>
 
             {showInitialStockField ? (
-              <FormField label="Stock inicial">
-                <Input
-                  value={initialStock}
-                  onChange={(event) => {
-                    setInitialStock(event.target.value);
-                    setInventoryActionError(null);
-                  }}
-                  inputMode="numeric"
-                  placeholder="Ej. 10"
-                />
-              </FormField>
+              <>
+                <FormField label="Stock inicial">
+                  <Input
+                    value={initialStock}
+                    onChange={(event) => {
+                      setInitialStock(event.target.value);
+                      setInventoryActionError(null);
+                    }}
+                    inputMode="numeric"
+                    placeholder="Ej. 10"
+                  />
+                </FormField>
+                {/* The count is a baseline: earlier sales are not subtracted. */}
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  {initialStockHint({
+                    wasTrackingInventory: trackingPersisted,
+                    initialMovement,
+                  })}
+                </p>
+              </>
             ) : null}
 
             {trackingDirty ? (
@@ -586,18 +691,22 @@ export function ProductEditor({
 
                 <div>
                   <Label
-                    htmlFor="restock-amount"
+                    htmlFor={ids.restock}
                     className="mb-1.5 block text-sm font-semibold text-muted-foreground"
                   >
                     Reponer stock
                   </Label>
                   <div className="flex gap-2">
                     <Input
-                      id="restock-amount"
+                      id={ids.restock}
                       value={restockAmount}
                       onChange={(event) => setRestockAmount(event.target.value)}
                       inputMode="numeric"
                       placeholder="Ej. +5"
+                      aria-invalid={restockError ? true : undefined}
+                      aria-describedby={
+                        restockError ? ids.restockError : undefined
+                      }
                       className="flex-1"
                     />
                     <Button
@@ -613,6 +722,14 @@ export function ProductEditor({
                       <Plus />
                     </Button>
                   </div>
+                  {restockError ? (
+                    <p
+                      id={ids.restockError}
+                      className="mt-1.5 text-sm text-destructive"
+                    >
+                      {restockError}
+                    </p>
+                  ) : null}
                 </div>
 
                 <Button
@@ -659,6 +776,10 @@ export function ProductEditor({
                         }
                         placeholder={correctionCopy.placeholder}
                         aria-label={`Unidades (${correctionCopy.label.toLowerCase()})`}
+                        aria-invalid={correctionError ? true : undefined}
+                        aria-describedby={
+                          correctionError ? ids.correctionError : undefined
+                        }
                       />
                       <Input
                         value={correctionNote}
@@ -667,8 +788,17 @@ export function ProductEditor({
                         }
                         placeholder="Nota (opcional)"
                         aria-label="Nota de la corrección"
+                        maxLength={MAX_NOTE_LENGTH}
                       />
                     </div>
+                    {correctionError ? (
+                      <p
+                        id={ids.correctionError}
+                        className="text-sm text-destructive"
+                      >
+                        {correctionError}
+                      </p>
+                    ) : null}
                     <Button
                       type="button"
                       variant="outline"
@@ -707,10 +837,11 @@ export function ProductEditor({
                 type="button"
                 variant="destructive"
                 className="shrink-0"
+                disabled={pendingWrite != null}
                 onClick={() => setConfirmArchiveOpen(true)}
               >
                 <Archive className="size-4" />
-                Archivar
+                {pendingWrite === "archive" ? "Archivando…" : "Archivar"}
               </Button>
             </section>
           ) : null}
@@ -734,8 +865,9 @@ export function ProductEditor({
         onOpenChange={setCategoryDrawerOpen}
         onSave={async (categoryName) => {
           const created = await createCategory(categoryName);
-          setCategoryId(created.id);
-          return created;
+          if (created) {
+            setCategoryId(created.id);
+          }
         }}
       />
       {product ? (
@@ -747,7 +879,7 @@ export function ProductEditor({
           title={`¿Archivar “${product.name}”?`}
           description="Deja de aparecer en Vender. Podés restaurarlo desde Catálogo › Archivados."
           confirmLabel="Archivar"
-          onConfirm={() => archive(product.id)}
+          onConfirm={() => void archive(product.id)}
         />
       ) : null}
     </Screen>

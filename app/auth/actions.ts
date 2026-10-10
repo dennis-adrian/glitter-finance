@@ -12,22 +12,22 @@ import {
   SIGN_UP_ORIGIN_UNAVAILABLE_MESSAGE,
   SIGN_UP_TEMPORARY_ERROR_MESSAGE,
 } from "@/lib/auth/signup-error";
+import { LOGIN_ERROR_MESSAGES } from "@/lib/auth/login-messages";
+import { newPasswordError } from "@/lib/auth/password";
+import {
+  buildUpdatePasswordPath,
+  getPasswordUpdateErrorMessage,
+  isPasswordResetSessionError,
+  PASSWORD_RESET_ORIGIN_UNAVAILABLE_MESSAGE,
+  resolvePasswordUpdateNext,
+} from "@/lib/auth/password-reset";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
 import { isAbsoluteHttpUrl } from "@/lib/invitations/validation";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { createClient } from "@/lib/supabase/server";
 
-const ACCOUNT_PREPARATION_ERROR_MESSAGE = "No se pudo preparar la cuenta.";
-const GOOGLE_SIGN_IN_ERROR_MESSAGE =
-  "No se pudo iniciar sesión con Google. Intentá de nuevo.";
-const GOOGLE_SIGN_IN_ORIGIN_ERROR_MESSAGE =
-  "No se pudo determinar la URL de la app para iniciar sesión con Google.";
-
-export type SignUpState = {
-  error: string | null;
-};
-
-export type SignInState = {
+/** What the sign-in, sign-up and password forms show after submitting. */
+export type AuthFormState = {
   error: string | null;
 };
 
@@ -37,9 +37,9 @@ function getFormString(formData: FormData, key: string) {
 }
 
 export async function signInWithPassword(
-  _previousState: SignInState,
+  _previousState: AuthFormState,
   formData: FormData
-): Promise<SignInState> {
+): Promise<AuthFormState> {
   const email = getFormString(formData, "email");
   const password = getFormString(formData, "password");
   const origin = await getRequestOrigin();
@@ -81,7 +81,7 @@ export async function signInWithPassword(
     await ensureUserTenantContext();
   } catch (err) {
     console.error("[auth] Failed to prepare account after sign-in", err);
-    return { error: ACCOUNT_PREPARATION_ERROR_MESSAGE };
+    return { error: LOGIN_ERROR_MESSAGES.account_preparation_failed };
   }
 
   redirect(next);
@@ -97,10 +97,7 @@ export async function signInWithGoogle(formData: FormData) {
 
   if (!callbackUrl) {
     redirect(
-      buildLoginRedirectPath(
-        { error: GOOGLE_SIGN_IN_ORIGIN_ERROR_MESSAGE },
-        next
-      )
+      buildLoginRedirectPath({ error: "google_origin_unavailable" }, next)
     );
   }
 
@@ -130,18 +127,16 @@ export async function signInWithGoogle(formData: FormData) {
         status: signInResult.error.status ?? null,
       });
     }
-    redirect(
-      buildLoginRedirectPath({ error: GOOGLE_SIGN_IN_ERROR_MESSAGE }, next)
-    );
+    redirect(buildLoginRedirectPath({ error: "google_sign_in_failed" }, next));
   }
 
   redirect(signInResult.data.url);
 }
 
 export async function signUpWithPassword(
-  _previousState: SignUpState,
+  _previousState: AuthFormState,
   formData: FormData
-): Promise<SignUpState> {
+): Promise<AuthFormState> {
   const email = getFormString(formData, "email").trim();
   const password = getFormString(formData, "password");
   const confirmPassword = getFormString(formData, "confirmPassword");
@@ -156,11 +151,9 @@ export async function signUpWithPassword(
   if (displayName.length < 2) {
     return { error: "Escribí tu nombre completo para crear la cuenta." };
   }
-  if (password.length < 8) {
-    return { error: "La contraseña debe tener al menos 8 caracteres." };
-  }
-  if (password !== confirmPassword) {
-    return { error: "Las contraseñas no coinciden." };
+  const passwordError = newPasswordError(password, confirmPassword);
+  if (passwordError) {
+    return { error: passwordError };
   }
   if (!callbackUrl) {
     return { error: SIGN_UP_ORIGIN_UNAVAILABLE_MESSAGE };
@@ -200,15 +193,7 @@ export async function signUpWithPassword(
   }
 
   if (!data.session) {
-    redirect(
-      buildLoginRedirectPath(
-        {
-          message:
-            "Cuenta creada. Revisá tu correo electrónico para confirmarla y luego iniciá sesión.",
-        },
-        next
-      )
-    );
+    redirect(buildLoginRedirectPath({ message: "signup_check_email" }, next));
   }
 
   if (isInviteRedirectPath(next)) {
@@ -220,15 +205,145 @@ export async function signUpWithPassword(
   } catch (err) {
     console.error("[auth] Failed to prepare account after sign-up", err);
     redirect(
-      buildLoginRedirectPath({ error: ACCOUNT_PREPARATION_ERROR_MESSAGE }, next)
+      buildLoginRedirectPath({ error: "account_preparation_failed" }, next)
     );
   }
 
   redirect(next);
 }
 
+/**
+ * Sends the password recovery email. The user sees the same message
+ * whatever Supabase answers: it stays silent for an email without an
+ * account but can rate-limit or fail to send only for a real one, so any
+ * difference would tell which emails have an account.
+ */
+export async function requestPasswordReset(
+  _previousState: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const email = getFormString(formData, "email").trim();
+  const origin = await getRequestOrigin();
+  const next = resolveAuthRedirectPath(
+    getFormString(formData, "next") || null,
+    origin
+  );
+  // The callback URL, as for sign-up: the hosted redirect allow lists accept
+  // it, and the recovery email passes it back as `next` (see
+  // lib/auth/email-link.ts), which leads to the password form.
+  const redirectTo = origin
+    ? buildAuthCallbackUrl(origin, buildUpdatePasswordPath(next))
+    : null;
+
+  if (!email) {
+    return { error: "Ingresá tu correo electrónico." };
+  }
+  if (!redirectTo) {
+    return { error: PASSWORD_RESET_ORIGIN_UNAVAILABLE_MESSAGE };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+    if (error) {
+      console.error("[auth] Supabase rejected a password reset request", {
+        code: error.code ?? null,
+        name: error.name,
+        status: error.status ?? null,
+      });
+    }
+  } catch (err) {
+    console.error("[auth] Failed to request a password reset", err);
+  }
+
+  redirect(
+    buildLoginRedirectPath({ message: "password_reset_requested" }, next)
+  );
+}
+
+/**
+ * Sets a new password for the signed-in user: the session the recovery
+ * link opened (app/auth/confirm), or any other one.
+ */
+export async function updatePassword(
+  _previousState: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const password = getFormString(formData, "password");
+  const confirmPassword = getFormString(formData, "confirmPassword");
+  const origin = await getRequestOrigin();
+  const next = resolvePasswordUpdateNext(
+    getFormString(formData, "next") || null,
+    origin
+  );
+
+  const passwordError = newPasswordError(password, confirmPassword);
+  if (passwordError) {
+    return { error: passwordError };
+  }
+
+  const updateResult = await (async () => {
+    try {
+      const supabase = await createClient();
+      return await supabase.auth.updateUser({ password });
+    } catch (err) {
+      console.error("[auth] Failed to update the password", err);
+      return null;
+    }
+  })();
+
+  if (!updateResult) {
+    return {
+      error:
+        "No se pudo conectar con el servicio de inicio de sesión. Intentá de nuevo.",
+    };
+  }
+
+  const { error } = updateResult;
+
+  if (error) {
+    console.error("[auth] Supabase rejected the password update", {
+      code: error.code ?? null,
+      name: error.name,
+      status: error.status ?? null,
+    });
+    if (isPasswordResetSessionError(error)) {
+      redirect(
+        buildLoginRedirectPath(
+          { error: "password_reset_link_invalid", mode: "reset" },
+          next
+        )
+      );
+    }
+    return { error: getPasswordUpdateErrorMessage(error) };
+  }
+
+  redirect(next);
+}
+
+/**
+ * Ends this device's session. It does not redirect: the client runs it only
+ * after the local teardown and then loads /login itself, so a failure here
+ * (offline, auth outage) stays a normal error it can show and retry, instead
+ * of looking like the NEXT_REDIRECT rejection a redirect would produce.
+ *
+ * Scope "local" revokes only this session. The default ("global") would also
+ * sign out the user's other devices, which could then not upload their
+ * queued sales until someone signs in there again.
+ */
 export async function signOut() {
   const supabase = await createClient();
-  await supabase.auth.signOut();
-  redirect("/login");
+  const { error } = await supabase.auth.signOut({ scope: "local" });
+  if (error) {
+    console.error("[auth] Failed to sign out", {
+      code: error.code ?? null,
+      name: error.name,
+      status: error.status ?? null,
+    });
+    // supabase-js keeps the session when the revocation fails for any
+    // reason other than an already-invalid session.
+    throw new Error("No se pudo cerrar la sesión.");
+  }
 }

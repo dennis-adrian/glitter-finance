@@ -30,7 +30,7 @@ import {
   allCategoriesOption,
   categoriesInUse,
   categoryLabel,
-  productCategoryKey,
+  filterProducts,
   type CategoryIndex,
   type CategoryOption,
 } from "@/lib/products";
@@ -53,6 +53,10 @@ type ProductsScreenProps = {
   setQuery: (value: string) => void;
   openEditor: (product: Product | null) => void;
   restoreProduct: (productId: string) => void;
+  /** A product save, archive or restore is still running. */
+  productWritePending: boolean;
+  /** The archived product being restored, if any. */
+  restoringProductId: string | null;
   openCategories: () => void;
 };
 
@@ -84,14 +88,12 @@ export function ProductsScreen(props: ProductsScreenProps) {
   )
     ? props.category
     : allCategoriesOption.id;
-  const normalizedQuery = props.query.trim().toLowerCase();
-  const filtered = inStatus.filter((product) => {
-    const matchesCategory =
-      activeCategory === allCategoriesOption.id ||
-      productCategoryKey(product, props.categoryIndex) === activeCategory;
-    const matchesQuery = product.name.toLowerCase().includes(normalizedQuery);
-    return matchesCategory && matchesQuery;
-  });
+  const filtered = filterProducts(
+    inStatus,
+    activeCategory,
+    props.query,
+    props.categoryIndex
+  );
   const stockFor = (product: Product) =>
     props.inventoryStockReady
       ? getProductStock(product, props.stockByProduct)
@@ -201,6 +203,8 @@ export function ProductsScreen(props: ProductsScreenProps) {
                 stock={stockFor(product)}
                 openEditor={props.openEditor}
                 restoreProduct={props.restoreProduct}
+                restoreDisabled={props.productWritePending}
+                restoring={props.restoringProductId === product.id}
               />
             ))}
           </div>
@@ -244,6 +248,8 @@ export function ProductsScreen(props: ProductsScreenProps) {
                     categoryIndex={props.categoryIndex}
                     openEditor={props.openEditor}
                     restoreProduct={props.restoreProduct}
+                    restoreDisabled={props.productWritePending}
+                    restoring={props.restoringProductId === product.id}
                   />
                 ))}
               </tbody>
@@ -285,12 +291,16 @@ function CatalogRow({
   categoryIndex,
   openEditor,
   restoreProduct,
+  restoreDisabled,
+  restoring,
 }: {
   product: Product;
   stock: ProductStock | null;
   categoryIndex: CategoryIndex;
   openEditor: (product: Product) => void;
   restoreProduct: (productId: string) => void;
+  restoreDisabled: boolean;
+  restoring: boolean;
 }) {
   const stockAlert = stock?.state === "out" || stock?.state === "oversold";
 
@@ -351,12 +361,13 @@ function CatalogRow({
             type="button"
             variant="outline"
             size="sm"
+            disabled={restoreDisabled}
             onClick={(event) => {
               event.stopPropagation();
               restoreProduct(product.id);
             }}
           >
-            Restaurar
+            {restoring ? "Restaurando…" : "Restaurar"}
           </Button>
         ) : null}
       </td>

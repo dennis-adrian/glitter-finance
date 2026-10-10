@@ -28,7 +28,7 @@ export function SaleLineDetail({ line }: SaleLineDetailProps) {
         </span>
       </div>
       <small className="col-span-2 text-xs text-muted-foreground">
-        Costo al vender:{" "}
+        Costo registrado:{" "}
         {line.unitCostCents == null
           ? "Desconocido"
           : formatBs(line.unitCostCents, true)}

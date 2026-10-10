@@ -1,5 +1,5 @@
 import { AlertTriangle, Info, QrCode, ReceiptText, Wallet } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { DetailRow } from "@/components/atoms/detail-row";
 import { ScreenHeader } from "@/components/molecules/screen-header";
 import { Screen } from "@/components/templates/screen";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/molecules/empty-state";
 import { SaleActionDialog } from "@/components/molecules/sale-action-dialog";
 import { SaleLineDetail } from "@/components/molecules/sale-line-detail";
+import { formatDateTimeLabelInBolivia } from "@/lib/dates";
 import { formatBs } from "@/lib/money";
 import {
   paymentLabels,
@@ -17,18 +18,23 @@ import {
   saleLineDiscountCents,
   saleNetCents,
   saleProfitCents,
+  type SaleIndex,
 } from "@/lib/sales";
 import type { Sale } from "@/lib/types";
+import { useNow } from "@/lib/use-now";
 import {
   canRefundSale,
   canVoidSale,
+  saleActionBlockedMessage,
   saleReferenceLabel,
   saleStatusLabel,
+  type SaleAction,
 } from "@/components/screens/sale-detail-screen.helpers";
 
 type SaleDetailScreenProps = {
   sale: Sale | null;
-  sales: Sale[];
+  /** The index of the whole list, for the refund links and the checks. */
+  saleIndex: SaleIndex;
   back: () => void;
   voidSale: (saleId: string) => Promise<boolean>;
   refundSale: (saleId: string, reason?: string) => Promise<boolean>;
@@ -37,18 +43,9 @@ type SaleDetailScreenProps = {
   className?: string;
 };
 
-const dateFormatter = new Intl.DateTimeFormat("es-BO", {
-  timeZone: "America/La_Paz",
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
 export function SaleDetailScreen({
   sale,
-  sales,
+  saleIndex,
   back,
   voidSale,
   refundSale,
@@ -61,13 +58,8 @@ export function SaleDetailScreen({
     backLabel: variant === "pane" ? "Cerrar detalle" : "Volver",
     hideSync: variant === "pane",
   };
-  const [action, setAction] = useState<"void" | "refund" | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const [action, setAction] = useState<SaleAction | null>(null);
+  const [now, setNow] = useNow();
 
   if (!sale) {
     return (
@@ -92,12 +84,12 @@ export function SaleDetailScreen({
   const lineDiscount = saleLineDiscountCents(sale);
   const totalDiscount = saleDiscountTotalCents(sale);
   const hasUnknownCost = saleHasUnknownCost(sale);
-  const canVoid = canVoidSale(sale, sales, now);
-  const canRefund = canRefundSale(sale, sales);
+  const canVoid = canVoidSale(sale, saleIndex, now);
+  const canRefund = canRefundSale(sale, saleIndex);
   const originalSale = sale.refundOfSaleId
-    ? sales.find((item) => item.id === sale.refundOfSaleId)
+    ? saleIndex.byId.get(sale.refundOfSaleId)
     : null;
-  const refundRecord = sales.find((item) => item.refundOfSaleId === sale.id);
+  const refundRecord = saleIndex.refundBySaleId.get(sale.id);
 
   return (
     <Screen
@@ -108,7 +100,7 @@ export function SaleDetailScreen({
     >
       <section className="mb-3.5 rounded-2xl bg-card p-4 text-center ring-1 ring-foreground/10">
         <span className="inline-flex min-h-7 items-center rounded-full bg-primary/10 px-3 text-sm font-bold text-primary">
-          {saleStatusLabel(sale, sales)}
+          {saleStatusLabel(sale, saleIndex)}
         </span>
         <h2 className="mt-2.5 text-lg font-semibold">
           {saleReferenceLabel(sale)}
@@ -117,7 +109,7 @@ export function SaleDetailScreen({
           {formatBs(net, true)}
         </strong>
         <p className="text-sm text-muted-foreground">
-          {dateFormatter.format(new Date(sale.createdAt))}
+          {formatDateTimeLabelInBolivia(sale.createdAt)}
         </p>
       </section>
 
@@ -145,24 +137,28 @@ export function SaleDetailScreen({
         ) : null}
         <DetailRow
           label="Creada"
-          value={dateFormatter.format(new Date(sale.createdAt))}
+          value={formatDateTimeLabelInBolivia(sale.createdAt)}
         />
         {sale.clientCreatedAt ? (
           <DetailRow
             label="Hora local"
-            value={dateFormatter.format(new Date(sale.clientCreatedAt))}
+            value={formatDateTimeLabelInBolivia(sale.clientCreatedAt)}
           />
         ) : null}
         <DetailRow label="Registró" value={sale.userName} />
+        {sale.refundOfSaleUserName ? (
+          // The seller Reports nets this refund against.
+          <DetailRow label="Vendió" value={sale.refundOfSaleUserName} />
+        ) : null}
         <DetailRow
           label="Estado"
-          value={saleStatusLabel(sale, sales)}
+          value={saleStatusLabel(sale, saleIndex)}
           tone={sale.status === "voided" ? "danger" : "strong"}
         />
         {sale.voidedAt ? (
           <DetailRow
             label="Anulada"
-            value={dateFormatter.format(new Date(sale.voidedAt))}
+            value={formatDateTimeLabelInBolivia(sale.voidedAt)}
             tone="danger"
           />
         ) : null}
@@ -237,7 +233,7 @@ export function SaleDetailScreen({
           disabled={!canVoid}
           onClick={() => {
             const checkedAt = Date.now();
-            if (!canVoidSale(sale, sales, checkedAt)) {
+            if (!canVoidSale(sale, saleIndex, checkedAt)) {
               setNow(checkedAt);
               return;
             }
@@ -270,16 +266,23 @@ export function SaleDetailScreen({
         action={action}
         onClose={() => setAction(null)}
         onConfirm={async (reason) => {
-          if (action === "void") {
-            const checkedAt = Date.now();
-            if (!canVoidSale(sale, sales, checkedAt)) {
-              setNow(checkedAt);
-              setAction(null);
-              return false;
-            }
-            return voidSale(sale.id);
+          if (!action) return false;
+          // A refusal is thrown, so the dialog shows why instead of a
+          // generic failure.
+          const checkedAt = Date.now();
+          const blocked = saleActionBlockedMessage(
+            action,
+            sale,
+            saleIndex,
+            checkedAt
+          );
+          if (blocked) {
+            setNow(checkedAt);
+            throw new Error(blocked);
           }
-          return refundSale(sale.id, reason);
+          return action === "void"
+            ? voidSale(sale.id)
+            : refundSale(sale.id, reason);
         }}
       />
     </Screen>

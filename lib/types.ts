@@ -1,6 +1,9 @@
-export type PaymentMethod = "cash" | "qr_transfer";
+// Type-only import: erased at build time, so client bundles do not pull in
+// the Postgres schema.
+import type { paymentMethodEnum } from "@/lib/db/schema";
+
+export type PaymentMethod = (typeof paymentMethodEnum.enumValues)[number];
 export type SaleStatus = "completed" | "voided" | "refunded";
-export type CostStatus = "known" | "unknown";
 
 export type Category = {
   id: string;
@@ -78,6 +81,13 @@ export type Sale = {
   voidedAt?: string;
   voidedByUserId?: string;
   refundOfSaleId?: string;
+  /**
+   * On a refund record, who made the refunded sale; userId and userName
+   * are whoever recorded the refund. The seller breakdown in Reports nets
+   * the refund against this seller.
+   */
+  refundOfSaleUserId?: string;
+  refundOfSaleUserName?: string;
   refundedAt?: string;
   refundReason?: string;
 };
@@ -104,10 +114,4 @@ export type TenantInvitation = {
   expiresAt: string;
   revokedAt: string | null;
   createdAt: string;
-};
-
-export type ToastMessage = {
-  id: string;
-  text: string;
-  tone: "success" | "info" | "danger";
 };

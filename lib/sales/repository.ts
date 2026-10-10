@@ -1,38 +1,44 @@
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  getTableColumns,
-  inArray,
-  isNull,
-} from "drizzle-orm";
+// No `import "server-only"` here: scripts/seed-qa.ts imports this module
+// under plain tsx, where that marker throws (tests/server-only-marker.test.ts).
+import { and, asc, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
+import { UserFacingError } from "@/lib/action-result";
+import { toIso } from "@/lib/dates";
 import { db } from "@/lib/db";
 import {
-  categories,
   products,
   refunds,
   saleLines,
   sales,
   tenantUsers,
 } from "@/lib/db/schema";
-import { clampDiscount } from "@/lib/money";
-import type { PaymentMethod, Sale, SaleLine } from "@/lib/types";
+import {
+  isWithinVoidWindow,
+  REFUNDED_SALE_VOID_MESSAGE,
+  SALE_ALREADY_REFUNDED_MESSAGE,
+  SALE_ALREADY_VOIDED_MESSAGE,
+  sortSalesNewestFirst,
+  VOID_WINDOW_EXPIRED_MESSAGE,
+  VOIDED_SALE_REFUND_MESSAGE,
+} from "@/lib/sales";
+import {
+  mergeSaleLines,
+  priceSale,
+  type SaleLineRequest,
+} from "@/lib/sales/pricing";
+import type { PaymentMethod, Sale, SaleLine, TenantMember } from "@/lib/types";
+import { normalizeNote } from "@/lib/validation";
 
-export type CreateSaleLineInput = {
-  productId: string;
-  quantity: number;
-  lineDiscountCents?: number;
-  lineDiscountReason?: string;
-};
+export type CreateSaleLineInput = SaleLineRequest;
 
 export type CreateSaleInput = {
+  /** Chosen by the caller, so retrying a checkout records it only once. */
+  saleId: string;
   tenantId: string;
   userId: string;
   userName: string;
   paymentMethod: PaymentMethod;
   saleDiscountCents: number;
-  saleDiscountReason?: string;
+  saleDiscountReason?: string | null;
   lines: CreateSaleLineInput[];
 };
 
@@ -50,15 +56,14 @@ export type RefundSaleInput = {
   reason?: string;
 };
 
-function toIso(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : value;
-}
-
 function mapSaleLine(line: typeof saleLines.$inferSelect): SaleLine {
   return {
     id: line.id,
-    productId: line.productId ?? "",
+    productId: line.productId,
     productName: line.productName,
+    // The category the product had when it was sold: renaming a category
+    // does not rewrite sales, like the PowerSync path
+    // (lib/powersync/sales-from-local.ts).
     category: line.category,
     quantity: line.quantity,
     unitPriceCents: line.unitPriceCents,
@@ -69,70 +74,27 @@ function mapSaleLine(line: typeof saleLines.$inferSelect): SaleLine {
   };
 }
 
-async function loadUserNamesForTenant(tenantId: string, userIds: string[]) {
-  const uniqueUserIds = [...new Set(userIds)];
-
-  if (!uniqueUserIds.length) {
-    return new Map<string, string>();
-  }
-
-  const rows = await db
-    .select({
-      userId: tenantUsers.userId,
-      displayName: tenantUsers.displayName,
-    })
-    .from(tenantUsers)
-    .where(
-      and(
-        eq(tenantUsers.tenantId, tenantId),
-        inArray(tenantUsers.userId, uniqueUserIds)
-      )
-    );
-
-  return new Map(rows.map((user) => [user.userId, user.displayName]));
-}
-
-async function loadLinesBySaleId(tenantId: string, saleIds: string[]) {
-  if (!saleIds.length) {
-    return new Map<string, SaleLine[]>();
-  }
-
-  const lineRows = await db
-    .select()
-    .from(saleLines)
-    .where(
-      and(eq(saleLines.tenantId, tenantId), inArray(saleLines.saleId, saleIds))
-    )
-    .orderBy(asc(saleLines.createdAt));
-
+function groupLinesBySaleId(lineRows: Array<typeof saleLines.$inferSelect>) {
   const linesBySaleId = new Map<string, SaleLine[]>();
 
   for (const line of lineRows) {
     const mappedLine = mapSaleLine(line);
-    linesBySaleId.set(line.saleId, [
-      ...(linesBySaleId.get(line.saleId) ?? []),
-      mappedLine,
-    ]);
+    const existing = linesBySaleId.get(line.saleId);
+    if (existing) {
+      existing.push(mappedLine);
+    } else {
+      linesBySaleId.set(line.saleId, [mappedLine]);
+    }
   }
 
   return linesBySaleId;
 }
 
-async function mapSaleRowsForTenant(
-  tenantId: string,
-  saleRows: Array<typeof sales.$inferSelect>
+function mapSaleRows(
+  saleRows: Array<typeof sales.$inferSelect>,
+  linesBySaleId: ReadonlyMap<string, SaleLine[]>,
+  userNameById: ReadonlyMap<string, string>
 ) {
-  const [linesBySaleId, userNameById] = await Promise.all([
-    loadLinesBySaleId(
-      tenantId,
-      saleRows.map((sale) => sale.id)
-    ),
-    loadUserNamesForTenant(
-      tenantId,
-      saleRows.map((sale) => sale.userId)
-    ),
-  ]);
-
   return saleRows.map((sale): Sale => {
     const voidedAt = sale.voidedAt ? toIso(sale.voidedAt) : undefined;
 
@@ -154,6 +116,26 @@ async function mapSaleRowsForTenant(
   });
 }
 
+/** Display names of the tenant's members, by user id. */
+async function loadUserNamesForTenant(tenantId: string, userId?: string) {
+  const rows = await db
+    .select({
+      userId: tenantUsers.userId,
+      displayName: tenantUsers.displayName,
+    })
+    .from(tenantUsers)
+    .where(
+      userId
+        ? and(
+            eq(tenantUsers.tenantId, tenantId),
+            eq(tenantUsers.userId, userId)
+          )
+        : eq(tenantUsers.tenantId, tenantId)
+    );
+
+  return new Map(rows.map((user) => [user.userId, user.displayName]));
+}
+
 async function getSaleForTenant(tenantId: string, saleId: string) {
   const [sale] = await db
     .select()
@@ -162,13 +144,27 @@ async function getSaleForTenant(tenantId: string, saleId: string) {
     .limit(1);
 
   if (!sale) {
-    throw new Error("No se encontró la venta.");
+    throw new UserFacingError("No se encontró la venta.");
   }
 
-  const [mappedSale] = await mapSaleRowsForTenant(tenantId, [sale]);
+  const [lineRows, userNameById] = await Promise.all([
+    db
+      .select()
+      .from(saleLines)
+      .where(
+        and(eq(saleLines.tenantId, tenantId), eq(saleLines.saleId, sale.id))
+      )
+      .orderBy(asc(saleLines.createdAt)),
+    loadUserNamesForTenant(tenantId, sale.userId),
+  ]);
+  const [mappedSale] = mapSaleRows(
+    [sale],
+    groupLinesBySaleId(lineRows),
+    userNameById
+  );
 
   if (!mappedSale) {
-    throw new Error("No se encontró la venta.");
+    throw new UserFacingError("No se encontró la venta.");
   }
 
   return mappedSale;
@@ -196,6 +192,8 @@ function mapRefundRows(
         clientCreatedAt: toIso(refund.clientCreatedAt),
         status: "refunded",
         refundOfSaleId: original.id,
+        refundOfSaleUserId: original.userId,
+        refundOfSaleUserName: original.userName,
         refundedAt: toIso(refund.createdAt),
         refundReason: refund.reason ?? undefined,
       },
@@ -203,55 +201,15 @@ function mapRefundRows(
   });
 }
 
-function normalizeLines(lines: CreateSaleLineInput[]) {
-  const byProduct = new Map<string, CreateSaleLineInput>();
-
-  for (const line of lines) {
-    if (!line.productId) {
-      throw new Error("Cada línea de venta necesita un producto.");
-    }
-
-    if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
-      throw new Error("Las cantidades deben ser números enteros positivos.");
-    }
-
-    const existing = byProduct.get(line.productId);
-    byProduct.set(line.productId, {
-      productId: line.productId,
-      quantity: (existing?.quantity ?? 0) + line.quantity,
-      lineDiscountCents:
-        (existing?.lineDiscountCents ?? 0) + (line.lineDiscountCents ?? 0),
-      lineDiscountReason:
-        line.lineDiscountReason ?? existing?.lineDiscountReason,
-    });
-  }
-
-  return [...byProduct.values()];
-}
-
 export async function createSaleForTenant(
   input: CreateSaleInput
 ): Promise<Sale> {
-  const normalizedLines = normalizeLines(input.lines);
-
-  if (!normalizedLines.length) {
-    throw new Error("La venta necesita al menos un producto.");
-  }
-
-  const productIds = normalizedLines.map((line) => line.productId);
+  // Checked before loading products, so a malformed line fails first.
+  const requestedLines = mergeSaleLines(input.lines);
+  const productIds = requestedLines.map((line) => line.productId);
   const productRows = await db
-    .select({
-      ...getTableColumns(products),
-      categoryName: categories.name,
-    })
+    .select()
     .from(products)
-    .leftJoin(
-      categories,
-      and(
-        eq(categories.id, products.categoryId),
-        eq(categories.tenantId, products.tenantId)
-      )
-    )
     .where(
       and(
         eq(products.tenantId, input.tenantId),
@@ -259,78 +217,66 @@ export async function createSaleForTenant(
       )
     );
 
-  const productById = new Map(
-    productRows.map((product) => [product.id, product])
+  // Same pricing as the PowerSync writer (lib/powersync/write-sales.ts).
+  const priced = priceSale(
+    {
+      lines: requestedLines,
+      saleDiscountCents: input.saleDiscountCents,
+      saleDiscountReason: input.saleDiscountReason,
+    },
+    new Map(productRows.map((product) => [product.id, product]))
   );
+  // created_at is the business time: the clock of whoever recorded the sale.
+  // PowerSync writes stamp the device clock into both created_at and
+  // client_created_at; this server-action path has no device clock, so both
+  // get the same app-server instant (PRD §9, "Timestamps").
+  const createdAt = new Date();
 
-  if (productById.size !== productIds.length) {
-    throw new Error("Uno o más productos ya no están disponibles.");
-  }
-
-  const lineValues = normalizedLines.map((line) => {
-    const product = productById.get(line.productId);
-
-    if (!product || product.archivedAt) {
-      throw new Error(
-        "Uno o más productos están archivados y no se pueden vender."
-      );
-    }
-
-    const lineSubtotalCents = product.priceCents * line.quantity;
-    const lineDiscountCents = clampDiscount(
-      line.lineDiscountCents ?? 0,
-      lineSubtotalCents
-    );
-
-    return {
-      tenantId: input.tenantId,
-      productId: product.id,
-      productName: product.name,
-      category:
-        product.categoryName ?? (product.category.trim() || "Sin categoría"),
-      quantity: line.quantity,
-      unitPriceCents: product.priceCents,
-      unitCostCents: product.costCents,
-      lineDiscountCents,
-      lineDiscountReason: line.lineDiscountReason?.trim() || null,
-      lineTotalCents: lineSubtotalCents - lineDiscountCents,
-    };
-  });
-
-  const subtotalAfterLineDiscounts = lineValues.reduce(
-    (total, line) => total + line.lineTotalCents,
-    0
-  );
-  const saleDiscountCents = clampDiscount(
-    input.saleDiscountCents,
-    subtotalAfterLineDiscounts
-  );
-  // `client_created_at` holds the time the record was created on the device, for
-  // the offline-first model (see PRD §9). This online-only Stage A path has no
-  // device timestamp to forward, so the server stamps it as a stand-in. When
-  // PowerSync lands, the real client timestamp will be supplied here instead.
-  const clientCreatedAt = new Date();
-
-  return await db.transaction(async (tx) => {
+  const recorded = await db.transaction(async (tx) => {
     const [sale] = await tx
       .insert(sales)
       .values({
+        id: input.saleId,
         tenantId: input.tenantId,
         userId: input.userId,
         paymentMethod: input.paymentMethod,
-        saleDiscountCents,
-        saleDiscountReason: input.saleDiscountReason?.trim() || null,
-        clientCreatedAt,
+        saleDiscountCents: priced.saleDiscountCents,
+        saleDiscountReason: priced.saleDiscountReason,
+        createdAt,
+        clientCreatedAt: createdAt,
       })
+      .onConflictDoNothing({ target: sales.id })
       .returning();
 
     if (!sale) {
-      throw new Error("No se pudo registrar la venta.");
+      // The id is taken: this is a retry of a checkout that was already
+      // recorded, e.g. after its response was lost. The recorded sale is
+      // returned below, once it has been checked to be this user's sale in
+      // this tenant. The PowerSync RPC is retry-safe the same way.
+      const [existing] = await tx
+        .select({ tenantId: sales.tenantId, userId: sales.userId })
+        .from(sales)
+        .where(eq(sales.id, input.saleId))
+        .limit(1);
+      if (
+        existing?.tenantId !== input.tenantId ||
+        existing.userId !== input.userId
+      ) {
+        throw new Error("No se pudo registrar la venta: el id ya está en uso.");
+      }
+      return null;
     }
 
     const insertedLines = await tx
       .insert(saleLines)
-      .values(lineValues.map((line) => ({ ...line, saleId: sale.id })))
+      .values(
+        priced.lines.map((line) => ({
+          ...line,
+          tenantId: input.tenantId,
+          saleId: sale.id,
+          createdAt,
+        }))
+      )
       .returning();
 
     const mappedLines = insertedLines.map(mapSaleLine);
@@ -349,100 +295,222 @@ export async function createSaleForTenant(
       status: sale.voidedAt ? "voided" : "completed",
       voidedAt: sale.voidedAt ? toIso(sale.voidedAt) : undefined,
       voidedByUserId: sale.voidedByUserId ?? undefined,
-    };
+    } satisfies Sale;
   });
+
+  return recorded ?? getSaleForTenant(input.tenantId, input.saleId);
 }
 
-export async function getSalesForTenant(tenantId: string): Promise<Sale[]> {
-  const saleRows = await db
-    .select()
-    .from(sales)
-    .where(eq(sales.tenantId, tenantId))
-    .orderBy(desc(sales.createdAt));
+export type GetSalesForTenantOptions = {
+  /**
+   * Only the sales and refunds recorded from this instant on, plus what
+   * their records need: the earlier sale a refund returns, and the refund
+   * of a sale. Everything when omitted.
+   */
+  since?: Date;
+  /**
+   * The tenant's members, when the caller loads them anyway: seller names
+   * are taken from them instead of queried again.
+   */
+  members?: Promise<readonly TenantMember[]> | readonly TenantMember[];
+};
 
-  if (!saleRows.length) {
-    return [];
+/**
+ * Which sales and refunds getSalesForTenant loads. Filtered by tenant (and
+ * date) in Postgres, never by a list of ids, whose one bind parameter per
+ * sale runs out at 65,535.
+ */
+function salesHistoryFilters(tenantId: string, since: Date | undefined) {
+  if (!since) {
+    return {
+      sales: eq(sales.tenantId, tenantId),
+      refunds: eq(refunds.tenantId, tenantId),
+    };
   }
 
-  const refundRows = await db
-    .select()
+  const salesSince = db
+    .select({ id: sales.id })
+    .from(sales)
+    .where(and(eq(sales.tenantId, tenantId), gte(sales.createdAt, since)));
+  const refundedSince = db
+    .select({ id: refunds.originalSaleId })
     .from(refunds)
-    .where(eq(refunds.tenantId, tenantId))
-    .orderBy(desc(refunds.createdAt));
+    .where(and(eq(refunds.tenantId, tenantId), gte(refunds.createdAt, since)));
 
-  const [mappedSales, refundUserNameById] = await Promise.all([
-    mapSaleRowsForTenant(tenantId, saleRows),
-    loadUserNamesForTenant(
-      tenantId,
-      refundRows.map((refund) => refund.userId)
+  return {
+    sales: and(
+      eq(sales.tenantId, tenantId),
+      or(gte(sales.createdAt, since), inArray(sales.id, refundedSince))
     ),
-  ]);
+    refunds: and(
+      eq(refunds.tenantId, tenantId),
+      or(
+        gte(refunds.createdAt, since),
+        inArray(refunds.originalSaleId, salesSince)
+      )
+    ),
+  };
+}
 
-  const saleById = new Map(mappedSales.map((sale) => [sale.id, sale]));
-  const mappedRefunds = mapRefundRows(refundRows, saleById, refundUserNameById);
-
-  return [...mappedSales, ...mappedRefunds].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+/**
+ * The sales, their lines and the refunds selected by `filters`, all read from
+ * one snapshot. A sale commits together with its lines, and a refund after
+ * its sale, but separate statements each see the database as of their own
+ * start, and pooled connections start them in no fixed order: a sale could
+ * load without the lines committed with it, or a refund without its sale.
+ * One repeatable-read transaction reads all three as of its first statement,
+ * on a single connection.
+ */
+function loadSalesHistoryRows(
+  tenantId: string,
+  filters: ReturnType<typeof salesHistoryFilters>,
+  since: Date | undefined
+) {
+  return db.transaction(
+    (tx) =>
+      Promise.all([
+        tx
+          .select()
+          .from(sales)
+          .where(filters.sales)
+          .orderBy(desc(sales.createdAt)),
+        // The lines of the sales loaded above.
+        tx
+          .select()
+          .from(saleLines)
+          .where(
+            since
+              ? and(
+                  eq(saleLines.tenantId, tenantId),
+                  inArray(
+                    saleLines.saleId,
+                    tx.select({ id: sales.id }).from(sales).where(filters.sales)
+                  )
+                )
+              : eq(saleLines.tenantId, tenantId)
+          )
+          .orderBy(asc(saleLines.createdAt)),
+        tx
+          .select()
+          .from(refunds)
+          .where(filters.refunds)
+          .orderBy(desc(refunds.createdAt)),
+      ]),
+    { isolationLevel: "repeatable read", accessMode: "read only" }
   );
 }
 
-export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
-  const [sale] = await db
-    .select()
+export async function getSalesForTenant(
+  tenantId: string,
+  { since, members }: GetSalesForTenantOptions = {}
+): Promise<Sale[]> {
+  const filters = salesHistoryFilters(tenantId, since);
+  const [[saleRows, lineRows, refundRows], userNameById] = await Promise.all([
+    loadSalesHistoryRows(tenantId, filters, since),
+    // Names need no snapshot: a seller missing from them reads "Vendedor".
+    members
+      ? Promise.resolve(members).then(
+          (loaded) =>
+            new Map(loaded.map((member) => [member.userId, member.displayName]))
+        )
+      : loadUserNamesForTenant(tenantId),
+  ]);
+
+  const mappedSales = mapSaleRows(
+    saleRows,
+    groupLinesBySaleId(lineRows),
+    userNameById
+  );
+  const saleById = new Map(mappedSales.map((sale) => [sale.id, sale]));
+  const mappedRefunds = mapRefundRows(refundRows, saleById, userNameById);
+
+  return sortSalesNewestFirst([...mappedSales, ...mappedRefunds]);
+}
+
+type SalesTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+// A void and a refund of the same sale must never both commit, whichever path
+// (server action or PowerSync RPC) writes them. Both lock the sale row first,
+// so they run one after the other and the second sees the first; Postgres
+// triggers enforce the same rules for any other writer.
+async function lockSaleForCorrection(
+  tx: SalesTransaction,
+  tenantId: string,
+  saleId: string
+) {
+  const [sale] = await tx
+    .select({ createdAt: sales.createdAt, voidedAt: sales.voidedAt })
     .from(sales)
-    .where(and(eq(sales.tenantId, input.tenantId), eq(sales.id, input.saleId)))
+    .where(and(eq(sales.tenantId, tenantId), eq(sales.id, saleId)))
+    .for("update")
     .limit(1);
 
   if (!sale) {
-    throw new Error("No se encontró la venta.");
+    throw new UserFacingError("No se encontró la venta.");
   }
 
-  if (sale.voidedAt) {
-    throw new Error("Esta venta ya fue anulada.");
-  }
-
-  const minutesSinceSale =
-    (Date.now() - new Date(sale.createdAt).getTime()) / 60000;
-
-  if (minutesSinceSale > 10) {
-    throw new Error(
-      "Las ventas solo se pueden anular dentro de los primeros 10 minutos."
-    );
-  }
-
-  const [existingRefund] = await db
+  const [existingRefund] = await tx
     .select({ id: refunds.id })
     .from(refunds)
     .where(
-      and(
-        eq(refunds.tenantId, input.tenantId),
-        eq(refunds.originalSaleId, input.saleId)
-      )
+      and(eq(refunds.tenantId, tenantId), eq(refunds.originalSaleId, saleId))
     )
     .limit(1);
 
-  if (existingRefund) {
-    throw new Error("No se puede anular una venta reembolsada.");
-  }
+  return { ...sale, isRefunded: Boolean(existingRefund) };
+}
 
-  const [voidedSale] = await db
-    .update(sales)
-    .set({
-      voidedAt: new Date(),
-      voidedByUserId: input.userId,
-    })
-    .where(
-      and(
-        eq(sales.tenantId, input.tenantId),
-        eq(sales.id, input.saleId),
-        isNull(sales.voidedAt)
+function isUniqueViolation(error: unknown, constraintName: string): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    code?: unknown;
+    constraint_name?: unknown;
+    cause?: unknown;
+  };
+  if (candidate.code === "23505") {
+    return candidate.constraint_name === constraintName;
+  }
+  // Drizzle wraps the postgres.js error in `cause`.
+  return isUniqueViolation(candidate.cause, constraintName);
+}
+
+export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
+  const voidedAt = new Date();
+
+  await db.transaction(async (tx) => {
+    const sale = await lockSaleForCorrection(tx, input.tenantId, input.saleId);
+
+    if (sale.voidedAt) {
+      throw new UserFacingError(SALE_ALREADY_VOIDED_MESSAGE);
+    }
+
+    if (!isWithinVoidWindow(sale.createdAt, voidedAt.getTime())) {
+      throw new UserFacingError(VOID_WINDOW_EXPIRED_MESSAGE);
+    }
+
+    if (sale.isRefunded) {
+      throw new UserFacingError(REFUNDED_SALE_VOID_MESSAGE);
+    }
+
+    const [voidedSale] = await tx
+      .update(sales)
+      .set({
+        voidedAt,
+        voidedByUserId: input.userId,
+      })
+      .where(
+        and(
+          eq(sales.tenantId, input.tenantId),
+          eq(sales.id, input.saleId),
+          isNull(sales.voidedAt)
+        )
       )
-    )
-    .returning();
+      .returning({ id: sales.id });
 
-  if (!voidedSale) {
-    throw new Error("No se pudo anular la venta.");
-  }
+    if (!voidedSale) {
+      throw new Error("No se pudo anular la venta.");
+    }
+  });
 
   return getSaleForTenant(input.tenantId, input.saleId);
 }
@@ -450,43 +518,50 @@ export async function voidSaleForTenant(input: VoidSaleInput): Promise<Sale> {
 export async function refundSaleForTenant(
   input: RefundSaleInput
 ): Promise<Sale> {
+  // Only reads the sales table, so a refund's id is "not found" here.
   const original = await getSaleForTenant(input.tenantId, input.saleId);
 
-  if (original.status === "voided") {
-    throw new Error("No se puede reembolsar una venta anulada.");
+  const reason = normalizeNote(input.reason, "El motivo");
+  // Same business-time rule as createSaleForTenant.
+  const createdAt = new Date();
+  let refund: typeof refunds.$inferSelect | undefined;
+
+  try {
+    refund = await db.transaction(async (tx) => {
+      const sale = await lockSaleForCorrection(
+        tx,
+        input.tenantId,
+        input.saleId
+      );
+
+      if (sale.voidedAt) {
+        throw new UserFacingError(VOIDED_SALE_REFUND_MESSAGE);
+      }
+
+      if (sale.isRefunded) {
+        throw new UserFacingError(SALE_ALREADY_REFUNDED_MESSAGE);
+      }
+
+      const [inserted] = await tx
+        .insert(refunds)
+        .values({
+          tenantId: input.tenantId,
+          originalSaleId: input.saleId,
+          userId: input.userId,
+          reason,
+          createdAt,
+          clientCreatedAt: createdAt,
+        })
+        .returning();
+
+      return inserted;
+    });
+  } catch (error) {
+    if (isUniqueViolation(error, "refunds_original_sale_id_unique")) {
+      throw new UserFacingError(SALE_ALREADY_REFUNDED_MESSAGE);
+    }
+    throw error;
   }
-
-  if (original.refundOfSaleId) {
-    throw new Error("No se puede reembolsar un registro de reembolso.");
-  }
-
-  const [existingRefund] = await db
-    .select({ id: refunds.id })
-    .from(refunds)
-    .where(
-      and(
-        eq(refunds.tenantId, input.tenantId),
-        eq(refunds.originalSaleId, input.saleId)
-      )
-    )
-    .limit(1);
-
-  if (existingRefund) {
-    throw new Error("Esta venta ya fue reembolsada.");
-  }
-
-  const [refund] = await db
-    .insert(refunds)
-    .values({
-      tenantId: input.tenantId,
-      originalSaleId: input.saleId,
-      userId: input.userId,
-      reason: input.reason?.trim() || null,
-      // Server-stamped stand-in for the device creation time; see the note in
-      // createSaleForTenant. PowerSync will supply the real client timestamp.
-      clientCreatedAt: new Date(),
-    })
-    .returning();
 
   if (!refund) {
     throw new Error("No se pudo registrar el reembolso.");

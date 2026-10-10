@@ -1,15 +1,3 @@
-import { parseBolivianos } from "@/lib/money";
-
-export function parseCustomDiscount(input: string, subtotal: number) {
-  if (input.includes("%")) {
-    return Math.round(
-      (subtotal * Number.parseFloat(input.replace("%", ""))) / 100
-    );
-  }
-
-  return parseBolivianos(input);
-}
-
 // Bolivian bills. Coins (1, 2, 5 Bs) are left to the "Otro monto" field.
 const CASH_BILLS_CENTS = [2000, 5000, 10000, 20000];
 

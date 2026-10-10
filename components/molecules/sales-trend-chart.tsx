@@ -14,7 +14,9 @@ import type {
   NameType,
   ValueType,
 } from "recharts/types/component/DefaultTooltipContent";
+import { APP_LOCALE } from "@/lib/dates";
 import { formatBs } from "@/lib/money";
+import { countLabel } from "@/lib/plural";
 import type { TrendBucket } from "@/lib/reports";
 
 type SalesTrendChartProps = {
@@ -27,9 +29,9 @@ type SalesTrendChartProps = {
 function formatTick(cents: number) {
   const value = cents / 100;
   if (Math.abs(value) >= 1000) {
-    return `${new Intl.NumberFormat("es-BO", { maximumFractionDigits: 1 }).format(value / 1000)} mil`;
+    return `${new Intl.NumberFormat(APP_LOCALE, { maximumFractionDigits: 1 }).format(value / 1000)} mil`;
   }
-  return new Intl.NumberFormat("es-BO").format(value);
+  return new Intl.NumberFormat(APP_LOCALE).format(value);
 }
 
 function TrendTooltip({
@@ -48,7 +50,7 @@ function TrendTooltip({
         {formatBs(bucket.netCents, true)}
       </p>
       <p className="text-xs text-muted-foreground">
-        {bucket.count} {bucket.count === 1 ? "venta" : "ventas"}
+        {countLabel(bucket.count, "venta", "ventas")}
       </p>
     </div>
   );

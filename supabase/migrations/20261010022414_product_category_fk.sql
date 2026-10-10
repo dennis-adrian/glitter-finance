@@ -1,0 +1,1 @@
+ALTER TABLE "products" ADD CONSTRAINT "products_category_id_tenant_id_categories_id_tenant_id_fk" FOREIGN KEY ("category_id","tenant_id") REFERENCES "public"."categories"("id","tenant_id") ON DELETE no action ON UPDATE no action;

@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Minus, Percent, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clampDiscount, formatBs } from "@/lib/money";
+import { clampDiscount, formatBs, parseDiscountInput } from "@/lib/money";
+import { priceLine } from "@/lib/sales/pricing";
 import type { Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { MAX_NOTE_LENGTH } from "@/lib/validation";
 import { ProductArt } from "@/components/atoms/product-art";
-import { parseCustomDiscount } from "@/components/screens/checkout-screen.helpers";
 
 type CartLineItemProps = {
   productId: string;
@@ -44,6 +45,8 @@ export function CartLineItem({
     lineDiscountCents ? String(lineDiscountCents / 100) : ""
   );
   const [reason, setReason] = useState(lineDiscountReason ?? "");
+  const [discountError, setDiscountError] = useState<string | null>(null);
+  const discountErrorId = useId();
 
   useEffect(() => {
     if (discountOpen) {
@@ -54,19 +57,24 @@ export function CartLineItem({
     }
   }, [lineDiscountCents, lineDiscountReason, discountOpen]);
 
-  const lineSubtotal = product.priceCents * quantity;
-  const discount = clampDiscount(lineDiscountCents, lineSubtotal);
-  const lineTotal = Math.max(0, lineSubtotal - discount);
+  const {
+    grossCents: lineSubtotal,
+    discountCents: discount,
+    totalCents: lineTotal,
+  } = priceLine({
+    priceCents: product.priceCents,
+    quantity,
+    lineDiscountCents,
+  });
 
   function applyDiscount() {
-    setLineDiscount(
-      productId,
-      clampDiscount(
-        parseCustomDiscount(discountInput, lineSubtotal),
-        lineSubtotal
-      ),
-      reason
-    );
+    const value = parseDiscountInput(discountInput, lineSubtotal);
+    if (value == null) {
+      setDiscountError("Escribí un monto (5 o 5,50) o un porcentaje (10%).");
+      return;
+    }
+    setDiscountError(null);
+    setLineDiscount(productId, clampDiscount(value, lineSubtotal), reason);
     setDiscountOpen(false);
   }
 
@@ -131,7 +139,10 @@ export function CartLineItem({
             variant="ghost"
             size="icon-sm"
             className={cn(discount && "text-primary")}
-            onClick={() => setDiscountOpen((open) => !open)}
+            onClick={() => {
+              setDiscountError(null);
+              setDiscountOpen((open) => !open);
+            }}
             aria-expanded={discountOpen}
             aria-label={`Descuento de ${product.name}`}
           >
@@ -155,10 +166,15 @@ export function CartLineItem({
           <div className="grid grid-cols-2 gap-2">
             <Input
               value={discountInput}
-              onChange={(event) => setDiscountInput(event.target.value)}
+              onChange={(event) => {
+                setDiscountInput(event.target.value);
+                setDiscountError(null);
+              }}
               inputMode="decimal"
               placeholder="Ej. 5 o 10%"
               aria-label={`Descuento de ${product.name}`}
+              aria-invalid={discountError ? true : undefined}
+              aria-describedby={discountError ? discountErrorId : undefined}
               autoFocus
             />
             <Input
@@ -166,8 +182,14 @@ export function CartLineItem({
               onChange={(event) => setReason(event.target.value)}
               placeholder="Motivo (opcional)"
               aria-label={`Motivo del descuento de ${product.name}`}
+              maxLength={MAX_NOTE_LENGTH}
             />
           </div>
+          {discountError ? (
+            <p id={discountErrorId} className="text-sm text-destructive">
+              {discountError}
+            </p>
+          ) : null}
           <div className="flex justify-end gap-2">
             {discount ? (
               <Button
@@ -177,6 +199,7 @@ export function CartLineItem({
                 onClick={() => {
                   setDiscountInput("");
                   setReason("");
+                  setDiscountError(null);
                   setLineDiscount(productId, 0);
                   setDiscountOpen(false);
                 }}

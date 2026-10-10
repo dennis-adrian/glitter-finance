@@ -3,7 +3,8 @@ import type { Breadcrumb, ErrorEvent, Event } from "@sentry/nextjs";
 type SpanJSON = NonNullable<Event["spans"]>[number];
 type TransactionEvent = Event & { type: "transaction" };
 
-const INVITATION_PATH = /\/join\/[^/?#]+/g;
+// Also matches the percent-encoded form, e.g. `next=%2Fjoin%2F<token>`.
+const INVITATION_PATH = /(\/|%2F)join(\/|%2F)[^/?#&%\s]+/gi;
 const ABSOLUTE_URL = /^[a-z][a-z\d+.-]*:\/\//i;
 const EMBEDDED_URL = /(?:[a-z][a-z\d+.-]*:\/\/|\/)[^\s]+/gi;
 const SPAN_URL_FIELDS = [
@@ -14,6 +15,39 @@ const SPAN_URL_FIELDS = [
   "http.target",
   "http.route",
 ] as const;
+const SPAN_QUERY_FIELDS = [
+  "http.query",
+  "http.fragment",
+  "url.query",
+  "url.fragment",
+] as const;
+// http.request.header.referer can hold a /join/<token> URL, and other
+// headers can hold credentials.
+const SPAN_HEADER_PREFIXES = [
+  "http.request.header.",
+  "http.response.header.",
+] as const;
+
+// Drizzle's DrizzleQueryError message ends with the bound values:
+// "Failed query: <sql>\nparams: <values>", i.e. tenant and user ids, names,
+// amounts. The SQL itself is parameterized and stays.
+const QUERY_PARAMS = /\nparams:[\s\S]*$/;
+
+function redactQueryParams(value: string): string {
+  return value.replace(QUERY_PARAMS, "\nparams: [redacted]");
+}
+
+/** For free text: error messages, console breadcrumbs. */
+function sanitizeMessage(value: string): string {
+  return sanitizeUrl(redactQueryParams(value));
+}
+
+function redactInvitationPaths(value: string): string {
+  return value.replace(
+    INVITATION_PATH,
+    (_path, before: string, after: string) => `${before}join${after}[redacted]`
+  );
+}
 
 function sanitizeUrl(value: string): string {
   const methodAndUrl = value.match(
@@ -29,27 +63,40 @@ function sanitizeUrl(value: string): string {
     !value.includes(" ") &&
     /[?#]/.test(value);
   if (!value.startsWith("/") && !ABSOLUTE_URL.test(value) && !isRelativeUrl) {
-    return value
-      .replace(EMBEDDED_URL, (url) => sanitizeUrl(url))
-      .replace(INVITATION_PATH, "/join/[redacted]");
+    return redactInvitationPaths(
+      value.replace(EMBEDDED_URL, (url) => sanitizeUrl(url))
+    );
   }
 
   if (isRelativeUrl) {
-    return value
-      .split(/[?#]/, 1)[0]
-      .replace(INVITATION_PATH, "/join/[redacted]");
+    return redactInvitationPaths(value.split(/[?#]/, 1)[0]);
   }
 
   try {
     const url = new URL(value, "https://local.invalid");
-    const path = url.pathname.replace(INVITATION_PATH, "/join/[redacted]");
+    const path = redactInvitationPaths(url.pathname);
     return url.origin === "https://local.invalid"
       ? path
       : `${url.origin}${path}`;
   } catch {
-    return value
-      .split(/[?#]/, 1)[0]
-      .replace(INVITATION_PATH, "/join/[redacted]");
+    return redactInvitationPaths(value.split(/[?#]/, 1)[0]);
+  }
+}
+
+function sanitizeSpanData(data: Record<string, unknown>) {
+  for (const key of SPAN_URL_FIELDS) {
+    const value = data[key];
+    if (typeof value === "string") {
+      data[key] = sanitizeUrl(value);
+    }
+  }
+  for (const key of SPAN_QUERY_FIELDS) {
+    delete data[key];
+  }
+  for (const key of Object.keys(data)) {
+    if (SPAN_HEADER_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      delete data[key];
+    }
   }
 }
 
@@ -60,9 +107,31 @@ function sanitizeEvent<T extends Event>(event: T): T {
     if (event.request.url) {
       event.request.url = sanitizeUrl(event.request.url);
     }
+    delete event.request.query_string;
     delete event.request.cookies;
     delete event.request.data;
     delete event.request.headers;
+  }
+
+  if (event.transaction) {
+    event.transaction = sanitizeUrl(event.transaction);
+  }
+
+  const contexts = event.contexts;
+  if (contexts) {
+    // Set by captureRequestError (instrumentation.ts) to the request path,
+    // query string included.
+    const nextjs = contexts.nextjs;
+    if (nextjs && typeof nextjs.request_path === "string") {
+      nextjs.request_path = sanitizeUrl(nextjs.request_path);
+    }
+    if (contexts.response) {
+      delete contexts.response.headers;
+      delete contexts.response.cookies;
+    }
+    if (contexts.trace?.data) {
+      sanitizeSpanData(contexts.trace.data);
+    }
   }
 
   if (event.breadcrumbs) {
@@ -73,8 +142,11 @@ function sanitizeEvent<T extends Event>(event: T): T {
 
   for (const exception of event.exception?.values ?? []) {
     if (exception.value) {
-      exception.value = sanitizeUrl(exception.value);
+      exception.value = sanitizeMessage(exception.value);
     }
+  }
+  if (event.message) {
+    event.message = sanitizeMessage(event.message);
   }
 
   return event;
@@ -90,41 +162,28 @@ export function sanitizeSentryTransaction(
   event: TransactionEvent
 ): TransactionEvent {
   sanitizeEvent(event);
-  if (event.transaction) {
-    event.transaction = sanitizeUrl(event.transaction);
-  }
   if (event.spans) {
     event.spans = event.spans.map(sanitizeSentrySpan);
   }
   return event;
 }
 
-/** Remove invitation tokens and query/fragment data from exported spans. */
+/**
+ * Remove invitation tokens, query/fragment data and HTTP headers from
+ * exported spans.
+ */
 export function sanitizeSentrySpan(span: SpanJSON): SpanJSON {
   if (span.description) {
     span.description = sanitizeUrl(span.description);
   }
-  for (const key of SPAN_URL_FIELDS) {
-    const value = span.data[key];
-    if (typeof value === "string") {
-      span.data[key] = sanitizeUrl(value);
-    }
-  }
-  for (const key of [
-    "http.query",
-    "http.fragment",
-    "url.query",
-    "url.fragment",
-  ]) {
-    delete span.data[key];
-  }
+  sanitizeSpanData(span.data);
   return span;
 }
 
 /** Keep navigation/network breadcrumbs useful without retaining URL secrets. */
 export function sanitizeSentryBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb {
   if (breadcrumb.message) {
-    breadcrumb.message = sanitizeUrl(breadcrumb.message);
+    breadcrumb.message = sanitizeMessage(breadcrumb.message);
   }
 
   if (breadcrumb.data) {

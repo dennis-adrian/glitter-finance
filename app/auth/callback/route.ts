@@ -1,14 +1,27 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isAuthPKCECodeVerifierMissingError } from "@supabase/supabase-js";
+import type { LoginErrorCode } from "@/lib/auth/login-messages";
 import { buildLoginRedirectPath } from "@/lib/auth/oauth";
+import {
+  isUpdatePasswordPath,
+  skipPasswordForm,
+} from "@/lib/auth/password-reset";
 import { sanitizeRedirectPath } from "@/lib/auth/redirect";
 import { createClient } from "@/lib/supabase/server";
 
-const AUTH_CALLBACK_ERROR_MESSAGE =
-  "No se pudo completar el inicio de sesión. Intentá de nuevo.";
-
-function authErrorUrl(requestUrl: URL, next: string) {
+function authErrorUrl(
+  requestUrl: URL,
+  next: string,
+  error: LoginErrorCode = "auth_callback_failed"
+) {
+  // A recovery email that still uses {{ .ConfirmationURL }} comes through
+  // here on its way to the password form. If it fails, the reset screen
+  // asks for a new email.
+  const params = isUpdatePasswordPath(next)
+    ? ({ error: "password_reset_link_invalid", mode: "reset" } as const)
+    : { error };
   return new URL(
-    buildLoginRedirectPath({ error: AUTH_CALLBACK_ERROR_MESSAGE }, next),
+    buildLoginRedirectPath(params, skipPasswordForm(next, requestUrl.origin)),
     requestUrl.origin
   );
 }
@@ -39,7 +52,19 @@ export async function GET(request: NextRequest) {
           "Auth callback: exchangeCodeForSession failed",
           error.message
         );
-        return NextResponse.redirect(authErrorUrl(requestUrl, safeNext));
+        // Emails that still use Supabase's {{ .ConfirmationURL }} land here
+        // with a code, and opened in another browser (the iOS PWA, an email
+        // app) there is no verifier to exchange it with. Supabase confirmed
+        // the address before redirecting, so password sign-in works.
+        return NextResponse.redirect(
+          authErrorUrl(
+            requestUrl,
+            safeNext,
+            isAuthPKCECodeVerifierMissingError(error)
+              ? "auth_link_other_browser"
+              : "auth_callback_failed"
+          )
+        );
       }
     } catch (error) {
       console.error("Auth callback: session exchange failed", error);

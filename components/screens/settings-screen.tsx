@@ -7,8 +7,9 @@ import { Screen } from "@/components/templates/screen";
 import { InviteTeamCard } from "@/components/molecules/invite-team-card";
 import { SettingsItem } from "@/components/molecules/settings-item";
 import { ThemePicker } from "@/components/molecules/theme-picker";
-import type { UserTenantContext } from "@/lib/auth/user-context";
+import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import type { TenantInvitation, TenantMember } from "@/lib/types";
+import { initialsOf } from "@/lib/utils";
 
 type SettingsScreenProps = {
   tenantContext: UserTenantContext;
@@ -94,9 +95,7 @@ export function SettingsScreen({
                   tenantContext.tenant?.createdByUserId != null &&
                   member.userId === tenantContext.tenant.createdByUserId;
                 const roleLabel = isOwner ? "Propietario" : "Vendedor";
-                const memberInitials = member.displayName
-                  .slice(0, 2)
-                  .toUpperCase();
+                const memberInitials = initialsOf(member.displayName);
                 return (
                   <li
                     className="flex items-center gap-3 border-b border-border py-2.5 first:pt-0 last:border-b-0 last:pb-0"
@@ -128,6 +127,7 @@ export function SettingsScreen({
             </ul>
           </div>
           <InviteTeamCard
+            tenantId={tenantContext.tenant.id}
             initialInvitation={activeInvitation}
             origin={inviteOrigin}
             onInvitationChange={onInvitationChange}

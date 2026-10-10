@@ -23,7 +23,7 @@ import { useSearchShortcut } from "@/lib/hooks/use-search-shortcut";
 import {
   allCategoriesOption,
   categoriesInUse,
-  productCategoryKey,
+  filterProducts,
   type CategoryIndex,
   type CategoryOption,
 } from "@/lib/products";
@@ -75,14 +75,12 @@ export function SellScreen(props: SellScreenProps) {
   )
     ? props.category
     : allCategoriesOption.id;
-  const normalizedQuery = props.query.trim().toLowerCase();
-  const filtered = props.products.filter((product) => {
-    const matchesCategory =
-      activeCategory === allCategoriesOption.id ||
-      productCategoryKey(product, props.categoryIndex) === activeCategory;
-    const matchesQuery = product.name.toLowerCase().includes(normalizedQuery);
-    return matchesCategory && matchesQuery;
-  });
+  const filtered = filterProducts(
+    props.products,
+    activeCategory,
+    props.query,
+    props.categoryIndex
+  );
 
   return (
     <div className="flex h-full min-h-0">

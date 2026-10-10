@@ -15,15 +15,22 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { countLabel } from "@/lib/plural";
 import { categoryIndex, effectiveCategoryId } from "@/lib/products";
 import type { Category, Product } from "@/lib/types";
 
-type CategoriesScreenProps = {
+export type CategoriesScreenProps = {
   categories: Category[];
+  /** Every product, archived ones included: they keep their category. */
   products: Product[];
   back: () => void;
-  createCategory: (name: string) => Promise<Category>;
-  renameCategory: (categoryId: string, name: string) => Promise<Category>;
+  /** Resolve to null when the write was cancelled (see runTenantWrite). */
+  createCategory: (name: string) => Promise<Category | null>;
+  renameCategory: (
+    categoryId: string,
+    name: string
+  ) => Promise<Category | null>;
+  /** Throws the message to show when the category was not deleted. */
   deleteCategory: (categoryId: string) => Promise<void>;
 };
 
@@ -148,9 +155,7 @@ export function CategoriesScreen({
                     {category.name}
                   </strong>
                   <span className="text-[13px] text-muted-foreground">
-                    {productCount === 1
-                      ? "1 producto"
-                      : `${productCount} productos`}
+                    {countLabel(productCount, "producto", "productos")}
                   </span>
                 </div>
                 <Button

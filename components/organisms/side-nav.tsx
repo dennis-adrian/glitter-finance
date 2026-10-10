@@ -21,8 +21,10 @@ export function SideNav({ active, onNavigate, tenantName }: SideNavProps) {
       aria-label="Navegación principal"
     >
       <div className="mb-5 flex flex-col items-center gap-2 xl:flex-row xl:px-2">
-        <BrandMark />
-        <div className="hidden min-w-0 xl:block">
+        {/* The name below is read instead of the logo: visible from `xl`,
+            screen-reader only on the narrow rail. */}
+        <BrandMark decorative />
+        <div className="sr-only min-w-0 xl:not-sr-only">
           <p className="truncate font-heading text-base leading-tight font-extrabold text-primary">
             Billetera Ferial
           </p>

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { Sale } from "@/lib/types";
+import { MAX_NOTE_LENGTH } from "@/lib/validation";
 
 type SaleAction = "void" | "refund";
 
@@ -30,12 +31,14 @@ export function SaleActionDialog({
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
 
   const isOpen = sale !== null && action !== null;
   const isVoid = action === "void";
 
   async function confirm() {
-    if (isPending) return;
+    if (pendingRef.current) return;
+    pendingRef.current = true;
     setIsPending(true);
     setError(null);
     const failureMessage = isVoid
@@ -52,6 +55,7 @@ export function SaleActionDialog({
     } catch (err) {
       setError(err instanceof Error ? err.message : failureMessage);
     } finally {
+      pendingRef.current = false;
       setIsPending(false);
     }
   }
@@ -90,6 +94,7 @@ export function SaleActionDialog({
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
                 placeholder="Ej.: Producto devuelto"
+                maxLength={MAX_NOTE_LENGTH}
                 className="min-h-20 resize-none rounded-xl"
                 disabled={isPending}
               />

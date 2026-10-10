@@ -49,7 +49,7 @@ const SIGN_UP_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   unexpected_failure: SIGN_UP_TEMPORARY_ERROR_MESSAGE,
 };
 
-function weakPasswordMessage(reasons: unknown): string {
+export function weakPasswordMessage(reasons: unknown): string {
   if (!Array.isArray(reasons)) {
     return "La contraseña no cumple los requisitos de seguridad. Usá una más larga y combiná letras, números y símbolos.";
   }

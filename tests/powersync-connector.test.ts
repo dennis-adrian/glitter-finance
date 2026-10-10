@@ -7,7 +7,19 @@ import type {
 } from "@powersync/web";
 import { UpdateType } from "@powersync/web";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { SupabaseConnector } from "@/lib/powersync/connector";
+import {
+  reportUploadHeldByDeviceClock,
+  resetReportedSyncFailures,
+} from "@/lib/observability/report-sync-failure";
+import {
+  SupabaseConnector,
+  UnappliedUpdateError,
+} from "@/lib/powersync/connector";
+import {
+  ActiveTenantChangedError,
+  isActiveTenantChangedError,
+  TenantClaimMismatchError,
+} from "@/lib/powersync/tenant-claim";
 
 function operation(input: {
   clientId: number;
@@ -90,7 +102,7 @@ test("uploads a sale transaction through one RPC before completing", async () =>
     },
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.equal(rpcCalls.length, 1);
   assert.equal(rpcCalls[0].name, "powersync_create_sale");
@@ -120,10 +132,12 @@ test("uploads non-financial transaction operations sequentially", async () => {
   const supabase = {
     from: (table: string) => ({
       update: () => ({
-        eq: async () => {
-          events.push(`uploaded:${table}`);
-          return { error: null };
-        },
+        eq: (_column: string, id: string) => ({
+          select: async () => {
+            events.push(`uploaded:${table}`);
+            return { data: [{ id }], error: null };
+          },
+        }),
       }),
       insert: async () => {
         events.push(`uploaded:${table}`);
@@ -145,7 +159,7 @@ test("uploads non-financial transaction operations sequentially", async () => {
     },
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.deepEqual(events, [
     "uploaded:products",
@@ -194,7 +208,7 @@ test("advances the queue when resolving a local failure marker fails", async () 
     },
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.equal(completeCount, 1);
   assert.equal(rpcCalls, 1);
@@ -218,11 +232,14 @@ test("passes the local void timestamp to the atomic void RPC", async () => {
   const supabase = {
     rpc: async (name: string, args: unknown) => {
       rpcCalls.push({ name, args });
-      return { error: null };
+      return { data: "sale-1", error: null };
     },
   } as unknown as SupabaseClient;
   const db = {
     ...emptySyncFailureState(),
+    writeTransaction: async () => {
+      throw new Error("An applied void must not touch local rows.");
+    },
     getNextCrudTransaction: async () => ({
       crud: operations,
       transactionId: 21,
@@ -231,7 +248,7 @@ test("passes the local void timestamp to the atomic void RPC", async () => {
     execute: async () => undefined,
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.deepEqual(rpcCalls, [
     {
@@ -282,7 +299,7 @@ test("reconciles a generated refund ID before completing", async () => {
     },
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.equal(localWrites.length, 2);
   assert.match(localWrites[0].sql, /UPDATE OR IGNORE ps_data__refunds/);
@@ -323,7 +340,7 @@ test("keeps a newly inserted refund unchanged", async () => {
     execute: async () => undefined,
   } as unknown as AbstractPowerSyncDatabase;
 
-  await new SupabaseConnector(supabase).uploadData(db);
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
 
   assert.equal(reconciliationCount, 0);
 });
@@ -365,13 +382,14 @@ test("records a permanent RPC failure and leaves the transaction queued", async 
   } as unknown as AbstractPowerSyncDatabase;
 
   await assert.rejects(
-    () => new SupabaseConnector(supabase).uploadData(db),
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
     permanentError
   );
 
   assert.equal(completeCount, 0);
   assert.equal(writeTransactionCount, 1);
-  assert.match(localReads[0], /resolved_at IS NULL/);
+  // Reads the existing marker, so a discarded one is never recorded again.
+  assert.match(localReads[0], /discarded_at FROM sync_failures/);
   assert.equal(localWrites.length, 2);
   assert.match(localWrites[0], /DELETE FROM sync_failures/);
   assert.match(localWrites[1], /INSERT INTO sync_failures/);
@@ -404,7 +422,7 @@ test("preserves the upload error when recording the failure also fails", async (
   } as unknown as AbstractPowerSyncDatabase;
 
   await assert.rejects(
-    () => new SupabaseConnector(supabase).uploadData(db),
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
     (error) => error === permanentError
   );
 
@@ -412,146 +430,1160 @@ test("preserves the upload error when recording the failure also fails", async (
   assert.equal(recordingAttempts, 1);
 });
 
-function singleOperationDb(
-  operations: CrudEntry[],
-  events: string[]
-): AbstractPowerSyncDatabase {
+function voidTransaction() {
+  return [
+    operation({
+      clientId: 6,
+      table: "sales",
+      id: "sale-1",
+      op: UpdateType.PATCH,
+      data: {
+        voided_at: "2026-08-08T20:00:00.000Z",
+        voided_by_user_id: "user-1",
+      },
+    }),
+  ];
+}
+
+function refundTransaction() {
+  return [
+    operation({
+      clientId: 7,
+      table: "refunds",
+      id: "local-refund",
+      op: UpdateType.PUT,
+      data: { original_sale_id: "sale-1", tenant_id: "tenant-1" },
+    }),
+  ];
+}
+
+/** A db that records local writes made inside writeTransaction. */
+function recordingDb(input: {
+  crud: CrudEntry[];
+  transactionId: number;
+  events: string[];
+  localWrites: { sql: string; params?: unknown[] }[];
+}) {
   return {
     ...emptySyncFailureState(),
     getNextCrudTransaction: async () => ({
-      crud: operations,
-      transactionId: 30,
+      crud: input.crud,
+      transactionId: input.transactionId,
       complete: async () => {
-        events.push("complete");
+        input.events.push("complete");
       },
     }),
-    execute: async () => {},
     writeTransaction: async <T>(callback: (tx: Transaction) => Promise<T>) =>
       callback({
         getOptional: async () => null,
-        execute: async (sql: string) => {
-          if (/INSERT INTO sync_failures/.test(sql)) {
-            events.push("record-failure");
-          }
+        execute: async (sql: string, params?: unknown[]) => {
+          input.localWrites.push({ sql, params });
+          input.events.push(
+            /sync_failures/.test(sql) ? "record-failure" : "local-write"
+          );
           return { rowsAffected: 1 };
         },
       } as unknown as Transaction),
+    execute: async () => {
+      input.events.push("resolve-marker");
+    },
   } as unknown as AbstractPowerSyncDatabase;
 }
 
-function rejectingSupabase(error: { code: string; message: string }) {
-  const result = async () => ({ error });
+function sessionAuth(session: object | null) {
   return {
-    from: () => ({
-      insert: result,
-      update: () => ({ eq: result }),
-      delete: () => ({ eq: result }),
+    getSession: async () => ({ data: { session }, error: null }),
+  };
+}
+
+test("reverts the local void when the server kept the sale for a refund", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const supabase = {
+    rpc: async () => ({ data: null, error: null }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: voidTransaction(),
+    transactionId: 30,
+    events,
+    localWrites,
+  });
+
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+  assert.equal(localWrites.length, 1);
+  assert.match(localWrites[0].sql, /UPDATE ps_data__sales/);
+  assert.match(localWrites[0].sql, /json_remove\(data, '\$\.voided_at'/);
+  assert.deepEqual(localWrites[0].params, ["sale-1"]);
+  assert.deepEqual(events, ["local-write", "complete", "resolve-marker"]);
+});
+
+test("drops the local refund when the server had already voided the sale", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const supabase = {
+    rpc: async () => ({ data: null, error: null }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: refundTransaction(),
+    transactionId: 31,
+    events,
+    localWrites,
+  });
+
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+  assert.equal(localWrites.length, 1);
+  assert.match(localWrites[0].sql, /DELETE FROM ps_data__refunds/);
+  assert.deepEqual(localWrites[0].params, ["local-refund"]);
+  assert.deepEqual(events, ["local-write", "complete", "resolve-marker"]);
+});
+
+test("retries a future-timestamp rejection and records why the queue waits", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const clockError = {
+    code: "55000",
+    message:
+      "The created_at timestamp is more than 5 minutes ahead of the server clock.",
+  };
+  const supabase = {
+    rpc: async () => ({ data: null, error: clockError }),
+  } as unknown as SupabaseClient;
+  const crud = saleTransaction();
+  crud[0].opData!.created_at = "2026-09-29T00:00:00.000Z";
+  crud[1].opData!.created_at = "2026-09-29T00:00:00.000Z";
+  const db = recordingDb({ crud, transactionId: 32, events, localWrites });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+    (error) => error === clockError
+  );
+
+  // A hold, not a failure marker: nothing is completed or dead-lettered.
+  assert.deepEqual(events, ["local-write", "local-write"]);
+  assert.match(localWrites[0].sql, /DELETE FROM upload_holds/);
+  assert.match(localWrites[1].sql, /INSERT INTO upload_holds/);
+  assert.deepEqual(localWrites[1].params?.slice(0, 4), [
+    "transaction:32",
+    32,
+    "2026-09-28T23:55:00.000Z",
+    clockError.message,
+  ]);
+});
+
+test("a deferred upload is reported once it has waited ten minutes", async (t) => {
+  resetReportedSyncFailures();
+  let now = 1_000;
+  t.mock.method(performance, "now", () => now);
+  const clockError = { code: "55000", message: "ahead of the server clock" };
+  const supabase = {
+    rpc: async () => ({ data: null, error: clockError }),
+  } as unknown as SupabaseClient;
+  const crud = saleTransaction();
+  const db = recordingDb({
+    crud,
+    transactionId: 34,
+    events: [],
+    localWrites: [],
+  });
+  const connector = new SupabaseConnector(supabase, "tenant-1");
+  const reportInput = {
+    transactionId: 34,
+    operations: crud,
+    target: "powersync_create_sale",
+    heldUntil: null,
+  };
+
+  await assert.rejects(() => connector.uploadData(db));
+  now += 9 * 60_000;
+  await assert.rejects(() => connector.uploadData(db));
+  // Not reported yet: reporting it here still goes through.
+  assert.equal(reportUploadHeldByDeviceClock(reportInput), true);
+
+  resetReportedSyncFailures();
+  now += 60_000;
+  await assert.rejects(() => connector.uploadData(db));
+  // The connector reported it, so a second report is deduplicated.
+  assert.equal(reportUploadHeldByDeviceClock(reportInput), false);
+});
+
+test("a future-timestamp rejection reaches PowerSync when the hold cannot be recorded", async () => {
+  const clockError = { code: "55000", message: "ahead of the server clock" };
+  const supabase = {
+    rpc: async () => ({ data: null, error: clockError }),
+  } as unknown as SupabaseClient;
+  const db = {
+    ...emptySyncFailureState(),
+    getNextCrudTransaction: async () => ({
+      crud: saleTransaction(),
+      transactionId: 33,
+      complete: async () => {
+        throw new Error("A deferred transaction must not complete.");
+      },
+    }),
+    writeTransaction: async () => {
+      throw new Error("database is locked");
+    },
+  } as unknown as AbstractPowerSyncDatabase;
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+    (error) => error === clockError
+  );
+});
+
+test("treats a permission denial without a session as transient", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const denial = {
+    code: "42501",
+    message: "permission denied for function powersync_create_sale",
+  };
+  const supabase = {
+    auth: sessionAuth(null),
+    rpc: async () => ({ data: null, error: denial }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: saleTransaction(),
+    transactionId: 33,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+    (error) => error === denial
+  );
+
+  assert.deepEqual(events, []);
+});
+
+test("records a permission denial for a signed-in user", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const denial = {
+    code: "42501",
+    message: "The authenticated user cannot create this sale.",
+  };
+  const supabase = {
+    auth: sessionAuth({ access_token: "token" }),
+    rpc: async () => ({ data: null, error: denial }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: saleTransaction(),
+    transactionId: 34,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+    (error) => error === denial
+  );
+
+  assert.deepEqual(events, ["record-failure", "record-failure"]);
+  assert.match(localWrites[1].sql, /INSERT INTO sync_failures/);
+  assert.equal(localWrites[1].params?.[4], "42501");
+});
+
+function productInsert() {
+  return [
+    operation({
+      clientId: 12,
+      table: "products",
+      id: "product-1",
+      op: UpdateType.PUT,
+      data: { tenant_id: "tenant-1", name: "Sticker" },
+    }),
+  ];
+}
+
+test("treats an insert whose id is already on the server as uploaded", async () => {
+  // A retry after a lost response: the first attempt inserted the row.
+  for (const duplicate of [
+    {
+      code: "23505",
+      details: "Key (id)=(product-1) already exists.",
+      message: 'duplicate key value violates unique constraint "products_pkey"',
+    },
+    {
+      code: "23505",
+      message: 'duplicate key value violates unique constraint "products_pkey"',
+    },
+  ]) {
+    const events: string[] = [];
+    const supabase = {
+      from: () => ({ insert: async () => ({ error: duplicate }) }),
+    } as unknown as SupabaseClient;
+    const db = recordingDb({
+      crud: productInsert(),
+      transactionId: 40,
+      events,
+      localWrites: [],
+    });
+
+    await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+    assert.deepEqual(events, ["complete", "resolve-marker"]);
+  }
+});
+
+test("records a duplicate on any other unique constraint", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const duplicate = {
+    code: "23505",
+    details: "Key (id, tenant_id)=(product-1, tenant-1) already exists.",
+    message:
+      'duplicate key value violates unique constraint "products_id_tenant_id_unique"',
+  };
+  const supabase = {
+    auth: sessionAuth({ access_token: "token" }),
+    from: () => ({ insert: async () => ({ error: duplicate }) }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: productInsert(),
+    transactionId: 41,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+    (error) => error === duplicate
+  );
+
+  assert.deepEqual(events, ["record-failure", "record-failure"]);
+  assert.equal(localWrites[1].params?.[4], "23505");
+});
+
+// Two devices offline at once: another device's change reached the server
+// first and rules this one out for good (isLostCategoryConflict).
+const takenName = {
+  code: "23505",
+  details: "Key (tenant_id, lower(name))=(tenant-1, stickers) already exists.",
+  message:
+    'duplicate key value violates unique constraint "categories_tenant_name_unique"',
+};
+
+test("skips a new category whose name another device took first", async () => {
+  const events: string[] = [];
+  const supabase = {
+    from: () => ({ insert: async () => ({ error: takenName }) }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: [
+      operation({
+        clientId: 13,
+        table: "categories",
+        id: "category-1",
+        op: UpdateType.PUT,
+        data: { tenant_id: "tenant-1", name: "Stickers" },
+      }),
+    ],
+    transactionId: 43,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+  assert.deepEqual(events, ["complete", "resolve-marker"]);
+});
+
+// A rename queued by an earlier version of the app also carries its
+// products; one from this version is a single categories PATCH.
+test("skips a rename to a taken name and still moves its products", async () => {
+  const events: string[] = [];
+  const patched: string[] = [];
+  const supabase = {
+    from: (table: string) => ({
+      update: () => ({
+        eq: () => ({
+          select: async () => {
+            patched.push(table);
+            return table === "categories"
+              ? { data: null, error: takenName }
+              : { data: [{ id: "product-1" }], error: null };
+          },
+        }),
+      }),
+    }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: [
+      operation({
+        clientId: 14,
+        table: "categories",
+        id: "category-1",
+        op: UpdateType.PATCH,
+        data: { name: "Stickers", updated_at: "2026-09-30T12:00:00.000Z" },
+      }),
+      operation({
+        clientId: 15,
+        table: "products",
+        id: "product-1",
+        op: UpdateType.PATCH,
+        data: { category: "Stickers", updated_at: "2026-09-30T12:00:00.000Z" },
+      }),
+    ],
+    transactionId: 44,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+  assert.deepEqual(patched, ["categories", "products"]);
+  assert.deepEqual(events, ["complete", "resolve-marker"]);
+});
+
+test("skips deleting a category another device filed a product under", async () => {
+  for (const inUse of [
+    // The products foreign key on category_id.
+    {
+      code: "23503",
+      message:
+        'update or delete on table "categories" violates foreign key constraint "products_category_id_tenant_id_categories_id_tenant_id_fk" on table "products"',
+    },
+    // The name-based trigger, until the category-id SQL replaces it.
+    { code: "23503", message: "Category is still used by products" },
+  ]) {
+    const events: string[] = [];
+    const supabase = {
+      from: () => ({
+        delete: () => ({ eq: async () => ({ error: inUse }) }),
+      }),
+    } as unknown as SupabaseClient;
+    const db = recordingDb({
+      crud: [
+        operation({
+          clientId: 16,
+          table: "categories",
+          id: "category-1",
+          op: UpdateType.DELETE,
+        }),
+      ],
+      transactionId: 45,
+      events,
+      localWrites: [],
+    });
+
+    await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+    assert.deepEqual(events, ["complete", "resolve-marker"]);
+  }
+});
+
+/** Supabase whose categories UPDATE matches no row, and every other does. */
+function categoryGoneSupabase(patched: string[]) {
+  return {
+    auth: sessionAuth({ access_token: "token" }),
+    from: (table: string) => ({
+      insert: async () => ({ error: takenName }),
+      update: () => ({
+        eq: () => ({
+          select: async () => {
+            patched.push(table);
+            return {
+              data: table === "categories" ? [] : [{ id: "product-1" }],
+              error: null,
+            };
+          },
+        }),
+      }),
     }),
   } as unknown as SupabaseClient;
 }
 
-const categoryNameTaken = {
-  code: "23505",
-  message:
-    'duplicate key value violates unique constraint "categories_tenant_name_unique"',
-};
-const categoryStillUsed = {
-  code: "23503",
-  message:
-    'update or delete on table "categories" violates foreign key constraint "products_category_id_tenant_id_categories_id_tenant_id_fk" on table "products"',
-};
-
-test("completes category writes the server rejects so they converge", async (t) => {
-  t.mock.method(console, "warn", () => {});
-  const cases = [
-    { op: UpdateType.PUT, error: categoryNameTaken },
-    { op: UpdateType.PATCH, error: categoryNameTaken },
-    { op: UpdateType.DELETE, error: categoryStillUsed },
+function renameTransaction(clientId: number) {
+  return [
+    operation({
+      clientId,
+      table: "categories",
+      id: "category-1",
+      op: UpdateType.PATCH,
+      data: { name: "Otros", updated_at: "2026-09-30T12:00:00.000Z" },
+    }),
+    operation({
+      clientId: clientId + 1,
+      table: "products",
+      id: "product-1",
+      op: UpdateType.PATCH,
+      data: { category: "Otros", updated_at: "2026-09-30T12:00:00.000Z" },
+    }),
   ];
+}
 
-  for (const item of cases) {
-    const events: string[] = [];
-    const db = singleOperationDb(
-      [
+test("skips renaming a category another device deleted", async () => {
+  const events: string[] = [];
+  const patched: string[] = [];
+  const db = recordingDb({
+    crud: renameTransaction(18),
+    transactionId: 47,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(
+    categoryGoneSupabase(patched),
+    "tenant-1"
+  ).uploadData(db);
+
+  assert.deepEqual(patched, ["categories", "products"]);
+  assert.deepEqual(events, ["complete", "resolve-marker"]);
+});
+
+test("skips renaming a category whose create lost to a taken name", async () => {
+  const events: string[] = [];
+  const patched: string[] = [];
+  const connector = new SupabaseConnector(
+    categoryGoneSupabase(patched),
+    "tenant-1"
+  );
+
+  // The create reaches the server second and is skipped...
+  await connector.uploadData(
+    recordingDb({
+      crud: [
         operation({
-          clientId: 1,
+          clientId: 20,
           table: "categories",
           id: "category-1",
-          op: item.op,
-          data: { name: "Stickers" },
+          op: UpdateType.PUT,
+          data: { tenant_id: "tenant-1", name: "Stickers" },
         }),
       ],
-      events
+      transactionId: 48,
+      events,
+      localWrites: [],
+    })
+  );
+  // ...so the rename after it finds no row, and is skipped too.
+  await connector.uploadData(
+    recordingDb({
+      crud: renameTransaction(21),
+      transactionId: 49,
+      events,
+      localWrites: [],
+    })
+  );
+
+  assert.deepEqual(patched, ["categories", "products"]);
+  assert.deepEqual(events, [
+    "complete",
+    "resolve-marker",
+    "complete",
+    "resolve-marker",
+  ]);
+});
+
+test("records any other category rejection", async () => {
+  const invalidName = {
+    code: "23514",
+    message:
+      'new row for relation "categories" violates check constraint "categories_name_valid_check"',
+  };
+  for (const error of [invalidName, { ...takenName, code: "23503" }]) {
+    const events: string[] = [];
+    const localWrites: { sql: string; params?: unknown[] }[] = [];
+    const supabase = {
+      auth: sessionAuth({ access_token: "token" }),
+      from: () => ({ insert: async () => ({ error }) }),
+    } as unknown as SupabaseClient;
+    const db = recordingDb({
+      crud: [
+        operation({
+          clientId: 17,
+          table: "categories",
+          id: "category-1",
+          op: UpdateType.PUT,
+          data: { tenant_id: "tenant-1", name: "Stickers" },
+        }),
+      ],
+      transactionId: 46,
+      events,
+      localWrites,
+    });
+
+    await assert.rejects(
+      () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+      (thrown) => thrown === error
     );
 
-    await new SupabaseConnector(rejectingSupabase(item.error)).uploadData(db);
-
-    assert.deepEqual(events, ["complete"], `categories ${item.op}`);
+    assert.deepEqual(events, ["record-failure", "record-failure"]);
+    assert.equal(localWrites[1].params?.[4], error.code);
   }
 });
 
-test("keeps other constraint failures fatal and queued", async () => {
+test("records category-like rejections on other tables", async () => {
   const cases = [
-    // A product with a taken id is not a catalog-name collision.
-    { table: "products", op: UpdateType.PATCH, error: categoryNameTaken },
-    // Only the products FK makes a category delete converge.
-    {
-      table: "categories",
-      op: UpdateType.DELETE,
-      error: { code: "23503", message: 'violates "other_fk"' },
-    },
-    // Financial tables are never allow-listed.
+    // Only a category write can lose to another device's category.
+    { table: "products", op: UpdateType.PUT, error: takenName },
     {
       table: "inventory_movements",
       op: UpdateType.PUT,
-      error: categoryStillUsed,
+      error: {
+        code: "23503",
+        message:
+          'insert or update on table "inventory_movements" violates foreign key constraint "inventory_movements_product_id_tenant_id_products_id_tenant_id_fk"',
+      },
     },
   ];
-
   for (const item of cases) {
     const events: string[] = [];
-    const db = singleOperationDb(
-      [
+    const supabase = {
+      auth: sessionAuth({ access_token: "token" }),
+      from: () => ({ insert: async () => ({ error: item.error }) }),
+    } as unknown as SupabaseClient;
+    const db = recordingDb({
+      crud: [
         operation({
-          clientId: 1,
+          clientId: 23,
           table: item.table,
           id: "row-1",
           op: item.op,
-          data: { name: "x" },
+          data: { tenant_id: "tenant-1" },
         }),
       ],
-      events
-    );
+      transactionId: 50,
+      events,
+      localWrites: [],
+    });
 
     await assert.rejects(
-      () => new SupabaseConnector(rejectingSupabase(item.error)).uploadData(db),
-      (error) => error === item.error
+      () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+      (thrown) => thrown === item.error
     );
-    assert.deepEqual(events, ["record-failure"], `${item.table} ${item.op}`);
+
+    assert.deepEqual(
+      events,
+      ["record-failure", "record-failure"],
+      `${item.table} ${item.op}`
+    );
   }
 });
 
-test("records schema mismatches as visible sync failures", async () => {
-  for (const code of ["PGRST204", "42703"]) {
-    const events: string[] = [];
-    const error = { code, message: "column category_id does not exist" };
-    const db = singleOperationDb(
-      [
-        operation({
-          clientId: 1,
-          table: "products",
-          id: "product-1",
-          op: UpdateType.PATCH,
-          data: { category_id: "category-1" },
-        }),
-      ],
-      events
-    );
+test("records a financial retry that no longer matches the server", async () => {
+  // The RPC raises 23505 when a sale id already belongs to different data.
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const conflict = {
+    code: "23505",
+    message: "The sale identifier already belongs to different data.",
+  };
+  const supabase = {
+    auth: sessionAuth({ access_token: "token" }),
+    rpc: async () => ({ data: null, error: conflict }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: saleTransaction(),
+    transactionId: 42,
+    events,
+    localWrites,
+  });
 
-    await assert.rejects(
-      () => new SupabaseConnector(rejectingSupabase(error)).uploadData(db),
-      (thrown) => thrown === error
-    );
-    assert.deepEqual(events, ["record-failure"], code);
-  }
+  await assert.rejects(
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+    (error) => error === conflict
+  );
+
+  assert.deepEqual(events, ["record-failure", "record-failure"]);
+  assert.equal(localWrites[1].params?.[4], "23505");
+});
+
+test("records a missing RPC as a failure that says what to fix", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const missingRpc = {
+    code: "PGRST202",
+    message:
+      "Could not find the function public.powersync_void_sale(sale_id, voided_at_value, voided_by_user_id) in the schema cache",
+  };
+  const supabase = {
+    rpc: async () => ({ data: null, error: missingRpc }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: voidTransaction(),
+    transactionId: 35,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+    (error) => error === missingRpc
+  );
+
+  assert.deepEqual(events, ["record-failure", "record-failure"]);
+  const [, , , , errorCodeParam, errorMessageParam] =
+    localWrites[1].params ?? [];
+  assert.equal(errorCodeParam, "PGRST202");
+  assert.match(String(errorMessageParam), /powersync_void_sale/);
+  assert.match(String(errorMessageParam), /SQL pendiente/);
+});
+
+test("records a product update that matched no row", async () => {
+  const events: string[] = [];
+  const localWrites: { sql: string; params?: unknown[] }[] = [];
+  const supabase = {
+    auth: sessionAuth({ access_token: "token" }),
+    from: () => ({
+      update: () => ({
+        eq: () => ({
+          select: async () => ({ data: [], error: null }),
+        }),
+      }),
+    }),
+  } as unknown as SupabaseClient;
+  const db = recordingDb({
+    crud: [
+      operation({
+        clientId: 8,
+        table: "products",
+        id: "product-1",
+        op: UpdateType.PATCH,
+        data: { name: "Updated" },
+      }),
+    ],
+    transactionId: 36,
+    events,
+    localWrites,
+  });
+
+  await assert.rejects(
+    () => new SupabaseConnector(supabase, "tenant-1").uploadData(db),
+    (error) =>
+      error instanceof UnappliedUpdateError &&
+      error.code === "42501" &&
+      /products/.test(error.message)
+  );
+
+  assert.deepEqual(events, ["record-failure", "record-failure"]);
+});
+
+const imageTenantId = "70000000-0000-4000-8000-000000000001";
+const imageProductId = "80000000-0000-4000-8000-000000000001";
+const oldImage = `${imageTenantId}/products/${imageProductId}/aaaaaaaa-0000-4000-8000-000000000001.jpg`;
+const newImage = `${imageTenantId}/products/${imageProductId}/bbbbbbbb-0000-4000-8000-000000000002.png`;
+
+/**
+ * A Supabase client whose products row holds `storedBefore` and, after the
+ * PATCH, `storedAfter` (a newer edit may keep the stored image).
+ */
+function imageSupabase(input: {
+  storedBefore: string;
+  storedAfter: string;
+  events: string[];
+  removed: string[][];
+  removeError?: Error;
+}) {
+  return {
+    from: (table: string) => ({
+      select: (columns: string) => ({
+        eq: () => ({
+          maybeSingle: async () => {
+            input.events.push(`read:${table}:${columns}`);
+            return {
+              data: {
+                tenant_id: imageTenantId,
+                image_path: input.storedBefore,
+              },
+              error: null,
+            };
+          },
+        }),
+      }),
+      update: (data: Record<string, unknown>) => ({
+        eq: (_column: string, id: string) => ({
+          select: async (columns: string) => {
+            input.events.push(
+              `patch:${table}:${Object.keys(data).sort().join(",")}:${columns}`
+            );
+            return {
+              data: [{ id, image_path: input.storedAfter }],
+              error: null,
+            };
+          },
+        }),
+      }),
+    }),
+    storage: {
+      from: (bucket: string) => ({
+        remove: async (paths: string[]) => {
+          input.events.push(`remove:${bucket}`);
+          input.removed.push(paths);
+          if (input.removeError) throw input.removeError;
+          return { data: [], error: null };
+        },
+      }),
+    },
+  } as unknown as SupabaseClient;
+}
+
+function imagePatch(imagePath: string) {
+  return [
+    operation({
+      clientId: 9,
+      table: "products",
+      id: imageProductId,
+      op: UpdateType.PATCH,
+      data: { image_path: imagePath, updated_at: "2026-09-26T12:00:00.000Z" },
+    }),
+  ];
+}
+
+test("deletes the replaced image once the new image path is applied", async () => {
+  const events: string[] = [];
+  const removed: string[][] = [];
+  const supabase = imageSupabase({
+    storedBefore: oldImage,
+    storedAfter: newImage,
+    events,
+    removed,
+  });
+  const db = recordingDb({
+    crud: imagePatch(newImage),
+    transactionId: 40,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+  assert.deepEqual(removed, [[oldImage]]);
+  assert.deepEqual(events, [
+    "read:products:tenant_id, image_path",
+    "patch:products:image_path,updated_at:image_path",
+    "remove:product-images",
+    "complete",
+    "resolve-marker",
+  ]);
+});
+
+test("deletes its own upload when a newer edit kept another image", async () => {
+  const events: string[] = [];
+  const removed: string[][] = [];
+  const supabase = imageSupabase({
+    storedBefore: oldImage,
+    storedAfter: oldImage,
+    events,
+    removed,
+  });
+  const db = recordingDb({
+    crud: imagePatch(newImage),
+    transactionId: 41,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+  assert.deepEqual(removed, [[newImage]]);
+  assert.ok(events.includes("complete"));
+});
+
+test("completes the upload when deleting the replaced image fails", async () => {
+  const events: string[] = [];
+  const removed: string[][] = [];
+  const supabase = imageSupabase({
+    storedBefore: oldImage,
+    storedAfter: newImage,
+    events,
+    removed,
+    removeError: new Error("Storage unavailable"),
+  });
+  const db = recordingDb({
+    crud: imagePatch(newImage),
+    transactionId: 42,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+  assert.deepEqual(removed, [[oldImage]]);
+  assert.ok(events.includes("complete"));
+  assert.equal(events.includes("record-failure"), false);
+});
+
+test("keeps seed images and placeholders when the image path changes", async () => {
+  const events: string[] = [];
+  const removed: string[][] = [];
+  const supabase = imageSupabase({
+    storedBefore: "seed/print-seed.jpg",
+    storedAfter: "placeholder:coral",
+    events,
+    removed,
+  });
+  const db = recordingDb({
+    crud: imagePatch("placeholder:coral"),
+    transactionId: 43,
+    events,
+    localWrites: [],
+  });
+
+  await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+  assert.deepEqual(removed, []);
+  assert.ok(events.includes("complete"));
+});
+
+for (const [label, storedAfter] of [
+  ["Postgres keeps the image", oldImage],
+  [
+    "a server without the placeholder rule stores the tone",
+    "placeholder:coral",
+  ],
+] as const) {
+  test(`a stale placeholder tone never deletes an uploaded image (${label})`, async () => {
+    // Another device uploaded oldImage while this device still showed a
+    // placeholder and then picked another tone.
+    const events: string[] = [];
+    const removed: string[][] = [];
+    const supabase = imageSupabase({
+      storedBefore: oldImage,
+      storedAfter,
+      events,
+      removed,
+    });
+    const db = recordingDb({
+      crud: imagePatch("placeholder:coral"),
+      transactionId: 44,
+      events,
+      localWrites: [],
+    });
+
+    await new SupabaseConnector(supabase, "tenant-1").uploadData(db);
+
+    assert.deepEqual(removed, []);
+    assert.ok(events.includes("complete"));
+  });
+}
+
+function accessToken(tenantId: string | null) {
+  const encode = (value: unknown) =>
+    Buffer.from(JSON.stringify(value)).toString("base64url");
+  return [
+    encode({ alg: "ES256" }),
+    encode({ app_metadata: tenantId ? { tenant_id: tenantId } : {} }),
+    "signature",
+  ].join(".");
+}
+
+function authSupabase(input: {
+  token: string;
+  refreshedToken?: string;
+  refreshError?: Error;
+  events: string[];
+}) {
+  const session = (token: string) => ({
+    access_token: token,
+    expires_at: 2_000_000_000,
+  });
+  return {
+    auth: {
+      getSession: async () => ({
+        data: { session: session(input.token) },
+        error: null,
+      }),
+      refreshSession: async () => {
+        input.events.push("refresh");
+        return input.refreshError || !input.refreshedToken
+          ? { data: { session: null }, error: input.refreshError ?? null }
+          : { data: { session: session(input.refreshedToken) }, error: null };
+      },
+    },
+  } as unknown as SupabaseClient;
+}
+
+function withPublicEnv() {
+  process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://example.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??= "publishable-key";
+}
+
+test("hands over a token that already claims the local tenant", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const token = accessToken("tenant-1");
+  const connector = new SupabaseConnector(
+    authSupabase({ token, events }),
+    "tenant-1"
+  );
+
+  const credentials = await connector.fetchCredentials();
+
+  assert.equal(credentials?.token, token);
+  assert.deepEqual(events, []);
+});
+
+test("refreshes a token that claims another tenant and uses the new one", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const refreshedToken = accessToken("tenant-1");
+  const connector = new SupabaseConnector(
+    authSupabase({ token: accessToken("tenant-2"), refreshedToken, events }),
+    "tenant-1"
+  );
+
+  const credentials = await connector.fetchCredentials();
+
+  assert.equal(credentials?.token, refreshedToken);
+  assert.deepEqual(events, ["refresh"]);
+});
+
+test("never hands over a token that still claims another tenant", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const connector = new SupabaseConnector(
+    authSupabase({
+      token: accessToken("tenant-2"),
+      refreshedToken: accessToken("tenant-2"),
+      events,
+    }),
+    "tenant-1"
+  );
+
+  await assert.rejects(connector.fetchCredentials(), TenantClaimMismatchError);
+  assert.deepEqual(events, ["refresh"]);
+});
+
+test("does not refresh again on every PowerSync retry", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const connector = new SupabaseConnector(
+    authSupabase({
+      token: accessToken("tenant-2"),
+      refreshedToken: accessToken("tenant-2"),
+      events,
+    }),
+    "tenant-1"
+  );
+
+  await assert.rejects(connector.fetchCredentials(), TenantClaimMismatchError);
+  await assert.rejects(connector.fetchCredentials(), TenantClaimMismatchError);
+  assert.deepEqual(events, ["refresh"]);
+});
+
+test("waits instead of syncing when the claim is missing and refresh fails", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const connector = new SupabaseConnector(
+    authSupabase({
+      token: accessToken(null),
+      refreshError: new Error("Failed to fetch"),
+      events,
+    }),
+    "tenant-1"
+  );
+
+  await assert.rejects(connector.fetchCredentials(), TenantClaimMismatchError);
+});
+
+test("does not compare claims when the user has no active tenant", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const token = accessToken("tenant-2");
+  const connector = new SupabaseConnector(
+    authSupabase({ token, events }),
+    null
+  );
+
+  const credentials = await connector.fetchCredentials();
+
+  assert.equal(credentials?.token, token);
+  assert.deepEqual(events, []);
+});
+
+test("reports an active tenant changed on another device, on every retry", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const connector = new SupabaseConnector(
+    authSupabase({
+      token: accessToken("tenant-2"),
+      refreshedToken: accessToken("tenant-2"),
+      events,
+    }),
+    "tenant-1"
+  );
+
+  const error = await connector.fetchCredentials().then(
+    () => assert.fail("handed over a token for another tenant"),
+    (rejection: unknown) => rejection
+  );
+  assert.ok(error instanceof ActiveTenantChangedError);
+  assert.ok(error instanceof TenantClaimMismatchError);
+  // PowerSync's shared worker passes only the name and message on.
+  const serialized = { name: error.name, message: error.message };
+  assert.ok(isActiveTenantChangedError(serialized));
+  // Not due for another refresh: still the change, not a plain mismatch.
+  await assert.rejects(connector.fetchCredentials(), ActiveTenantChangedError);
+  assert.deepEqual(events, ["refresh"]);
+});
+
+test("a claim missing after a refresh is not a tenant change", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const connector = new SupabaseConnector(
+    authSupabase({
+      token: accessToken(null),
+      refreshedToken: accessToken(null),
+      events,
+    }),
+    "tenant-1"
+  );
+
+  const error = await connector.fetchCredentials().then(
+    () => assert.fail("handed over a token without the tenant claim"),
+    (rejection: unknown) => rejection
+  );
+  assert.ok(error instanceof TenantClaimMismatchError);
+  assert.equal(isActiveTenantChangedError(error as Error), false);
+});
+
+test("stops reporting the change once the session claims this tenant again", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const auth = {
+    token: accessToken("tenant-2"),
+    refreshedToken: accessToken("tenant-2"),
+    events,
+  };
+  const connector = new SupabaseConnector(authSupabase(auth), "tenant-1");
+  await assert.rejects(connector.fetchCredentials(), ActiveTenantChangedError);
+
+  // The other device switched back, and the browser refreshed its token.
+  auth.token = accessToken("tenant-1");
+  const credentials = await connector.fetchCredentials();
+  assert.equal(credentials?.token, auth.token);
+
+  // A later mismatch, before a refresh is due, is a plain one again.
+  auth.token = accessToken("tenant-2");
+  const error = await connector.fetchCredentials().then(
+    () => assert.fail("handed over a token for another tenant"),
+    (rejection: unknown) => rejection
+  );
+  assert.ok(error instanceof TenantClaimMismatchError);
+  assert.equal(error instanceof ActiveTenantChangedError, false);
+});
+
+test("a forced reconnect checks the claim again without waiting", async () => {
+  withPublicEnv();
+  const events: string[] = [];
+  const auth = {
+    token: accessToken("tenant-2"),
+    refreshedToken: accessToken("tenant-2"),
+    events,
+  };
+  const connector = new SupabaseConnector(authSupabase(auth), "tenant-1");
+  await assert.rejects(connector.fetchCredentials(), ActiveTenantChangedError);
+
+  // The other device switched back; the browser still holds the old token.
+  auth.refreshedToken = accessToken("tenant-1");
+  connector.recheckTenantClaim();
+  const credentials = await connector.fetchCredentials();
+
+  assert.equal(credentials?.token, auth.refreshedToken);
+  assert.deepEqual(events, ["refresh", "refresh"]);
 });

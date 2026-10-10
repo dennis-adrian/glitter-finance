@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Info, ReceiptText } from "lucide-react";
 import { ScreenHeader } from "@/components/molecules/screen-header";
 import { SaleDetailScreen } from "@/components/screens/sale-detail-screen";
@@ -20,27 +20,36 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@/components/ui/drawer";
-import {
-  filterSalesByRange,
-  formatDateInputInBolivia,
-  formatDateLabelInBolivia,
-  resolveSalesRange,
-} from "@/lib/dates";
 import { formatBs } from "@/lib/money";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
-import { computeMetrics } from "@/lib/sales";
+import { countLabel } from "@/lib/plural";
+import { computeMetrics, indexSales } from "@/lib/sales";
+import type { ScrollMemory } from "@/lib/scroll-memory";
+import type { Sale } from "@/lib/types";
+import { useNow } from "@/lib/use-now";
+import { useSalesInRange, type SalesRangeState } from "@/lib/use-sales-range";
 import { cn } from "@/lib/utils";
-import type { ReportRange, Sale } from "@/lib/types";
 import {
   canRefundSale,
   canVoidSale,
+  saleActionBlockedMessage,
   saleStatusLabel,
+  type SaleAction,
 } from "@/components/screens/sale-detail-screen.helpers";
-
-type SaleAction = "void" | "refund";
+import {
+  firstSalesByDay,
+  groupSalesByDay,
+} from "@/components/screens/sales-screen.helpers";
 
 type SalesScreenProps = {
   sales: Sale[];
+  /**
+   * The range, shared with Reports, and the list's page. GlitterPosApp keeps
+   * them, and `scrollMemory`, while Sales is closed, so coming back returns
+   * to the same rows at the same position.
+   */
+  rangeState: SalesRangeState;
+  scrollMemory: ScrollMemory;
   /** Sale shown in the detail pane (desktop) or full screen (phones). */
   selectedSaleId: string | null;
   openSale: (saleId: string) => void;
@@ -48,15 +57,6 @@ type SalesScreenProps = {
   voidSale: (saleId: string) => Promise<boolean>;
   refundSale: (saleId: string, reason?: string) => Promise<boolean>;
 };
-
-type SaleGroup = {
-  key: string;
-  label: string;
-  sales: Sale[];
-  netCents: number;
-};
-
-const PAGE_SIZE = 40;
 
 function IncomeInfoDrawer() {
   return (
@@ -110,6 +110,8 @@ function IncomeInfoDrawer() {
 
 export function SalesScreen({
   sales,
+  rangeState,
+  scrollMemory,
   selectedSaleId,
   openSale,
   closeSale,
@@ -117,87 +119,78 @@ export function SalesScreen({
   refundSale,
 }: SalesScreenProps) {
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
-  const today = formatDateInputInBolivia();
-  const [range, setRange] = useState<ReportRange>("today");
-  const [customStart, setCustomStart] = useState(today);
-  const [customEnd, setCustomEnd] = useState(today);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [now, setNow] = useState(() => Date.now());
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const [now, setNow] = useNow();
   const [action, setAction] = useState<{
     sale: Sale;
     type: SaleAction;
   } | null>(null);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [range, customStart, customEnd]);
-
-  const rangeResolution = resolveSalesRange(
-    range,
-    customStart,
-    customEnd,
-    new Date(now)
+  // Everything below is derived once per change of the sales, the range or
+  // the page, not on every render or tick of `now`: the rows look sales up
+  // in the index instead of scanning the whole list for each row.
+  const saleIndex = useMemo(() => indexSales(sales), [sales]);
+  const { error: rangeError, sales: salesInRange } = useSalesInRange(
+    sales,
+    rangeState,
+    now
   );
-  const visibleSales = useMemo(
-    () =>
-      filterSalesByRange(
-        sales,
-        range,
-        customStart,
-        customEnd,
-        new Date(now)
-      ).sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      ),
-    [customEnd, customStart, now, range, sales]
+  const metrics = useMemo(() => computeMetrics(salesInRange), [salesInRange]);
+  const dayGroups = useMemo(
+    () => groupSalesByDay(salesInRange),
+    [salesInRange]
   );
-  const displayedSales = visibleSales.slice(0, visibleCount);
-  const metrics = computeMetrics(visibleSales);
-  const groups = useMemo(() => {
-    const byDate = new Map<string, Sale[]>();
+  const visibleCount = rangeState.salesListLength;
+  const groups = useMemo(
+    () => firstSalesByDay(dayGroups, visibleCount),
+    [dayGroups, visibleCount]
+  );
 
-    for (const sale of displayedSales) {
-      const date = formatDateInputInBolivia(new Date(sale.createdAt));
-      byDate.set(date, [...(byDate.get(date) ?? []), sale]);
+  // Phones hide the list while a sale is open, which loses its scroll
+  // position, so it is saved on open and put back once the list shows again
+  // (or the next time Sales mounts), before it is painted.
+  const listHidden = selectedSaleId !== null && !isDesktop;
+  useLayoutEffect(() => {
+    if (listHidden) return;
+    const top = scrollMemory.take();
+    if (top != null && listScrollRef.current) {
+      listScrollRef.current.scrollTop = top;
     }
+  }, [listHidden, scrollMemory]);
 
-    return [...byDate.entries()].map(
-      ([key, rows]): SaleGroup => ({
-        key,
-        label: formatDateLabelInBolivia(rows[0].createdAt),
-        sales: rows,
-        netCents: computeMetrics(rows).netRevenueCents,
-      })
-    );
-  }, [displayedSales]);
-
-  function handleRangeChange(nextRange: ReportRange) {
-    if (nextRange === "custom" && range !== "custom") {
-      const date = formatDateInputInBolivia(new Date(now));
-      setCustomStart(date);
-      setCustomEnd(date);
-    }
-    setRange(nextRange);
-  }
-
+  // A refusal is thrown, so the dialog shows why instead of a generic
+  // failure; the rows re-check the void window too.
   async function confirmAction(reason?: string) {
     if (!action) return false;
-    if (action.type === "void") {
-      if (!canVoidSale(action.sale, sales, Date.now())) return false;
-      return voidSale(action.sale.id);
+    const checkedAt = Date.now();
+    const blocked = saleActionBlockedMessage(
+      action.type,
+      action.sale,
+      saleIndex,
+      checkedAt
+    );
+    if (blocked) {
+      setNow(checkedAt);
+      throw new Error(blocked);
     }
-    if (!canRefundSale(action.sale, sales)) return false;
-    return refundSale(action.sale.id, reason);
+    return action.type === "void"
+      ? voidSale(action.sale.id)
+      : refundSale(action.sale.id, reason);
+  }
+
+  function handleOpenSale(saleId: string) {
+    if (!isDesktop) {
+      scrollMemory.save(listScrollRef.current?.scrollTop ?? 0);
+    }
+    openSale(saleId);
   }
 
   function requestVoid(selectedSale: Sale) {
-    if (!canVoidSale(selectedSale, sales, Date.now())) return;
+    const checkedAt = Date.now();
+    if (!canVoidSale(selectedSale, saleIndex, checkedAt)) {
+      setNow(checkedAt);
+      return;
+    }
     setAction({ sale: selectedSale, type: "void" });
   }
 
@@ -212,15 +205,16 @@ export function SalesScreen({
           selectedSaleId && "hidden lg:flex"
         )}
         header={<ScreenHeader title="Ventas" />}
+        scrollRef={listScrollRef}
       >
         <DateRangePicker
-          range={range}
-          customStart={customStart}
-          customEnd={customEnd}
-          error={range === "custom" ? rangeResolution.error : null}
-          setRange={handleRangeChange}
-          setCustomStart={setCustomStart}
-          setCustomEnd={setCustomEnd}
+          range={rangeState.range}
+          customStart={rangeState.customStart}
+          customEnd={rangeState.customEnd}
+          error={rangeState.range === "custom" ? rangeError : null}
+          setRange={rangeState.setRange}
+          setCustomStart={rangeState.setCustomStart}
+          setCustomEnd={rangeState.setCustomEnd}
         />
 
         <section className="mb-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
@@ -243,21 +237,18 @@ export function SalesScreen({
             </div>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {metrics.transactionCount} venta
-            {metrics.transactionCount === 1 ? "" : "s"}
+            {countLabel(metrics.transactionCount, "venta", "ventas")}
             {metrics.refundCount
-              ? ` · ${metrics.refundCount} reembolso${
-                  metrics.refundCount === 1 ? "" : "s"
-                }`
+              ? ` · ${countLabel(metrics.refundCount, "reembolso", "reembolsos")}`
               : ""}
           </p>
         </section>
 
-        {rangeResolution.error ? (
+        {rangeError ? (
           <EmptyState
             icon={<ReceiptText size={46} />}
             title="Revisá el rango"
-            body={rangeResolution.error}
+            body={rangeError}
           />
         ) : groups.length ? (
           <div className="grid gap-4">
@@ -276,10 +267,10 @@ export function SalesScreen({
                   <SaleRow
                     key={sale.id}
                     sale={sale}
-                    canVoid={canVoidSale(sale, sales, now)}
-                    canRefund={canRefundSale(sale, sales)}
-                    statusLabel={saleStatusLabel(sale, sales)}
-                    openSale={openSale}
+                    canVoid={canVoidSale(sale, saleIndex, now)}
+                    canRefund={canRefundSale(sale, saleIndex)}
+                    statusLabel={saleStatusLabel(sale, saleIndex)}
+                    openSale={handleOpenSale}
                     selected={sale.id === selectedSaleId}
                     requestVoid={requestVoid}
                     requestRefund={(selectedSale) =>
@@ -290,12 +281,12 @@ export function SalesScreen({
               </section>
             ))}
 
-            {visibleCount < visibleSales.length ? (
+            {visibleCount < salesInRange.length ? (
               <Button
                 type="button"
                 variant="outline"
                 size="lg"
-                onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                onClick={rangeState.showMoreSales}
               >
                 Ver más ventas
               </Button>
@@ -321,8 +312,8 @@ export function SalesScreen({
       {selectedSaleId ? (
         <SaleDetailScreen
           key={selectedSaleId}
-          sale={sales.find((sale) => sale.id === selectedSaleId) ?? null}
-          sales={sales}
+          sale={saleIndex.byId.get(selectedSaleId) ?? null}
+          saleIndex={saleIndex}
           back={closeSale}
           voidSale={voidSale}
           refundSale={refundSale}

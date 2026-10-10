@@ -13,24 +13,32 @@
 // Usage:
 //   QA_EMAIL=qa@glitterfinance.app QA_PASSWORD=... \
 //   NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SECRET_KEY=... DATABASE_URL=... \
-//   npm run db:seed:qa            # seed if empty, otherwise leave data as-is
-//   npm run db:seed:qa -- --reset # wipe the QA tenant's catalog + sales, then reseed
+//   pnpm db:seed:qa               # seed if empty, otherwise leave data as-is
+//   pnpm db:seed:qa -- --reset    # wipe the QA tenant's catalog, stock and sales, then reseed
+//
+// The three target variables come together from the command line, .env.local
+// or .env (scripts/ops-env.ts). The script prints the target and, for a hosted
+// project, asks for confirmation first; --yes skips the prompt.
 //
 // The auth user, tenant, and membership are always preserved (stable account);
-// only the dummy catalog and sales are affected by --reset.
-import "./load-env";
+// only the dummy catalog, stock movements and sales are affected by --reset.
+// Other members of the QA tenant (helpers added with pnpm db:invite:tenant-user)
+// are left alone.
+// Must stay the first import: it loads the env before @/lib/db reads it.
+import { opsEnvSource } from "./load-env";
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
+import { ensureMembership } from "@/lib/auth/memberships";
 import { client, db } from "@/lib/db";
 import {
   categories,
+  inventoryMovements,
   products,
   refunds,
   saleLines,
   sales,
-  tenantUsers,
   tenants,
 } from "@/lib/db/schema";
 import { createProductForTenant } from "@/lib/products/repository";
@@ -39,6 +47,7 @@ import {
   refundSaleForTenant,
 } from "@/lib/sales/repository";
 import { findAuthUserByEmail } from "./admin-auth";
+import { confirmOpsTarget } from "./ops-env";
 
 // Stable identifiers so the QA account is recognizable and re-runs are idempotent.
 const QA_TENANT_ID = "7a000000-0000-4000-8000-000000000001";
@@ -103,8 +112,8 @@ async function findOrCreateAuthUser(email: string, password: string) {
     email_confirm: true,
     user_metadata: { display_name: QA_DISPLAY_NAME },
     // Set app_metadata.tenant_id at create time so the very first JWT
-    // carries the claim. PowerSync's sync rules read it via
-    // request.jwt() -> 'app_metadata' ->> 'tenant_id'.
+    // carries the claim. PowerSync's sync streams read it via
+    // auth.parameters() -> 'app_metadata' ->> 'tenant_id'.
     app_metadata: { tenant_id: QA_TENANT_ID },
   });
   if (error || !data.user) {
@@ -114,48 +123,48 @@ async function findOrCreateAuthUser(email: string, password: string) {
 }
 
 async function ensureTenant(userId: string) {
-  const [existingTenant] = await db
-    .select({ id: tenants.id })
-    .from(tenants)
-    .where(eq(tenants.id, QA_TENANT_ID))
-    .limit(1);
+  await db
+    .insert(tenants)
+    .values({ id: QA_TENANT_ID, name: QA_TENANT_NAME, createdByUserId: userId })
+    .onConflictDoNothing({ target: tenants.id });
 
-  if (!existingTenant) {
-    await db.insert(tenants).values({ id: QA_TENANT_ID, name: QA_TENANT_NAME });
-  }
+  // Deleting the auth user clears the owner (ON DELETE SET NULL), so a
+  // recreated QA user takes it back. An owner that still exists is kept.
+  await db
+    .update(tenants)
+    .set({ createdByUserId: userId })
+    .where(and(eq(tenants.id, QA_TENANT_ID), isNull(tenants.createdByUserId)));
 
-  const [membership] = await db
-    .select({ userId: tenantUsers.userId })
-    .from(tenantUsers)
-    .where(eq(tenantUsers.tenantId, QA_TENANT_ID))
-    .limit(1);
-
-  if (!membership) {
-    await db.insert(tenantUsers).values({
-      tenantId: QA_TENANT_ID,
-      userId,
-      displayName: QA_DISPLAY_NAME,
-    });
-  } else if (membership.userId !== userId) {
-    // The auth user was recreated with a new id; repoint the membership.
-    await db
-      .update(tenantUsers)
-      .set({ userId })
-      .where(eq(tenantUsers.tenantId, QA_TENANT_ID));
-  }
+  // Only the QA user's own membership. A deleted auth user's memberships are
+  // already gone (ON DELETE CASCADE), and any other row on this tenant
+  // belongs to a helper, which must keep its own membership.
+  await ensureMembership(db, {
+    tenantId: QA_TENANT_ID,
+    userId,
+    displayName: QA_DISPLAY_NAME,
+  });
 }
 
-// Deletes only the QA tenant's catalog and sales. FKs are ON DELETE RESTRICT,
-// so children are removed before parents. The service-role db connection
-// bypasses RLS, which is required because sales are otherwise immutable.
+// Deletes only the QA tenant's catalog (categories included), stock movements
+// and sales. FKs are ON DELETE RESTRICT, so children are removed before
+// parents, and one transaction keeps a failure from leaving products without
+// their sales. The direct db connection bypasses RLS, which is required
+// because sales are otherwise immutable.
 async function resetTenantData() {
-  await db.delete(refunds).where(eq(refunds.tenantId, QA_TENANT_ID));
-  await db.delete(saleLines).where(eq(saleLines.tenantId, QA_TENANT_ID));
-  await db.delete(sales).where(eq(sales.tenantId, QA_TENANT_ID));
-  await db.delete(products).where(eq(products.tenantId, QA_TENANT_ID));
-  await db.delete(categories).where(eq(categories.tenantId, QA_TENANT_ID));
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(inventoryMovements)
+      .where(eq(inventoryMovements.tenantId, QA_TENANT_ID));
+    await tx.delete(refunds).where(eq(refunds.tenantId, QA_TENANT_ID));
+    await tx.delete(saleLines).where(eq(saleLines.tenantId, QA_TENANT_ID));
+    await tx.delete(sales).where(eq(sales.tenantId, QA_TENANT_ID));
+    await tx.delete(products).where(eq(products.tenantId, QA_TENANT_ID));
+    await tx.delete(categories).where(eq(categories.tenantId, QA_TENANT_ID));
+  });
 }
 
+// The categories the seeded products use: a product may only be saved in one
+// of its tenant's categories.
 async function ensureQaCategories() {
   await db
     .insert(categories)
@@ -168,6 +177,7 @@ async function ensureQaCategories() {
     .onConflictDoNothing();
 }
 
+// Products reference their category by id.
 async function getQaCategoryIds() {
   const rows = await db
     .select({ id: categories.id, name: categories.name })
@@ -183,25 +193,43 @@ async function getQaCategoryIds() {
 
 async function seedData(userId: string) {
   const categoryId = await getQaCategoryIds();
-  const sticker = await createProductForTenant(QA_TENANT_ID, {
-    name: "QA Sticker Pack",
-    priceCents: 2000,
-    costCents: 600,
-    categoryId: categoryId("Stickers"),
+  // A product with stock tracking, so the QA account also covers stock
+  // badges and the movement history. Its sales below take stock from it.
+  const { product: sticker } = await createProductForTenant(
+    QA_TENANT_ID,
+    {
+      name: "QA Sticker Pack",
+      priceCents: 2000,
+      costCents: 600,
+      categoryId: categoryId("Stickers"),
+      tracksInventory: true,
+      lowStockThreshold: 5,
+    },
+    { userId, delta: 20 }
+  );
+  const restockedAt = new Date();
+  await db.insert(inventoryMovements).values({
+    tenantId: QA_TENANT_ID,
+    productId: sticker.id,
+    userId,
+    delta: 10,
+    reason: "restock",
+    createdAt: restockedAt,
+    clientCreatedAt: restockedAt,
   });
-  const print = await createProductForTenant(QA_TENANT_ID, {
+  const { product: print } = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Art Print A4",
     priceCents: 5000,
     costCents: 1500,
     categoryId: categoryId("Prints"),
   });
-  const pin = await createProductForTenant(QA_TENANT_ID, {
+  const { product: pin } = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Enamel Pin",
     priceCents: 3500,
     costCents: null, // cost unknown — exercises the upper-bound net-earnings flag
     categoryId: categoryId("Pines"),
   });
-  const tote = await createProductForTenant(QA_TENANT_ID, {
+  const { product: tote } = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Tote Bag",
     priceCents: 8000,
     costCents: 3000,
@@ -209,7 +237,7 @@ async function seedData(userId: string) {
   });
 
   // An archived product to exercise catalog archive/restore views.
-  const keychain = await createProductForTenant(QA_TENANT_ID, {
+  const { product: keychain } = await createProductForTenant(QA_TENANT_ID, {
     name: "QA Keychain (archivado)",
     priceCents: 1500,
     costCents: 500,
@@ -217,11 +245,12 @@ async function seedData(userId: string) {
   });
   await db
     .update(products)
-    .set({ archivedAt: new Date() })
+    .set({ archivedAt: new Date(), updatedAt: new Date() })
     .where(eq(products.id, keychain.id));
 
   // Completed sale, cash, no discount.
   await createSaleForTenant({
+    saleId: crypto.randomUUID(),
     tenantId: QA_TENANT_ID,
     userId,
     userName: QA_DISPLAY_NAME,
@@ -235,6 +264,7 @@ async function seedData(userId: string) {
 
   // Completed sale, QR, with a sale-level discount.
   await createSaleForTenant({
+    saleId: crypto.randomUUID(),
     tenantId: QA_TENANT_ID,
     userId,
     userName: QA_DISPLAY_NAME,
@@ -247,6 +277,7 @@ async function seedData(userId: string) {
   // Voided sale. Set the void columns directly (service role) so we are not
   // blocked by the 10-minute void window the repository enforces.
   const toVoid = await createSaleForTenant({
+    saleId: crypto.randomUUID(),
     tenantId: QA_TENANT_ID,
     userId,
     userName: QA_DISPLAY_NAME,
@@ -261,6 +292,7 @@ async function seedData(userId: string) {
 
   // Refunded sale. Refunds carry no time window, so the repository path works.
   const toRefund = await createSaleForTenant({
+    saleId: crypto.randomUUID(),
     tenantId: QA_TENANT_ID,
     userId,
     userName: QA_DISPLAY_NAME,
@@ -281,9 +313,11 @@ async function main() {
   const reset = process.argv.includes("--reset");
   const email = requireEnv("QA_EMAIL");
   const password = requireEnv("QA_PASSWORD");
-  const target = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
 
-  console.log(`Seeding QA account against ${target}`);
+  await confirmOpsTarget(
+    reset ? "reset and reseed the QA account" : "seed the QA account",
+    opsEnvSource
+  );
 
   const user = await findOrCreateAuthUser(email, password);
   console.log(`Auth user ${user.created ? "created" : "found"}: ${user.id}`);
@@ -293,7 +327,7 @@ async function main() {
 
   if (reset) {
     await resetTenantData();
-    console.log("Existing QA catalog + sales wiped (--reset).");
+    console.log("Existing QA catalog, stock and sales wiped (--reset).");
   }
 
   await ensureQaCategories();
@@ -310,7 +344,7 @@ async function main() {
     );
   } else {
     await seedData(user.id);
-    console.log("Dummy catalog + sales seeded.");
+    console.log("Dummy catalog, stock and sales seeded.");
   }
 
   console.log("\nQA login:");

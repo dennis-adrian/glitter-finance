@@ -1,3 +1,11 @@
+// A root-relative path that a browser cannot read as a protocol-relative
+// URL: `//host` and `/\host` both leave the site.
+function isRootRelativePath(path: string): boolean {
+  return (
+    path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\")
+  );
+}
+
 export function sanitizeRedirectPath(
   next: string | null,
   origin: string
@@ -8,7 +16,7 @@ export function sanitizeRedirectPath(
   // (`//host`). We intentionally do NOT reject paths merely containing "://"
   // (e.g. `/login?next=https://...`): the same-origin check below is the real
   // guard, and the broad reject also discards legitimate in-app query params.
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
+  if (!next || !isRootRelativePath(next)) {
     return fallback;
   }
 
@@ -20,7 +28,12 @@ export function sanitizeRedirectPath(
     if (url.origin !== normalizedOrigin) {
       return fallback;
     }
-    return `${url.pathname}${url.search}${url.hash}`;
+    // Parsing resolves dot segments (also `%2e`), turns `\` into `/` and
+    // drops tabs and newlines, so an input that passed the check above can
+    // come back as `//evil.com` (`/.//evil.com`, `/x/..//evil.com`). Check
+    // the normalized path too: it is what callers redirect to.
+    const path = `${url.pathname}${url.search}${url.hash}`;
+    return isRootRelativePath(path) ? path : fallback;
   } catch {
     return fallback;
   }

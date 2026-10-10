@@ -1,19 +1,13 @@
 // Local-first inventory movement writes. Append-only rows replicate via
 // PowerSync's INSERT path — no upload-connector changes needed.
 
-import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import type { AbstractPowerSyncDatabase, Transaction } from "@powersync/web";
+import { nowIso } from "@/lib/dates";
 import {
-  validateInventoryMovement,
+  normalizeInventoryMovement,
+  type InitialMovementState,
   type InventoryMovementReason,
 } from "@/lib/inventory";
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function uuid() {
-  return crypto.randomUUID();
-}
 
 export type AddInventoryMovementInput = {
   tenantId: string;
@@ -25,61 +19,91 @@ export type AddInventoryMovementInput = {
   assertCurrent?: () => void;
 };
 
-export async function productHasInitialMovementLocal(
-  db: AbstractPowerSyncDatabase,
+/**
+ * Whether the local store has an `initial` count for the product. It holds
+ * this device's own writes from the start, but other devices' rows only once
+ * the first sync has completed: until then, no row found is "unknown".
+ */
+export async function initialMovementStateLocal(
+  db: Pick<AbstractPowerSyncDatabase, "getAll" | "currentStatus">,
   productId: string
-): Promise<boolean> {
+): Promise<InitialMovementState> {
   const rows = await db.getAll<{ id: string }>(
     `SELECT id FROM inventory_movements
      WHERE product_id = ? AND reason = 'initial'
      LIMIT 1`,
     [productId]
   );
-  return rows.length > 0;
+  if (rows.length > 0) {
+    return "recorded";
+  }
+  return db.currentStatus?.hasSynced ? "none" : "unknown";
+}
+
+type PreparedInventoryMovement = {
+  id: string;
+  tenantId: string;
+  productId: string;
+  userId: string;
+  delta: number;
+  reason: InventoryMovementReason;
+  note: string | null;
+  createdAt: string;
+};
+
+/**
+ * The row for a movement, checked so a row Postgres would reject never
+ * enters the upload queue (normalizeInventoryMovement). More than one
+ * `initial` per product is allowed: the latest one is the stock baseline (see
+ * computeStockByProduct).
+ */
+export function prepareInventoryMovement(
+  input: Omit<AddInventoryMovementInput, "assertCurrent">
+): PreparedInventoryMovement {
+  return {
+    id: crypto.randomUUID(),
+    tenantId: input.tenantId,
+    productId: input.productId,
+    userId: input.userId,
+    ...normalizeInventoryMovement(input),
+    createdAt: nowIso(),
+  };
+}
+
+/** Inserts a prepared movement inside the caller's write transaction. */
+export async function insertInventoryMovement(
+  tx: Pick<Transaction, "execute">,
+  movement: PreparedInventoryMovement
+) {
+  await tx.execute(
+    `INSERT INTO inventory_movements
+      (id, tenant_id, product_id, user_id, delta, reason, note,
+       created_at, client_created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      movement.id,
+      movement.tenantId,
+      movement.productId,
+      movement.userId,
+      movement.delta,
+      movement.reason,
+      movement.note,
+      movement.createdAt,
+      movement.createdAt,
+    ]
+  );
 }
 
 export async function addInventoryMovement(
   db: AbstractPowerSyncDatabase,
   input: AddInventoryMovementInput
 ): Promise<{ movementId: string }> {
-  validateInventoryMovement(input.delta, input.reason);
-
-  const movementId = uuid();
-  const now = nowIso();
+  const movement = prepareInventoryMovement(input);
 
   await db.writeTransaction(async (tx) => {
     input.assertCurrent?.();
-    if (input.reason === "initial") {
-      const existing = await tx.getAll<{ id: string }>(
-        `SELECT id FROM inventory_movements
-         WHERE product_id = ? AND reason = 'initial'
-         LIMIT 1`,
-        [input.productId]
-      );
-      if (existing.length > 0) {
-        throw new Error("Este producto ya tiene un stock inicial registrado.");
-      }
-    }
-
-    input.assertCurrent?.();
-    await tx.execute(
-      `INSERT INTO inventory_movements
-        (id, tenant_id, product_id, user_id, delta, reason, note,
-         created_at, client_created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        movementId,
-        input.tenantId,
-        input.productId,
-        input.userId,
-        input.delta,
-        input.reason,
-        input.note?.trim() || null,
-        now,
-        now,
-      ]
-    );
+    await insertInventoryMovement(tx, movement);
   });
 
-  return { movementId };
+  return { movementId: movement.id };
 }

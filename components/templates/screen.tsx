@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { cn } from "@/lib/utils";
 
 /** Content widths. Header, body, and footer share one so edges line up. */
@@ -22,6 +22,8 @@ type ScreenProps = {
   className?: string;
   bodyClassName?: string;
   footerClassName?: string;
+  /** The scrolling body, e.g. to save and restore its scroll position. */
+  scrollRef?: Ref<HTMLDivElement>;
   /** Accessible name for the screen region (defaults to the header title). */
   "aria-label"?: string;
 };
@@ -39,6 +41,7 @@ export function Screen({
   className,
   bodyClassName,
   footerClassName,
+  scrollRef,
   "aria-label": ariaLabel,
 }: ScreenProps) {
   return (
@@ -53,7 +56,7 @@ export function Screen({
           </div>
         </div>
       ) : null}
-      <div className="scroll-region min-h-0 flex-1">
+      <div ref={scrollRef} className="scroll-region min-h-0 flex-1">
         <div
           className={cn(
             "mx-auto w-full pt-4 pb-8",

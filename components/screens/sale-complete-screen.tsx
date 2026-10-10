@@ -5,6 +5,7 @@ import { Check, ReceiptText, Share2 } from "lucide-react";
 import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { formatBs } from "@/lib/money";
+import { countLabel } from "@/lib/plural";
 import { buildReceiptText, type CompletedSaleSummary } from "@/lib/receipt";
 import { paymentLabels } from "@/lib/sales";
 
@@ -59,8 +60,8 @@ export function SaleCompleteScreen({
           {formatBs(sale.totalCents, true)}
         </strong>
         <p className="mt-3 text-sm text-muted-foreground">
-          {paymentLabels[sale.paymentMethod]} · {sale.itemCount}{" "}
-          {sale.itemCount === 1 ? "producto" : "productos"}
+          {paymentLabels[sale.paymentMethod]} ·{" "}
+          {countLabel(sale.itemCount, "producto", "productos")}
           {sale.discountCents
             ? ` · −${formatBs(sale.discountCents, true)} de descuento`
             : ""}

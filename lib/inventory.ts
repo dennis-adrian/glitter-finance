@@ -1,39 +1,14 @@
+import { UserFacingError } from "@/lib/action-result";
+import { APP_LOCALE } from "@/lib/dates";
+import type { inventoryMovementReasonEnum } from "@/lib/db/schema";
 import type { Product, Sale } from "@/lib/types";
+import { normalizeNote } from "@/lib/validation";
 
 /** Default low-stock threshold when a product has no per-product override. */
 export const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 
-export const inventoryMovementReasons = [
-  "initial",
-  "restock",
-  "adjustment",
-  "loss",
-  "gift",
-] as const;
-
-export type InventoryMovementReason = (typeof inventoryMovementReasons)[number];
-
-/**
- * Mirrors the inventory_movements CHECK constraints so every write path
- * rejects bad input with a readable message before touching the database.
- */
-export function validateInventoryMovement(
-  delta: number,
-  reason: string
-): asserts reason is InventoryMovementReason {
-  if (!inventoryMovementReasons.some((item) => item === reason)) {
-    throw new Error("Seleccioná un motivo de inventario válido.");
-  }
-  if (!Number.isInteger(delta) || delta === 0) {
-    throw new Error("La cantidad debe ser un número entero distinto de cero.");
-  }
-  if ((reason === "initial" || reason === "restock") && delta < 0) {
-    throw new Error("La cantidad debe ser mayor que cero.");
-  }
-  if ((reason === "loss" || reason === "gift") && delta > 0) {
-    throw new Error("Las pérdidas y regalos deben restar unidades.");
-  }
-}
+export type InventoryMovementReason =
+  (typeof inventoryMovementReasonEnum.enumValues)[number];
 
 export type InventoryMovement = {
   id: string;
@@ -55,33 +30,285 @@ export type ProductStock = {
 };
 
 /**
+ * Most units in one stock movement, sale line or low-stock threshold. Far
+ * above any real stall's stock, so a larger count is a typo, and far below
+ * the Postgres integer limit, which a typo would otherwise overflow.
+ */
+export const MAX_QUANTITY = 1_000_000;
+
+export const MAX_QUANTITY_LABEL = new Intl.NumberFormat(APP_LOCALE).format(
+  MAX_QUANTITY
+);
+
+/**
+ * Mirrors inventory_movements_sign_discipline_check in lib/db/schema.ts, plus
+ * the MAX_QUANTITY bound. Typed by reason so a new enum value cannot ship
+ * without a sign rule and its message.
+ */
+const MOVEMENT_DELTA_RULES: Record<
+  InventoryMovementReason,
+  { isValid: (delta: number) => boolean; message: string }
+> = {
+  initial: {
+    isValid: (delta) => delta >= 0,
+    message: `El stock inicial debe ser un número entero de 0 a ${MAX_QUANTITY_LABEL}.`,
+  },
+  restock: {
+    isValid: (delta) => delta > 0,
+    message: `La cantidad debe ser un número entero de 1 a ${MAX_QUANTITY_LABEL}.`,
+  },
+  adjustment: {
+    isValid: (delta) => delta !== 0,
+    message: `El ajuste debe ser un número entero distinto de cero, de -${MAX_QUANTITY_LABEL} a ${MAX_QUANTITY_LABEL}.`,
+  },
+  loss: {
+    isValid: (delta) => delta < 0,
+    message: `La cantidad debe ser un número entero de 1 a ${MAX_QUANTITY_LABEL}.`,
+  },
+  gift: {
+    isValid: (delta) => delta < 0,
+    message: `La cantidad debe ser un número entero de 1 a ${MAX_QUANTITY_LABEL}.`,
+  },
+};
+
+/** Whether Postgres would accept this delta for this movement reason. */
+export function isValidMovementDelta(
+  reason: InventoryMovementReason,
+  delta: number
+) {
+  return (
+    Object.hasOwn(MOVEMENT_DELTA_RULES, reason) &&
+    Number.isInteger(delta) &&
+    Math.abs(delta) <= MAX_QUANTITY &&
+    MOVEMENT_DELTA_RULES[reason].isValid(delta)
+  );
+}
+
+/** What a valid delta for `reason` looks like, for an error message. */
+export function movementDeltaError(reason: InventoryMovementReason) {
+  return Object.hasOwn(MOVEMENT_DELTA_RULES, reason)
+    ? MOVEMENT_DELTA_RULES[reason].message
+    : "El tipo de movimiento de inventario no es válido.";
+}
+
+/**
+ * A movement's delta, reason and note as they may be stored: a delta
+ * Postgres accepts for the reason (isValidMovementDelta) and a trimmed note
+ * within MAX_NOTE_LENGTH, blank as null. The PowerSync writer and the server
+ * action both call it, so the two paths accept the same movements. Throws
+ * UserFacingError.
+ */
+export function normalizeInventoryMovement(input: {
+  delta?: unknown;
+  reason?: unknown;
+  note?: unknown;
+}): { delta: number; reason: InventoryMovementReason; note: string | null } {
+  const reason = input.reason as InventoryMovementReason;
+  if (
+    typeof input.reason !== "string" ||
+    typeof input.delta !== "number" ||
+    !isValidMovementDelta(reason, input.delta)
+  ) {
+    throw new UserFacingError(movementDeltaError(reason));
+  }
+  return {
+    delta: input.delta,
+    reason,
+    note: normalizeNote(input.note, "La nota"),
+  };
+}
+
+/**
+ * Whether a product already has an `initial` count: "recorded" or "none" when
+ * the device can tell, "unknown" when it cannot yet (a PowerSync device
+ * before its first sync completes holds only its own writes).
+ */
+export type InitialMovementState = "none" | "recorded" | "unknown";
+
+type InitialStockContext = {
+  tracksInventory: boolean;
+  wasTrackingInventory: boolean;
+  initialMovement: InitialMovementState;
+};
+
+/**
+ * Whether the editor asks for a count: whenever tracking is being switched
+ * on (a new product included), and for a tracked product known to have no
+ * `initial` yet. The same cases as resolveInitialStockDelta records one.
+ */
+export function asksForInitialStock(input: InitialStockContext) {
+  return (
+    input.tracksInventory &&
+    (!input.wasTrackingInventory || input.initialMovement === "none")
+  );
+}
+
+/**
+ * The `initial` delta to record when a product is saved, or null for none.
+ *
+ * Stock counts from the product's latest `initial` (see computeStockByProduct).
+ * Switching tracking on records the count entered, so sales made while the
+ * product was not tracked never count against it, even when it was tracked
+ * before. Left blank, it records 0 only when the product is known to have no
+ * `initial`: an earlier count then stays the baseline, and an "unknown" state
+ * may hide one that a 0 would replace.
+ *
+ * A product that already tracks stock gets an `initial` only when it has none
+ * and a count is entered: writing 0 there would silently discard restocks
+ * recorded without a baseline.
+ */
+export function resolveInitialStockDelta(
+  input: InitialStockContext & { initialStock?: number }
+): number | null {
+  if (!asksForInitialStock(input)) {
+    return null;
+  }
+  if (input.initialStock != null) {
+    return input.initialStock;
+  }
+  return !input.wasTrackingInventory && input.initialMovement === "none"
+    ? 0
+    : null;
+}
+
+type StockMovement = Pick<
+  InventoryMovement,
+  "id" | "productId" | "delta" | "reason" | "createdAt"
+>;
+
+/** One product's stock from the part of the ledger an OpeningStock sums. */
+export type OpeningStockLevel = {
+  productId: string;
+  /** Units on hand from the movements and sales recorded before `asOf`. */
+  units: number;
+  /** The product's latest `initial` movement before `asOf`, if it has one. */
+  baseline: { id: string; createdAt: string } | null;
+};
+
+/**
+ * The ledger before `asOf`, already summed per product on the server
+ * (getInventorySnapshotForTenant), so '/' does not send every movement and
+ * sale since the tenant started. computeStockByProduct adds the rows from
+ * `asOf` on.
+ */
+export type OpeningStock = {
+  asOf: string;
+  levels: OpeningStockLevel[];
+};
+
+/** What '/' sends for stock: the opening, then the movements after it. */
+export type InventorySnapshot = {
+  opening: OpeningStock;
+  /** The movements recorded from `opening.asOf` on, oldest first. */
+  movements: InventoryMovement[];
+  /** Whether the tenant has recorded any movement at all. */
+  hasMovements: boolean;
+};
+
+/** Movements in ledger order: created_at, then id (as the local watch reads them). */
+export function compareMovementsOldestFirst(
+  a: InventoryMovement,
+  b: InventoryMovement
+) {
+  return (
+    Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  );
+}
+
+/**
+ * A stored timestamp as epoch ms. Rows written on this device (toISOString,
+ * milliseconds) and rows synced from Postgres (microseconds) format the same
+ * instant differently, so they are compared as instants, never as strings.
+ * An unreadable value sorts first.
+ */
+function timestampMs(value: string) {
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+}
+
+type Baseline = { id: string; atMs: number };
+
+function isLaterBaseline(candidate: Baseline, current: Baseline) {
+  if (candidate.atMs !== current.atMs) {
+    return candidate.atMs > current.atMs;
+  }
+  return candidate.id > current.id;
+}
+
+/**
  * Derive on-hand units per product from the append-only movement ledger and
  * completed sale lines (voids excluded; refunds add units back).
+ *
+ * An `initial` movement is a stock count, so it is the product's baseline:
+ * only the latest `initial` counts, and movements and sales before it are
+ * ignored. Several `initial` rows are legal (two devices can each record one
+ * while offline); every device converges on the latest, with ties broken by id.
+ *
+ * With an `opening`, the rows created before its `asOf` are already summed in
+ * it, so they are skipped here. A product's opening units count unless a
+ * later `initial` replaced the opening's baseline.
  */
 export function computeStockByProduct(
-  movements: Pick<
-    InventoryMovement,
-    "productId" | "delta" | "reason" | "createdAt"
-  >[],
-  sales: Sale[]
+  movements: StockMovement[],
+  sales: Sale[],
+  opening?: OpeningStock | null
 ): Map<string, number> {
   const stock = new Map<string, number>();
-  const trackingBaselineByProduct = new Map<string, string>();
+  const baselineByProduct = new Map<string, Baseline>();
+  const openingAtMs = opening
+    ? timestampMs(opening.asOf)
+    : Number.NEGATIVE_INFINITY;
+  const isInOpening = (createdAt: string) =>
+    timestampMs(createdAt) < openingAtMs;
 
-  for (const movement of movements) {
-    if (movement.reason !== "initial") {
-      continue;
+  function considerBaseline(productId: string, candidate: Baseline) {
+    const current = baselineByProduct.get(productId);
+    if (!current || isLaterBaseline(candidate, current)) {
+      baselineByProduct.set(productId, candidate);
     }
-    const previousBaseline = trackingBaselineByProduct.get(movement.productId);
-    if (!previousBaseline || movement.createdAt > previousBaseline) {
-      trackingBaselineByProduct.set(movement.productId, movement.createdAt);
+  }
+
+  for (const level of opening?.levels ?? []) {
+    if (level.baseline) {
+      considerBaseline(level.productId, {
+        id: level.baseline.id,
+        atMs: timestampMs(level.baseline.createdAt),
+      });
     }
   }
 
   for (const movement of movements) {
-    const baseline = trackingBaselineByProduct.get(movement.productId);
-    if (baseline && movement.createdAt < baseline) {
+    if (movement.reason !== "initial" || isInOpening(movement.createdAt)) {
       continue;
+    }
+    considerBaseline(movement.productId, {
+      id: movement.id,
+      atMs: timestampMs(movement.createdAt),
+    });
+  }
+
+  for (const level of opening?.levels ?? []) {
+    const baseline = baselineByProduct.get(level.productId);
+    if (baseline && baseline.id !== level.baseline?.id) {
+      continue;
+    }
+    stock.set(level.productId, (stock.get(level.productId) ?? 0) + level.units);
+  }
+
+  for (const movement of movements) {
+    if (isInOpening(movement.createdAt)) {
+      continue;
+    }
+    const baseline = baselineByProduct.get(movement.productId);
+    if (baseline) {
+      const superseded =
+        movement.reason === "initial"
+          ? movement.id !== baseline.id
+          : timestampMs(movement.createdAt) < baseline.atMs;
+      if (superseded) {
+        continue;
+      }
     }
     stock.set(
       movement.productId,
@@ -94,12 +321,13 @@ export function computeStockByProduct(
       continue;
     }
     const sign = sale.refundOfSaleId ? -1 : 1;
+    const saleAtMs = timestampMs(sale.createdAt);
+    if (saleAtMs < openingAtMs) {
+      continue;
+    }
     for (const line of sale.lines) {
-      if (!line.productId) {
-        continue;
-      }
-      const baseline = trackingBaselineByProduct.get(line.productId);
-      if (baseline && sale.createdAt < baseline) {
+      const baseline = baselineByProduct.get(line.productId);
+      if (baseline && saleAtMs < baseline.atMs) {
         continue;
       }
       stock.set(
@@ -114,12 +342,45 @@ export function computeStockByProduct(
 
 export function productHasInitialMovement(
   productId: string,
-  movements: Pick<InventoryMovement, "productId" | "reason">[]
+  movements: Pick<InventoryMovement, "productId" | "reason">[],
+  opening?: OpeningStock | null
 ) {
-  return movements.some(
-    (movement) =>
-      movement.productId === productId && movement.reason === "initial"
+  return (
+    movements.some(
+      (movement) =>
+        movement.productId === productId && movement.reason === "initial"
+    ) ||
+    Boolean(
+      opening?.levels.some(
+        (level) => level.productId === productId && level.baseline
+      )
+    )
   );
+}
+
+/**
+ * Whether a product already has an `initial` count. The ledger in memory
+ * holds the server's rows and this device's own writes. On a PowerSync
+ * device, `readLocal` also asks the local store, which alone can say "none"
+ * or "unknown" (initialMovementStateLocal). Without PowerSync, the ledger in
+ * memory is all there is once `ledgerReady`.
+ */
+export async function lookUpInitialMovement(input: {
+  productId: string;
+  movements: Pick<InventoryMovement, "productId" | "reason">[];
+  opening: OpeningStock | null;
+  readLocal: ((productId: string) => Promise<InitialMovementState>) | null;
+  ledgerReady: boolean;
+}): Promise<InitialMovementState> {
+  if (
+    productHasInitialMovement(input.productId, input.movements, input.opening)
+  ) {
+    return "recorded";
+  }
+  if (input.readLocal) {
+    return input.readLocal(input.productId);
+  }
+  return input.ledgerReady ? "none" : "unknown";
 }
 
 export function getProductStock(

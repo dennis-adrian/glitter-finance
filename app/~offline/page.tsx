@@ -1,13 +1,25 @@
+import {
+  StatusScreen,
+  statusScreenActionClassName,
+} from "@/components/templates/status-screen";
+
+// The service worker precaches this page and shows it for a navigation it
+// cannot answer offline (app/sw.ts): before the app was ever opened signed
+// in, the login screen, or after logout cleared the saved app. Once the
+// signed-in app has loaded its local data online, which saves the app shell
+// (lib/pwa/keep-app-shell.ts), an offline launch opens Sell Mode instead.
 export default function OfflinePage() {
   return (
-    <main className="grid min-h-dvh place-items-center p-6 text-primary">
-      <section className="w-full max-w-[420px] rounded-2xl bg-card p-6 ring-1 ring-foreground/10">
-        <h1 className="mb-2.5 text-2xl font-bold">Billetera Ferial</h1>
-        <p className="leading-relaxed text-muted-foreground">
-          No hay conexión. Abrí la aplicación una vez con internet para guardar
-          el modo de venta en este dispositivo.
-        </p>
-      </section>
-    </main>
+    <StatusScreen
+      title="Sin conexión"
+      description="Esta pantalla aún no está guardada en este dispositivo. Abrí Billetera Ferial una vez con internet para poder vender sin conexión."
+    >
+      {/* A full page load, not a client-side <Link> transition, so the
+          service worker answers it again with the network or the saved app. */}
+      {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+      <a href="/" className={statusScreenActionClassName}>
+        Reintentar
+      </a>
+    </StatusScreen>
   );
 }

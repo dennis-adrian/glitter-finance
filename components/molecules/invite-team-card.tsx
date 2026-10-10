@@ -4,22 +4,27 @@ import { useEffect, useState } from "react";
 import { Check, Copy, Link2, Share2 } from "lucide-react";
 import { createInvitation, revokeInvitation } from "@/app/invitations/actions";
 import { Button } from "@/components/ui/button";
+import { unwrapActionResult } from "@/lib/action-result";
+import { APP_LOCALE } from "@/lib/dates";
 import {
   INVITE_ORIGIN_UNAVAILABLE_MESSAGE,
   buildInviteLink,
+  expiryCheckDelayMs,
   isAbsoluteHttpUrl,
   isInvitationValid,
 } from "@/lib/invitations/validation";
 import type { TenantInvitation } from "@/lib/types";
 
 type InviteTeamCardProps = {
+  /** The tenant this screen renders; the server refuses any other. */
+  tenantId: string;
   initialInvitation: TenantInvitation | null;
   origin: string;
   onInvitationChange?: (invitation: TenantInvitation | null) => void;
 };
 
 function formatAbsoluteExpiry(expiresAt: string) {
-  return new Intl.DateTimeFormat("es", {
+  return new Intl.DateTimeFormat(APP_LOCALE, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(expiresAt));
@@ -33,7 +38,7 @@ function formatRelativeExpiry(expiresAt: string): string | null {
   if (ms <= 0) {
     return "Caducado";
   }
-  const rtf = new Intl.RelativeTimeFormat("es", { numeric: "auto" });
+  const rtf = new Intl.RelativeTimeFormat(APP_LOCALE, { numeric: "auto" });
   if (ms >= 86_400_000) {
     const days = Math.round(ms / 86_400_000);
     return `Caduca ${rtf.format(days, "day")}`;
@@ -43,6 +48,7 @@ function formatRelativeExpiry(expiresAt: string): string | null {
 }
 
 export function InviteTeamCard({
+  tenantId,
   initialInvitation,
   origin,
   onInvitationChange,
@@ -83,16 +89,25 @@ export function InviteTeamCard({
       return;
     }
 
-    const ms = new Date(invitation.expiresAt).getTime() - Date.now();
-    if (ms <= 0) {
+    const { expiresAt } = invitation;
+    const firstDelay = expiryCheckDelayMs(expiresAt, Date.now());
+    if (firstDelay === null) {
       return;
     }
 
-    const timer = window.setTimeout(() => {
+    // A long TTL is waited out in several timers (see expiryCheckDelayMs).
+    let timer: number;
+    function checkExpiry() {
+      const delay = expiryCheckDelayMs(expiresAt, Date.now());
+      if (delay !== null) {
+        timer = window.setTimeout(checkExpiry, delay);
+        return;
+      }
       setInvitation(null);
       setInviteLink("");
       onInvitationChange?.(null);
-    }, ms);
+    }
+    timer = window.setTimeout(checkExpiry, firstDelay);
 
     return () => window.clearTimeout(timer);
   }, [invitation, onInvitationChange]);
@@ -109,14 +124,15 @@ export function InviteTeamCard({
     isInvitationValid(invitation) &&
     Boolean(invitation.token) &&
     !isAbsoluteHttpUrl(inviteLink);
-  const needsRotation =
-    invitation !== null && isInvitationValid(invitation) && !invitation.token;
 
   async function handleGenerate() {
     setError(null);
     setIsGenerating(true);
     try {
-      const result = await createInvitation();
+      const result = await unwrapActionResult(
+        () => createInvitation(tenantId),
+        "No se pudo generar el enlace de invitación."
+      );
       if (!isAbsoluteHttpUrl(result.link)) {
         setInvitation(result.invitation);
         setInviteLink("");
@@ -145,7 +161,11 @@ export function InviteTeamCard({
     setError(null);
     setIsRevoking(true);
     try {
-      await revokeInvitation(invitation.id);
+      const invitationId = invitation.id;
+      await unwrapActionResult(
+        () => revokeInvitation(tenantId, invitationId),
+        "No se pudo revocar el enlace de invitación."
+      );
       setInvitation(null);
       setInviteLink("");
       onInvitationChange?.(null);
@@ -299,50 +319,6 @@ export function InviteTeamCard({
         <div className="grid gap-3">
           <p className="text-sm text-destructive">
             {INVITE_ORIGIN_UNAVAILABLE_MESSAGE}
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full rounded-2xl"
-            onClick={() => setConfirmingRevoke(true)}
-            disabled={isBusy}
-          >
-            Revocar enlace activo
-          </Button>
-          {confirmingRevoke ? (
-            <div className="grid gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
-              <p className="text-sm text-muted-foreground">
-                ¿Revocar este enlace? Quienes ya lo tengan dejarán de poder
-                unirse.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-2xl"
-                  onClick={() => setConfirmingRevoke(false)}
-                  disabled={isRevoking}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  className="rounded-2xl"
-                  onClick={() => void handleRevoke()}
-                  disabled={isRevoking}
-                >
-                  {isRevoking ? "Revocando…" : "Sí, revocar"}
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : needsRotation ? (
-        <div className="grid gap-3">
-          <p className="text-sm text-muted-foreground">
-            Ya hay un enlace activo, pero no se puede mostrar de nuevo. Revócalo
-            para generar uno nuevo.
           </p>
           <Button
             type="button"

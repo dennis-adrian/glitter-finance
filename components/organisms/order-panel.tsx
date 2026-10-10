@@ -2,6 +2,7 @@ import { ShoppingBag, Trash2, X } from "lucide-react";
 import { CartLineItem } from "@/components/molecules/cart-line-item";
 import { Button } from "@/components/ui/button";
 import { formatBs } from "@/lib/money";
+import { countLabel } from "@/lib/plural";
 import type { CartLine, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -50,7 +51,7 @@ export function OrderPanel({
           Pedido
           {count ? (
             <span className="ml-2 align-middle text-sm font-semibold text-muted-foreground tabular-nums">
-              {count} {count === 1 ? "producto" : "productos"}
+              {countLabel(count, "producto", "productos")}
             </span>
           ) : null}
         </h2>

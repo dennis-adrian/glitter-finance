@@ -1,99 +1,190 @@
-import { and, asc, eq, getTableColumns, sql } from "drizzle-orm";
+// No `import "server-only"` here: scripts/seed-qa.ts imports this module
+// under plain tsx, where that marker throws (tests/server-only-marker.test.ts).
+import { and, asc, eq, type SQL, sql } from "drizzle-orm";
+import { UserFacingError } from "@/lib/action-result";
+import { getCategoryForTenant } from "@/lib/categories/repository";
 import { db } from "@/lib/db";
-import { categories, products } from "@/lib/db/schema";
-import { postgresErrorCode } from "@/lib/db/errors";
+import { inventoryMovements, products } from "@/lib/db/schema";
+import {
+  normalizeInventoryMovement,
+  type InventoryMovement,
+} from "@/lib/inventory";
+import { mapDbInventoryMovement } from "@/lib/inventory/mapper";
+import { mapDbProductToProduct } from "@/lib/product-mapper";
 import {
   encodePlaceholderImagePath,
-  mapDbProductToProduct,
-} from "@/lib/product-mapper";
-import { isPlaceholderImagePath } from "@/lib/product-image-config";
-import {
-  findCategoryByNameForTenant,
-  getCategoryForTenant,
-} from "@/lib/categories/repository";
+  isPlaceholderImagePath,
+  placeholderImagePathPattern,
+} from "@/lib/product-image-config";
 import type { Product, ProductInput } from "@/lib/types";
-
-/**
- * Product payload from the client. Tabs opened before categories were linked
- * by id can still call these actions with the category name instead.
- */
-export type ProductPayload = Omit<ProductInput, "categoryId"> & {
-  categoryId?: string | null;
-  category?: string;
-};
-
-function resolveInputImagePath(input: ProductPayload) {
-  if (isPlaceholderImagePath(input.imagePath)) {
-    return encodePlaceholderImagePath(input.imageTone);
-  }
-
-  return input.imagePath;
-}
-
-function resolvePayloadCategory(tenantId: string, input: ProductPayload) {
-  if (!input.categoryId && input.category !== undefined) {
-    return findCategoryByNameForTenant(tenantId, input.category);
-  }
-  return getCategoryForTenant(tenantId, input.categoryId);
-}
-
-function invalidCategoryError(error: unknown): never {
-  const code = postgresErrorCode(error);
-  if (code === "23503" || code === "22P02") {
-    throw new Error("Seleccioná una categoría válida.");
-  }
-  throw error;
-}
 
 export async function getProductsForTenant(
   tenantId: string
 ): Promise<Product[]> {
   const rows = await db
-    .select({
-      ...getTableColumns(products),
-      // Derived name, in case the row hasn't been re-synced after a rename.
-      category: sql<string>`coalesce(${categories.name}, ${products.category})`,
-    })
+    .select()
     .from(products)
-    .leftJoin(
-      categories,
-      and(
-        eq(categories.id, products.categoryId),
-        eq(categories.tenantId, products.tenantId)
-      )
-    )
     .where(eq(products.tenantId, tenantId))
     .orderBy(asc(products.archivedAt), asc(products.name));
 
   return rows.map(mapDbProductToProduct);
 }
 
+export async function findProductForTenant(
+  tenantId: string,
+  productId: string
+): Promise<Product | null> {
+  const [product] = await db
+    .select()
+    .from(products)
+    .where(and(eq(products.tenantId, tenantId), eq(products.id, productId)))
+    .limit(1);
+
+  return product ? mapDbProductToProduct(product) : null;
+}
+
+type ProductsTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+const CATEGORY_FOREIGN_KEY =
+  "products_category_id_tenant_id_categories_id_tenant_id_fk";
+
+function isCategoryForeignKeyViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    code?: unknown;
+    constraint_name?: unknown;
+    cause?: unknown;
+  };
+  if (candidate.code === "23503") {
+    return candidate.constraint_name === CATEGORY_FOREIGN_KEY;
+  }
+  // Drizzle wraps the postgres.js error in `cause`.
+  return isCategoryForeignKeyViolation(candidate.cause);
+}
+
+/**
+ * The category was deleted between the check in the transaction and the
+ * write: Postgres refuses the product (the composite foreign key on
+ * products.category_id). The initial-stock insert can raise other 23503s,
+ * which stay errors.
+ */
+function invalidCategoryError(error: unknown): never {
+  if (isCategoryForeignKeyViolation(error)) {
+    throw new UserFacingError("Elegí una categoría válida.", { cause: error });
+  }
+  throw error;
+}
+
+/**
+ * The count a product is saved with, recorded as an `initial` movement in the
+ * same transaction as the product write, like createProductLocal and
+ * updateProductLocal do on a PowerSync device: a failed save leaves neither,
+ * so tracking is never switched on without the count it was entered with
+ * (stock would then count every earlier sale against the product).
+ */
+export type InitialStockForTenant = { userId: string; delta: number };
+
+export type SavedProduct = {
+  product: Product;
+  /** The `initial` movement saved with the product, if it got a count. */
+  initialMovement: InventoryMovement | null;
+};
+
+/** Checked before the transaction, with the PowerSync writer's rules. */
+function prepareInitialStock(initialStock: InitialStockForTenant | undefined) {
+  return initialStock
+    ? {
+        userId: initialStock.userId,
+        ...normalizeInventoryMovement({
+          delta: initialStock.delta,
+          reason: "initial",
+        }),
+      }
+    : null;
+}
+
+async function insertInitialStock(
+  tx: ProductsTransaction,
+  input: {
+    tenantId: string;
+    productId: string;
+    initialStock: NonNullable<ReturnType<typeof prepareInitialStock>>;
+    createdAt: Date;
+  }
+): Promise<InventoryMovement> {
+  const [row] = await tx
+    .insert(inventoryMovements)
+    .values({
+      tenantId: input.tenantId,
+      productId: input.productId,
+      ...input.initialStock,
+      createdAt: input.createdAt,
+      clientCreatedAt: input.createdAt,
+    })
+    .returning();
+
+  if (!row) {
+    throw new Error("No se pudo registrar el stock inicial.");
+  }
+
+  return mapDbInventoryMovement(row);
+}
+
 export async function createProductForTenant(
   tenantId: string,
-  input: ProductPayload
-): Promise<Product> {
-  const category = await resolvePayloadCategory(tenantId, input);
+  input: ProductInput,
+  initialStock?: InitialStockForTenant
+): Promise<SavedProduct> {
+  const initial = prepareInitialStock(initialStock);
+  // Stamped by this server's clock, like every later update here, instead of
+  // Postgres' now(): Postgres keeps a column's newer edit, so an image
+  // attached right after the insert would be dropped if this clock ran behind
+  // the database's.
+  const now = new Date();
   try {
-    const [product] = await db
-      .insert(products)
-      .values({
+    return await db.transaction(async (tx) => {
+      // A new product needs a category: stored by id, with its name next to
+      // it (Postgres keeps the name in step from then on).
+      const category = await getCategoryForTenant(
         tenantId,
-        name: input.name,
-        priceCents: input.priceCents,
-        costCents: input.costCents,
-        categoryId: category.id,
-        category: category.name,
-        imagePath: resolveInputImagePath(input),
-        tracksInventory: input.tracksInventory ?? false,
-        lowStockThreshold: input.lowStockThreshold ?? null,
-      })
-      .returning();
+        input.categoryId,
+        tx
+      );
+      const [product] = await tx
+        .insert(products)
+        .values({
+          tenantId,
+          name: input.name,
+          priceCents: input.priceCents,
+          costCents: input.costCents,
+          categoryId: category.id,
+          category: category.name,
+          // A new product starts with a placeholder. An image is attached after
+          // the insert, by updateProductImageForTenant.
+          imagePath: encodePlaceholderImagePath(input.imageTone),
+          tracksInventory: input.tracksInventory ?? false,
+          lowStockThreshold: input.lowStockThreshold ?? null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
 
-    if (!product) {
-      throw new Error("No se pudo crear el producto.");
-    }
+      if (!product) {
+        throw new Error("No se pudo crear el producto.");
+      }
 
-    return mapDbProductToProduct(product);
+      return {
+        product: mapDbProductToProduct(product),
+        initialMovement: initial
+          ? await insertInitialStock(tx, {
+              tenantId,
+              productId: product.id,
+              initialStock: initial,
+              createdAt: now,
+            })
+          : null,
+      };
+    });
   } catch (error) {
     return invalidCategoryError(error);
   }
@@ -102,10 +193,58 @@ export async function createProductForTenant(
 export async function updateProductForTenant(
   tenantId: string,
   productId: string,
-  input: ProductPayload
-): Promise<Product> {
+  input: ProductInput,
+  initialStock?: InitialStockForTenant
+): Promise<SavedProduct> {
+  const initial = prepareInitialStock(initialStock);
+  // Every update sets updatedAt: Postgres keeps, column by column, the newer
+  // of two edits by it
+  // (supabase/manual/20260926130100_products_last_write_wins.sql).
+  const updates: {
+    name: string;
+    priceCents: number;
+    costCents: number | null;
+    categoryId?: string;
+    category?: string;
+    imagePath?: SQL;
+    tracksInventory?: boolean;
+    lowStockThreshold?: number | null;
+    updatedAt: Date;
+  } = {
+    name: input.name,
+    priceCents: input.priceCents,
+    costCents: input.costCents,
+    updatedAt: new Date(),
+  };
+
+  // Same rule as updateProductLocal: the editor only picks a placeholder
+  // tone, which applies while the row still shows a placeholder. Uploaded
+  // images change only through updateProductImageForTenant, so an editor
+  // opened before another device replaced the image cannot restore the old,
+  // deleted one. Postgres also keeps an uploaded image over a placeholder,
+  // whoever writes it (products_keep_latest_edit).
+  if (isPlaceholderImagePath(input.imagePath)) {
+    updates.imagePath = sql`CASE
+      WHEN ${products.imagePath} IS NULL
+        OR ${products.imagePath} LIKE ${placeholderImagePathPattern}
+        THEN ${encodePlaceholderImagePath(input.imageTone)}
+      ELSE ${products.imagePath}
+    END`;
+  }
+
+  if ("tracksInventory" in input) {
+    updates.tracksInventory = input.tracksInventory ?? false;
+  }
+  if ("lowStockThreshold" in input) {
+    updates.lowStockThreshold = input.lowStockThreshold ?? null;
+  }
+
   try {
     return await db.transaction(async (tx) => {
+      // Like updateProductLocal, the category columns are written only when
+      // the edit picks another category (null keeps it): a category the edit
+      // leaves as it was is kept, even when it is not on the tenant's list
+      // (any more), and an unchanged category gets no newer edit time.
       const [current] = await tx
         .select({ categoryId: products.categoryId })
         .from(products)
@@ -113,44 +252,17 @@ export async function updateProductForTenant(
         .limit(1);
 
       if (!current) {
-        throw new Error("No se encontró el producto.");
+        throw new UserFacingError("No se encontró el producto.");
       }
 
-      const updates: {
-        name: string;
-        priceCents: number;
-        costCents: number | null;
-        categoryId?: string;
-        category?: string;
-        imagePath: string | null;
-        tracksInventory?: boolean;
-        lowStockThreshold?: number | null;
-        updatedAt: Date;
-      } = {
-        name: input.name,
-        priceCents: input.priceCents,
-        costCents: input.costCents,
-        imagePath: resolveInputImagePath(input) ?? null,
-        updatedAt: new Date(),
-      };
-
-      // Category columns are written only when the category changes.
-      const changesCategory = input.categoryId
-        ? input.categoryId !== current.categoryId
-        : input.category !== undefined;
-      if (changesCategory) {
-        const category = await resolvePayloadCategory(tenantId, input);
-        if (category.id !== current.categoryId) {
-          updates.categoryId = category.id;
-          updates.category = category.name;
-        }
-      }
-
-      if ("tracksInventory" in input) {
-        updates.tracksInventory = input.tracksInventory ?? false;
-      }
-      if ("lowStockThreshold" in input) {
-        updates.lowStockThreshold = input.lowStockThreshold ?? null;
+      if (input.categoryId && input.categoryId !== current.categoryId) {
+        const category = await getCategoryForTenant(
+          tenantId,
+          input.categoryId,
+          tx
+        );
+        updates.categoryId = category.id;
+        updates.category = category.name;
       }
 
       const [product] = await tx
@@ -160,10 +272,20 @@ export async function updateProductForTenant(
         .returning();
 
       if (!product) {
-        throw new Error("No se encontró el producto.");
+        throw new UserFacingError("No se encontró el producto.");
       }
 
-      return mapDbProductToProduct(product);
+      return {
+        product: mapDbProductToProduct(product),
+        initialMovement: initial
+          ? await insertInitialStock(tx, {
+              tenantId,
+              productId: product.id,
+              initialStock: initial,
+              createdAt: updates.updatedAt,
+            })
+          : null,
+      };
     });
   } catch (error) {
     return invalidCategoryError(error);
@@ -185,7 +307,7 @@ export async function updateProductImageForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("No se encontró el producto.");
+    throw new UserFacingError("No se encontró el producto.");
   }
 
   return mapDbProductToProduct(product);
@@ -205,7 +327,7 @@ export async function archiveProductForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("No se encontró el producto.");
+    throw new UserFacingError("No se encontró el producto.");
   }
 
   return mapDbProductToProduct(product);
@@ -225,7 +347,7 @@ export async function restoreProductForTenant(
     .returning();
 
   if (!product) {
-    throw new Error("No se encontró el producto.");
+    throw new UserFacingError("No se encontró el producto.");
   }
 
   return mapDbProductToProduct(product);

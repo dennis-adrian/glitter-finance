@@ -1,101 +1,97 @@
 "use server";
 
+import { toActionResult, UserFacingError } from "@/lib/action-result";
+import { createTenantWithOwner, hasMembership } from "@/lib/auth/memberships";
+import { getDisplayName, parseTenantId } from "@/lib/auth/tenant-context";
 import {
   assertUserIsMember,
-  getDisplayName,
+  getAuthenticatedUser,
   setActiveTenantClaim,
 } from "@/lib/auth/user-context";
 import { db } from "@/lib/db";
-import { tenantUsers, tenants } from "@/lib/db/schema";
-import { createClient } from "@/lib/supabase/server";
 
-const TENANT_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function parseTenantId(tenantId: unknown): string {
-  if (typeof tenantId !== "string") {
-    throw new Error("Identificador de puesto inválido.");
-  }
-  const normalized = tenantId.trim();
-  if (!TENANT_ID_RE.test(normalized)) {
-    throw new Error("Identificador de puesto inválido.");
-  }
-  return normalized;
-}
+const NOT_SIGNED_IN_MESSAGE = "No iniciaste sesión.";
 
 function parseTenantName(name: unknown): string {
-  if (typeof name !== "string") {
-    throw new Error("El nombre del puesto es obligatorio.");
-  }
-  const trimmedName = name.trim();
+  const trimmedName = typeof name === "string" ? name.trim() : "";
   if (!trimmedName) {
-    throw new Error("El nombre del puesto es obligatorio.");
+    throw new UserFacingError("El nombre del puesto es obligatorio.");
   }
   return trimmedName;
 }
 
+// Expected failures come back as `{ ok: false, error }` (lib/action-result.ts).
+
 export async function switchTenant(tenantId: string) {
-  const normalizedTenantId = parseTenantId(tenantId);
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return toActionResult(async () => {
+    const normalizedTenantId = parseTenantId(tenantId);
+    const user = await getAuthenticatedUser();
 
-  if (!user) {
-    throw new Error("No has iniciado sesión.");
-  }
+    if (!user) {
+      throw new UserFacingError(NOT_SIGNED_IN_MESSAGE);
+    }
 
-  await assertUserIsMember(user.id, normalizedTenantId);
-  await setActiveTenantClaim(user, normalizedTenantId);
+    await assertUserIsMember(user.id, normalizedTenantId);
+    await setActiveTenantClaim(user, normalizedTenantId);
+  });
+}
+
+/**
+ * Switches back to the tenant this device still holds unsynced work for (the
+ * local data recovery panel). A membership removed meanwhile is an answer,
+ * not an error: the panel then offers its other ways out, since that
+ * tenant's work can no longer be uploaded or resolved there.
+ */
+export async function returnToTenant(tenantId: string) {
+  return toActionResult(async (): Promise<"switched" | "no-access"> => {
+    const normalizedTenantId = parseTenantId(tenantId);
+    const user = await getAuthenticatedUser();
+
+    if (!user) {
+      throw new UserFacingError(NOT_SIGNED_IN_MESSAGE);
+    }
+
+    if (
+      !(await hasMembership(db, {
+        tenantId: normalizedTenantId,
+        userId: user.id,
+      }))
+    ) {
+      return "no-access";
+    }
+    await setActiveTenantClaim(user, normalizedTenantId);
+    return "switched";
+  });
 }
 
 export async function createTenant(name: string) {
-  const trimmedName = parseTenantName(name);
+  return toActionResult(async () => {
+    const trimmedName = parseTenantName(name);
+    const user = await getAuthenticatedUser();
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw new Error("No has iniciado sesión.");
-  }
-
-  const displayName = getDisplayName({
-    email: user.email,
-    user_metadata: user.user_metadata,
-  });
-
-  const tenant = await db.transaction(async (tx) => {
-    const [createdTenant] = await tx
-      .insert(tenants)
-      .values({
-        name: trimmedName,
-        createdByUserId: user.id,
-      })
-      .returning({ id: tenants.id, name: tenants.name });
-
-    if (!createdTenant) {
-      throw new Error("No se pudo crear el puesto.");
+    if (!user) {
+      throw new UserFacingError(NOT_SIGNED_IN_MESSAGE);
     }
 
-    await tx.insert(tenantUsers).values({
-      tenantId: createdTenant.id,
-      userId: user.id,
-      displayName,
-    });
+    const membership = await db.transaction((tx) =>
+      createTenantWithOwner(tx, {
+        name: trimmedName,
+        userId: user.id,
+        displayName: getDisplayName(user),
+      })
+    );
+    const tenant = { id: membership.tenantId, name: membership.tenantName };
 
-    return createdTenant;
+    // The tenant + membership are already committed. A failure setting the
+    // active claim must NOT propagate as a failed create — otherwise a retry
+    // would create a duplicate tenant. The next ensureUserTenantContext on
+    // '/' reconciles the claim, and the client can still switch into the new
+    // tenant from the list.
+    try {
+      await setActiveTenantClaim(user, tenant.id);
+    } catch (error) {
+      console.error("[createTenant] setActiveTenantClaim failed", error);
+    }
+    return tenant;
   });
-
-  // The tenant + membership are already committed. A failure setting the active
-  // claim must NOT propagate as a failed create — otherwise a retry would
-  // create a duplicate tenant. The next ensureUserTenantContext reconciles the
-  // claim, and the client can still switch into the new tenant from the list.
-  try {
-    await setActiveTenantClaim(user, tenant.id);
-  } catch (error) {
-    console.error("[createTenant] setActiveTenantClaim failed", error);
-  }
-  return tenant;
 }

@@ -1,27 +1,51 @@
 "use client";
 
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
-import { clearInitialSyncCompleted } from "@/lib/powersync/initial-sync";
+import { BROWSER_DRAFT_CART_KEY } from "@/lib/browser-draft-cart";
 import { clearLegacyDraftCartStorage } from "@/lib/powersync/draft-cart";
+import { pendingUploadsBlockerMessage } from "@/lib/powersync/local-data-gate";
+import { resetReportedClientFailures } from "@/lib/observability/report-client-failure";
 import { resetReportedSyncFailures } from "@/lib/observability/report-sync-failure";
 import {
   getUnresolvedSyncFailureCount,
   reconcileSyncFailures,
 } from "@/lib/powersync/sync-failures";
+import { getUploadHold, type UploadHold } from "@/lib/powersync/upload-holds";
+import { isStaticAssetCacheName } from "@/lib/pwa/cache-names";
 import { usePosStore } from "@/lib/store";
 
 const localDataIdentityKey = "glitter-pos-local-data-identity-v1";
-const pageCacheName = "glitter-pos-pages";
-const localDataTeardownStartingEvent =
-  "glitter-pos-local-data-teardown-starting";
-const localDataTeardownFailedEvent = "glitter-pos-local-data-teardown-failed";
-const localDataTeardownTerminalEvent =
-  "glitter-pos-local-data-teardown-terminal";
-const localDataClearedEvent = "glitter-pos-local-data-cleared";
+
+// Written by builds up to September 2026, which kept an "initial sync
+// completed" flag nothing read. Cleared with the rest of the local data.
+// Sunset: remove after 2026-12-31.
+const legacyStorageKeys = [
+  "glitter-pos-initial-sync-completed-v1",
+  "glitter-pos-initial-sync-completed-v2",
+];
+
+/**
+ * Window events that let tenant-scoped UI follow a teardown it did not start:
+ * - `teardown-starting`: destructive work is about to begin; stop tenant work.
+ * - `teardown-failed`: the local database was left intact; resume tenant work.
+ * - `cleared`: the local user data is gone; drop tenant-derived state.
+ */
+const localDataEventNames = {
+  "teardown-starting": "glitter-pos-local-data-teardown-starting",
+  "teardown-failed": "glitter-pos-local-data-teardown-failed",
+  cleared: "glitter-pos-local-data-cleared",
+} as const;
+
+export type LocalDataEvent = keyof typeof localDataEventNames;
 
 export type LocalDataIdentity = {
   userId: string;
   tenantId: string | null;
+  /**
+   * Display only: tells the next user which account left unsynced work on
+   * this device. Never part of the identity comparison.
+   */
+  email?: string | null;
 };
 
 type CacheStorageLike = Pick<CacheStorage, "delete" | "keys">;
@@ -35,6 +59,7 @@ export class LocalDataTeardownError extends Error {
   constructor(
     readonly stage:
       | "sync-failures"
+      | "pending-uploads"
       | "powersync"
       | "cache"
       | "storage"
@@ -44,6 +69,86 @@ export class LocalDataTeardownError extends Error {
   ) {
     super(message, options);
     this.name = "LocalDataTeardownError";
+  }
+}
+
+/** True when a teardown refused because the device holds unsynced work. */
+export function isUnsyncedLocalDataRefusal(
+  error: unknown
+): error is LocalDataTeardownError {
+  return (
+    error instanceof LocalDataTeardownError &&
+    (error.stage === "sync-failures" || error.stage === "pending-uploads")
+  );
+}
+
+/** Work on this device that the server has not received yet. */
+export type UnsyncedLocalWork = {
+  pendingUploadCount: number;
+  unresolvedFailureCount: number;
+  /** Why the pending uploads wait, when the server defers them. */
+  uploadHold: UploadHold | null;
+};
+
+/**
+ * Reads what a teardown would destroy. Stale failure markers are reconciled
+ * first, so a transaction that already left the queue never blocks.
+ */
+export async function readUnsyncedLocalWork(
+  db: AbstractPowerSyncDatabase
+): Promise<UnsyncedLocalWork> {
+  await reconcileSyncFailures(db);
+  const unresolvedFailureCount = await getUnresolvedSyncFailureCount(db);
+  const { count: pendingUploadCount } = await db.getUploadQueueStats();
+  return {
+    pendingUploadCount,
+    unresolvedFailureCount,
+    uploadHold:
+      pendingUploadCount > 0 ? await readUploadHoldForMessage(db) : null,
+  };
+}
+
+// The hold only explains a wait; the counts decide. A failed read must not
+// turn into a failed check.
+async function readUploadHoldForMessage(
+  db: AbstractPowerSyncDatabase
+): Promise<UploadHold | null> {
+  try {
+    return await getUploadHold(db);
+  } catch (error) {
+    console.warn("[PowerSync] upload hold read failed", { error });
+    return null;
+  }
+}
+
+async function assertNoUnsyncedLocalWork(db: AbstractPowerSyncDatabase) {
+  let unsynced: UnsyncedLocalWork;
+  try {
+    unsynced = await readUnsyncedLocalWork(db);
+  } catch (error) {
+    throw new LocalDataTeardownError(
+      "sync-failures",
+      "No se pudo comprobar si hay operaciones pendientes de recuperación.",
+      { cause: error }
+    );
+  }
+  if (unsynced.unresolvedFailureCount > 0) {
+    throw new LocalDataTeardownError(
+      "sync-failures",
+      "Hay operaciones que requieren recuperación antes de limpiar los datos locales."
+    );
+  }
+  if (unsynced.pendingUploadCount > 0) {
+    // disconnectAndClear() empties ps_crud, so these sales, voids and refunds
+    // would never reach the server.
+    throw new LocalDataTeardownError(
+      "pending-uploads",
+      pendingUploadsBlockerMessage(
+        unsynced.pendingUploadCount,
+        "continuar",
+        unsynced.uploadHold
+      )
+    );
   }
 }
 
@@ -67,20 +172,11 @@ function getCacheStorage(cacheStorage?: CacheStorageLike): CacheStorageLike {
   return window.caches;
 }
 
-function isStaticAssetCache(name: string) {
-  return (
-    name === "glitter-pos-static" ||
-    name.startsWith("glitter-pos-static-") ||
-    name === "glitter-pos-precache" ||
-    name.startsWith("glitter-pos-precache-")
-  );
-}
-
+// Any cache can hold a user's data (the rendered app shell, product photos,
+// whatever Serwist's defaultCache stored), so only the build-asset caches are
+// kept.
 function isUserDataCache(name: string) {
-  return (
-    name === pageCacheName ||
-    (name.startsWith("glitter-pos-") && !isStaticAssetCache(name))
-  );
+  return !isStaticAssetCacheName(name);
 }
 
 export function readLocalDataIdentity(): LocalDataIdentity | null {
@@ -96,7 +192,11 @@ export function readLocalDataIdentity(): LocalDataIdentity | null {
     ) {
       return null;
     }
-    return { userId: candidate.userId, tenantId: candidate.tenantId };
+    return {
+      userId: candidate.userId,
+      tenantId: candidate.tenantId,
+      email: typeof candidate.email === "string" ? candidate.email : null,
+    };
   } catch {
     return null;
   }
@@ -155,9 +255,13 @@ export async function clearUserDataCaches(cacheStorage?: CacheStorageLike) {
 
 function clearBrowserLocalData() {
   try {
-    clearInitialSyncCompleted();
     clearLegacyDraftCartStorage();
-    getLocalStorage().removeItem(localDataIdentityKey);
+    const storage = getLocalStorage();
+    for (const key of legacyStorageKeys) {
+      storage.removeItem(key);
+    }
+    storage.removeItem(BROWSER_DRAFT_CART_KEY);
+    storage.removeItem(localDataIdentityKey);
   } catch (error) {
     throw new LocalDataTeardownError(
       "storage",
@@ -167,64 +271,24 @@ function clearBrowserLocalData() {
   }
 }
 
+function emitLocalDataEvent(event: LocalDataEvent) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(localDataEventNames[event]));
+  }
+}
+
+export function onLocalDataEvent(event: LocalDataEvent, listener: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  const name = localDataEventNames[event];
+  window.addEventListener(name, listener);
+  return () => window.removeEventListener(name, listener);
+}
+
 function clearInMemoryLocalData() {
   usePosStore.getState().clearLocalData();
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(localDataClearedEvent));
-  }
-}
-
-function notifyLocalDataTeardownStarting() {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(localDataTeardownStartingEvent));
-  }
-}
-
-function notifyLocalDataTeardownFailed() {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(localDataTeardownFailedEvent));
-  }
-}
-
-function notifyLocalDataTeardownTerminal() {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(localDataTeardownTerminalEvent));
-  }
-}
-
-export function onLocalDataTeardownStarting(listener: () => void) {
-  if (typeof window === "undefined") {
-    return () => {};
-  }
-  window.addEventListener(localDataTeardownStartingEvent, listener);
-  return () =>
-    window.removeEventListener(localDataTeardownStartingEvent, listener);
-}
-
-export function onLocalDataTeardownFailed(listener: () => void) {
-  if (typeof window === "undefined") {
-    return () => {};
-  }
-  window.addEventListener(localDataTeardownFailedEvent, listener);
-  return () =>
-    window.removeEventListener(localDataTeardownFailedEvent, listener);
-}
-
-export function onLocalDataTeardownTerminal(listener: () => void) {
-  if (typeof window === "undefined") {
-    return () => {};
-  }
-  window.addEventListener(localDataTeardownTerminalEvent, listener);
-  return () =>
-    window.removeEventListener(localDataTeardownTerminalEvent, listener);
-}
-
-export function onLocalDataCleared(listener: () => void) {
-  if (typeof window === "undefined") {
-    return () => {};
-  }
-  window.addEventListener(localDataClearedEvent, listener);
-  return () => window.removeEventListener(localDataClearedEvent, listener);
+  emitLocalDataEvent("cleared");
 }
 
 /**
@@ -232,11 +296,17 @@ export function onLocalDataCleared(listener: () => void) {
  * before the local database so a failed cache deletion leaves the authenticated
  * app intact and recoverable. A caller must not end the server session unless
  * this function resolves.
+ *
+ * With `refuseWhenUnsynced`, it throws a `sync-failures` or `pending-uploads`
+ * LocalDataTeardownError before any destructive step while the upload queue
+ * is not empty or unresolved sync failures exist.
  */
 export async function teardownLocalUserData(input: {
   db: AbstractPowerSyncDatabase | null;
   powerSyncRequired: boolean;
-  refuseWhenSyncFailuresExist: boolean;
+  refuseWhenUnsynced: boolean;
+  /** Runs once every check passed, right before the first destructive step. */
+  onDestructiveStart?: () => void;
   cacheStorage?: CacheStorageLike;
 }): Promise<void> {
   const { db } = input;
@@ -248,30 +318,15 @@ export async function teardownLocalUserData(input: {
     );
   }
 
-  if (input.refuseWhenSyncFailuresExist && db) {
-    let failureCount: number;
-    try {
-      await reconcileSyncFailures(db);
-      failureCount = await getUnresolvedSyncFailureCount(db);
-    } catch (error) {
-      throw new LocalDataTeardownError(
-        "sync-failures",
-        "No se pudo comprobar si hay operaciones pendientes de recuperación.",
-        { cause: error }
-      );
-    }
-    if (failureCount > 0) {
-      throw new LocalDataTeardownError(
-        "sync-failures",
-        "Hay operaciones que requieren recuperación antes de limpiar los datos locales."
-      );
-    }
+  if (input.refuseWhenUnsynced && db) {
+    await assertNoUnsyncedLocalWork(db);
   }
 
+  input.onDestructiveStart?.();
   // Abort UI work before a cache or database operation yields. Local write
   // helpers re-check their assertion inside write transactions, preventing an
   // operation that was already awaiting from committing after this point.
-  notifyLocalDataTeardownStarting();
+  emitLocalDataEvent("teardown-starting");
   try {
     await clearUserDataCaches(input.cacheStorage);
 
@@ -287,11 +342,12 @@ export async function teardownLocalUserData(input: {
       }
     }
   } catch (error) {
-    notifyLocalDataTeardownFailed();
+    emitLocalDataEvent("teardown-failed");
     throw error;
   }
 
   resetReportedSyncFailures();
+  resetReportedClientFailures();
 
   let postDestructiveError: unknown = null;
   try {
@@ -307,7 +363,6 @@ export async function teardownLocalUserData(input: {
   }
 
   if (postDestructiveError) {
-    notifyLocalDataTeardownTerminal();
     throw new LocalDataTeardownError(
       "post-destructive",
       postDestructiveError instanceof Error
