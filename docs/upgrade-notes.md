@@ -102,7 +102,9 @@ first. The
 list also shows which of step 3's migrations the environment already has.
 
 The schema migration of step 3 adds its constraints without `NOT VALID`, so
-`db:push` fails on any row that breaks them. In the project's SQL editor, run:
+`db:push` fails on any row that breaks them. In the project's SQL editor, as
+its default `postgres` role (as `authenticated` or `anon`, RLS hides the rows
+and every count reads `0`), run:
 
 ```sql
 SELECT
@@ -140,6 +142,43 @@ WHERE char_length(name) > 120 OR char_length(category) > 60;
 
 Any other non-zero count means bad data in a financial or stock record: stop
 and investigate before pushing.
+
+Then check that the schema is the one the migrations expect. The counts above
+look only at rows, so they miss a change made in the dashboard, such as an
+index added or dropped on a Supabase advisor's suggestion, that makes
+`db:push` fail on an index, constraint or column name. This must return no
+rows:
+
+```sql
+SELECT 'missing (migration drops it): ' || n AS problem
+FROM unnest(ARRAY['products_tenant_id_idx','tenant_users_tenant_id_idx','inventory_movements_one_initial_per_product_idx']) AS n
+WHERE to_regclass('public.' || quote_ident(n)) IS NULL
+UNION ALL
+SELECT 'name already used (migration creates it): ' || n
+FROM unnest(ARRAY['inventory_movements_user_id_idx','refunds_user_id_idx','sale_lines_product_id_tenant_id_idx','sales_voided_by_user_id_idx','tenant_invitations_created_by_user_id_idx','tenants_created_by_user_id_idx','products_category_id_tenant_id_idx','categories_id_tenant_id_unique']) AS n
+WHERE to_regclass('public.' || quote_ident(n)) IS NOT NULL
+UNION ALL
+SELECT 'missing constraint (migration drops it): inventory_movements.' || n
+FROM unnest(ARRAY['inventory_movements_delta_nonzero_check','inventory_movements_sign_discipline_check']) AS n
+WHERE NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.inventory_movements'::regclass AND conname = n)
+UNION ALL
+SELECT 'constraint name already used: ' || c.conrelid::regclass || '.' || c.conname
+FROM pg_constraint c JOIN (VALUES
+  ('products','products_name_not_blank_check'),('products','products_category_not_blank_check'),
+  ('products','products_name_length_check'),('products','products_category_length_check'),
+  ('products','products_category_id_tenant_id_categories_id_tenant_id_fk'),
+  ('sale_lines','sale_lines_product_name_not_blank_check'),('sale_lines','sale_lines_category_not_blank_check'),
+  ('sale_lines','sale_lines_discount_within_gross_check'),('sale_lines','sale_lines_total_coherence_check'),
+  ('categories','categories_id_tenant_id_unique')
+) AS v(tbl, n) ON c.conrelid = ('public.' || v.tbl)::regclass AND c.conname = v.n
+UNION ALL
+SELECT 'column already exists: products.' || attname FROM pg_attribute
+WHERE attrelid = 'public.products'::regclass AND attname IN ('field_updated_at','category_id') AND NOT attisdropped;
+```
+
+If it reports a name taken by an index with the same definition, drop that
+index before `db:push`: the migration creates it again. For any other row,
+stop and compare with the migration before pushing.
 
 Then see what the category SQL of step 3 will do to the categories. It links
 every product to the category of its name and creates the ones that are
@@ -202,6 +241,32 @@ None of these blocks the release:
    `db:push` applies only the other two. An environment still on v0.7.0 also
    gets `20260814135608_glorious_agent_zero.sql`, the `categories` table.
 
+   From this push on, a device still on v0.8.0 cannot save a product name
+   longer than 120 characters (see
+   [What users may notice](#what-users-may-notice)).
+
+   The first migration holds an exclusive lock on `products`, `sale_lines`,
+   `inventory_movements` and `tenant_users` until it commits. Every RLS
+   policy reads `tenant_users`, so the whole app waits while it runs (0.4 s
+   on a rehearsal copy). The Supabase CLI does not seem to set a
+   `lock_timeout` for migration files, so if a long transaction holds one of
+   those tables, the push waits for it and every query queues behind the
+   push. So push at a quiet hour, and first check that this returns no rows:
+
+   ```sql
+   SELECT pid, state, now() - xact_start AS open_for, left(query, 80)
+   FROM pg_stat_activity
+   WHERE backend_type = 'client backend'
+     AND xact_start < now() - interval '5 seconds'
+     AND pid <> pg_backend_pid();
+   ```
+
+   If the push hangs, find its backend in `pg_stat_activity`
+   (`wait_event_type = 'Lock'`) and cancel it from the SQL editor with
+   `SELECT pg_cancel_backend(<pid>);`. Stopping the CLI alone may leave the
+   wait in place on the server. The migration rolls back; run `pnpm db:push`
+   again.
+
 2. v0.8.0 shipped these three files, so an environment on v0.8.0 already
    has them and skips this item. An environment still on v0.7.0 runs them
    right after `db:push`, in this order. They only touch the `categories`
@@ -263,6 +328,11 @@ stops syncing at once. The streams select whole rows, so
 
 - Confirm that `tenant_users` is in the `powersync` publication (the query is
   under [PowerSync setup](../README.md#powersync-setup)). It already had to be.
+- Every stream query changes, so PowerSync most likely rebuilds every stream,
+  and each device then downloads everything it syncs again: sales, refunds
+  and stock history included, not just the products of step 3. Deploy at a
+  quiet hour, and on staging note how long a device with a long sales
+  history takes.
 - If **Validate** rejects the membership subquery (`AND … IN (SELECT …)`),
   the streams already deployed stay in place. Fix the file and validate again
   before going on to step 5. The syntax follows the PowerSync Sync Streams
@@ -309,10 +379,22 @@ the `NULL` results of file 1 below. On a device still running the old build,
 a refund that loses to a void from another device fails its upload with a
 generic error once file 1 is in place, leaves no failure to discard, and
 every later upload from that device (sales included) stays pending behind it:
-the sync pill shows pending operations, not a failure. Nothing is lost, and
-reopening the app on the new build reverts the refund and sends the rest. So
-get as many devices as you can onto the new build before file 1; you do not
-have to wait for every one.
+the sync pill shows pending operations, not a failure. Reopening the app on
+the new build reverts the refund and sends the rest.
+
+The same goes for a device whose clock runs more than 5 minutes ahead. After
+file 1 (and file 3, for product edits), the old build's uploads from it fail
+with a retryable error and no failure, until real time reaches the time they
+were recorded with. That build's sync pill never shows "Hora adelantada",
+only pending operations.
+
+While an old build's uploads wait this way, with no failure, its **Ajustes →
+Cerrar sesión** does not stop the user: it signs out and deletes the waiting
+uploads, sales included. (**Más → Cerrar sesión** waits for them.) So get as
+many devices as you can onto the new build before file 1; you do not have to
+wait for every one. Tell vendors that if the app still shows pending
+operations, they should reopen it online to update it, never sign out from
+Ajustes, and correct the device's clock if it is wrong.
 
 Then run these files in the project's SQL editor, in this order. Each one is
 idempotent. To re-run one, run every later one after it as well: an older
@@ -514,7 +596,16 @@ Right After Signing In** on installed production PWAs as well.
   error, and every later upload from that device, sales included, stays
   pending on it behind that refund, with no failure to discard. Reopening the
   app on the new build reverts the refund and sends the rest. A void that
-  loses to a refund is reverted at the next sync. Nothing is lost.
+  loses to a refund is reverted at the next sync. Nothing is lost unless the
+  user signs out from **Ajustes** on the old build while uploads wait, which
+  deletes them (see step 6).
+- A device still on v0.8.0 that saves a product name longer than 120
+  characters (v0.8.0 sets no limit; this release's editor stops at 120)
+  fails that upload with `23514` once step 3's migrations are in. Its sync
+  pill shows an error, and every later upload from it, sales included, waits
+  behind that one. v0.8.0 cannot discard it: update the app, then use
+  **Descartar operación** in Diagnostics and enter the product again with a
+  shorter name.
 - Signing out now signs out only the current device.
 - The screens are reorganized, and work on tablets and desktops instead of
   showing a framed phone:
@@ -541,7 +632,9 @@ Right After Signing In** on installed production PWAs as well.
   in the category, on every device, offline ones included; sales keep the
   category they were sold under.
 - When step 3's category SQL runs, every device downloads all its products
-  again at its next sync, which may take a moment on a slow connection.
+  again at its next sync, which may take a moment on a slow connection. The
+  streams of step 4 most likely make it download everything it syncs once
+  more, sales history included.
   Products filed under "Todos" move to "Sin categoría", and products whose
   category name is over 40 characters (v0.8.0 created no category for them)
   get one named with its first 40. Products filed under v0.7.0's old names
@@ -575,7 +668,9 @@ Right After Signing In** on installed production PWAs as well.
 - A device whose clock runs more than 5 minutes ahead no longer uploads
   future-dated sales. Its sync pill reads "Hora adelantada" and its uploads
   wait until real time reaches the time they were recorded with; correcting
-  the clock only helps what is recorded afterwards.
+  the clock only helps what is recorded afterwards. On a device still on
+  v0.8.0 the pill shows no error, only pending operations, and a sign-out
+  from **Ajustes** deletes them (see step 6).
 - A product edited offline on two devices keeps, for each field, the change
   made last. Before, the upload that arrived last overwrote every field it
   carried.
