@@ -9,6 +9,33 @@ repeat the same steps on **production** (`glitter-finance`).
 Once every environment has had these steps, keep what still applies in the
 README and empty this file for the release after.
 
+## Rollout status
+
+**Production** got v0.9.0 on 2026-10-10, without staging first. Done:
+Vercel variables, the database pre-checks and drift check, `db:push` (all
+four migrations), the category SQL before the deploy, the Sync Streams, the
+app deploy, the six files of step 6, and step 7's marker and RLS queries.
+Still to do there:
+
+- [ ] Step 7's grant checks (expect `true`, `false`, `true`):
+
+  ```sql
+  SELECT
+    has_table_privilege('authenticated', 'public.categories', 'INSERT'),
+    has_function_privilege('anon', 'public.powersync_create_sale(jsonb,jsonb)', 'EXECUTE'),
+    has_function_privilege('authenticated', 'public.powersync_create_sale(jsonb,jsonb)', 'EXECUTE');
+  ```
+
+- [ ] Step 7's connection pooler check.
+- [ ] Step 8: minimum password length 8 and leaked-password protection, the
+      two email templates, and the Site URL.
+- [ ] Step 9: headers, Sentry, the installed PWA, product photos and icons.
+
+**Staging** was skipped for this release, so it may lack any of these steps.
+Every Preview deployment talks to it and fails on `/` while it lacks the new
+columns, so run steps 1 to 9 there, starting with step 2's check for the
+draft migrations, before using a preview.
+
 ## What changes for operators
 
 | Area                  | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
