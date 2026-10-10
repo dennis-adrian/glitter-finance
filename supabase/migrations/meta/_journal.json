@@ -99,6 +99,13 @@
       "when": 1791599054011,
       "tag": "20261010022414_product_category_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791634633186,
+      "tag": "20261010121713_product_name_240_chars",
+      "breakpoints": true
     }
   ]
 }
