@@ -367,14 +367,37 @@ function creditedSeller(sale: Sale) {
     : { userId: sale.userId, userName: sale.userName };
 }
 
+export type PaymentMethodTotal = {
+  paymentMethod: PaymentMethod;
+  label: string;
+  total: number;
+};
+
+export type UserTotal = {
+  userId: string;
+  userName: string;
+  transactionCount: number;
+  total: number;
+  /**
+   * The seller's net per payment method: every method, in paymentLabels
+   * order, 0 when they took none. Adds up to `total`.
+   */
+  paymentTotals: PaymentMethodTotal[];
+};
+
 /**
  * Each seller's net: their sales less the refunds of those sales, whoever
  * recorded the refunds, so the rows add up to the net revenue. A seller's
  * transactionCount is the sales they made in the set, refunded later or not,
  * like SalesMetrics.transactionCount; a set that holds the refund of an
  * earlier sale can show its seller with a negative total and no sales.
+ *
+ * paymentTotals splits that net by payment method. A refund record repeats
+ * the payment method of the sale it returns, so it comes off the same method,
+ * and each method's amounts across sellers add up to that method in
+ * computePaymentTotals.
  */
-export function computeUserTotals(sales: Sale[]) {
+export function computeUserTotals(sales: Sale[]): UserTotal[] {
   const totals = new Map<
     string,
     {
@@ -382,27 +405,42 @@ export function computeUserTotals(sales: Sale[]) {
       userName: string;
       transactionCount: number;
       total: number;
+      byMethod: Map<PaymentMethod, number>;
     }
   >();
 
   for (const sale of accountableSales(sales)) {
     const seller = creditedSeller(sale);
-    const current = totals.get(seller.userId) ?? {
-      ...seller,
-      transactionCount: 0,
-      total: 0,
-    };
+    let current = totals.get(seller.userId);
+    if (!current) {
+      current = {
+        ...seller,
+        transactionCount: 0,
+        total: 0,
+        byMethod: new Map(),
+      };
+      totals.set(seller.userId, current);
+    }
 
-    totals.set(seller.userId, {
-      userId: seller.userId,
-      userName: current.userName,
-      transactionCount:
-        current.transactionCount + (sale.refundOfSaleId ? 0 : 1),
-      total: current.total + saleNetCents(sale),
-    });
+    const net = saleNetCents(sale);
+    current.transactionCount += sale.refundOfSaleId ? 0 : 1;
+    current.total += net;
+    current.byMethod.set(
+      sale.paymentMethod,
+      (current.byMethod.get(sale.paymentMethod) ?? 0) + net
+    );
   }
 
+  const methods = Object.keys(paymentLabels) as PaymentMethod[];
   return [...totals.values()]
     .filter((item) => item.transactionCount > 0 || item.total !== 0)
-    .sort((a, b) => b.total - a.total);
+    .sort((a, b) => b.total - a.total)
+    .map(({ byMethod, ...item }) => ({
+      ...item,
+      paymentTotals: methods.map((paymentMethod) => ({
+        paymentMethod,
+        label: paymentLabels[paymentMethod],
+        total: byMethod.get(paymentMethod) ?? 0,
+      })),
+    }));
 }

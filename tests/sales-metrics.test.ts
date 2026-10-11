@@ -80,6 +80,14 @@ const refund: Sale = {
 };
 const sales = [mixed, qr, voided, refund];
 
+/** A seller's paymentTotals, Efectivo then QR. */
+function byMethod(cash: number, qrTransfer: number) {
+  return [
+    { paymentMethod: "cash", label: "Efectivo", total: cash },
+    { paymentMethod: "qr_transfer", label: "QR", total: qrTransfer },
+  ];
+}
+
 test("a sale's net and profit take both discounts and the known costs", () => {
   assert.equal(saleNetCents(mixed), 4000);
   assert.equal(saleProfitCents(mixed), 3400);
@@ -143,10 +151,23 @@ test("report breakdowns net refunds against their sales", () => {
     { productId: "sticker", productName: "Sticker", quantity: 2, total: 1674 },
     { productId: "print", productName: "Print", quantity: 1, total: 2326 },
   ]);
-  // The refund Ana recorded nets against Bea, who made the sale.
+  // The refund Ana recorded nets against Bea, who made the sale, and
+  // against QR, the method Bea's sale was paid with.
   assert.deepEqual(computeUserTotals(sales), [
-    { userId: "ana", userName: "Ana", transactionCount: 1, total: 4000 },
-    { userId: "bea", userName: "Bea", transactionCount: 1, total: 0 },
+    {
+      userId: "ana",
+      userName: "Ana",
+      transactionCount: 1,
+      total: 4000,
+      paymentTotals: byMethod(4000, 0),
+    },
+    {
+      userId: "bea",
+      userName: "Bea",
+      transactionCount: 1,
+      total: 0,
+      paymentTotals: byMethod(0, 0),
+    },
   ]);
 });
 
@@ -158,8 +179,20 @@ test("the seller breakdown nets a refund against whoever made the sale", () => {
     refundOfSaleId: "earlier",
   };
   assert.deepEqual(computeUserTotals([mixed, earlierRefund]), [
-    { userId: "ana", userName: "Ana", transactionCount: 1, total: 4000 },
-    { userId: "bea", userName: "Bea", transactionCount: 0, total: -1000 },
+    {
+      userId: "ana",
+      userName: "Ana",
+      transactionCount: 1,
+      total: 4000,
+      paymentTotals: byMethod(4000, 0),
+    },
+    {
+      userId: "bea",
+      userName: "Bea",
+      transactionCount: 0,
+      total: -1000,
+      paymentTotals: byMethod(0, -1000),
+    },
   ]);
 
   // A refund record that does not name the seller counts for whoever
@@ -170,8 +203,41 @@ test("the seller breakdown nets a refund against whoever made the sale", () => {
     refundOfSaleUserName: undefined,
   };
   assert.deepEqual(computeUserTotals([unattributed]), [
-    { userId: "ana", userName: "Ana", transactionCount: 0, total: -1000 },
+    {
+      userId: "ana",
+      userName: "Ana",
+      transactionCount: 0,
+      total: -1000,
+      paymentTotals: byMethod(0, -1000),
+    },
   ]);
+});
+
+test("the seller breakdown splits each seller's net by payment method", () => {
+  const anaQr = sale({
+    id: "s5",
+    paymentMethod: "qr_transfer",
+    lines: [line("print", 1, 2500, null)],
+  });
+  // Ana took both methods; Bea's QR sale and its refund cancel out on QR.
+  assert.deepEqual(computeUserTotals([mixed, anaQr, qr, voided, refund]), [
+    {
+      userId: "ana",
+      userName: "Ana",
+      transactionCount: 2,
+      total: 6500,
+      paymentTotals: byMethod(4000, 2500),
+    },
+    {
+      userId: "bea",
+      userName: "Bea",
+      transactionCount: 1,
+      total: 0,
+      paymentTotals: byMethod(0, 0),
+    },
+  ]);
+  // A voided sale takes nothing, not even a 0 Bs row of its own.
+  assert.deepEqual(computeUserTotals([voided]), []);
 });
 
 test("a proportional split adds up exactly, extra cents to the largest remainders", () => {
@@ -236,8 +302,11 @@ test("category, product and payment breakdowns add up to the net revenue", () =>
       });
     if (!lines.length) continue;
     const subtotal = lines.reduce((sum, item) => sum + item.lineTotalCents, 0);
+    const seller = ["ana", "bea", "ceci"][index % 3];
     const original = sale({
       id: `g${index}`,
+      userId: seller,
+      userName: seller,
       paymentMethod: next(2) ? "cash" : "qr_transfer",
       saleDiscountCents: next(subtotal + 1),
       status: next(10) === 0 ? "voided" : "completed",
@@ -262,7 +331,25 @@ test("category, product and payment breakdowns add up to the net revenue", () =>
   assert.equal(sum(computeCategoryTotals(generated)), netRevenueCents);
   assert.equal(sum(computeProductTotals(generated)), netRevenueCents);
   assert.equal(sum(computePaymentTotals(generated)), netRevenueCents);
-  assert.equal(sum(computeUserTotals(generated)), netRevenueCents);
+  const userTotals = computeUserTotals(generated);
+  assert.equal(sum(userTotals), netRevenueCents);
+
+  // Each seller's split adds up to their net, and each method's amounts
+  // across sellers add up to that method in the payment breakdown.
+  for (const user of userTotals) {
+    assert.equal(sum(user.paymentTotals), user.total);
+  }
+  const paymentTotals = computePaymentTotals(generated);
+  for (const label of ["Efectivo", "QR"]) {
+    assert.equal(
+      sum(
+        userTotals.flatMap((user) =>
+          user.paymentTotals.filter((payment) => payment.label === label)
+        )
+      ),
+      paymentTotals.find((payment) => payment.label === label)?.total ?? 0
+    );
+  }
 });
 
 test("a range with only the refund of an earlier sale shows negative rows", () => {

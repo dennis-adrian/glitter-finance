@@ -64,13 +64,17 @@ type ReportsScreenProps = {
   salesHistoryStart: number | null;
 };
 
-function ReportList({
-  rows,
-  empty,
-}: {
-  rows: { key: string; title: string; subtitle: string; value: string }[];
-  empty: string;
-}) {
+type ReportListRow = {
+  key: string;
+  title: string;
+  subtitle: string;
+  value: string;
+  /** Parts of `value` listed under the row, e.g. per payment method. */
+  breakdown?: { key: string; label: string; value: string }[];
+  breakdownLabel?: string;
+};
+
+function ReportList({ rows, empty }: { rows: ReportListRow[]; empty: string }) {
   if (!rows.length) {
     return <p className="text-sm text-muted-foreground">{empty}</p>;
   }
@@ -79,15 +83,37 @@ function ReportList({
       {rows.map((row) => (
         <div
           key={row.key}
-          className="flex min-h-12 items-center justify-between gap-3.5 border-b border-border py-2 last:border-b-0"
+          className="border-b border-border py-2 last:border-b-0"
         >
-          <span>
-            <strong className="block text-sm font-semibold">{row.title}</strong>
-            <small className="block text-xs text-muted-foreground">
-              {row.subtitle}
-            </small>
-          </span>
-          <b className="whitespace-nowrap tabular-nums">{row.value}</b>
+          <div className="flex min-h-8 items-center justify-between gap-3.5">
+            <span>
+              <strong className="block text-sm font-semibold">
+                {row.title}
+              </strong>
+              <small className="block text-xs text-muted-foreground">
+                {row.subtitle}
+              </small>
+            </span>
+            <b className="whitespace-nowrap tabular-nums">{row.value}</b>
+          </div>
+          {row.breakdown?.length ? (
+            <dl
+              aria-label={row.breakdownLabel}
+              className="mt-1.5 grid gap-0.5 text-xs text-muted-foreground"
+            >
+              {row.breakdown.map((part) => (
+                <div
+                  key={part.key}
+                  className="flex items-center justify-between gap-3.5"
+                >
+                  <dt>{part.label}</dt>
+                  <dd className="whitespace-nowrap tabular-nums">
+                    {part.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
         </div>
       ))}
     </div>
@@ -354,8 +380,9 @@ export function ReportsScreen({
         <section className="rounded-3xl bg-card p-5 ring-1 ring-foreground/10">
           <h2 className="mb-1.5 text-base font-bold">Por vendedor</h2>
           <p className="mb-2.5 text-sm text-muted-foreground">
-            Ingreso neto de las ventas de cada vendedor. Un reembolso se le
-            resta a quien hizo la venta, aunque lo haya registrado otra persona.
+            Ingreso neto de las ventas de cada vendedor, por método de pago. Un
+            reembolso se le resta a quien hizo la venta, en el método con que se
+            cobró, aunque lo haya registrado otra persona.
           </p>
           <ReportList
             empty="Todavía no hay vendedores con ventas en este período."
@@ -364,6 +391,12 @@ export function ReportsScreen({
               title: item.userName,
               subtitle: countLabel(item.transactionCount, "venta", "ventas"),
               value: formatBs(item.total, true),
+              breakdownLabel: `Ingreso neto de ${item.userName} por método de pago`,
+              breakdown: item.paymentTotals.map((payment) => ({
+                key: payment.paymentMethod,
+                label: payment.label,
+                value: formatBs(payment.total, true),
+              })),
             }))}
           />
         </section>
