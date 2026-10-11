@@ -241,6 +241,10 @@ vertical space for content.
 - **Ventas (lg+):** list column (480px, 544px at `xl`) plus the sale detail in
   a pane; the pane closes with an X. Below `lg`, opening a sale replaces the
   list.
+- **Ventas de un vendedor (lg+):** opened from a **Reportes › Por vendedor**
+  row (the whole row, marked with a chevron); the same list column and sale
+  pane as Ventas, with the seller's net and Efectivo/QR above the list. The
+  list's back returns to Reportes even while a sale's pane is open.
 - **Catálogo (lg+):** a table instead of cards.
 - **Checkout (lg+):** order summary beside the payment options.
 - **Product editor (md+):** image column beside the fields.
@@ -263,6 +267,7 @@ history API.
 | `#/catalogo/nuevo`, `/<id>`                   | New product, edit product          |
 | `#/catalogo/categorias`                       | Categories                         |
 | `#/reportes`                                  | Reports                            |
+| `#/reportes/vendedor/<userId>`, `/<saleId>`   | A seller's sales, sale detail      |
 | `#/mas`, `#/ajustes`, `#/ajustes/diagnostico` | Más, settings, diagnostics         |
 
 In-app back buttons call `back(fallback)`: they pop history when the previous
@@ -367,7 +372,8 @@ The Vender tile (`components/molecules/product-tile.tsx`):
   so selection isn't color-only, and `aria-current="page"`. Inactive items use
   supporting text.
 - Sub-screens keep their section active (Ajustes and Diagnósticos keep
-  **Más** active; sale detail keeps **Ventas** active).
+  **Más** active; sale detail keeps **Ventas** active; a seller's sales and
+  their sale detail keep **Reportes** active).
 - Figma: four destinations (Reportes under Más), about 55px plus the safe
   area, 24px icons, SemiBold 13px labels.
 

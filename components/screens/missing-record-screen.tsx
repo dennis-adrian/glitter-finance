@@ -4,13 +4,19 @@ import { ScreenHeader } from "@/components/molecules/screen-header";
 import { Screen } from "@/components/templates/screen";
 
 type MissingRecordScreenProps = {
+  /** The header's title. */
+  heading?: string;
   title: string;
   body: string;
   back: () => void;
 };
 
-/** Shown when a deep link points at a sale or product this device lacks. */
+/**
+ * Shown when a deep link points at a sale, product or seller this device
+ * lacks.
+ */
 export function MissingRecordScreen({
+  heading = "Detalle",
   title,
   body,
   back,
@@ -18,7 +24,7 @@ export function MissingRecordScreen({
   return (
     <Screen
       width="narrow"
-      header={<ScreenHeader title="Detalle" onBack={back} />}
+      header={<ScreenHeader title={heading} onBack={back} />}
     >
       <EmptyState icon={<SearchX size={46} />} title={title} body={body} />
     </Screen>

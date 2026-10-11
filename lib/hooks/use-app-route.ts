@@ -76,7 +76,7 @@ export function navigateTo(
   window.dispatchEvent(new Event(NAVIGATE_EVENT));
 }
 
-function traverseBack() {
+function traverseBack(steps = 1) {
   if (appTraversalPending) return;
   appTraversalPending = true;
   backGuard = null;
@@ -90,17 +90,26 @@ function traverseBack() {
   };
   window.addEventListener("popstate", done);
   window.addEventListener("pageshow", done);
-  window.history.back();
+  if (steps === 1) {
+    window.history.back();
+  } else {
+    window.history.go(-steps);
+  }
 }
 
 /**
- * Go back one entry when it belongs to this app; otherwise (deep link or
- * fresh reload) replace the current entry with the given parent screen so
- * the back button never leaves the app unexpectedly.
+ * Go back one entry (or `steps`) when it belongs to this app; otherwise
+ * (deep link or fresh reload) replace the current entry with the given
+ * parent screen so the back button never leaves the app unexpectedly.
+ * Two steps leave a list with its open detail entry on top, e.g. a seller's
+ * list beside a sale's pane.
  */
-export function goBack(fallback: AppRoute) {
-  if (currentDepth() > 0) {
-    traverseBack();
+export function goBack(
+  fallback: AppRoute,
+  { steps = 1 }: { steps?: number } = {}
+) {
+  if (currentDepth() >= steps) {
+    traverseBack(steps);
   } else {
     navigateTo(fallback, { replace: true });
   }

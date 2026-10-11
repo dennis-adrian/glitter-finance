@@ -458,11 +458,30 @@ test("both loaders net a refund against the seller of the refunded sale", async 
     );
     // Ana's sale and its refund cancel out; Beto sold nothing.
     assert.deepEqual(computeUserTotals(loaded), [
-      { userId: USER_ID, userName: "Ana", transactionCount: 1, total: 0 },
+      {
+        userId: USER_ID,
+        userName: "Ana",
+        transactionCount: 1,
+        total: 0,
+        paymentTotals: [
+          { paymentMethod: "cash", label: "Efectivo", total: 0 },
+          { paymentMethod: "qr_transfer", label: "QR", total: 0 },
+        ],
+      },
     ]);
-    // A range that holds only the refund takes it off Ana too.
+    // A range that holds only the refund takes it off Ana too, from QR, the
+    // method her sale was paid with.
     assert.deepEqual(computeUserTotals([refundRecord!]), [
-      { userId: USER_ID, userName: "Ana", transactionCount: 0, total: -3800 },
+      {
+        userId: USER_ID,
+        userName: "Ana",
+        transactionCount: 0,
+        total: -3800,
+        paymentTotals: [
+          { paymentMethod: "cash", label: "Efectivo", total: 0 },
+          { paymentMethod: "qr_transfer", label: "QR", total: -3800 },
+        ],
+      },
     ]);
   }
 });
