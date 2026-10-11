@@ -279,11 +279,13 @@ test("a sale's lines share its sale discount and add up to its net", () => {
 
 test("category, product and payment breakdowns add up to the net revenue", () => {
   // A small deterministic generator, so the case is the same on every run.
+  // Park–Miller: seed × 48 271 stays below 2^53, so the arithmetic is exact.
   let seed = 7;
   const next = (max: number) => {
-    seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+    seed = (seed * 48_271) % 2_147_483_647;
     return seed % max;
   };
+  const sellers = ["ana", "bea", "ceci"];
   const productIds = ["sticker", "print", "mug", "pin"];
   const generated: Sale[] = [];
   for (let index = 0; index < 60; index += 1) {
@@ -302,7 +304,7 @@ test("category, product and payment breakdowns add up to the net revenue", () =>
       });
     if (!lines.length) continue;
     const subtotal = lines.reduce((sum, item) => sum + item.lineTotalCents, 0);
-    const seller = ["ana", "bea", "ceci"][index % 3];
+    const seller = sellers[next(3)];
     const original = sale({
       id: `g${index}`,
       userId: seller,
@@ -314,18 +316,38 @@ test("category, product and payment breakdowns add up to the net revenue", () =>
     });
     generated.push(original);
     if (original.status === "completed" && next(4) === 0) {
+      // Recorded by any seller, as the loaders build it: naming the seller.
+      const recorder = sellers[next(3)];
       generated.push({
         ...original,
         id: `r${index}`,
+        userId: recorder,
+        userName: recorder,
         status: "refunded",
         refundOfSaleId: original.id,
+        refundOfSaleUserId: original.userId,
+        refundOfSaleUserName: original.userName,
       });
     }
   }
   // A refund whose sale is outside the set.
   generated.push({ ...qr, id: "r-early", refundOfSaleId: "earlier" });
 
+  // The set holds what the checks below need.
+  assert.deepEqual(
+    new Set(generated.map((item) => item.paymentMethod)),
+    new Set(["cash", "qr_transfer"])
+  );
+  assert.ok(generated.some((item) => item.status === "voided"));
+  assert.ok(
+    generated.some(
+      (item) =>
+        item.refundOfSaleUserId && item.refundOfSaleUserId !== item.userId
+    )
+  );
+
   const { netRevenueCents } = computeMetrics(generated);
+  assert.notEqual(netRevenueCents, 0);
   const sum = (items: { total: number }[]) =>
     items.reduce((total, item) => total + item.total, 0);
   assert.equal(sum(computeCategoryTotals(generated)), netRevenueCents);
