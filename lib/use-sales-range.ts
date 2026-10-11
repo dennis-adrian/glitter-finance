@@ -102,13 +102,18 @@ export function salesRangeKey({
   return range === "custom" ? `custom:${customStart}:${customEnd}` : range;
 }
 
-/** The page's length on `rangeKey`: the first page again once it changed. */
-export function listPageLength(page: ListPage, rangeKey: string) {
-  return page.rangeKey === rangeKey ? page.length : SALES_PAGE_SIZE;
+/** The page on `rangeKey`: the same one, or the first again once it changed. */
+export function syncListPage(page: ListPage, rangeKey: string): ListPage {
+  return page.rangeKey === rangeKey
+    ? page
+    : { rangeKey, length: SALES_PAGE_SIZE };
 }
 
 export function nextListPage(page: ListPage, rangeKey: string): ListPage {
-  return { rangeKey, length: listPageLength(page, rangeKey) + SALES_PAGE_SIZE };
+  return {
+    rangeKey,
+    length: syncListPage(page, rangeKey).length + SALES_PAGE_SIZE,
+  };
 }
 
 /**
@@ -120,11 +125,15 @@ export function useListPage(rangeKey: string) {
     rangeKey,
     length: SALES_PAGE_SIZE,
   });
+  // Stored as soon as the range changes, so going back to an earlier range
+  // starts at its first page too, as the Sales list does.
+  const current = syncListPage(page, rangeKey);
+  if (current !== page) setPage(current);
   const showMore = useCallback(
-    () => setPage((current) => nextListPage(current, rangeKey)),
+    () => setPage((latest) => nextListPage(latest, rangeKey)),
     [rangeKey]
   );
-  return { length: listPageLength(page, rangeKey), showMore };
+  return { length: current.length, showMore };
 }
 
 /**

@@ -1793,7 +1793,13 @@ export function GlitterPosApp({
         seller={{
           userId: sellerId,
           name: sellerName ?? "Vendedor",
-          back: () => back({ view: "reports" }),
+          // On desktop the list's back stays beside an open sale's pane: it
+          // leaves the sale's entry too, as the pane's X alone would not.
+          back: () =>
+            back(
+              { view: "reports" },
+              { steps: view === "sellerSaleDetail" ? 2 : 1 }
+            ),
         }}
         selectedSaleId={view === "sellerSaleDetail" ? (route.id ?? null) : null}
         openSale={(saleId) =>

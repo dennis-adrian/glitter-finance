@@ -243,7 +243,8 @@ vertical space for content.
   list.
 - **Ventas de un vendedor (lg+):** opened from a **Reportes › Por vendedor**
   row (the whole row, marked with a chevron); the same list column and sale
-  pane as Ventas, with the seller's net and Efectivo/QR above the list.
+  pane as Ventas, with the seller's net and Efectivo/QR above the list. The
+  list's back returns to Reportes even while a sale's pane is open.
 - **Catálogo (lg+):** a table instead of cards.
 - **Checkout (lg+):** order summary beside the payment options.
 - **Product editor (md+):** image column beside the fields.

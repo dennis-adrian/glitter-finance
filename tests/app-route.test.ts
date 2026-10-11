@@ -33,6 +33,9 @@ class FakeWindow extends EventTarget {
     back: () => {
       setTimeout(() => this.traverse(-1));
     },
+    go: (delta: number) => {
+      setTimeout(() => this.traverse(delta));
+    },
   };
 
   constructor() {
@@ -235,5 +238,34 @@ test(
     goBack({ view: "reports" });
     await nextTask();
     assert.equal(win.location.hash, "#/reportes");
+  })
+);
+
+test(
+  "the seller list's back beside an open sale leaves both, to Reports",
+  withWindow(async (win) => {
+    navigateTo({ view: "reports" });
+    navigateTo({ view: "sellerSales", sellerId: "u1" });
+    navigateTo({ view: "sellerSaleDetail", sellerId: "u1", id: "s1" });
+
+    goBack({ view: "reports" }, { steps: 2 });
+    await nextTask();
+    assert.equal(win.location.hash, "#/reportes");
+    assert.equal(win.index, 1);
+
+    // From a deep-linked seller list, there are not two entries to leave:
+    // the sale's entry becomes Reports.
+    win.entries.splice(0, win.entries.length, {
+      state: null,
+      url: "/#/reportes/vendedor/u1",
+    });
+    win.index = 0;
+    navigateTo({ view: "sellerSaleDetail", sellerId: "u1", id: "s1" });
+    goBack({ view: "reports" }, { steps: 2 });
+    assert.equal(win.location.hash, "#/reportes");
+    assert.deepEqual(
+      win.entries.map((entry) => entry.url),
+      ["/#/reportes/vendedor/u1", "/#/reportes"]
+    );
   })
 );
