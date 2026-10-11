@@ -23,11 +23,22 @@ import {
 import { formatBs } from "@/lib/money";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/hooks/use-media-query";
 import { countLabel } from "@/lib/plural";
-import { computeMetrics, indexSales } from "@/lib/sales";
+import {
+  computeMetrics,
+  computeSellerTotal,
+  indexSales,
+  salesCreditedTo,
+  type UserTotal,
+} from "@/lib/sales";
 import type { ScrollMemory } from "@/lib/scroll-memory";
 import type { Sale } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
-import { useSalesInRange, type SalesRangeState } from "@/lib/use-sales-range";
+import {
+  salesRangeKey,
+  useListPage,
+  useSalesInRange,
+  type SalesRangeState,
+} from "@/lib/use-sales-range";
 import { cn } from "@/lib/utils";
 import {
   canRefundSale,
@@ -41,12 +52,19 @@ import {
   groupSalesByDay,
 } from "@/components/screens/sales-screen.helpers";
 
+export type SalesScreenSeller = {
+  userId: string;
+  /** The title when the range has no row for them; else the row's name. */
+  name: string;
+  back: () => void;
+};
+
 type SalesScreenProps = {
   sales: Sale[];
   /**
-   * The range, shared with Reports, and the list's page. GlitterPosApp keeps
-   * them, and `scrollMemory`, while Sales is closed, so coming back returns
-   * to the same rows at the same position.
+   * The range, shared with Reports and a seller's sales, and the Sales
+   * list's page. GlitterPosApp keeps them, and `scrollMemory`, while Sales
+   * is closed, so coming back returns to the same rows at the same position.
    */
   rangeState: SalesRangeState;
   scrollMemory: ScrollMemory;
@@ -56,7 +74,65 @@ type SalesScreenProps = {
   closeSale: () => void;
   voidSale: (saleId: string) => Promise<boolean>;
   refundSale: (saleId: string, reason?: string) => Promise<boolean>;
+  /**
+   * Set on a seller's sales (Reportes › Por vendedor): only the records that
+   * seller's row counts, on their own page, with a back button and the
+   * seller's card instead of Ingresos. Absent on Ventas.
+   */
+  seller?: SalesScreenSeller;
 };
+
+/**
+ * A seller's figures for the range: their Por vendedor row, in the same
+ * words, with the refunds and voided sales the list shows.
+ */
+function SellerIncomeCard({
+  total,
+  refundCount,
+  voidedCount,
+}: {
+  total: UserTotal;
+  refundCount: number;
+  voidedCount: number;
+}) {
+  return (
+    <section className="mb-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+      <h2 className="text-sm text-muted-foreground">Ingreso neto</h2>
+      <strong className="mt-1 block text-3xl font-bold text-primary tabular-nums">
+        {formatBs(total.total, true)}
+      </strong>
+      <dl
+        aria-label={`Ingreso neto de ${total.userName} por método de pago`}
+        className="mt-3 grid grid-cols-2 divide-x divide-border"
+      >
+        {total.paymentTotals.map((payment, index) => (
+          <div
+            key={payment.paymentMethod}
+            className={cn("min-w-0", index === 0 ? "pr-3" : "pl-3")}
+          >
+            <dt className="text-sm text-muted-foreground">{payment.label}</dt>
+            <dd className="mt-1 text-xl font-bold tabular-nums">
+              {formatBs(payment.total, true)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-2 text-sm text-muted-foreground">
+        {countLabel(total.transactionCount, "venta", "ventas")}
+        {refundCount
+          ? ` · ${countLabel(refundCount, "reembolso", "reembolsos")}`
+          : ""}
+        {voidedCount
+          ? ` · ${countLabel(voidedCount, "anulada", "anuladas")}`
+          : ""}
+      </p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Incluye los reembolsos de sus ventas, aunque los haya registrado otra
+        persona.
+      </p>
+    </section>
+  );
+}
 
 function IncomeInfoDrawer() {
   return (
@@ -117,6 +193,7 @@ export function SalesScreen({
   closeSale,
   voidSale,
   refundSale,
+  seller,
 }: SalesScreenProps) {
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const listScrollRef = useRef<HTMLDivElement>(null);
@@ -129,18 +206,42 @@ export function SalesScreen({
   // Everything below is derived once per change of the sales, the range or
   // the page, not on every render or tick of `now`: the rows look sales up
   // in the index instead of scanning the whole list for each row.
+  // The index covers every sale, the seller's or not, in the range or not:
+  // the void and refund checks and "Reembolsada" look records up in it.
   const saleIndex = useMemo(() => indexSales(sales), [sales]);
-  const { error: rangeError, sales: salesInRange } = useSalesInRange(
+  const { error: rangeError, sales: rangeSales } = useSalesInRange(
     sales,
     rangeState,
     now
   );
+  const sellerId = seller?.userId ?? null;
+  const sellerName = seller?.name ?? "";
+  const salesInRange = useMemo(
+    () =>
+      sellerId === null ? rangeSales : salesCreditedTo(rangeSales, sellerId),
+    [rangeSales, sellerId]
+  );
   const metrics = useMemo(() => computeMetrics(salesInRange), [salesInRange]);
+  const sellerSummary = useMemo(
+    () =>
+      sellerId === null
+        ? null
+        : {
+            total: computeSellerTotal(salesInRange, sellerId, sellerName),
+            voidedCount: salesInRange.filter((sale) => sale.status === "voided")
+              .length,
+          },
+    [salesInRange, sellerId, sellerName]
+  );
   const dayGroups = useMemo(
     () => groupSalesByDay(salesInRange),
     [salesInRange]
   );
-  const visibleCount = rangeState.salesListLength;
+  // A seller's list pages on its own, so it never grows the Sales list.
+  const sellerPage = useListPage(salesRangeKey(rangeState));
+  const visibleCount = seller ? sellerPage.length : rangeState.salesListLength;
+  const showMore = seller ? sellerPage.showMore : rangeState.showMoreSales;
+  const title = sellerSummary ? sellerSummary.total.userName : "Ventas";
   const groups = useMemo(
     () => firstSalesByDay(dayGroups, visibleCount),
     [dayGroups, visibleCount]
@@ -204,8 +305,9 @@ export function SalesScreen({
           "min-w-0 flex-1 lg:w-[30rem] lg:flex-none lg:border-r lg:border-border xl:w-[34rem]",
           selectedSaleId && "hidden lg:flex"
         )}
-        header={<ScreenHeader title="Ventas" />}
+        header={<ScreenHeader title={title} onBack={seller?.back} />}
         scrollRef={listScrollRef}
+        aria-label={seller ? `Ventas de ${title}` : undefined}
       >
         <DateRangePicker
           range={rangeState.range}
@@ -217,32 +319,40 @@ export function SalesScreen({
           setCustomEnd={rangeState.setCustomEnd}
         />
 
-        <section className="mb-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-          <div className="mb-1 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold tracking-tight">Ingresos</h2>
-            <IncomeInfoDrawer />
-          </div>
-          <div className="grid grid-cols-2 divide-x divide-border">
-            <div className="min-w-0 pr-3">
-              <span className="text-sm text-muted-foreground">Bruto</span>
-              <strong className="mt-1 block text-xl font-bold tabular-nums">
-                {formatBs(metrics.grossCents, true)}
-              </strong>
+        {sellerSummary ? (
+          <SellerIncomeCard
+            total={sellerSummary.total}
+            refundCount={metrics.refundCount}
+            voidedCount={sellerSummary.voidedCount}
+          />
+        ) : (
+          <section className="mb-4 rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold tracking-tight">Ingresos</h2>
+              <IncomeInfoDrawer />
             </div>
-            <div className="min-w-0 pl-3">
-              <span className="text-sm text-muted-foreground">Neto</span>
-              <strong className="mt-1 block text-xl font-bold text-primary tabular-nums">
-                {formatBs(metrics.netRevenueCents, true)}
-              </strong>
+            <div className="grid grid-cols-2 divide-x divide-border">
+              <div className="min-w-0 pr-3">
+                <span className="text-sm text-muted-foreground">Bruto</span>
+                <strong className="mt-1 block text-xl font-bold tabular-nums">
+                  {formatBs(metrics.grossCents, true)}
+                </strong>
+              </div>
+              <div className="min-w-0 pl-3">
+                <span className="text-sm text-muted-foreground">Neto</span>
+                <strong className="mt-1 block text-xl font-bold text-primary tabular-nums">
+                  {formatBs(metrics.netRevenueCents, true)}
+                </strong>
+              </div>
             </div>
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {countLabel(metrics.transactionCount, "venta", "ventas")}
-            {metrics.refundCount
-              ? ` · ${countLabel(metrics.refundCount, "reembolso", "reembolsos")}`
-              : ""}
-          </p>
-        </section>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {countLabel(metrics.transactionCount, "venta", "ventas")}
+              {metrics.refundCount
+                ? ` · ${countLabel(metrics.refundCount, "reembolso", "reembolsos")}`
+                : ""}
+            </p>
+          </section>
+        )}
 
         {rangeError ? (
           <EmptyState
@@ -272,6 +382,7 @@ export function SalesScreen({
                     statusLabel={saleStatusLabel(sale, saleIndex)}
                     openSale={handleOpenSale}
                     selected={sale.id === selectedSaleId}
+                    sellerId={seller?.userId}
                     requestVoid={requestVoid}
                     requestRefund={(selectedSale) =>
                       setAction({ sale: selectedSale, type: "refund" })
@@ -286,7 +397,7 @@ export function SalesScreen({
                 type="button"
                 variant="outline"
                 size="lg"
-                onClick={rangeState.showMoreSales}
+                onClick={showMore}
               >
                 Ver más ventas
               </Button>
@@ -296,7 +407,11 @@ export function SalesScreen({
           <EmptyState
             icon={<ReceiptText size={46} />}
             title="No hay ventas en este rango"
-            body="Probá con otras fechas o registrá una venta desde Vender."
+            body={
+              seller
+                ? "Probá con otras fechas."
+                : "Probá con otras fechas o registrá una venta desde Vender."
+            }
           />
         )}
 

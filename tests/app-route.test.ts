@@ -33,6 +33,9 @@ class FakeWindow extends EventTarget {
     back: () => {
       setTimeout(() => this.traverse(-1));
     },
+    go: (delta: number) => {
+      setTimeout(() => this.traverse(delta));
+    },
   };
 
   constructor() {
@@ -188,5 +191,81 @@ test(
     goBack({ view: "sales" });
     await nextTask();
     assert.equal(win.location.hash, "#/ventas");
+  })
+);
+
+test(
+  "Back from a deep-linked seller sale walks up to the seller, then Reports, without leaving the app",
+  withWindow(async (win) => {
+    win.entries[0] = { state: null, url: "/#/reportes/vendedor/u1/s1" };
+
+    goBack({ view: "sellerSales", sellerId: "u1" });
+    assert.equal(win.location.hash, "#/reportes/vendedor/u1");
+    assert.equal(win.index, 0);
+    assert.equal(win.entries.length, 1);
+
+    goBack({ view: "reports" });
+    assert.equal(win.location.hash, "#/reportes");
+    assert.equal(win.entries.length, 1);
+  })
+);
+
+test(
+  "Reports, a seller, a sale, another sale: Back returns to the seller, then Reports",
+  withWindow(async (win) => {
+    navigateTo({ view: "reports" });
+    navigateTo({ view: "sellerSales", sellerId: "u1" });
+    navigateTo({ view: "sellerSaleDetail", sellerId: "u1", id: "s1" });
+    // Switching between sales replaces the entry.
+    navigateTo(
+      { view: "sellerSaleDetail", sellerId: "u1", id: "s2" },
+      { replace: true }
+    );
+    assert.deepEqual(
+      win.entries.map((entry) => entry.url),
+      [
+        "/",
+        "/#/reportes",
+        "/#/reportes/vendedor/u1",
+        "/#/reportes/vendedor/u1/s2",
+      ]
+    );
+
+    goBack({ view: "sellerSales", sellerId: "u1" });
+    await nextTask();
+    assert.equal(win.location.hash, "#/reportes/vendedor/u1");
+
+    goBack({ view: "reports" });
+    await nextTask();
+    assert.equal(win.location.hash, "#/reportes");
+  })
+);
+
+test(
+  "the seller list's back beside an open sale leaves both, to Reports",
+  withWindow(async (win) => {
+    navigateTo({ view: "reports" });
+    navigateTo({ view: "sellerSales", sellerId: "u1" });
+    navigateTo({ view: "sellerSaleDetail", sellerId: "u1", id: "s1" });
+
+    goBack({ view: "reports" }, { steps: 2 });
+    await nextTask();
+    assert.equal(win.location.hash, "#/reportes");
+    assert.equal(win.index, 1);
+
+    // From a deep-linked seller list, there are not two entries to leave:
+    // the sale's entry becomes Reports.
+    win.entries.splice(0, win.entries.length, {
+      state: null,
+      url: "/#/reportes/vendedor/u1",
+    });
+    win.index = 0;
+    navigateTo({ view: "sellerSaleDetail", sellerId: "u1", id: "s1" });
+    goBack({ view: "reports" }, { steps: 2 });
+    assert.equal(win.location.hash, "#/reportes");
+    assert.deepEqual(
+      win.entries.map((entry) => entry.url),
+      ["/#/reportes/vendedor/u1", "/#/reportes"]
+    );
   })
 );

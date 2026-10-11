@@ -9,12 +9,17 @@ export type View =
   | "editor"
   | "categories"
   | "reports"
+  | "sellerSales"
+  | "sellerSaleDetail"
   | "more"
   | "settings"
   | "diagnostics";
 
-/** A screen plus its optional record id (sale id, product id). */
-export type AppRoute = { view: View; id?: string };
+/**
+ * A screen, the record it shows (`id`: sale id, product id) and, on a
+ * seller's sales, whose they are (`sellerId`: their user id).
+ */
+export type AppRoute = { view: View; id?: string; sellerId?: string };
 
 /** Destinations shown in the bottom nav, rail, and sidebar. */
 export type PrimaryView = "sell" | "sales" | "products" | "reports" | "more";
@@ -34,6 +39,8 @@ export function primaryViewFor(view: View): PrimaryView {
     case "categories":
       return "products";
     case "reports":
+    case "sellerSales":
+    case "sellerSaleDetail":
       return "reports";
     case "more":
     case "settings":
@@ -58,8 +65,10 @@ export function isPrimaryView(view: View) {
 // `/`: the service worker caches one navigation entry and offline reloads of
 // any screen still resolve.
 const NEW_PRODUCT_SEGMENT = "nuevo";
-// Product ids are UUIDs, so these fixed segments can't collide with them.
+// Product and user ids are UUIDs, so these fixed segments can't collide
+// with them.
 const CATEGORIES_SEGMENT = "categorias";
+const SELLER_SEGMENT = "vendedor";
 
 export function parseRouteHash(hash: string): AppRoute {
   const segments = hash
@@ -73,7 +82,7 @@ export function parseRouteHash(hash: string): AppRoute {
         return segment;
       }
     });
-  const [head, id] = segments;
+  const [head, id, sellerId, saleId] = segments;
 
   switch (head) {
     case undefined:
@@ -93,7 +102,11 @@ export function parseRouteHash(hash: string): AppRoute {
         ? { view: "editor" }
         : { view: "editor", id };
     case "reportes":
-      return { view: "reports" };
+      // `#/reportes/vendedor/<userId>[/<saleId>]`: a seller's sales.
+      if (id !== SELLER_SEGMENT || !sellerId) return { view: "reports" };
+      return saleId
+        ? { view: "sellerSaleDetail", sellerId, id: saleId }
+        : { view: "sellerSales", sellerId };
     case "mas":
       return { view: "more" };
     case "ajustes":
@@ -129,6 +142,14 @@ export function formatRouteHash(route: AppRoute): string {
       return `#/catalogo/${CATEGORIES_SEGMENT}`;
     case "reports":
       return "#/reportes";
+    case "sellerSales":
+    case "sellerSaleDetail": {
+      if (!route.sellerId) return "#/reportes";
+      const sellerHash = `#/reportes/${SELLER_SEGMENT}/${encodeURIComponent(route.sellerId)}`;
+      return route.view === "sellerSaleDetail" && id
+        ? `${sellerHash}/${id}`
+        : sellerHash;
+    }
     case "more":
       return "#/mas";
     case "settings":

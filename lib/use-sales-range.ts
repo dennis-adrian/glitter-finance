@@ -37,9 +37,9 @@ function initialSalesRange(): SalesRangeValue {
 }
 
 /**
- * The date range Sales and Reports filter by, and how far the Sales list is
- * paged. Switching to a custom range starts it at today, and any change of
- * range takes the list back to its first page.
+ * The date range Sales, Reports and a seller's sales filter by, and how far
+ * the Sales list is paged. Switching to a custom range starts it at today,
+ * and any change of range takes the list back to its first page.
  */
 export function useSalesRangeState(): SalesRangeState {
   const [value, setValue] = useState(initialSalesRange);
@@ -88,6 +88,52 @@ export function useSalesRangeState(): SalesRangeState {
     }),
     [value, setRange, setCustomStart, setCustomEnd, showMoreSales]
   );
+}
+
+/** A list's page: how many sales it shows, for the range it was paged in. */
+export type ListPage = { rangeKey: string; length: number };
+
+/** Names the range for paging: custom dates count only on a custom range. */
+export function salesRangeKey({
+  range,
+  customStart,
+  customEnd,
+}: Pick<SalesRangeValue, "range" | "customStart" | "customEnd">) {
+  return range === "custom" ? `custom:${customStart}:${customEnd}` : range;
+}
+
+/** The page on `rangeKey`: the same one, or the first again once it changed. */
+export function syncListPage(page: ListPage, rangeKey: string): ListPage {
+  return page.rangeKey === rangeKey
+    ? page
+    : { rangeKey, length: SALES_PAGE_SIZE };
+}
+
+export function nextListPage(page: ListPage, rangeKey: string): ListPage {
+  return {
+    rangeKey,
+    length: syncListPage(page, rangeKey).length + SALES_PAGE_SIZE,
+  };
+}
+
+/**
+ * A list's own page (a seller's sales), back to the first one whenever the
+ * range changes. The Sales list's page lives in SalesRangeState instead.
+ */
+export function useListPage(rangeKey: string) {
+  const [page, setPage] = useState<ListPage>({
+    rangeKey,
+    length: SALES_PAGE_SIZE,
+  });
+  // Stored as soon as the range changes, so going back to an earlier range
+  // starts at its first page too, as the Sales list does.
+  const current = syncListPage(page, rangeKey);
+  if (current !== page) setPage(current);
+  const showMore = useCallback(
+    () => setPage((latest) => nextListPage(latest, rangeKey)),
+    [rangeKey]
+  );
+  return { length: current.length, showMore };
 }
 
 /**
