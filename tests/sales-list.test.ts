@@ -5,7 +5,12 @@ import {
   groupSalesByDay,
 } from "@/components/screens/sales-screen.helpers";
 import { filterSalesByBounds } from "@/lib/dates";
-import { computeMetrics, indexSales, sortSalesNewestFirst } from "@/lib/sales";
+import {
+  computeMetrics,
+  indexSales,
+  saleRecorderLabel,
+  sortSalesNewestFirst,
+} from "@/lib/sales";
 import type { Sale } from "@/lib/types";
 
 function sale(id: string, createdAt: string, cents = 1000): Sale {
@@ -112,4 +117,21 @@ test("the sale index finds sales and their refunds", () => {
   assert.equal(index.byId.get("t1")?.id, "t1");
   assert.equal(index.refundBySaleId.get("t1"), refund);
   assert.equal(index.refundBySaleId.has("t2"), false);
+});
+
+test("a seller's list names only who recorded a refund someone else made", () => {
+  const own = sale("own", "2026-09-27T12:00:00.000Z");
+  // Ana refunds Bea's sale: on Bea's list, the refund says who recorded it.
+  const refundByAna: Sale = {
+    ...own,
+    id: "r-own",
+    status: "refunded",
+    refundOfSaleId: "bea-sale",
+    refundOfSaleUserId: "bea",
+    refundOfSaleUserName: "Bea",
+  };
+
+  assert.equal(saleRecorderLabel(own), "Ana");
+  assert.equal(saleRecorderLabel(own, "ana"), null);
+  assert.equal(saleRecorderLabel(refundByAna, "bea"), "Registró Ana");
 });

@@ -431,16 +431,91 @@ export function computeUserTotals(sales: Sale[]): UserTotal[] {
     );
   }
 
-  const methods = Object.keys(paymentLabels) as PaymentMethod[];
   return [...totals.values()]
     .filter((item) => item.transactionCount > 0 || item.total !== 0)
     .sort((a, b) => b.total - a.total)
     .map(({ byMethod, ...item }) => ({
       ...item,
-      paymentTotals: methods.map((paymentMethod) => ({
-        paymentMethod,
-        label: paymentLabels[paymentMethod],
-        total: byMethod.get(paymentMethod) ?? 0,
-      })),
+      paymentTotals: paymentMethodTotals(byMethod),
     }));
+}
+
+/** Every payment method in paymentLabels order, 0 when `byMethod` lacks it. */
+function paymentMethodTotals(
+  byMethod: ReadonlyMap<PaymentMethod, number>
+): PaymentMethodTotal[] {
+  return (Object.keys(paymentLabels) as PaymentMethod[]).map(
+    (paymentMethod) => ({
+      paymentMethod,
+      label: paymentLabels[paymentMethod],
+      total: byMethod.get(paymentMethod) ?? 0,
+    })
+  );
+}
+
+/**
+ * The records computeUserTotals credits to `userId`, in the order given:
+ * their sales, voided ones too (lists show them, totals skip them), and the
+ * refunds of their sales, whoever recorded them. A refund record that names
+ * no seller is its recorder's.
+ */
+export function salesCreditedTo(
+  sales: readonly Sale[],
+  userId: string
+): Sale[] {
+  return sales.filter((sale) => creditedSeller(sale).userId === userId);
+}
+
+/**
+ * `userId`'s row of computeUserTotals(sales), or a zero row named
+ * `fallbackName` when nothing in `sales` counts for them.
+ */
+export function computeSellerTotal(
+  sales: Sale[],
+  userId: string,
+  fallbackName: string
+): UserTotal {
+  return (
+    computeUserTotals(sales).find((row) => row.userId === userId) ?? {
+      userId,
+      userName: fallbackName,
+      transactionCount: 0,
+      total: 0,
+      paymentTotals: paymentMethodTotals(new Map()),
+    }
+  );
+}
+
+/**
+ * The name the seller breakdown gives `userId` on their newest loaded record
+ * (voided ones too; the first of a tie), or null when no record counts for
+ * them.
+ */
+export function creditedSellerName(
+  sales: readonly Sale[],
+  userId: string
+): string | null {
+  let newest: { time: number; name: string } | null = null;
+  for (const sale of sales) {
+    const seller = creditedSeller(sale);
+    if (seller.userId !== userId) continue;
+    const time = Date.parse(sale.createdAt);
+    if (!newest || time > newest.time) {
+      newest = { time, name: seller.userName };
+    }
+  }
+  return newest?.name ?? null;
+}
+
+/**
+ * A sale row's name line: who recorded it. On a seller's list (`sellerId`),
+ * nothing on their own records and "Registró X" on a refund someone else
+ * recorded.
+ */
+export function saleRecorderLabel(
+  sale: Sale,
+  sellerId?: string
+): string | null {
+  if (sellerId === undefined) return sale.userName;
+  return sale.userId === sellerId ? null : `Registró ${sale.userName}`;
 }

@@ -62,7 +62,11 @@ import {
   categoryOptions,
   effectiveCategoryId,
 } from "@/lib/products";
-import { saleNetCents, sortSalesNewestFirst } from "@/lib/sales";
+import {
+  creditedSellerName,
+  saleNetCents,
+  sortSalesNewestFirst,
+} from "@/lib/sales";
 import { cartSubtotalCents, priceLine } from "@/lib/sales/pricing";
 import {
   mapLocalProductRow,
@@ -262,10 +266,14 @@ export function GlitterPosApp({
   const [query, setQuery] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   // Kept here rather than in the screens, which unmount on every view
-  // change: the range Sales and Reports share, the Sales list's page, and
-  // its scroll position while a sale's detail is open.
+  // change: the range Sales, Reports and a seller's sales share, the Sales
+  // list's page, the Sales and seller lists' scroll positions while a sale's
+  // detail is open, Reports' while a seller's sales are, and its "Ver todos".
   const salesRange = useSalesRangeState();
   const [salesScrollMemory] = useState(createScrollMemory);
+  const [sellerSalesScrollMemory] = useState(createScrollMemory);
+  const [reportsScrollMemory] = useState(createScrollMemory);
+  const [reportsShowAllProducts, setReportsShowAllProducts] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   // The sale the confirmation screen shows (route `#/cobrado`).
   const [completedSale, setCompletedSale] =
@@ -415,6 +423,31 @@ export function GlitterPosApp({
     localLedgerLoaded.sales || !initialSalesSince
       ? null
       : Date.parse(initialSalesSince);
+  // The seller views carry the seller's user id. Their title when the range
+  // has no row for them: the name on their newest loaded record, else the
+  // puesto member's, else the signed-in user's own; null when nothing on
+  // this device knows the id.
+  const sellerId =
+    view === "sellerSales" || view === "sellerSaleDetail"
+      ? (route.sellerId ?? null)
+      : null;
+  const sellerName = useMemo(
+    () =>
+      sellerId === null
+        ? null
+        : (creditedSellerName(sales, sellerId) ??
+          userNameById.get(sellerId) ??
+          (sellerId === tenantContext.user.id
+            ? tenantContext.user.displayName
+            : null)),
+    [
+      sellerId,
+      sales,
+      userNameById,
+      tenantContext.user.id,
+      tenantContext.user.displayName,
+    ]
+  );
   const stockByProduct = useMemo(
     () => computeStockByProduct(inventoryMovements, sales, stockOpening),
     [inventoryMovements, sales, stockOpening]
@@ -1676,6 +1709,12 @@ export function GlitterPosApp({
     navigate({ view: "saleDetail", id: saleId });
   }
 
+  function openSellerSales(userId: string) {
+    // Each seller's list starts at the top.
+    sellerSalesScrollMemory.take();
+    navigate({ view: "sellerSales", sellerId: userId });
+  }
+
   const orderSheetOpen = view === "cart" && !isDesktop;
   const sellScreen = (
     <SellScreen
@@ -1714,6 +1753,7 @@ export function GlitterPosApp({
   // position while a sale's detail opens beside it (or over it on phones).
   const salesScreen = (
     <SalesScreen
+      key="sales"
       sales={sales}
       rangeState={salesRange}
       scrollMemory={salesScrollMemory}
@@ -1731,6 +1771,43 @@ export function GlitterPosApp({
     />
   );
 
+  // One element for both seller routes, keyed by seller: the list keeps its
+  // page and scroll position while a sale opens, and another seller's list
+  // starts fresh. While the history is still partial (before the first
+  // sync), an unknown seller may just not have loaded yet.
+  const sellerMissing = sellerName === null && salesHistoryStart === null;
+  const sellerSalesScreen =
+    sellerId === null ? null : sellerMissing ? (
+      <MissingRecordScreen
+        heading="Vendedor"
+        title="Vendedor no encontrado"
+        body="El vendedor no está disponible en este dispositivo."
+        back={() => back({ view: "reports" })}
+      />
+    ) : (
+      <SalesScreen
+        key={`seller:${sellerId}`}
+        sales={sales}
+        rangeState={salesRange}
+        scrollMemory={sellerSalesScrollMemory}
+        seller={{
+          userId: sellerId,
+          name: sellerName ?? "Vendedor",
+          back: () => back({ view: "reports" }),
+        }}
+        selectedSaleId={view === "sellerSaleDetail" ? (route.id ?? null) : null}
+        openSale={(saleId) =>
+          navigate(
+            { view: "sellerSaleDetail", sellerId, id: saleId },
+            { replace: view === "sellerSaleDetail" }
+          )
+        }
+        closeSale={() => back({ view: "sellerSales", sellerId })}
+        voidSale={handleVoidSale}
+        refundSale={handleRefundSale}
+      />
+    );
+
   const content: Record<View, ReactNode> = {
     sell: sellScreen,
     cart: sellScreen,
@@ -1742,8 +1819,14 @@ export function GlitterPosApp({
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         salesHistoryStart={salesHistoryStart}
+        scrollMemory={reportsScrollMemory}
+        showAllProducts={reportsShowAllProducts}
+        setShowAllProducts={setReportsShowAllProducts}
+        openSeller={openSellerSales}
       />
     ),
+    sellerSales: sellerSalesScreen,
+    sellerSaleDetail: sellerSalesScreen,
     sales: salesScreen,
     saleDetail: salesScreen,
     products: (

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { relativeTime } from "@/lib/dates";
 import { formatBs } from "@/lib/money";
-import { paymentLabels, saleNetCents } from "@/lib/sales";
+import { paymentLabels, saleNetCents, saleRecorderLabel } from "@/lib/sales";
 import type { Sale } from "@/lib/types";
 
 type SaleRowProps = {
@@ -16,6 +16,11 @@ type SaleRowProps = {
   requestRefund: (sale: Sale) => void;
   /** Highlighted while its detail is open beside the list (desktop). */
   selected?: boolean;
+  /**
+   * On a seller's list: no name on that seller's own records, and
+   * "Registró X" on a refund someone else recorded.
+   */
+  sellerId?: string;
 };
 
 export function SaleRow({
@@ -27,8 +32,10 @@ export function SaleRow({
   requestVoid,
   requestRefund,
   selected = false,
+  sellerId,
 }: SaleRowProps) {
   const amount = saleNetCents(sale);
+  const recordedBy = saleRecorderLabel(sale, sellerId);
   const isRefundRecord = Boolean(sale.refundOfSaleId);
 
   return (
@@ -67,9 +74,11 @@ export function SaleRow({
               .map((line) => `${line.quantity}x ${line.productName}`)
               .join(", ")}
           </small>
-          <small className="block text-xs text-muted-foreground">
-            {sale.userName}
-          </small>
+          {recordedBy ? (
+            <small className="block text-xs text-muted-foreground">
+              {recordedBy}
+            </small>
+          ) : null}
         </div>
         <b className="text-base whitespace-nowrap tabular-nums">
           {formatBs(amount, true)}

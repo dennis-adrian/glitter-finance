@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Info, TrendingDown, TrendingUp } from "lucide-react";
+import { useMemo } from "react";
+import { ChevronRight, Info, TrendingDown, TrendingUp } from "lucide-react";
 import { ScreenHeader } from "@/components/molecules/screen-header";
 import { Screen } from "@/components/templates/screen";
 import { BarRow } from "@/components/atoms/bar-row";
@@ -33,6 +33,7 @@ import {
   percentChange,
   trendGranularity,
 } from "@/lib/reports";
+import { useRestoredScroll, type ScrollMemory } from "@/lib/scroll-memory";
 import type { Product, Sale } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
 import { useSalesInRange, type SalesRangeState } from "@/lib/use-sales-range";
@@ -51,7 +52,7 @@ function largestAmount(rows: { total: number }[]) {
 
 type ReportsScreenProps = {
   sales: Sale[];
-  /** Shared with Sales, so both screens show the same range. */
+  /** Shared with Sales and a seller's sales, so they all show the same range. */
   rangeState: SalesRangeState;
   products: Product[];
   stockByProduct: Map<string, number>;
@@ -62,6 +63,16 @@ type ReportsScreenProps = {
    * comparison that reaches before it is hidden rather than undercounted.
    */
   salesHistoryStart: number | null;
+  /** Saved when a seller's sales open, given back on return to Por vendedor. */
+  scrollMemory: ScrollMemory;
+  /**
+   * "Más vendidos" expanded. GlitterPosApp keeps it, so the restored scroll
+   * position finds the same rows.
+   */
+  showAllProducts: boolean;
+  setShowAllProducts: (shown: boolean) => void;
+  /** Opens a seller's sales from their Por vendedor row. */
+  openSeller: (userId: string) => void;
 };
 
 type ReportListRow = {
@@ -72,7 +83,45 @@ type ReportListRow = {
   /** Parts of `value` listed under the row, e.g. per payment method. */
   breakdown?: { key: string; label: string; value: string }[];
   breakdownLabel?: string;
+  /** Makes the whole row a button (with a chevron) that opens it. */
+  onOpen?: () => void;
 };
+
+function ReportListBreakdown({ row }: { row: ReportListRow }) {
+  if (!row.breakdown?.length) return null;
+  return (
+    <dl
+      aria-label={row.breakdownLabel}
+      className={cn(
+        "mt-1.5 grid gap-0.5 text-xs text-muted-foreground",
+        // Under an openable row, the amounts line up with its value, left
+        // of the chevron.
+        row.onOpen && "pr-6"
+      )}
+    >
+      {row.breakdown.map((part) => (
+        <div
+          key={part.key}
+          className="flex items-center justify-between gap-3.5"
+        >
+          <dt>{part.label}</dt>
+          <dd className="whitespace-nowrap tabular-nums">{part.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function ReportListRowText({ row }: { row: ReportListRow }) {
+  return (
+    <span>
+      <strong className="block text-sm font-semibold">{row.title}</strong>
+      <small className="block text-xs text-muted-foreground">
+        {row.subtitle}
+      </small>
+    </span>
+  );
+}
 
 function ReportList({ rows, empty }: { rows: ReportListRow[]; empty: string }) {
   if (!rows.length) {
@@ -80,42 +129,45 @@ function ReportList({ rows, empty }: { rows: ReportListRow[]; empty: string }) {
   }
   return (
     <div className="grid">
-      {rows.map((row) => (
-        <div
-          key={row.key}
-          className="border-b border-border py-2 last:border-b-0"
-        >
-          <div className="flex min-h-8 items-center justify-between gap-3.5">
-            <span>
-              <strong className="block text-sm font-semibold">
-                {row.title}
-              </strong>
-              <small className="block text-xs text-muted-foreground">
-                {row.subtitle}
-              </small>
-            </span>
-            <b className="whitespace-nowrap tabular-nums">{row.value}</b>
+      {rows.map((row) =>
+        row.onOpen ? (
+          <div
+            key={row.key}
+            className="border-b border-border py-1 last:border-b-0"
+          >
+            {/* The button's overlay makes the whole row, breakdown too, one
+                tap target; the breakdown stays outside it, with its label. */}
+            <div className="relative -mx-2 rounded-xl px-2 py-1 transition-colors hover:bg-muted/60 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50">
+              <button
+                type="button"
+                onClick={row.onOpen}
+                className="flex min-h-11 w-full items-center justify-between gap-3.5 text-left outline-none after:absolute after:inset-0 after:rounded-xl after:content-['']"
+              >
+                <ReportListRowText row={row} />
+                <span className="flex shrink-0 items-center gap-1">
+                  <b className="whitespace-nowrap tabular-nums">{row.value}</b>
+                  <ChevronRight
+                    className="size-5 shrink-0 text-muted-foreground"
+                    aria-hidden
+                  />
+                </span>
+              </button>
+              <ReportListBreakdown row={row} />
+            </div>
           </div>
-          {row.breakdown?.length ? (
-            <dl
-              aria-label={row.breakdownLabel}
-              className="mt-1.5 grid gap-0.5 text-xs text-muted-foreground"
-            >
-              {row.breakdown.map((part) => (
-                <div
-                  key={part.key}
-                  className="flex items-center justify-between gap-3.5"
-                >
-                  <dt>{part.label}</dt>
-                  <dd className="whitespace-nowrap tabular-nums">
-                    {part.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          ) : null}
-        </div>
-      ))}
+        ) : (
+          <div
+            key={row.key}
+            className="border-b border-border py-2 last:border-b-0"
+          >
+            <div className="flex min-h-8 items-center justify-between gap-3.5">
+              <ReportListRowText row={row} />
+              <b className="whitespace-nowrap tabular-nums">{row.value}</b>
+            </div>
+            <ReportListBreakdown row={row} />
+          </div>
+        )
+      )}
     </div>
   );
 }
@@ -127,9 +179,20 @@ export function ReportsScreen({
   stockByProduct,
   inventoryStockReady,
   salesHistoryStart,
+  scrollMemory,
+  showAllProducts,
+  setShowAllProducts,
+  openSeller,
 }: ReportsScreenProps) {
   const [now] = useNow();
-  const [showAllProducts, setShowAllProducts] = useState(false);
+  const scrollRef = useRestoredScroll<HTMLDivElement>(scrollMemory);
+
+  // Por vendedor sits near the bottom: Back from a seller's sales returns
+  // to it rather than to the top. Reports unmounts on every width.
+  function openSellerAt(userId: string) {
+    scrollMemory.save(scrollRef.current?.scrollTop ?? 0);
+    openSeller(userId);
+  }
 
   // Computed once per change of the sales or the range, not on every tick
   // of `now` or toggle of the product list.
@@ -208,7 +271,7 @@ export function ReportsScreen({
   }, [sales, salesInRange, range, start, end, now, salesHistoryStart]);
 
   return (
-    <Screen header={<ScreenHeader title="Reportes" />}>
+    <Screen header={<ScreenHeader title="Reportes" />} scrollRef={scrollRef}>
       <DateRangePicker
         range={range}
         customStart={customStart}
@@ -368,7 +431,7 @@ export function ReportsScreen({
               size="sm"
               className="mt-2 w-full"
               aria-expanded={showAllProducts}
-              onClick={() => setShowAllProducts((shown) => !shown)}
+              onClick={() => setShowAllProducts(!showAllProducts)}
             >
               {showAllProducts
                 ? "Ver menos"
@@ -382,7 +445,8 @@ export function ReportsScreen({
           <p className="mb-2.5 text-sm text-muted-foreground">
             Ingreso neto de las ventas de cada vendedor, por método de pago. Un
             reembolso se le resta a quien hizo la venta, en el método con que se
-            cobró, aunque lo haya registrado otra persona.
+            cobró, aunque lo haya registrado otra persona. Tocá un vendedor para
+            ver sus ventas.
           </p>
           <ReportList
             empty="Todavía no hay vendedores con ventas en este período."
@@ -397,6 +461,7 @@ export function ReportsScreen({
                 label: payment.label,
                 value: formatBs(payment.total, true),
               })),
+              onOpen: () => openSellerAt(item.userId),
             }))}
           />
         </section>
