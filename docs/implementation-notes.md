@@ -13,6 +13,7 @@ Implemented now:
 - Immutable sales with snapshotted product price, cost, category, and quantity.
 - A sales list with each sale's detail (side by side on desktops), voids within the void window, and refunds.
 - Reports, in the main navigation, over today, week, month, or a custom range: totals compared with the previous period, a trend chart, and breakdowns by category, payment method, product, and seller.
+- A CSV export of the range Reports shows (the **CSV** button in its header); see Sales export below.
 - Optional stock tracking per product.
 - Categories each puesto manages (create, rename, delete when unused) from Catálogo › Categorías; every product points to one by id.
 - Several tenants per user, a tenant switcher, and invitation links.
@@ -145,6 +146,17 @@ name is re-derived from whichever id won. On `categories`,
 `categories_cascade_name_to_products` AFTER UPDATE OF `name`. Resolving a
 name can race another session creating the same category; it then raises
 40001, which the connector retries.
+
+## Sales export
+
+Reports' **CSV** button saves the sales of the selected range as a CSV file (PRD §11.13). It is built in the browser from the sales Reports already has (`lib/sales-export.ts`), so it works offline, with PowerSync or with server actions only, and needs no server route.
+
+- **One row per sale line**, oldest first: date and time in Bolivian time (`yyyy-mm-dd hh:mm:ss`), type, status, sale id, product, category, quantity, snapshotted unit price, subtotal, line discount, the line's share of the sale discount, net total, snapshotted unit cost and total cost, payment method, who recorded it, and the seller Reports credits.
+- **Its figures are Reports' figures.** Voided sales have no rows. A refund is its own rows, dated when it was issued, with negative quantities and amounts and the original sale's id; the refunded sale keeps its positive rows with Estado "Reembolsada" (also when the refund falls after the range), and its seller is the original seller, as in Por vendedor. The sale discount is split across the lines by `allocateProportionally`, as the category and product breakdowns split it. A line with no recorded cost leaves both cost cells empty; a spreadsheet sums an empty cell as 0, as Reports does when it marks cost incomplete. So the columns add up to Reports' gross, discounts, net revenue, cost, net earnings (net minus cost), units, refunds and every breakdown; `tests/sales-export.test.ts` checks this on a generated ledger.
+- **Format.** UTF-8 with a BOM, `;` between fields, `,` before decimals, CRLF line ends: what Excel and Google Sheets read as numbers in a Spanish locale. Amounts are plain Bs. (`12,50`, `-0,05`), with no grouping or currency sign. Fields with `;`, quotes or line breaks are quoted, and text cells that start with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading `'` so a spreadsheet does not run them as formulas (amounts are numbers and keep their sign). The file is `ventas-<puesto>-<first day>-a-<last day>.csv`.
+- **Saving.** Elsewhere the file downloads through a link (`downloadBlob`, `lib/download-json.ts`). A PWA on an iOS home screen cannot download that way, so there it opens the share sheet with the file (`lib/save-file.ts`), from which it can be saved to Files or sent. When Safari refuses the share because building the file outlasted the tap, the button turns into **Compartir CSV** for a second tap.
+- **Long ranges** are built 100 sales at a time, yielding to the browser between pieces, so the screen keeps responding (about 0.6 s for 20 000 sales on a laptop).
+- **Before a PowerSync device's first sync**, when the loaded sales start after the range (see the home page above), the export is refused with a message instead of saving an incomplete file.
 
 ## Known Follow-ups
 

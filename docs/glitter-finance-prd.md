@@ -36,7 +36,7 @@ Glitter Finance is a fast, offline-first POS with profit-aware reporting. It inc
 - Multiple users per account, so relatives or friends taking turns at a booth can each record sales from their own phone.
 - Optional stock tracking per product, specified in its own PRD ([`glitter-inventory-prd.md`](./glitter-inventory-prd.md)).
 
-Capabilities planned for later (events, QR labels and scanning, bundles, subscriptions, payment-proof attachments, expenses and full P&L, data export) are described in section 11, Future Features.
+Capabilities planned for later (events, QR labels and scanning, bundles, subscriptions, payment-proof attachments, expenses and full P&L, account-level data export) are described in section 11, Future Features.
 
 ## 4. Rollout Strategy
 
@@ -213,7 +213,7 @@ The gross / discounts / net / cost / net-earnings figures are the heart of the r
 
 Because cost is optional, cost of goods sold and net earnings can be based on incomplete data. When any product sold in the range has no recorded cost, the report marks cost of goods sold as incomplete and presents net earnings as an upper bound (true profit is at most this figure), rather than showing a confidently wrong number. A vendor who records cost on all their products gets exact figures; one who records none still gets accurate gross/discounts/net with net earnings clearly flagged as not accounting for cost.
 
-Reports are viewed in-app over the selected date range. Exporting report or sales data to a file is a future feature (section 11).
+Reports are viewed in-app over the selected date range, and the sales of that range can be exported as a CSV file (section 11.13 describes its shape).
 
 ## 8. Screens and Flows
 
@@ -228,7 +228,7 @@ The app opens directly into Sell Mode; there is no separate home or dashboard. A
 - **Product Detail / Edit:** name, price, optional cost, category, optional image.
 - **Sales / Sale Detail:** a dedicated date-range ledger, defaulting to today. It shows completed sales, voids, and refunds; opening one shows its lines and totals. Void (within the window) and refund actions are available only for eligible original completed sales, not for voided sales or refund records shown in the ledger. Committed sales are never deleted.
 - **Más:** the signed-in user, the accounts they belong to (switch, or create a new one), and entries for Reports, Settings, and sign-out.
-- **Reports:** date-range selector and the figures in section 7.6.
+- **Reports:** date-range selector, the figures in section 7.6, and a CSV export of the selected range (section 11.13).
 - **Settings:** account, users on the account and the invitation link, appearance (light/dark), a summary (active products, recorded sales, operations not yet uploaded), and the entry to Diagnostics.
 - **Diagnostics (tester-only):** sync queue depth, last sync timestamp, online/offline status, device info, "force sync now" button.
 
@@ -330,7 +330,9 @@ Reversing specific lines or quantities of a sale rather than the whole sale. The
 
 ### 11.13 Data export
 
-Exporting sales and report data to a file (CSV at minimum) so a vendor can keep their own records or hand data to an accountant. Likely one row per sale line (timestamp, product, quantity, snapshotted unit price and cost, line discount, payment method, recording user) and one row per sale, with refunds as their own rows, over a selected date range. A broader account-level export (everything, for portability or backup) is a related possibility.
+**Shipped: per-period sales CSV.** Reports exports the sales of the selected date range as a CSV file, so a vendor can keep their own records or hand data to an accountant. It has one row per sale line: timestamp (Bolivian time), product, category, quantity, snapshotted unit price and cost, line discount, the line's share of the sale-level discount, net total, payment method, the recording user and the seller the reports credit. Its figures are the report's: voided sales are left out, refunds are their own rows with negative quantities and amounts (the refunded sale keeps its rows, marked refunded), the sale discount is split across the lines in proportion to their totals as the breakdowns split it, and a line without a recorded cost leaves its cost cells empty, so the columns add up to the report's gross, discounts, net, cost and net earnings for the same range. The file is UTF-8 with a BOM, semicolon-separated with decimal commas, for Excel and Google Sheets in a Spanish locale. It is built on the device from the data the report already has, so it works offline.
+
+**Still future:** one row per sale (a sale-level file), other formats, and a broader account-level export (everything, for portability or backup).
 
 ## 12. Technical Architecture
 
@@ -443,7 +445,7 @@ Glitter Finance is built without a dedicated designer. UI work is done iterative
 - **Sales model:** sales attach to the tenant with a timestamp; reporting is date-range based.
 - **Cost field:** optional per product; when recorded, snapshotted on the sale line alongside price so historical profit reflects the cost at time of sale. Missing cost is treated as unknown (contributes zero to calculations), and reports flag net earnings as an upper bound when any sold product lacks a cost.
 - **Sale immutability:** a committed sale is never edited or deleted. An immediate mistake is handled by void within a 10-minute window (retained, excluded from totals); a later reversal is a refund, an append-only record referencing the original sale and shown as a negative amount. Full-sale refunds in the MVP; partial refunds are a future feature.
-- **Reports:** show gross, discounts, net, cost of goods sold, and net earnings over a date range, plus breakdowns. Viewed in-app; data export is a future feature.
+- **Reports:** show gross, discounts, net, cost of goods sold, and net earnings over a date range, plus breakdowns. Viewed in-app, with a CSV export of the range's sale lines; an account-level export is a future feature.
 - **Discounts:** sale-level (on the payment screen, with 2 / 5 / 10 Bs presets plus "Otro" for a custom absolute or percentage amount) and per-line (in the cart view). Percentages resolve to an absolute cents amount at apply time.
 - **Navigation:** the app opens directly into Sell Mode (no home or dashboard screen); a persistent four-item bottom nav gives one-tap access to POS Venta, Ventas, Catálogo, and Más, which holds Reports, Settings, the account switcher, and sign-out.
 - **Draft cart persistence:** an uncommitted cart is durable; it survives navigation, backgrounding, and long idle periods, and is cleared only by charging or explicit clear-cart (with a 24-hour age-out on launch). Persistence is off the tap critical path: instant in-memory updates, debounced async writes to a local-only SQLite draft table plus a flush on background/visibility-change, so tapping is never blocked by storage.
@@ -464,7 +466,7 @@ These don't block schema design or build planning and can be settled as their re
 2. **PowerSync free-tier inactivity workaround during closed testing.** Accept reactivation friction, or set up a weekly ping to keep the project warm.
 3. **Sell Mode numeric entry for discounts.** Custom numeric pad, native numeric keyboard, or stepper buttons. Affects how fast discount entry feels.
 4. **Receipt sharing.** Whether to offer "send receipt via WhatsApp" at sale completion, or treat it as out of scope.
-5. **Scope of data export when it ships.** Per-period sales export, full account-level export for portability/backup, or both, and in what formats. (Export itself is a future feature; this is about its eventual shape.)
+5. **Scope of further data export.** The per-period sales CSV has shipped (section 11.13). Still open: a full account-level export for portability/backup, a one-row-per-sale file, and other formats.
 6. **Public-beta timing relative to Stage D (multiple users).** Open the beta before or after multi-user ships.
 
 ---

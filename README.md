@@ -16,6 +16,7 @@ iPhone Safari and Android Chrome) and
 - Cart review surface with quantity controls, per-line discounts, and clear-cart (with undo).
 - Payment screen with sale-level discounts and cash/QR checkout.
 - Immutable local sales with snapshotted price/cost data, a sales list, voids, refunds, and date-range reports.
+- CSV export of the range Reportes shows (one row per sale line, refunds as negative rows), for Excel or Google Sheets in Spanish; it works offline.
 - Email and password or Google sign-in, with email confirmation and password reset.
 - Several tenants per user, with a tenant switcher and invitation links for adding team members (Settings → Equipo).
 - Optional stock tracking per product: initial count, restocks, adjustments, losses and gifts, with low-stock and oversold states.
