@@ -564,6 +564,11 @@ export function GlitterPosApp({
     setTeamSyncConfirmed(initialTenantMembers.length === 0);
   }, [initialTenantMembers]);
 
+  // Before the former members watch below re-runs over the new baseline.
+  useEffect(() => {
+    initialFormerTenantMembersRef.current = initialFormerTenantMembers;
+  }, [initialFormerTenantMembers]);
+
   // The store starts empty, and a passive effect runs after the browser has
   // painted: the first frame would show the empty catalog's first-product
   // prompt to a vendor with a full catalog. A layout effect installs the
@@ -586,6 +591,7 @@ export function GlitterPosApp({
 
   useEffect(() => {
     setTenantMembers(initialTenantMembers);
+    setFormerTenantMembers(initialFormerTenantMembers);
     // The first render already has them (the state's initial value).
     setCategories(sortCategories(initialCategories));
     setInventoryMovements(initialInventory?.movements ?? []);
@@ -610,6 +616,7 @@ export function GlitterPosApp({
     initialProducts,
     initialSales,
     initialTenantMembers,
+    initialFormerTenantMembers,
     initialInventory,
     activeTenantId,
     tenantContext.user.id,
@@ -866,7 +873,14 @@ export function GlitterPosApp({
         "powersync_former_tenant_members_watch"
       ),
     });
-  }, [powerSyncDb, activeTenantId, tenantWork, tenantWorkGeneration]);
+    // initialFormerTenantMembers: re-reads the local rows over a new baseline.
+  }, [
+    powerSyncDb,
+    activeTenantId,
+    tenantWork,
+    tenantWorkGeneration,
+    initialFormerTenantMembers,
+  ]);
 
   // The owner removed a member from Settings. The sync (or, without
   // PowerSync, the next load) confirms it; until then the team list and the
