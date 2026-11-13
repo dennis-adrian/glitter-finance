@@ -80,7 +80,7 @@ function quietly<T>(run: () => Promise<T>) {
   });
 }
 
-test("deletes the data, then the photos, then every session, then the auth user", async () => {
+test("deletes the data, then every session, then the auth user, then the photos", async () => {
   const { deleteAccount } = await import("@/app/account/actions");
 
   assert.deepEqual(await deleteAccount("eliminar"), {
@@ -89,9 +89,9 @@ test("deletes the data, then the photos, then every session, then the auth user"
   });
   assert.deepEqual(events, [
     `data:${USER_ID}`,
-    "storage:queue:t1",
     "sign-out:global",
     `delete-user:${USER_ID}:soft`,
+    "storage:queue:t1",
   ]);
 });
 
@@ -146,6 +146,7 @@ test("the auth user is kept while its sessions could not be revoked", async () =
   assert.equal(result.ok, false);
   assert.match(!result.ok ? result.error : "", /volvé a intentarlo/);
   assert.ok(!events.some((event) => event.startsWith("delete-user")));
+  assert.ok(!events.some((event) => event.startsWith("storage")));
 });
 
 test("a failed auth user deletion says to try again", async () => {
