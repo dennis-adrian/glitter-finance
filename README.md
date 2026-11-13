@@ -140,6 +140,21 @@ The server checks all five when it starts (`assertServerEnv` in `lib/env.ts`,
 called from `instrumentation.ts`) and refuses to serve requests while any is
 missing, so a misconfigured deploy fails at once, `/api/health` included.
 
+**Support contact (optional):** `NEXT_PUBLIC_SUPPORT_EMAIL` (an email
+address) and `NEXT_PUBLIC_SUPPORT_WHATSAPP` (a WhatsApp number with its
+country code, such as `+591 70000000`) add **Escribinos por correo** and
+**Escribinos por WhatsApp** to **Ajustes › Soporte**. Each one is hidden while
+unset or invalid (`lib/support-contact.ts`). Next.js builds `NEXT_PUBLIC_*`
+values into the browser bundle, so a change needs a redeploy.
+
+**Legal pages:** `/terminos` and `/privacidad` are public, signed-out pages
+linked from the sign-up form and **Ajustes › Legal**. The operator's details
+(legal name, address, contact, retention, governing law…) are placeholders in
+[`lib/legal/operator.ts`](lib/legal/operator.ts); while any is left, both pages
+show a draft notice. Fill them in, and have a lawyer review both texts, before
+a public launch. Keep the texts in step with the code when adding a provider or
+a new kind of data.
+
 **Local-only (no PowerSync):** leave `NEXT_PUBLIC_POWERSYNC_URL` empty. The app
 loads products, sales and stock movements from Supabase on the server and uses
 server actions for every write (products, sales, voids, refunds and stock

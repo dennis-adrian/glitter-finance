@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as pageStaticInfo from "next/dist/build/analysis/get-page-static-info";
 import type { ProxyMatcher } from "next/dist/build/analysis/get-page-static-info";
+import { LEGAL_PAGE_PATHS } from "@/lib/legal/paths";
 import { config } from "@/proxy";
 
 // Exported at runtime but missing from Next.js' published types.
@@ -28,6 +29,10 @@ test("refreshes the session on pages and auth routes", () => {
     "/auth/callback",
     "/auth/confirm",
     "/auth/update-password",
+    // Only the legal pages themselves are skipped, not paths that start
+    // like them.
+    "/terminosx",
+    "/privacidad/otra",
   ]) {
     assert.equal(runsProxy(pathname), true, pathname);
   }
@@ -50,5 +55,12 @@ test("skips the service worker, PowerSync assets and other non-pages", () => {
     "/icons/billetera-ferial-logo.svg",
   ]) {
     assert.equal(runsProxy(pathname), false, pathname);
+  }
+});
+
+test("skips the static, signed-out legal pages", () => {
+  for (const pathname of LEGAL_PAGE_PATHS) {
+    assert.equal(runsProxy(pathname), false, pathname);
+    assert.equal(runsProxy(`${pathname}/`), false, `${pathname}/`);
   }
 });

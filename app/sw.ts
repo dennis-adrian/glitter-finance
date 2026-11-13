@@ -32,6 +32,7 @@ import {
   STATIC_CACHE_NAME,
   SW_CACHE_ID,
 } from "../lib/pwa/cache-names";
+import { isLegalPagePath } from "../lib/legal/paths";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -101,6 +102,18 @@ const runtimeCaching: RuntimeCaching[] = [
         url.pathname.startsWith("/auth/") ||
         url.pathname === "/monitoring" ||
         url.pathname.startsWith("/serwist/")),
+    handler: new NetworkOnly(),
+  },
+  // The public legal pages (/terminos, /privacidad) are read online. They
+  // stay out of the page cache below, which holds the app shell: every page
+  // there is fetched again while a new build installs, and must answer 200
+  // for the install to succeed (lib/pwa/app-shell.ts). Offline, they get the
+  // offline page.
+  {
+    matcher: ({ request, sameOrigin, url }) =>
+      sameOrigin &&
+      request.mode === "navigate" &&
+      isLegalPagePath(url.pathname),
     handler: new NetworkOnly(),
   },
   // The app shell. Every online navigation to "/" stores the page here, and
