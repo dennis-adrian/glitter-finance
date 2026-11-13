@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Check, ChevronRight, Loader2, LogOut, Settings } from "lucide-react";
 import { ReloadAppButton } from "@/components/molecules/reload-app-button";
 import { ScreenHeader } from "@/components/molecules/screen-header";
+import { SyncCard } from "@/components/molecules/sync-card";
 import { Screen } from "@/components/templates/screen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -278,6 +279,8 @@ export function MoreScreen({ tenantContext, openSettings }: MoreScreenProps) {
           {actionError.message}
         </p>
       ) : null}
+
+      <SyncCard className="mt-5" />
 
       <section className="mt-5 overflow-hidden rounded-3xl border border-primary/10 bg-card shadow-[0_4px_12px_rgba(45,27,20,0.06)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]">
         <MenuItem
