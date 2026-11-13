@@ -828,27 +828,18 @@ below:
     RLS on `former_tenant_members` and its place in the publication; the
     owner rule (`tenant_owner_user_id`); the `tenant_users` delete triggers
     that keep the owner's membership and record a departing member's name;
-    and the `remove_tenant_member` and `delete_account_data` functions, which
-    only the trusted server connection may call. Every environment, after the
-    `pnpm db:push` that creates `former_tenant_members` and before the app
+    the server-only `tenant_storage_cleanups` queue (RLS with no policies),
+    where `delete_account_data` records each puesto it deletes so its
+    Storage photos are removed later even if the first attempt fails; and
+    the `remove_tenant_member` and `delete_account_data` functions, which
+    only the trusted server connection may call. Both take the per-puesto
+    advisory lock that invitation creation holds, then the puesto's
+    invitations, then the puesto: a member removed while generating a link
+    gets none, and a redemption never deadlocks with them. Every
+    environment, after the `pnpm db:push` that creates
+    `former_tenant_members` and `tenant_storage_cleanups` and before the app
     build that calls them is deployed; redeploy `powersync/sync-rules.yaml`
     after it.
-16. [`20261113130000_account_deletion_storage_cleanup.sql`](supabase/manual/20261113130000_account_deletion_storage_cleanup.sql):
-    the server-only `tenant_storage_cleanups` queue (RLS with no policies)
-    and a `delete_account_data` that records each puesto it deletes there,
-    so its Storage photos are removed later even if the first attempt fails.
-    Every environment, after file 15 and the `pnpm db:push` that creates the
-    table, and before the app build that reads it.
-17. [`20261113140000_membership_lock_order.sql`](supabase/manual/20261113140000_membership_lock_order.sql):
-    `remove_tenant_member` and `delete_account_data` lock a puesto's
-    invitations before the puesto, the order an invitation redemption takes
-    them in, so the two never deadlock. Every environment, after file 16.
-18. [`20261113150000_invitation_create_lock.sql`](supabase/manual/20261113150000_invitation_create_lock.sql):
-    `remove_tenant_member` and `delete_account_data` first take the
-    per-puesto advisory lock that invitation creation holds
-    (`getOrCreateActiveInvitation` rechecks the creator's membership under
-    it), so a member removed while generating a link gets none. Every
-    environment, after file 17.
 
 To check an environment, run in its SQL editor:
 
@@ -944,27 +935,18 @@ SELECT
     AND coalesce(NOT has_function_privilege('authenticated',
       to_regprocedure('public.remove_tenant_member(uuid,uuid,uuid)'),
       'EXECUTE'), false)
-    AS "20261113120000",
-  coalesce(pg_get_functiondef(
-      to_regprocedure('public.delete_account_data(uuid)')
-    ) LIKE '%tenant_storage_cleanups%', false)
     AND coalesce((SELECT relrowsecurity FROM pg_class
       WHERE oid = to_regclass('public.tenant_storage_cleanups')), false)
-    AS "20261113130000",
-  coalesce(pg_get_functiondef(
-      to_regprocedure('public.remove_tenant_member(uuid,uuid,uuid)')
-    ) LIKE '%FROM public.tenant_invitations%', false)
     AND coalesce(pg_get_functiondef(
       to_regprocedure('public.delete_account_data(uuid)')
-    ) LIKE '%FROM public.tenant_invitations i%', false)
-    AS "20261113140000",
-  coalesce(pg_get_functiondef(
+    ) LIKE '%tenant_storage_cleanups%', false)
+    AND coalesce(pg_get_functiondef(
       to_regprocedure('public.remove_tenant_member(uuid,uuid,uuid)')
     ) LIKE '%invitation_create:%', false)
     AND coalesce(pg_get_functiondef(
       to_regprocedure('public.delete_account_data(uuid)')
     ) LIKE '%invitation_create:%', false)
-    AS "20261113150000";
+    AS "20261113120000";
 ```
 
 Confirm the publication with the queries under [PowerSync setup](#powersync-setup).

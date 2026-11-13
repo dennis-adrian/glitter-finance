@@ -1,8 +1,8 @@
 -- Removing a member, leaving a puesto and deleting an account.
 --
--- Run after `pnpm db:push` has applied the Drizzle migration that creates
--- public.former_tenant_members. Safe to re-run: every statement replaces or
--- guards what it creates.
+-- Run after `pnpm db:push` has applied the Drizzle migrations that create
+-- public.former_tenant_members and public.tenant_storage_cleanups. Safe to
+-- re-run: every statement replaces or guards what it creates.
 --
 -- The rules (docs/multi-tenant-invitations-prd.md, "Member removal"):
 -- - A puesto's owner is the member who created it (tenants.created_by_user_id).
@@ -62,6 +62,20 @@ BEGIN
 
   ALTER PUBLICATION powersync ADD TABLE public.former_tenant_members;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- tenant_storage_cleanups: Storage cleanup still owed for deleted puestos.
+-- ---------------------------------------------------------------------------
+
+-- A deleted puesto's product photos can only be removed through the Storage
+-- API, after the database deletion committed. delete_account_data records
+-- each puesto it deletes here, in the same transaction; the app removes the
+-- photos and then the row (lib/tenant-storage-cleanup.ts), and every account
+-- deletion also retries the oldest rows left by earlier failures, so a
+-- failure does not leave orphaned files whose puesto ids nothing remembers.
+-- Server-only: RLS with no policies, so the API roles see and change nothing.
+ALTER TABLE "tenant_storage_cleanups" ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.tenant_storage_cleanups FROM anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- The owner
@@ -170,6 +184,17 @@ CREATE TRIGGER tenant_users_remember_former_member
 -- Removing a member, and leaving
 -- ---------------------------------------------------------------------------
 
+-- Locks, in this order in both functions below:
+-- 1. The per-puesto advisory lock that creating an invitation link holds
+--    (getOrCreateActiveInvitation in lib/invitations/repository.ts, which
+--    checks the creator's membership again under it), so a member removed
+--    while creating a link cannot insert a fresh one after the revoke.
+-- 2. The invitation rows, then 3. the tenant row: the order an invitation
+--    redemption takes them in (redeemInvitation locks the invitation, then
+--    its membership insert's foreign key share-locks the tenant). Taken the
+--    other way round, a redemption racing a removal or an account deletion
+--    deadlocks (40P01).
+
 -- p_actor_user_id removes p_member_user_id from the puesto, or leaves it when
 -- both are the same user. Raises, without changing anything:
 -- - BF401 when the actor is not a member;
@@ -188,8 +213,30 @@ AS $$
 DECLARE
   v_owner uuid;
 BEGIN
+  -- First the lock invitation creation takes (getOrCreateActiveInvitation in
+  -- lib/invitations/repository.ts), so a link cannot be created in the middle
+  -- of this change and outlive the revoke below; creation checks the
+  -- creator's membership again once it holds this lock.
+  PERFORM pg_advisory_xact_lock(hashtext('invitation_create:' || p_tenant_id::text));
+
+  -- The active invitations next, then the tenant: the order an invitation
+  -- redemption takes them in (redeemInvitation locks the invitation, then
+  -- its membership insert's foreign key share-locks the tenant). Taken the
+  -- other way round, a removal and a redemption deadlock. Only a removal
+  -- revokes invitations, so leaving does not wait for redemptions.
+  IF p_member_user_id IS DISTINCT FROM p_actor_user_id THEN
+    PERFORM 1
+    FROM public.tenant_invitations
+    WHERE tenant_id = p_tenant_id
+      AND revoked_at IS NULL
+    ORDER BY id
+    FOR UPDATE;
+  END IF;
+
   -- One membership change per puesto at a time, so two removals (or a
   -- removal and a leave) never pass their checks against the same state.
+  -- The checks below, and the revoke's revoked_at filter, run once both
+  -- locks are held.
   PERFORM 1 FROM public.tenants WHERE id = p_tenant_id FOR UPDATE;
 
   IF NOT EXISTS (
@@ -250,7 +297,26 @@ DECLARE
   v_tenant_id uuid;
   v_deleted uuid[] := ARRAY[]::uuid[];
 BEGIN
-  -- Lock the user's puestos in one order, as remove_tenant_member does one.
+  -- First the invitation creation lock of each of their puestos, in one
+  -- order, as remove_tenant_member takes it.
+  PERFORM pg_advisory_xact_lock(hashtext('invitation_create:' || tenant_id::text))
+  FROM (
+    SELECT tenant_id FROM public.tenant_users
+    WHERE user_id = p_user_id
+    ORDER BY tenant_id
+  ) AS mine;
+
+  -- Their invitations next (deleting a puesto deletes them), then the
+  -- puestos, each in one order: the order a redemption takes them in, see
+  -- remove_tenant_member.
+  PERFORM 1
+  FROM public.tenant_invitations i
+  WHERE i.tenant_id IN (
+    SELECT tenant_id FROM public.tenant_users WHERE user_id = p_user_id
+  )
+  ORDER BY i.id
+  FOR UPDATE;
+
   PERFORM 1
   FROM public.tenants t
   WHERE t.id IN (
@@ -293,6 +359,11 @@ BEGIN
       DELETE FROM public.inventory_movements WHERE tenant_id = v_tenant_id;
       DELETE FROM public.products WHERE tenant_id = v_tenant_id;
       DELETE FROM public.categories WHERE tenant_id = v_tenant_id;
+      -- Its Storage photos go after the commit, through the Storage API;
+      -- recorded here so a failure there is retried, not forgotten.
+      INSERT INTO public.tenant_storage_cleanups (tenant_id)
+      VALUES (v_tenant_id)
+      ON CONFLICT (tenant_id) DO NOTHING;
       -- Cascades to tenant_users, tenant_invitations and former_tenant_members.
       DELETE FROM public.tenants WHERE id = v_tenant_id;
       v_deleted := v_deleted || v_tenant_id;

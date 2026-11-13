@@ -68,7 +68,7 @@ SELECT tests.as_owner();
 
 -- ---------------------------------------------------------------------------
 -- Lock order: invitations before the tenant, as a redemption takes them
--- (20261113140000_membership_lock_order.sql). The other order deadlocks a
+-- (remove_tenant_member and delete_account_data). The other order deadlocks a
 -- redemption racing a removal or an account deletion; that race needs two
 -- sessions, so these pin the order in the function bodies.
 -- ---------------------------------------------------------------------------

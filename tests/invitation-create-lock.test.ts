@@ -1,7 +1,7 @@
 // Creating an invitation link (getOrCreateActiveInvitation in
 // lib/invitations/repository.ts) rechecks the creator's membership once it
 // holds the per-tenant lock that removing a member takes too
-// (supabase/manual/20261113150000_invitation_create_lock.sql), so a member
+// (supabase/manual/20261113120000_tenant_membership_removal.sql), so a member
 // removed meanwhile gets no link. The race itself needs two Postgres
 // sessions; this pins the order of the steps.
 

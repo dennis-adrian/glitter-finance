@@ -160,7 +160,7 @@ export async function getActiveInvitationForTenant(
 // fresh valid link — they reuse the single active one instead. Mirrors the
 // bootstrap advisory-lock pattern in lib/auth/user-context.ts. Removing a
 // member takes the same lock before it revokes the tenant's links
-// (remove_tenant_member, supabase/manual/20261113150000_invitation_create_lock.sql),
+// (remove_tenant_member, supabase/manual/20261113120000_tenant_membership_removal.sql),
 // so the creator's membership is checked again once the lock is held: a
 // member removed meanwhile gets no link, old or new.
 export async function getOrCreateActiveInvitation(input: {
