@@ -7,6 +7,7 @@ import {
 } from "@/components/providers/local-data-panel";
 import { loadDocument } from "@/lib/auth/identity-change";
 import {
+  discardAlternative,
   sessionEndedCopy,
   sessionEndedWithWork,
   type SessionEndedWork,
@@ -120,7 +121,7 @@ export function SessionEndedPanel({
             downloaded
               ? "Guardá la copia que descargaste para registrarlas de nuevo."
               : "Descargá una copia antes para poder registrarlas de nuevo."
-          } Si tu cuenta todavía existe, mejor iniciá sesión con ella y se suben.`
+          } ${discardAlternative(work)}`
         }
       >
         <LocalDataPanelButton disabled={busy} onClick={handleDiscard}>

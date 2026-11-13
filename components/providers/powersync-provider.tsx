@@ -168,6 +168,8 @@ export function PowerSyncProvider({
     work: SessionEndedWork;
   } | null>(null);
   const identityRef = useRef(identity);
+  // "Seguir registrando" was chosen; cleared when the user comes back.
+  const sessionEndDismissedRef = useRef(false);
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const connectorRef = useRef<SupabaseConnector | null>(null);
   const exposedDbRef = useRef<AbstractPowerSyncDatabase | null>(null);
@@ -303,8 +305,12 @@ export function PowerSyncProvider({
         window.setTimeout(() => void endSession(true), 0);
       });
       // The server can clear the session cookies with no event here.
+      // The user coming back to the app (or the connection coming back)
+      // asks again, even after "Seguir registrando".
       const checkWhenVisible = () => {
-        if (document.visibilityState === "visible") checkSession();
+        if (document.visibilityState !== "visible") return;
+        sessionEndDismissedRef.current = false;
+        checkSession();
       };
       window.addEventListener("focus", checkWhenVisible);
       window.addEventListener("online", checkWhenVisible);
@@ -322,7 +328,13 @@ export function PowerSyncProvider({
         currentIdentity.tenantId,
         {
           // A connect that finds no session at all.
-          onSessionMissing: () => window.setTimeout(checkSession, 0),
+          // PowerSync retries every few seconds; after "Seguir registrando"
+          // that must not bring the panel straight back.
+          onSessionMissing: () => {
+            if (!sessionEndDismissedRef.current) {
+              window.setTimeout(checkSession, 0);
+            }
+          },
           onAccessRemoved: () => {
             // A recovery upload's denial says nothing new: the panel there
             // already offers the ways out.
@@ -696,20 +708,25 @@ export function PowerSyncProvider({
         });
       } catch (error) {
         if (
-          !(
-            error instanceof LocalDataTeardownError &&
-            error.stage === "post-destructive"
-          )
+          error instanceof LocalDataTeardownError &&
+          error.stage === "post-destructive"
         ) {
-          // Nothing was deleted: keep the database, so the copy can still be
-          // downloaded and the discard retried.
-          localDataWasJustClearedRef.current = false;
-          setDb((currentDb) => currentDb ?? activeDb);
+          // The work is already gone; only browser leftovers were not
+          // cleared, and the login page's next identity clears them.
+          console.error("[session-ended] discard left local leftovers", error);
+          return;
         }
+        // Nothing was deleted: keep the database, so the copy can still be
+        // downloaded and the discard retried.
+        localDataWasJustClearedRef.current = false;
+        setDb((currentDb) => currentDb ?? activeDb);
         throw error;
       }
     },
-    continueWithoutSession: () => setSessionEnded(null),
+    continueWithoutSession: () => {
+      sessionEndDismissedRef.current = true;
+      setSessionEnded(null);
+    },
   }));
 
   // Stable for the provider's lifetime, like `controls`: it reaches the

@@ -45,6 +45,16 @@ export function sessionEndedWithWork(work: SessionEndedWork): boolean {
 const CAUSES =
   "Puede que hayas eliminado tu cuenta o cambiado la contraseña desde otro dispositivo, que la sesión haya vencido o que el servidor no la haya podido renovar.";
 
+/**
+ * The discard confirmation's advice for an account that still exists: what
+ * signing in with it uploads instead.
+ */
+export function discardAlternative(work: SessionEndedWork): string {
+  return work !== null && work.unresolvedFailureCount > 0
+    ? "Si tu cuenta todavía existe, mejor iniciá sesión con ella: se sube lo que la nube acepte, y lo que rechazó lo vas a ver en Diagnósticos."
+    : "Si tu cuenta todavía existe, mejor iniciá sesión con ella y se suben.";
+}
+
 /** What signing in again does with the work, said truthfully. */
 function afterSignIn(work: NonNullable<SessionEndedWork>) {
   return work.unresolvedFailureCount > 0

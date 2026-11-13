@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  discardAlternative,
   isSessionEndEvent,
   sessionEndedCopy,
   sessionEndedWithWork,
@@ -88,4 +89,17 @@ test("a session end is never reported as a removal from the puesto", () => {
       /Ya no sos parte/
     );
   }
+});
+
+test("the discard confirmation promises an upload only for what the cloud will take", () => {
+  assert.match(
+    discardAlternative({ pendingUploadCount: 2, unresolvedFailureCount: 0 }),
+    /se suben/
+  );
+  const rejected = discardAlternative({
+    pendingUploadCount: 2,
+    unresolvedFailureCount: 1,
+  });
+  assert.match(rejected, /lo que la nube acepte/);
+  assert.match(rejected, /Diagnósticos/);
 });
