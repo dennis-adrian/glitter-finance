@@ -38,7 +38,8 @@ in the Settings UI are **presentation-only** and do not introduce permission
 differences. The one piece of ownership we _do_ record is **who created the
 tenant** (`tenants.created_by_user_id`), stored only for future features
 (billing, "owner can delete tenant", role introduction). That field grants no
-special permission today; all members still have identical permissions.
+special permission in this release. _(Since §15, it is the one permission: the
+creator, the owner, is who removes other members.)_
 
 ## 2. Goals and Non-Goals
 
@@ -61,9 +62,10 @@ special permission today; all members still have identical permissions.
 **Non-Goals (this release)**
 
 - **Roles / differentiated permissions.** All members are equal. `created_by`
-  is recorded but unused for authz.
-- **Removing members / leaving a tenant.** Read-only member list stays; member
-  removal is a fast follow (see Open Items), not in this cut.
+  is recorded but unused for authz (until §15 made the creator the one who
+  removes members).
+- **Removing members / leaving a tenant.** Not in this cut; it shipped as the
+  fast follow described in §15.
 - **Deleting a tenant.**
 - **Simultaneous multi-tenant view.** One active tenant per device at a time;
   switching re-syncs. No merged cross-tenant reports.
@@ -586,10 +588,12 @@ writer) so the actions and the existing bootstrap share one implementation.
   wait for that reload. Local writes still upload in the meantime (uploads are
   authorized by membership). Reloading B re-resolves the active tenant (§5.3);
   its unsynced work is uploaded first (see above).
-- **Creator's auth user deleted** → `created_by_user_id` / invitation
-  `created_by_user_id` go `NULL` (SET NULL); tenant and memberships are
-  unaffected; tenant invitations are removed only when the **tenant** is deleted
-  (cascade), which is out of scope this release.
+- **Creator's auth user deleted** (outright, from the Supabase dashboard) →
+  `created_by_user_id` / invitation `created_by_user_id` go `NULL` (SET NULL);
+  their membership cascades away and the longest-standing member becomes the
+  owner (§15). Tenant invitations are removed only when the **tenant** is
+  deleted (cascade). Account deletion from the app soft-deletes the auth user
+  instead (§15), so these columns keep the id.
 - **Invite-only user abandons join, lands on `/`** → bootstraps a personal
   tenant (§5.6). Acceptable; they can still redeem later.
 - **Two booths, same product catalog** → tenants are fully isolated; catalogs do
@@ -696,9 +700,7 @@ with the parent PRD's dual-platform gate.
    teardown itself (`teardownLocalUserData` with `refuseWhenUnsynced`) re-reads
    the upload queue and refuses before any destructive step, so a stale gate
    can only produce a refusal, never a lost sale.
-3. **Member removal / leave-tenant.** Out of scope here; likely the very next
-   feature. Requires a `tenant_users` DELETE path (server-side) and re-resolving
-   the active tenant if a user leaves the active one. _(Deferred.)_
+3. **Member removal / leave-tenant.** _(Resolved — shipped, see §15.)_
 4. **Invite-only user who abandons the join** (§5.6) gets a personal tenant.
    Accept as-is, or suppress bootstrap when a pending-invite cookie is present.
    Recommend accept-as-is for v1. _(Open, low stakes.)_
@@ -710,8 +712,9 @@ with the parent PRD's dual-platform gate.
 - **Roles** slot in cleanly later: add `tenant_users.role` (default a permissive
   member role) and gate `createInvitation`/`revokeInvitation`/member-removal on
   it. `created_by_user_id` is already the natural seed for an "owner" role.
-- **Member removal and tenant deletion** build on the same server-action +
-  active-tenant-resolution machinery introduced here.
+- **Member removal** shipped on the same server-action + active-tenant
+  resolution machinery (§15). **Tenant deletion** on its own (without deleting
+  the account) can build on `delete_account_data`'s per-tenant delete.
 - **Email-delivered invitations** can layer on top: the token/link model is
   unchanged; an email step would just send the same `/join/{token}` link.
 - **Named/seat-limited invitations** would add columns to `tenant_invitations`
@@ -719,6 +722,72 @@ with the parent PRD's dual-platform gate.
   default.
 - **Token at rest** uses hashed lookup plus encrypted delivery ciphertext (§6.6).
   An active row whose token cannot be recovered is replaced automatically.
+
+## 15. Member removal, leaving and account deletion
+
+Shipped after this release, as the fast follow of Open Item 3. There are still
+no roles; the creator recorded in `tenants.created_by_user_id` became the one
+permission the docs anticipated (§14).
+
+**Rules.** A puesto's **owner** is its creator while they are a member; for a
+puesto from before the column existed (or whose creator's auth user was
+deleted outright) it is the longest-standing member. Only the owner removes
+other members; any other member can leave; the owner can neither leave nor be
+removed while the puesto has other members. Removing someone also revokes the
+puesto's active invitation link: links are reusable, so otherwise a removed
+member, or whoever the link leaked to, could rejoin at once. Leaving keeps the
+link. Any member can still create a new link (no roles), so a removed member
+can come back only if a member sends them one.
+
+**Where it is enforced.** Postgres, for every writer:
+`supabase/manual/20261113120000_tenant_membership_removal.sql` has
+`tenant_owner_user_id`, `remove_tenant_member(actor, tenant, member)` and
+`delete_account_data(user)` (locked per tenant, raising `BF401`/`BF403`/
+`BF404`/`BF409`, executable only by the trusted server connection), and two
+`tenant_users` triggers: one refuses to delete the owner's membership while
+others remain (except in a cascade from the tenant or the auth user), the
+other records the departing member's name. `tenant_users` still has no client
+write policy (§6.3). The server actions (`removeTenantMember`, `leaveTenant`
+in `app/tenants/actions.ts`; `getAccountDeletionPlan`, `deleteAccount` in
+`app/account/actions.ts`) call them in both modes, with and without PowerSync.
+
+**Records.** Sales, sale lines, refunds and stock movements are never deleted
+or rewritten: their `user_id` foreign keys to `auth.users` are `ON DELETE
+RESTRICT`, and nothing touches them. The member's display name is copied into
+`former_tenant_members` (Drizzle schema, synced to devices, read-only, RLS by
+membership), and every seller-name lookup reads it under the current members.
+
+**The removed member's devices.** The sync streams require a membership, so
+the next checkpoint drops the puesto; the removal also moves the user's
+`app_metadata.tenant_id` claim to their oldest remaining puesto (or clears
+it). A device notices either way (`lib/powersync/tenant-access.ts`: its own
+`tenant_users` row is gone after a sync, or a refreshed token no longer claims
+the puesto), confirms with the server through PostgREST, and shows "Ya no sos
+parte de este puesto" with a reload. The reload runs the existing identity
+change: local SQLite and cached photos are cleared once nothing is pending;
+pending uploads are tried, rejected by RLS, and offered in the recovery panel
+as a download before they are discarded. Without PowerSync, a server action
+for a puesto the user no longer belongs to returns the same message.
+
+**Leaving** uses the switch path: the hard sync gate, the local teardown, the
+server action, a session refresh and a reload into the claimed puesto (or a
+new personal one, as on a first sign-in, if none is left).
+
+**Account deletion** (Settings → Cuenta) shows a plan (puestos deleted, puestos
+left) and requires typing `ELIMINAR`. It is refused while the user owns a
+puesto with other members: ownership is never transferred implicitly. It runs
+the sign-out gate and teardown, then `delete_account_data` (a puesto where the
+user is the only member is deleted with all its data, including other
+people's past sales recorded there; shared puestos are left), removes the
+deleted puestos' Storage objects, revokes every session (`signOut({ scope:
+"global" })`) and soft-deletes the auth user (`auth.admin.deleteUser(id,
+true)`): Supabase clears its email, password, identities and metadata while
+the row the kept sales reference stays. Every step is safe to repeat.
+
+**Open.** Transferring ownership (so an owner can leave or delete their account
+without removing everyone); restricting invitation links to the owner; whether
+a removed member's name should eventually be anonymized; and deleting a
+puesto without deleting the account.
 
 ---
 

@@ -38,7 +38,9 @@ export const getAuthenticatedUser = cache(async (): Promise<User | null> => {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  return user;
+  // A deleted account (app/account/actions.ts) has its sessions revoked,
+  // so the Auth server already refuses its tokens; never act for one anyway.
+  return user && !user.deleted_at ? user : null;
 });
 
 // PowerSync's sync rules read tenant_id from the JWT via
@@ -58,6 +60,37 @@ export async function setActiveTenantClaim(user: User, tenantId: string) {
   });
   if (error) {
     throw new Error("No se pudo actualizar el puesto activo.");
+  }
+}
+
+/**
+ * After a membership ended: when the user's claim still names that tenant,
+ * points it at their oldest remaining membership, or clears it when none is
+ * left. Their devices then see a refreshed token that no longer claims the
+ * tenant (lib/powersync/connector.ts), and '/' resolves the same tenant.
+ */
+export async function moveActiveTenantClaimAway(
+  userId: string,
+  tenantId: string
+) {
+  const admin = createAdminClient();
+  const { data, error } = await admin.auth.admin.getUserById(userId);
+  if (error || !data.user) {
+    throw new Error("No se pudo leer el puesto activo.", { cause: error });
+  }
+  const appMetadata = data.user.app_metadata ?? {};
+  if (appMetadata.tenant_id !== tenantId) {
+    return;
+  }
+  const [next] = await loadAllMemberships(db, userId);
+  // Auth merges app_metadata on update, and a null value removes the key.
+  const { error: updateError } = await admin.auth.admin.updateUserById(userId, {
+    app_metadata: { ...appMetadata, tenant_id: next?.tenantId ?? null },
+  });
+  if (updateError) {
+    throw new Error("No se pudo actualizar el puesto activo.", {
+      cause: updateError,
+    });
   }
 }
 

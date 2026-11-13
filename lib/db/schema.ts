@@ -138,6 +138,35 @@ export const tenantUsers = pgTable(
   ]
 );
 
+// The people who left a tenant or were removed from it, with the name they
+// had as members, so the sales, refunds and stock counts they recorded keep
+// a seller name. It grants nothing: a membership is a tenant_users row and
+// nothing else. Only the tenant_users delete trigger writes it
+// (supabase/manual/20261113120000_tenant_membership_removal.sql). No
+// auth.users FK: the name outlives the account.
+export const formerTenantMembers = pgTable(
+  "former_tenant_members",
+  {
+    // Single-column PK so PowerSync can replicate the rows to devices.
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull(),
+    displayName: text("display_name").notNull(),
+    removedAt: timestamp("removed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Also serves tenant_id-only lookups and the tenants FK.
+    unique("former_tenant_members_tenant_id_user_id_unique").on(
+      table.tenantId,
+      table.userId
+    ),
+  ]
+);
+
 export const products = pgTable(
   "products",
   {

@@ -127,6 +127,16 @@ export const tenantUsers = sqliteTable("tenant_users", {
   createdAt: text("created_at").notNull(),
 });
 
+// Who left the tenant or was removed from it: the seller names of their past
+// records (lib/powersync/tenant-users-from-local.ts). Read-only on devices.
+export const formerTenantMembers = sqliteTable("former_tenant_members", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  userId: text("user_id").notNull(),
+  displayName: text("display_name").notNull(),
+  removedAt: text("removed_at").notNull(),
+});
+
 export const inventoryMovements = sqliteTable(
   "inventory_movements",
   {
@@ -191,6 +201,7 @@ export const clientSchema = {
   saleLines,
   refunds,
   tenantUsers,
+  formerTenantMembers,
   inventoryMovements,
   draftCart: {
     tableDefinition: draftCart,

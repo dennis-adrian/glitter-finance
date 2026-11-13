@@ -18,6 +18,7 @@ const syncedTables: [Table, Table][] = [
   [server.saleLines, client.saleLines],
   [server.refunds, client.refunds],
   [server.tenantUsers, client.tenantUsers],
+  [server.formerTenantMembers, client.formerTenantMembers],
   [server.inventoryMovements, client.inventoryMovements],
 ];
 

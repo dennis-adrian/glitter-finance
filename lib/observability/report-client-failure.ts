@@ -10,6 +10,7 @@ export type ClientFailureComponent =
   | "powersync_categories_watch"
   | "powersync_inventory_watch"
   | "powersync_tenant_users_watch"
+  | "powersync_former_tenant_members_watch"
   | "powersync_sales_watch"
   | "powersync_sales_rebuild"
   | "powersync_draft_cart_hydrate"

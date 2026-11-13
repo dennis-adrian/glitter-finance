@@ -15,7 +15,7 @@ Implemented now:
 - Reports, in the main navigation, over today, week, month, or a custom range: totals compared with the previous period, a trend chart, and breakdowns by category, payment method, product, and seller.
 - Optional stock tracking per product.
 - Categories each puesto manages (create, rename, delete when unused) from Catálogo › Categorías; every product points to one by id.
-- Several tenants per user, a tenant switcher, and invitation links.
+- Several tenants per user, a tenant switcher, and invitation links. The puesto's creator can remove members (which revokes the active link), other members can leave, and a user can delete their account; Postgres enforces who may do what, and past sales keep the departed member's name (`former_tenant_members`). See the invitations PRD, §15.
 - Email and password or Google sign-in, and password reset.
 - A sync status pill and a tester Diagnostics screen.
 

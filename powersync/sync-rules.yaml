@@ -10,7 +10,9 @@
 # '/', so a user removed from a tenant would keep its claim. Every query
 # therefore also requires a tenant_users membership for the JWT's user
 # (auth.user_id() is the `sub` claim), the same check RLS makes
-# (current_user_has_tenant). Deleting the membership stops the sync at once.
+# (current_user_has_tenant). Deleting the membership stops the sync at once:
+# that is how removing a member, leaving a puesto and deleting an account cut
+# a device off (app/tenants/actions.ts, app/account/actions.ts).
 #
 # Tables NOT synced (yet):
 # - tenants: single row per tenant, loaded server-side.
@@ -44,6 +46,10 @@ streams:
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
         AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())
       - SELECT * FROM tenant_users
+        WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
+        AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())
+      # The names of former members, for the records they left behind.
+      - SELECT * FROM former_tenant_members
         WHERE tenant_id = auth.parameters() -> 'app_metadata' ->> 'tenant_id'
         AND tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = auth.user_id())
       - SELECT * FROM inventory_movements

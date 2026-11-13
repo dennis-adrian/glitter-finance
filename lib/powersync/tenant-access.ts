@@ -1,0 +1,98 @@
+// Noticing on a device that its user is no longer a member of the tenant its
+// local data belongs to: the owner removed them, they left on another
+// device, or they deleted their account there.
+//
+// The sync streams require a tenant_users membership (powersync/sync-rules.yaml),
+// so the next checkpoint after the membership is deleted drops the whole
+// tenant from the device, including the user's own tenant_users row, while
+// the upload queue keeps what was not uploaded yet. A synced database without
+// that row is the sign. It is only a sign: the server is asked
+// (SupabaseConnector.verifyTenantAccess) before the device says anything,
+// since a database synced before tenant_users was replicated lacks it too.
+//
+// The connector reaches the same answer on its own when a refreshed token no
+// longer claims the tenant, which is what a device that was offline sees
+// first (the removal moves the claim away, app/tenants/actions.ts).
+
+import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import { watchLocalTables } from "@/lib/powersync/local-watch";
+
+/** What the server says about the user's membership in the device's tenant. */
+export type TenantAccess = "member" | "removed" | "unknown";
+
+/** How often a missing membership row may be checked with the server. */
+export const TENANT_ACCESS_CHECK_INTERVAL_MS = 30_000;
+
+/**
+ * Returns the function the watch calls with the number of membership rows
+ * it reads. It asks the server when there is none, at most once per
+ * `minIntervalMs` and never twice at once, and calls `onRemoved` once the
+ * server confirms the membership is gone.
+ */
+export function createTenantAccessCheck(input: {
+  verify: () => Promise<TenantAccess>;
+  onRemoved: () => void;
+  minIntervalMs?: number;
+  /** A monotonic clock, in milliseconds. */
+  now?: () => number;
+}) {
+  const minIntervalMs = input.minIntervalMs ?? TENANT_ACCESS_CHECK_INTERVAL_MS;
+  const now = input.now ?? (() => performance.now());
+  let lastCheckAt: number | null = null;
+  let checking = false;
+  let removed = false;
+
+  return async function onMembershipRows(count: number): Promise<void> {
+    if (count > 0 || removed || checking) return;
+    const time = now();
+    if (lastCheckAt !== null && time - lastCheckAt < minIntervalMs) return;
+    lastCheckAt = time;
+    checking = true;
+    try {
+      if ((await input.verify()) === "removed") {
+        removed = true;
+        input.onRemoved();
+      }
+    } catch (error) {
+      console.warn("[PowerSync] tenant access check failed", { error });
+    } finally {
+      checking = false;
+    }
+  };
+}
+
+/**
+ * Watches the user's own membership row once the first sync has completed.
+ * Returns the cleanup.
+ */
+export function watchTenantAccess(
+  db: AbstractPowerSyncDatabase,
+  input: {
+    tenantId: string;
+    userId: string;
+    verify: () => Promise<TenantAccess>;
+    onRemoved: () => void;
+  }
+): () => void {
+  const check = createTenantAccessCheck(input);
+  return watchLocalTables(db, ({ signal, synced }) => {
+    if (!synced) return;
+    db.watch(
+      `SELECT count(*) AS count FROM tenant_users WHERE tenant_id = ? AND user_id = ?`,
+      [input.tenantId, input.userId],
+      {
+        onResult: (results) => {
+          if (signal.aborted) return;
+          const row = results.rows?._array?.[0] as
+            | { count?: number }
+            | undefined;
+          void check(Number(row?.count ?? 0));
+        },
+        onError: (error) => {
+          console.warn("[PowerSync] tenant access watch failed", { error });
+        },
+      },
+      { signal }
+    );
+  });
+}

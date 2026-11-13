@@ -1,15 +1,16 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Stethoscope } from "lucide-react";
 import { ScreenHeader } from "@/components/molecules/screen-header";
 import { Screen } from "@/components/templates/screen";
+import { DeleteAccountCard } from "@/components/molecules/delete-account-card";
 import { InviteTeamCard } from "@/components/molecules/invite-team-card";
 import { SettingsItem } from "@/components/molecules/settings-item";
+import { TeamMembersCard } from "@/components/molecules/team-members-card";
 import { ThemePicker } from "@/components/molecules/theme-picker";
 import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import type { TenantInvitation, TenantMember } from "@/lib/types";
-import { initialsOf } from "@/lib/utils";
 
 type SettingsScreenProps = {
   tenantContext: UserTenantContext;
@@ -18,6 +19,7 @@ type SettingsScreenProps = {
   activeInvitation: TenantInvitation | null;
   inviteOrigin: string;
   onInvitationChange?: (invitation: TenantInvitation | null) => void;
+  onMemberRemoved?: (member: TenantMember) => void;
   openDiagnostics: () => void;
   back: () => void;
 };
@@ -60,10 +62,12 @@ export function SettingsScreen({
   activeInvitation,
   inviteOrigin,
   onInvitationChange,
+  onMemberRemoved,
   openDiagnostics,
   back,
 }: SettingsScreenProps) {
   const tenantName = tenantContext.tenant?.name;
+  const [inviteCardRevision, setInviteCardRevision] = useState(0);
 
   return (
     <Screen
@@ -81,52 +85,23 @@ export function SettingsScreen({
               : undefined
           }
         >
-          <div className="rounded-2xl bg-card p-4 ring-1 ring-foreground/10">
-            {teamSyncPending ? (
-              <p className="mb-3 text-sm leading-snug text-muted-foreground">
-                Sincronizando el equipo… Si esto persiste, revisá la conexión en
-                Diagnósticos.
-              </p>
-            ) : null}
-            <ul className="grid">
-              {tenantMembers.map((member) => {
-                const isCurrentUser = member.userId === tenantContext.user.id;
-                const isOwner =
-                  tenantContext.tenant?.createdByUserId != null &&
-                  member.userId === tenantContext.tenant.createdByUserId;
-                const roleLabel = isOwner ? "Propietario" : "Vendedor";
-                const memberInitials = initialsOf(member.displayName);
-                return (
-                  <li
-                    className="flex items-center gap-3 border-b border-border py-2.5 first:pt-0 last:border-b-0 last:pb-0"
-                    key={member.id}
-                  >
-                    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-                      {memberInitials}
-                    </span>
-                    <span className="min-w-0">
-                      <strong className="block truncate text-sm">
-                        {member.displayName}
-                        {isCurrentUser ? (
-                          <span className="font-normal text-muted-foreground">
-                            {" "}
-                            (vos)
-                          </span>
-                        ) : null}
-                      </strong>
-                      <small className="block truncate text-xs text-muted-foreground">
-                        {roleLabel}
-                        {isCurrentUser && tenantContext.user.email
-                          ? ` · ${tenantContext.user.email}`
-                          : ""}
-                      </small>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+          <TeamMembersCard
+            tenantId={tenantContext.tenant.id}
+            tenantName={tenantContext.tenant.name}
+            createdByUserId={tenantContext.tenant.createdByUserId}
+            currentUserId={tenantContext.user.id}
+            currentUserEmail={tenantContext.user.email}
+            members={tenantMembers}
+            teamSyncPending={teamSyncPending}
+            onMemberRemoved={(member) => {
+              // Removing someone revokes the link; the card shows none now.
+              setInviteCardRevision((revision) => revision + 1);
+              onInvitationChange?.(null);
+              onMemberRemoved?.(member);
+            }}
+          />
           <InviteTeamCard
+            key={inviteCardRevision}
             tenantId={tenantContext.tenant.id}
             initialInvitation={activeInvitation}
             origin={inviteOrigin}
@@ -152,6 +127,10 @@ export function SettingsScreen({
           value="Sincronización, datos y dispositivo"
           onClick={openDiagnostics}
         />
+      </SettingsSection>
+
+      <SettingsSection id="settings-account" title="Cuenta">
+        <DeleteAccountCard activeTenantId={tenantContext.tenant?.id ?? null} />
       </SettingsSection>
     </Screen>
   );

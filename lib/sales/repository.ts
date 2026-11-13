@@ -5,12 +5,14 @@ import { UserFacingError } from "@/lib/action-result";
 import { toIso } from "@/lib/dates";
 import { db } from "@/lib/db";
 import {
+  formerTenantMembers,
   products,
   refunds,
   saleLines,
   sales,
   tenantUsers,
 } from "@/lib/db/schema";
+import { buildUserNameMap } from "@/lib/powersync/tenant-users-from-local";
 import {
   isWithinVoidWindow,
   REFUNDED_SALE_VOID_MESSAGE,
@@ -25,7 +27,13 @@ import {
   priceSale,
   type SaleLineRequest,
 } from "@/lib/sales/pricing";
-import type { PaymentMethod, Sale, SaleLine, TenantMember } from "@/lib/types";
+import type {
+  FormerTenantMember,
+  PaymentMethod,
+  Sale,
+  SaleLine,
+  TenantMember,
+} from "@/lib/types";
 import { normalizeNote } from "@/lib/validation";
 
 export type CreateSaleLineInput = SaleLineRequest;
@@ -116,24 +124,48 @@ function mapSaleRows(
   });
 }
 
-/** Display names of the tenant's members, by user id. */
+/**
+ * Seller names by user id: the tenant's members', and the names its former
+ * members had, so a removed member's records keep theirs.
+ */
 async function loadUserNamesForTenant(tenantId: string, userId?: string) {
-  const rows = await db
-    .select({
-      userId: tenantUsers.userId,
-      displayName: tenantUsers.displayName,
-    })
-    .from(tenantUsers)
-    .where(
-      userId
-        ? and(
-            eq(tenantUsers.tenantId, tenantId),
-            eq(tenantUsers.userId, userId)
-          )
-        : eq(tenantUsers.tenantId, tenantId)
-    );
+  const [memberRows, formerRows] = await Promise.all([
+    db
+      .select({
+        userId: tenantUsers.userId,
+        displayName: tenantUsers.displayName,
+      })
+      .from(tenantUsers)
+      .where(
+        userId
+          ? and(
+              eq(tenantUsers.tenantId, tenantId),
+              eq(tenantUsers.userId, userId)
+            )
+          : eq(tenantUsers.tenantId, tenantId)
+      ),
+    db
+      .select({
+        userId: formerTenantMembers.userId,
+        displayName: formerTenantMembers.displayName,
+      })
+      .from(formerTenantMembers)
+      .where(
+        userId
+          ? and(
+              eq(formerTenantMembers.tenantId, tenantId),
+              eq(formerTenantMembers.userId, userId)
+            )
+          : eq(formerTenantMembers.tenantId, tenantId)
+      ),
+  ]);
 
-  return new Map(rows.map((user) => [user.userId, user.displayName]));
+  return new Map(
+    [...formerRows, ...memberRows].map((user) => [
+      user.userId,
+      user.displayName,
+    ])
+  );
 }
 
 async function getSaleForTenant(tenantId: string, saleId: string) {
@@ -313,6 +345,10 @@ export type GetSalesForTenantOptions = {
    * are taken from them instead of queried again.
    */
   members?: Promise<readonly TenantMember[]> | readonly TenantMember[];
+  /** With `members`: the former members, whose records keep their names. */
+  formerMembers?:
+    | Promise<readonly FormerTenantMember[]>
+    | readonly FormerTenantMember[];
 };
 
 /**
@@ -402,16 +438,15 @@ function loadSalesHistoryRows(
 
 export async function getSalesForTenant(
   tenantId: string,
-  { since, members }: GetSalesForTenantOptions = {}
+  { since, members, formerMembers }: GetSalesForTenantOptions = {}
 ): Promise<Sale[]> {
   const filters = salesHistoryFilters(tenantId, since);
   const [[saleRows, lineRows, refundRows], userNameById] = await Promise.all([
     loadSalesHistoryRows(tenantId, filters, since),
     // Names need no snapshot: a seller missing from them reads "Vendedor".
     members
-      ? Promise.resolve(members).then(
-          (loaded) =>
-            new Map(loaded.map((member) => [member.userId, member.displayName]))
+      ? Promise.all([members, formerMembers ?? []]).then(([loaded, former]) =>
+          buildUserNameMap(loaded, former)
         )
       : loadUserNamesForTenant(tenantId),
   ]);

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { GlitterPosApp } from "@/components/templates/glitter-pos-app";
 import { PowerSyncProvider } from "@/components/providers/powersync-provider";
 import { ensureUserTenantContext } from "@/lib/auth/user-context";
-import { getTenantMembersForTenant } from "@/lib/auth/tenant-members";
+import { getTenantRosterForTenant } from "@/lib/auth/tenant-members";
 import { getCategoriesForTenant } from "@/lib/categories/repository";
 import { isPowerSyncConfigured } from "@/lib/env";
 import { getInventorySnapshotForTenant } from "@/lib/inventory/repository";
@@ -32,14 +32,15 @@ async function loadTenantData(tenantId: string) {
   const salesSince = isPowerSyncConfigured() ? recentHistoryStart : undefined;
   // Seven reads run at once, each on its own pooled connection; lib/db sizes
   // the pool for them, so keep its count in step when adding one.
-  const members = getTenantMembersForTenant(tenantId);
+  // The members and the former members share one connection (seller names).
+  const roster = getTenantRosterForTenant(tenantId);
   const categories = getCategoriesForTenant(tenantId);
 
   const [
     tenantCategories,
     products,
     sales,
-    tenantMembers,
+    { members: tenantMembers, formerMembers: formerTenantMembers },
     inventory,
     activeInvitation,
   ] = await Promise.all([
@@ -49,8 +50,12 @@ async function loadTenantData(tenantId: string) {
     // its first sync completes; these rows only paint the screens until
     // then, so recent sales are enough. Without it these sales are the
     // whole history the screens have, so custom ranges need all of them.
-    getSalesForTenant(tenantId, { since: salesSince, members }),
-    members,
+    getSalesForTenant(tenantId, {
+      since: salesSince,
+      members: roster.then(({ members }) => members),
+      formerMembers: roster.then(({ formerMembers }) => formerMembers),
+    }),
+    roster,
     getInventorySnapshotForTenant(tenantId, recentHistoryStart),
     getActiveInvitationForTenant(tenantId),
   ]);
@@ -61,6 +66,7 @@ async function loadTenantData(tenantId: string) {
     sales,
     salesSince: salesSince?.toISOString() ?? null,
     tenantMembers,
+    formerTenantMembers,
     inventory,
     activeInvitation,
   };
@@ -83,6 +89,7 @@ export default async function Home() {
         sales: [],
         salesSince: null,
         tenantMembers: [],
+        formerTenantMembers: [],
         inventory: null,
         activeInvitation: null,
       };
@@ -102,6 +109,7 @@ export default async function Home() {
         initialSales={data.sales}
         initialSalesSince={data.salesSince}
         initialTenantMembers={data.tenantMembers}
+        initialFormerTenantMembers={data.formerTenantMembers}
         initialInventory={data.inventory}
         activeInvitation={data.activeInvitation}
         inviteOrigin={inviteOrigin ?? ""}

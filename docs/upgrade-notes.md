@@ -11,17 +11,18 @@ README and empty this file for the release after.
 
 ## What changes for operators
 
-| Area                  | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| App environment       | The server now checks at startup that the required variables, `INVITATION_SECRET_KEY` included, are set. Browser Sentry reports only from Vercel production and preview deployments.                                                                                                                                                                                                                                                                                                 |
-| Product categories    | Products now point to their category by id (`products.category_id`, a foreign key to the puesto's `categories` row) instead of by name. `products.category` stays, derived from the id, for v0.7.0 and v0.8.0 devices and for sale lines. Existing products are linked by the category SQL file, run in step 3 right after `db:push` and again at the end of step 6, no longer on the first load of `/`.                                                                             |
-| Database schema       | Four Drizzle migrations: stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times; then the nullable `products.category_id` with its index; then its foreign key; then the product name cap raised from 120 to 240 characters.                                                                                                                                               |
-| Hand-written SQL      | Six new `supabase/manual/` files: upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, per-field last-write-wins product edits, category renames that win over those edit times, products stored with their category's spelling, and products linked to their category by id. The last one replaces the name-based category triggers (v0.8.0's and the two before it); it runs before the app deploy and again at the end of step 6. |
-| PowerSync             | Every sync stream now also requires a `tenant_users` membership, so the streams must be redeployed.                                                                                                                                                                                                                                                                                                                                                                                  |
-| Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                                                                                                                  |
-| Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                                                                                                                                                                     |
-| App screens           | A responsive layout for phones, tablets and desktops, a new order and checkout flow, and Reportes in the main navigation (see [What users may notice](#what-users-may-notice)). Nothing to configure.                                                                                                                                                                                                                                                                                |
-| Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                                                                                                                                                                          |
+| Area                  | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App environment       | The server now checks at startup that the required variables, `INVITATION_SECRET_KEY` included, are set. Browser Sentry reports only from Vercel production and preview deployments.                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Product categories    | Products now point to their category by id (`products.category_id`, a foreign key to the puesto's `categories` row) instead of by name. `products.category` stays, derived from the id, for v0.7.0 and v0.8.0 devices and for sale lines. Existing products are linked by the category SQL file, run in step 3 right after `db:push` and again at the end of step 6, no longer on the first load of `/`.                                                                                                                                                                                                       |
+| Database schema       | Four Drizzle migrations: stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times; then the nullable `products.category_id` with its index; then its foreign key; then the product name cap raised from 120 to 240 characters.                                                                                                                                                                                                                                                                         |
+| Hand-written SQL      | Seven new `supabase/manual/` files: upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, per-field last-write-wins product edits, category renames that win over those edit times, products stored with their category's spelling, products linked to their category by id, and member removal and account deletion. The category-id file replaces the name-based category triggers (v0.8.0's and the two before it); it runs before the app deploy and again at the end of step 6. The member removal file runs once, before the app deploy (step 3, item 4). |
+| PowerSync             | Every sync stream now also requires a `tenant_users` membership, so the streams must be redeployed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Team and accounts     | A puesto's creator can remove members, other members can leave, and anyone can delete their account (Settings → Equipo and → Cuenta). One new Drizzle migration (`former_tenant_members`, the names of people who left, so their sales keep a seller name), one new hand-written SQL file that must run before the app deploy (step 3, item 4), and one more sync stream query (step 4).                                                                                                                                                                                                                       |
+| Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| App screens           | A responsive layout for phones, tablets and desktops, a new order and checkout flow, and Reportes in the main navigation (see [What users may notice](#what-users-may-notice)). Nothing to configure.                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ## Once, before the first environment
 
@@ -246,6 +247,10 @@ None of these blocks the release:
      the product name cap from 120 to 240 characters. It drops and re-adds
      `products_name_length_check`, which briefly locks `products` like the
      first migration.
+   - `supabase/migrations/20261113040514_chief_wong.sql`: the new, empty
+     `former_tenant_members` table (who left a puesto, with the name their
+     records keep) and its foreign key to `tenants`. The old app ignores it.
+     Item 4 enables its RLS right after.
 
    An environment that already runs a `develop` build has the first one, and
    `db:push` applies only the others. An environment still on v0.7.0 also
@@ -327,6 +332,24 @@ None of these blocks the release:
      included, downloads all the products again at its next sync. No stream
      change is needed.
 
+4. Right after `db:push` (and before steps 4 and 5), run
+   [`supabase/manual/20261113120000_tenant_membership_removal.sql`](../supabase/manual/20261113120000_tenant_membership_removal.sql).
+   It does not depend on the category files and is idempotent.
+   - **Security-critical:** it enables RLS on `former_tenant_members`. Until
+     it runs, anyone holding the publishable key can read every puesto's
+     former member names through PostgREST (there are none before the new
+     app removes someone).
+   - It adds `former_tenant_members` to the `powersync` publication and, when
+     `powersync_role` exists, grants it `SELECT`. Step 4's streams read the
+     table, so this comes first.
+   - It installs the owner rule, the two `tenant_users` delete triggers (the
+     owner's membership stays while others remain; a departing member's name
+     is recorded) and the `remove_tenant_member` and `delete_account_data`
+     functions the new app's server actions call. Without them those actions
+     fail with an error.
+   - The old app is unaffected: it never deletes memberships, and the
+     triggers do not touch inserts.
+
 ### 4. PowerSync Sync Streams
 
 Paste [`powersync/sync-rules.yaml`](../powersync/sync-rules.yaml) into the
@@ -334,7 +357,9 @@ environment's PowerSync Cloud **Sync Streams** editor, then **Validate** and
 **Deploy**. Every stream query now also requires a `tenant_users` membership
 for the signed-in user, not just the active tenant claim, so a removed member
 stops syncing at once. The streams select whole rows, so
-`products.category_id` reaches devices with no stream change.
+`products.category_id` reaches devices with no stream change. A new query
+syncs `former_tenant_members`, so a removed member's sales keep their name
+on every device; old app builds have no local table for it and ignore it.
 
 - Confirm that `tenant_users` is in the `powersync` publication (the query is
   under [PowerSync setup](../README.md#powersync-setup)). It already had to be.
@@ -501,6 +526,20 @@ In the SQL editor:
      'authenticated', 'public.powersync_create_sale(jsonb,jsonb)', 'EXECUTE');
    ```
 
+4. Check the membership removal SQL of step 3, item 4. The first query must
+   return one row, the second `true` (or an error naming `powersync_role` if
+   this project has none), and the last two `false`:
+
+   ```sql
+   SELECT tablename FROM pg_publication_tables
+   WHERE pubname = 'powersync' AND tablename = 'former_tenant_members';
+   SELECT has_table_privilege('powersync_role', 'public.former_tenant_members', 'SELECT');
+   SELECT has_function_privilege(
+     'authenticated', 'public.remove_tenant_member(uuid,uuid,uuid)', 'EXECUTE');
+   SELECT has_function_privilege(
+     'authenticated', 'public.delete_account_data(uuid)', 'EXECUTE');
+   ```
+
 Then, in the dashboard's database settings, look at the connection pooler's
 maximum client connections. Each server instance of the app now opens up to 7
 connections to the transaction pooler instead of 5 (`lib/db/index.ts`), so
@@ -592,6 +631,31 @@ On staging, run on installed iPhone Safari and Android Chrome PWAs:
   appears in **Ventas** and **Reportes**. Reload on each screen and use the
   back button: both stay in the app.
 
+- Team and accounts, with three test accounts A (creates a puesto), B and C
+  (join it by link), each on its own installed PWA:
+  - B records a sale. A removes B from **Ajustes › Equipo**: B's device shows
+    "Ya no sos parte de este puesto" within a minute (online), and its reload
+    lands in another puesto with the old one's products and photos gone. A's
+    reports and the sale detail still name B. The invitation link B used no
+    longer works.
+  - Repeat with B offline when A removes them, and B with a sale recorded
+    offline: once online, B sees the same message; after the reload the
+    recovery panel offers the stuck sale as a download, then discards it.
+  - C leaves from **Ajustes › Equipo › Salir del puesto** (it waits while
+    anything is unsynced); C's other devices show the same message.
+  - A has neither **Quitar** on themselves nor **Salir del puesto**; B and C
+    see no **Quitar** buttons.
+  - **Ajustes › Cuenta › Eliminar mi cuenta** for A while C is still a member
+    is refused and names the puesto. For C (a member of A's puesto, with a
+    puesto of their own), it lists both; after typing `ELIMINAR`, C lands on
+    the login screen with "Tu cuenta se eliminó", cannot sign in again, and
+    can sign up again with the same email. C's own puesto, its products and
+    photos are gone (Storage bucket); C's sales in A's puesto remain under
+    C's name.
+  - Without PowerSync (a local build with `NEXT_PUBLIC_POWERSYNC_URL` empty),
+    removing a member and leaving work the same, and a removed member's next
+    action says "Ya no sos parte de este puesto".
+
 When they pass, repeat steps 1–9 on production, then run **Offline Relaunch
 Right After Signing In** on installed production PWAs as well.
 
@@ -617,6 +681,11 @@ Right After Signing In** on installed production PWAs as well.
   **Descartar operación** in Diagnostics and enter the product again with a
   shorter name.
 - Signing out now signs out only the current device.
+- **Ajustes › Equipo** lets the puesto's creator remove a member (which also
+  turns off the current invitation link, so they generate a new one for the
+  next person) and every other member leave. **Ajustes › Cuenta** deletes the
+  user's account, together with the puestos where they are the only member.
+  A removed member's past sales keep their name.
 - The screens are reorganized, and work on tablets and desktops instead of
   showing a framed phone:
   - The navigation has five destinations, **Vender**, **Ventas**,

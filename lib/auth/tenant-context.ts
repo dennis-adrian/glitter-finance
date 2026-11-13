@@ -50,6 +50,13 @@ export type TenantContextUser = {
 export const ACTIVE_TENANT_CHANGED_MESSAGE =
   "Tu puesto activo cambió en otro dispositivo. Recargá la app para continuar.";
 
+/**
+ * The tenant the screen renders is no longer one of the user's: they left it
+ * on another device, or its owner removed them.
+ */
+export const TENANT_ACCESS_REMOVED_MESSAGE =
+  "Ya no sos parte de este puesto. Recargá la app para continuar.";
+
 const INVALID_TENANT_ID_MESSAGE = "Identificador de puesto inválido.";
 
 export function parseTenantId(tenantId: unknown): string {
@@ -169,7 +176,14 @@ export function requireExpectedTenant<T extends UserTenantContext>(
     throw new UserFacingError(missingTenantMessage);
   }
   if (tenant.id.toLowerCase() !== expected) {
-    throw new UserFacingError(ACTIVE_TENANT_CHANGED_MESSAGE);
+    const stillMember = context.tenants.some(
+      (summary) => summary.id.toLowerCase() === expected
+    );
+    throw new UserFacingError(
+      stillMember
+        ? ACTIVE_TENANT_CHANGED_MESSAGE
+        : TENANT_ACCESS_REMOVED_MESSAGE
+    );
   }
   return { ...context, tenant };
 }

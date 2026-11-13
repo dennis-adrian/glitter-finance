@@ -101,6 +101,17 @@ export type TenantMember = {
   createdAt: string;
 };
 
+/**
+ * Someone who left the puesto or was removed from it: the name the sales,
+ * refunds and stock counts they recorded keep.
+ */
+export type FormerTenantMember = {
+  id: string;
+  userId: string;
+  displayName: string;
+  removedAt: string;
+};
+
 export type TenantSummary = {
   id: string;
   name: string;

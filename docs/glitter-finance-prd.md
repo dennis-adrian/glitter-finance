@@ -56,7 +56,7 @@ An account representing one vendor or vendor team. Owns all products, sales, and
 
 **User**
 
-A person who can sign in and record sales on a tenant. A tenant can have multiple users, so relatives or friends who take turns at the booth can each use the app on their own phone. Every sale records the `user_id` that created it, enabling per-user attribution in reports. All users on a tenant have equivalent access; roles and permissions are a future feature.
+A person who can sign in and record sales on a tenant. A tenant can have multiple users, so relatives or friends who take turns at the booth can each use the app on their own phone. Every sale records the `user_id` that created it, enabling per-user attribution in reports. All users on a tenant have equivalent access, except that the user who created it (its owner) is the one who can remove other members; roles and permissions are a future feature.
 
 **Product**
 
@@ -190,7 +190,7 @@ A tenant can have multiple users, so relatives or friends taking turns at a boot
 
 Because each sale is independent and append-only with a client-generated UUID, two people selling on the same account at the same time produce sales that both sync without any conflict to resolve.
 
-Members join through invitation links that any member creates and can revoke in Settings, and one user can belong to several accounts and switch between them ([`multi-tenant-invitations-prd.md`](./multi-tenant-invitations-prd.md)). Roles and permissions, per-user restricted views, removing a member from the app, and real-time propagation (seeing another user's sale appear instantly) are future features (section 11). The core is that more than one person can ring up sales on the same account, and reports attribute each sale.
+Members join through invitation links that any member creates and can revoke in Settings, and one user can belong to several accounts and switch between them ([`multi-tenant-invitations-prd.md`](./multi-tenant-invitations-prd.md)). The member who created a puesto can remove others, any other member can leave, and a user can delete their account; their sales stay, under their name ([`multi-tenant-invitations-prd.md`](./multi-tenant-invitations-prd.md), section 15). Roles and permissions, per-user restricted views, and real-time propagation (seeing another user's sale appear instantly) are future features (section 11). The core is that more than one person can ring up sales on the same account, and reports attribute each sale.
 
 ### 7.6 Reports
 
@@ -302,7 +302,7 @@ A priced combo that, when sold, decrements multiple component products. A bundle
 
 ### 11.6 Multi-user roles and refinements
 
-Roles and permissions, per-user restricted views, removing a member (or leaving an account) from the app, and real-time propagation so one user sees another's sale appear instantly. Invitation links with revoke have shipped ([`multi-tenant-invitations-prd.md`](./multi-tenant-invitations-prd.md)).
+Roles and permissions, per-user restricted views, and real-time propagation so one user sees another's sale appear instantly. Invitation links with revoke, removing a member, leaving a puesto and deleting an account have shipped ([`multi-tenant-invitations-prd.md`](./multi-tenant-invitations-prd.md)).
 
 ### 11.7 Payment-proof attachments
 
@@ -451,7 +451,7 @@ Glitter Finance is built without a dedicated designer. UI work is done iterative
 - **Checkout:** commits immediately on payment-method selection and returns to Sell Mode. Confirmation is a brief non-blocking toast (amount and payment method), not a dedicated confirmation screen, to keep the hot path fast.
 - **Sell Mode speed:** defined by concrete timed acceptance scenarios in section 7.3, measured vendor-app interaction time only, on a warm Sell Mode, on both Android and iPhone. A miss on either platform is a release blocker.
 - **Product images:** optional and non-blocking, uploaded at catalog-setup time, with graceful placeholders.
-- **Multiple users per account:** included. Multiple users per tenant recording independent sales with per-user attribution; members join through revocable invitation links, and a user can belong to several tenants. Roles, permissions, restricted views, member removal, and real-time propagation are future features.
+- **Multiple users per account:** included. Multiple users per tenant recording independent sales with per-user attribution; members join through revocable invitation links, and a user can belong to several tenants. Its creator can remove members, others can leave, and users can delete their account. Roles, permissions, restricted views, and real-time propagation are future features.
 - **Authentication:** Supabase Auth (email and password, or Google), real tenant scoping, PowerSync sync rules keyed on the authenticated user's active tenant and membership. Self-serve sign-up is open.
 - **iOS as a primary validation target:** OPFSCoopSyncVFS configured from the moment PowerSync is wired in.
 - **No designer:** AI-assisted UI work with a style guide document and a deliberate Sell Mode design pass.

@@ -33,6 +33,7 @@ import {
   LocalDataRecoveryPanel,
   type LocalDataRecoveryControls,
 } from "@/components/providers/local-data-recovery-panel";
+import { loadDocument } from "@/lib/auth/identity-change";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
 import type { SupabaseConnector } from "@/lib/powersync/connector";
@@ -43,6 +44,7 @@ import {
   idleSyncStatusStore,
   syncErrorText,
 } from "@/lib/powersync/sync-status";
+import { watchTenantAccess } from "@/lib/powersync/tenant-access";
 import { SyncStatusStoreProvider } from "@/lib/powersync/use-sync-status";
 import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import {
@@ -148,6 +150,9 @@ export function PowerSyncProvider({
     null
   );
   const [recovery, setRecovery] = useState<LocalDataRecovery | null>(null);
+  // The server confirmed the user is no longer a member of the local data's
+  // tenant (lib/powersync/tenant-access.ts). Only a reload moves on.
+  const [accessRemoved, setAccessRemoved] = useState(false);
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const connectorRef = useRef<SupabaseConnector | null>(null);
   const exposedDbRef = useRef<AbstractPowerSyncDatabase | null>(null);
@@ -167,12 +172,14 @@ export function PowerSyncProvider({
     let cancelled = false;
     let instance: AbstractPowerSyncDatabase | null = null;
     let recoveryControls: LocalDataRecoveryControls | null = null;
+    let stopAccessWatch: (() => void) | null = null;
 
     async function init() {
       setLocalDataReadyIdentity(null);
       setLocalDataError(null);
       setIdentityChange(null);
       setRecovery(null);
+      setAccessRemoved(false);
       setDb(null);
 
       const powerSyncConfigured = isPowerSyncConfigured();
@@ -234,7 +241,19 @@ export function PowerSyncProvider({
       // so another tenant's rows can never sync into this database.
       const connector = new SupabaseConnector(
         supabase,
-        currentIdentity.tenantId
+        currentIdentity.tenantId,
+        {
+          onAccessRemoved: () => {
+            // A recovery upload's denial says nothing new: the panel there
+            // already offers the ways out.
+            if (
+              !cancelled &&
+              localDataIdentityMatches(readLocalDataIdentity(), currentIdentity)
+            ) {
+              setAccessRemoved(true);
+            }
+          },
+        }
       );
 
       // A device database belongs to exactly one authenticated user + active
@@ -347,6 +366,15 @@ export function PowerSyncProvider({
 
       connectorRef.current = connector;
       await instance.connect(connector);
+      if (currentIdentity.tenantId) {
+        stopAccessWatch = watchTenantAccess(instance, {
+          tenantId: currentIdentity.tenantId,
+          userId: currentIdentity.userId,
+          verify: () => connector.verifyTenantAccess(),
+          // The connector reports it through onAccessRemoved.
+          onRemoved: () => {},
+        });
+      }
       try {
         await reconcileSyncFailures(instance);
       } catch (error) {
@@ -402,6 +430,7 @@ export function PowerSyncProvider({
 
     return () => {
       cancelled = true;
+      stopAccessWatch?.();
       if (recoveryControlsRef.current === recoveryControls) {
         recoveryControlsRef.current = null;
       }
@@ -566,6 +595,21 @@ export function PowerSyncProvider({
   }));
 
   function renderLocalDataPanel() {
+    if (accessRemoved) {
+      return (
+        <LocalDataPanel
+          layout={loadingLayout}
+          tone="alert"
+          message="Ya no sos parte de este puesto."
+          detail="Quien creó el puesto te quitó del equipo, o saliste o eliminaste tu cuenta desde otro dispositivo. Recargá la app para continuar; si quedó algo sin subir en este dispositivo, vas a poder descargar una copia."
+        >
+          <LocalDataPanelButton onClick={() => loadDocument("/")}>
+            Recargar la app
+          </LocalDataPanelButton>
+        </LocalDataPanel>
+      );
+    }
+
     if (localDataError) {
       return (
         <LocalDataPanel
@@ -630,7 +674,7 @@ export function PowerSyncProvider({
     <PowerSyncControlsContext.Provider value={controls}>
       <OptionalPowerSyncContext.Provider value={exposedDb}>
         <SyncStatusStoreProvider value={syncStatusStore}>
-          {localDataReady ? children : renderLocalDataPanel()}
+          {localDataReady && !accessRemoved ? children : renderLocalDataPanel()}
         </SyncStatusStoreProvider>
       </OptionalPowerSyncContext.Provider>
     </PowerSyncControlsContext.Provider>
