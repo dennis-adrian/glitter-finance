@@ -25,6 +25,8 @@ function checkWith(answers: TenantAccess[]) {
     },
     minIntervalMs: 1000,
     now: () => time,
+    // The retry after an unknown answer has its own test below.
+    schedule: () => () => {},
   });
   return {
     check,
@@ -78,6 +80,7 @@ test("a failed check is not a removal", async () => {
   const warn = console.warn;
   console.warn = () => {};
   let removed = false;
+  let retries = 0;
   try {
     const check = createTenantAccessCheck({
       verify: async () => {
@@ -86,12 +89,94 @@ test("a failed check is not a removal", async () => {
       onRemoved: () => {
         removed = true;
       },
+      schedule: () => {
+        retries += 1;
+        return () => {};
+      },
     });
     await check(0);
   } finally {
     console.warn = warn;
   }
   assert.equal(removed, false);
+  assert.equal(retries, 1, "it is asked again later");
+});
+
+test("an unknown answer is asked again while the row stays missing, until the server confirms", async () => {
+  const answers: TenantAccess[] = ["unknown", "unknown", "removed"];
+  const timers: (() => void)[] = [];
+  let time = 0;
+  let verified = 0;
+  let removed = 0;
+  const check = createTenantAccessCheck({
+    verify: async () => {
+      verified += 1;
+      return answers.shift() ?? "member";
+    },
+    onRemoved: () => {
+      removed += 1;
+    },
+    minIntervalMs: 1000,
+    now: () => time,
+    schedule: (run, ms) => {
+      assert.equal(ms, 1000);
+      timers.push(() => {
+        time += ms;
+        run();
+      });
+      return () => {};
+    },
+  });
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+  // Offline: the server cannot answer, and the watch never fires again.
+  await check(0);
+  assert.equal(verified, 1);
+  assert.equal(timers.length, 1, "another check is scheduled");
+
+  timers.shift()?.();
+  await flush();
+  assert.equal(verified, 2);
+  assert.equal(removed, 0);
+
+  // Back online, with the same (still missing) membership row.
+  timers.shift()?.();
+  await flush();
+  assert.equal(verified, 3);
+  assert.equal(removed, 1);
+  assert.equal(timers.length, 0, "nothing is scheduled once removed");
+});
+
+test("a row that comes back, or a cleanup, stops the scheduled check", async () => {
+  const timers: { run: () => void; cancelled: boolean }[] = [];
+  let verified = 0;
+  const make = () =>
+    createTenantAccessCheck({
+      verify: async () => {
+        verified += 1;
+        return "unknown";
+      },
+      onRemoved: () => {},
+      minIntervalMs: 0,
+      schedule: (run) => {
+        const timer = { run, cancelled: false };
+        timers.push(timer);
+        return () => {
+          timer.cancelled = true;
+        };
+      },
+    });
+
+  const synced = make();
+  await synced(0);
+  await synced(1);
+  assert.equal(timers[0].cancelled, true);
+
+  const disposed = make();
+  await disposed(0);
+  disposed.dispose();
+  assert.equal(timers[1].cancelled, true);
+  assert.equal(verified, 2);
 });
 
 // --- SupabaseConnector ------------------------------------------------------
