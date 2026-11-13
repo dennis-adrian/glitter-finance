@@ -652,6 +652,14 @@ On staging, run on installed iPhone Safari and Android Chrome PWAs:
     can sign up again with the same email. C's own puesto, its products and
     photos are gone (Storage bucket); C's sales in A's puesto remain under
     C's name.
+  - A second device of C, offline with a sale recorded while C deletes the
+    account: once it is online and its token refresh is refused (within the
+    hour the token lasts; a reload instead goes straight to the login
+    screen, keeping the work), it shows "Tu sesión terminó" with
+    the sale counted; **Descargar copia** saves it and **Descartar…** clears
+    the device and opens the login screen. The same device after a password
+    change elsewhere shows the panel too, and signing in again uploads the
+    sale.
   - Without PowerSync (a local build with `NEXT_PUBLIC_POWERSYNC_URL` empty),
     removing a member and leaving work the same, and a removed member's next
     action says "Ya no sos parte de este puesto".

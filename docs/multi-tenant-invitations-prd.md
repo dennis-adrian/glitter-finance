@@ -769,6 +769,19 @@ pending uploads are tried, rejected by RLS, and offered in the recovery panel
 as a download before they are discarded. Without PowerSync, a server action
 for a puesto the user no longer belongs to returns the same message.
 
+**A session that ends** is a different case. Account deletion revokes every
+session, and so may a password change; sessions can also expire. A device
+whose session is gone cannot ask the server anything (a request without one
+runs as anon, and RLS shows it no rows), so it never reports that as a
+removal. With PowerSync, the browser auth client's `SIGNED_OUT` (emitted
+when a refresh is refused for good, not when it only lacked a connection)
+replaces the app with "Tu sesión terminó" (`lib/auth/session-end.ts`,
+`components/providers/session-ended-panel.tsx`). It says how much work was
+not uploaded and offers to sign in again (the same account uploads it), to
+download a copy, and, after a confirmation, to discard it: the way out when
+the account no longer exists, since another account's sign-in keeps that
+work on the device and never uploads it.
+
 **Leaving** uses the switch path: the hard sync gate, the local teardown, the
 server action, a session refresh and a reload into the claimed puesto (or a
 new personal one, as on a first sign-in, if none is left).

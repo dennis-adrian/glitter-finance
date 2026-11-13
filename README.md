@@ -582,6 +582,16 @@ offer what they allow (`lib/auth/tenant-owner.ts`).
   data and cached photos; work that had not been uploaded is offered as a
   download before it is discarded, the same recovery panel a switch uses.
   Without PowerSync, the next server action answers with the same message.
+- **A device whose session ends** (account deleted or password changed on
+  another device, or an expired session) cannot tell which it was: without a
+  session, the server shows it nothing. With PowerSync, the browser's auth
+  client reports the session gone (`SIGNED_OUT`, never for a refresh that
+  only lacked a connection), and the app gives way to "Tu sesión terminó"
+  (`lib/auth/session-end.ts`), which says how much work was not uploaded.
+  Signing in again with the same account uploads it. If the account no
+  longer exists, the user downloads a copy and discards it there: another
+  account signing in on the device keeps it and never uploads it. Without
+  PowerSync, the next request goes to the login page.
 
 ### Stage B staging checklist
 
