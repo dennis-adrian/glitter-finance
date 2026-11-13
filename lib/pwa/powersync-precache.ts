@@ -114,7 +114,13 @@ export function readPowerSyncAssets(
 ): PowerSyncAssets {
   let files: string[];
   try {
-    files = readdirSync(directory, { recursive: true, withFileTypes: true })
+    // turbopackIgnore here and below: these are build-time reads in a
+    // prerendered route. Without it Next 16.4 traces the whole project into
+    // the route's server output.
+    files = readdirSync(/* turbopackIgnore: true */ directory, {
+      recursive: true,
+      withFileTypes: true,
+    })
       .filter((entry) => entry.isFile())
       .map((entry) =>
         path
@@ -131,7 +137,10 @@ export function readPowerSyncAssets(
     readText: (file) => {
       if (!files.includes(file)) return null;
       try {
-        return readFileSync(path.join(directory, file), "utf8");
+        return readFileSync(
+          path.join(/* turbopackIgnore: true */ directory, file),
+          "utf8"
+        );
       } catch {
         return null;
       }

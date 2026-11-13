@@ -21,6 +21,7 @@ README and empty this file for the release after.
 | Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                                                                                                                  |
 | Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                                                                                                                                                                     |
 | App screens           | A responsive layout for phones, tablets and desktops, a new order and checkout flow, and Reportes in the main navigation (see [What users may notice](#what-users-may-notice)). Nothing to configure.                                                                                                                                                                                                                                                                                |
+| Dependencies          | Security upgrades: Next.js 16.4.6, `@sentry/nextjs` 10.78.0 and Serwist 9.5.13, plus patched transitive packages. Browser Sentry events now reach the `/monitoring` tunnel without cookies (see [After the deploy](#9-after-the-deploy)). Nothing to configure.                                                                                                                                                                                                                      |
 | Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                                                                                                                                                                          |
 
 ## Once, before the first environment
@@ -546,6 +547,18 @@ configures the local stack):
    `sync_failure=held`, fingerprint `powersync-held-upload`), sent once for a
    transaction a device clock ahead has held back for 10 minutes. Browser
    events are now queued offline and sent on reconnect.
+
+   Since `@sentry/nextjs` 10.77 the browser sends events to the `/monitoring`
+   tunnel without cookies. If this environment's deployments are behind
+   Vercel **Deployment Protection** (often the case for Preview, which serves
+   staging), throw a test error in the browser (open the app, then run
+   `setTimeout(() => { throw new Error("sentry tunnel check") })` in the
+   console) and confirm it reaches Sentry. If it does not, `/monitoring`
+   answers 401 because the protection cookie is no longer sent: either exempt
+   the deployment from Deployment Protection, or ask for a change that sets
+   `transportOptions: { fetchOptions: { credentials: "same-origin" } }` in
+   `instrumentation-client.ts`.
+
 3. **Installed PWA:** it stays the same app (the manifest `id` is `/`, which
    Chrome derived before), and Android launchers show the new maskable icon.
 4. **Product photos** still render. They are now requested with

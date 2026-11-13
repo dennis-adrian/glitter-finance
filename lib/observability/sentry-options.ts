@@ -49,6 +49,11 @@ export function sentryInitOptions(vercelEnv: string | undefined) {
     }),
     sendDefaultPii: false,
     tracesSampleRate: 0.1,
+    // @sentry/nextjs 10.71 turned Sentry Logs on by default. The app sends no
+    // logs (no Sentry.logger calls, no console integration), and keeping it
+    // off means a future logging integration cannot ship messages, which can
+    // hold tenant data, without a deliberate change here.
+    enableLogs: false,
     // Once dataCollection is set, sendDefaultPii is ignored and every
     // category left out falls back to Sentry's collect-everything defaults.
     // Even sendDefaultPii: false alone keeps query strings and most headers.
