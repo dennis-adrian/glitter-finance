@@ -21,7 +21,7 @@ test("maps common signup errors to actionable Spanish messages", () => {
   );
   assert.equal(
     getSignUpErrorMessage({ code: "captcha_failed" }),
-    "No se pudo completar la verificación de seguridad. Recargá la página e intentá de nuevo."
+    "No se pudo completar la verificación de seguridad. Esperá a que se renueve e intentá de nuevo."
   );
 });
 

@@ -18,7 +18,7 @@ README and empty this file for the release after.
 | Database schema       | Four Drizzle migrations: stricter `CHECK` constraints (they fail on rows that break them), a zero `initial` stock count allowed, index changes, text length caps and per-field edit times; then the nullable `products.category_id` with its index; then its foreign key; then the product name cap raised from 120 to 240 characters.                                                                                                                                               |
 | Hand-written SQL      | Six new `supabase/manual/` files: upload timestamp bounds and void/refund convergence, Storage limits and policies for product images, per-field last-write-wins product edits, category renames that win over those edit times, products stored with their category's spelling, and products linked to their category by id. The last one replaces the name-based category triggers (v0.8.0's and the two before it); it runs before the app deploy and again at the end of step 6. |
 | PowerSync             | Every sync stream now also requires a `tenant_users` membership, so the streams must be redeployed.                                                                                                                                                                                                                                                                                                                                                                                  |
-| Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                                                                                                                  |
+| Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`. Captcha (Cloudflare Turnstile) on password sign-up, sign-in and reset requests, enabled last, after the app that sends tokens is live (step 9).                                                                                                                                                                                                                  |
 | Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                                                                                                                                                                     |
 | App screens           | A responsive layout for phones, tablets and desktops, a new order and checkout flow, and Reportes in the main navigation (see [What users may notice](#what-users-may-notice)). Nothing to configure.                                                                                                                                                                                                                                                                                |
 | Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                                                                                                                                                                          |
@@ -48,6 +48,22 @@ README and empty this file for the release after.
 Optional: in the branch protection rules for `main`, `develop` and `staging`,
 require the **Typecheck, lint, test, format** check that
 `.github/workflows/ci.yml` now runs.
+
+### Cloudflare Turnstile
+
+In the Cloudflare dashboard, **Turnstile → Add widget**, create one widget
+per environment, mode **Managed**:
+
+- **Staging:** the staging app's hostname and the Vercel preview hostnames
+  that talk to staging. Turnstile also accepts a listed hostname's
+  subdomains; if it refuses a shared parent such as `vercel.app`, give
+  previews a custom domain or list the branch hostnames in use. A preview
+  whose hostname is missing shows a widget error and cannot sign in by
+  password once captcha is on (Google still works).
+- **Production:** the production hostname (and the custom domain, if any).
+
+Keep each widget's **site key** for step 1 and its **secret key** for
+step 9. Nothing changes for users yet.
 
 ## Per environment (staging, then production)
 
@@ -88,6 +104,11 @@ staging, Production for production, and Development too if anyone runs
    `pnpm build`, whose `prebuild` step copies the PowerSync assets that the
    service worker precaches. After the deploy in step 5, open the deployment's
    build logs and check that the install step reports pnpm 11.21.0.
+4. Add `NEXT_PUBLIC_TURNSTILE_SITE_KEY` with this environment's Turnstile
+   **site key** (the public one, never the secret). It is inlined at build
+   time, so it must be set before the step 5 deploy. Until step 9 enables
+   captcha in Supabase, the forms show the widget and send tokens that
+   Supabase ignores.
 
 ### 2. Database pre-checks
 
@@ -529,6 +550,9 @@ configures the local stack):
    sends the callback URL as the redirect); no new entry is needed. Staging
    also needs the preview wildcard (see
    [Branch preview URLs](../README.md#branch-preview-urls-vercel)).
+4. **Do not enable captcha here yet.** Enabled before the app that sends
+   tokens is live, every password sign-in, sign-up and reset request fails
+   with "captcha verification process failed". It comes last, in step 9.
 
 ### 9. After the deploy
 
@@ -555,6 +579,19 @@ configures the local stack):
    `Cache-Control`; only new uploads get one year. No backfill is needed.
 5. **Icons:** glance over the screens. lucide-react moved to 1.x, which may
    redraw some glyphs slightly.
+6. **Captcha, last.** Open `/login?mode=signin`, `?mode=signup` and
+   `?mode=reset` on the deployment (on staging, also on a preview URL): each
+   form shows the Turnstile widget above its button, and the browser console
+   shows no Turnstile error (a hostname error means the widget is missing
+   that hostname). The headers in item 1 do not affect it: they only stop
+   other sites from framing the app. Then, in the Supabase dashboard,
+   **Authentication → Attack Protection → Enable Captcha protection**,
+   provider **Turnstile by Cloudflare**, with this environment's **secret
+   key**, and save. Right after, check with a test account: password sign-in
+   works, a sign-up reaches "check your email", and a reset request sends
+   the email. Google sign-in is unaffected. If anything fails, turn captcha
+   off again (safe at any time), fix, and retry. The repository's scripts use
+   only the admin API, which captcha does not cover.
 
 ### 10. Acceptance (staging), then production
 

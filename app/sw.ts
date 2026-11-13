@@ -32,6 +32,7 @@ import {
   STATIC_CACHE_NAME,
   SW_CACHE_ID,
 } from "../lib/pwa/cache-names";
+import { isTurnstileUrl } from "../lib/auth/captcha";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -87,6 +88,13 @@ const runtimeCaching: RuntimeCaching[] = [
         }),
       ],
     }),
+  },
+  // The captcha on the sign-in forms (lib/auth/captcha.ts). Cloudflare
+  // forbids caching its script, and defaultCache's last rule would keep a
+  // copy of every cross-origin response. Sign-in needs the network anyway.
+  {
+    matcher: ({ url }) => isTurnstileUrl(url),
+    handler: new NetworkOnly(),
   },
   // Every other Supabase and PowerSync request: synced data belongs to
   // PowerSync and the local database, never to a cache.

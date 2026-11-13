@@ -1,6 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import {
+  CAPTCHA_FAILED_MESSAGE,
+  captchaOptions,
+  isCaptchaError,
+  readCaptchaToken,
+} from "@/lib/auth/captcha";
 import { isInviteRedirectPath } from "@/lib/auth/redirect";
 import {
   buildAuthCallbackUrl,
@@ -42,6 +48,7 @@ export async function signInWithPassword(
 ): Promise<AuthFormState> {
   const email = getFormString(formData, "email");
   const password = getFormString(formData, "password");
+  const captchaToken = readCaptchaToken(formData);
   const origin = await getRequestOrigin();
   const next = resolveAuthRedirectPath(
     getFormString(formData, "next") || null,
@@ -50,7 +57,11 @@ export async function signInWithPassword(
   const signInResult = await (async () => {
     try {
       const supabase = await createClient();
-      return await supabase.auth.signInWithPassword({ email, password });
+      return await supabase.auth.signInWithPassword({
+        email,
+        password,
+        options: captchaOptions(captchaToken),
+      });
     } catch (err) {
       console.error("[auth] Failed to sign in", err);
       return null;
@@ -65,6 +76,10 @@ export async function signInWithPassword(
   }
 
   const { error } = signInResult;
+
+  if (isCaptchaError(error)) {
+    return { error: CAPTCHA_FAILED_MESSAGE };
+  }
 
   if (error) {
     return {
@@ -141,6 +156,7 @@ export async function signUpWithPassword(
   const password = getFormString(formData, "password");
   const confirmPassword = getFormString(formData, "confirmPassword");
   const displayName = getFormString(formData, "displayName").trim();
+  const captchaToken = readCaptchaToken(formData);
   const origin = await getRequestOrigin();
   const next = resolveAuthRedirectPath(
     getFormString(formData, "next") || null,
@@ -169,6 +185,7 @@ export async function signUpWithPassword(
           data: {
             display_name: displayName,
           },
+          ...captchaOptions(captchaToken),
         },
       });
     } catch (err) {
@@ -216,13 +233,17 @@ export async function signUpWithPassword(
  * Sends the password recovery email. The user sees the same message
  * whatever Supabase answers: it stays silent for an email without an
  * account but can rate-limit or fail to send only for a real one, so any
- * difference would tell which emails have an account.
+ * difference would tell which emails have an account. The one exception is
+ * a failed captcha: Supabase checks the token before it looks at the email,
+ * so that answer is the same for every address, and without it the user
+ * would wait for an email that was never sent.
  */
 export async function requestPasswordReset(
   _previousState: AuthFormState,
   formData: FormData
 ): Promise<AuthFormState> {
   const email = getFormString(formData, "email").trim();
+  const captchaToken = readCaptchaToken(formData);
   const origin = await getRequestOrigin();
   const next = resolveAuthRedirectPath(
     getFormString(formData, "next") || null,
@@ -242,10 +263,12 @@ export async function requestPasswordReset(
     return { error: PASSWORD_RESET_ORIGIN_UNAVAILABLE_MESSAGE };
   }
 
+  let captchaFailed = false;
   try {
     const supabase = await createClient();
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
+      ...captchaOptions(captchaToken),
     });
     if (error) {
       console.error("[auth] Supabase rejected a password reset request", {
@@ -253,9 +276,14 @@ export async function requestPasswordReset(
         name: error.name,
         status: error.status ?? null,
       });
+      captchaFailed = isCaptchaError(error);
     }
   } catch (err) {
     console.error("[auth] Failed to request a password reset", err);
+  }
+
+  if (captchaFailed) {
+    return { error: CAPTCHA_FAILED_MESSAGE };
   }
 
   redirect(
