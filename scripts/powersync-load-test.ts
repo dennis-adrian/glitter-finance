@@ -15,25 +15,34 @@
 // The variables come from the command line only: no .env file is read, so
 // the target is always the one typed. A Supabase access token lasts an hour,
 // so keep --ramp plus --hold under that.
+//
+// --transport ws (the default) connects the way the app does, over a
+// WebSocket, with the client library's own code. --transport http opens HTTP
+// streams. The service counts the two separately, each against
+// api.parameters.max_concurrent_connections, so size an instance with ws.
 
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+
+export type LoadTestTransport = "ws" | "http";
 
 export type LoadTestOptions = {
   connections: number;
   rampSeconds: number;
   holdSeconds: number;
+  transport: LoadTestTransport;
 };
 
 const DEFAULTS: LoadTestOptions = {
   connections: 100,
   rampSeconds: 30,
   holdSeconds: 60,
+  transport: "ws",
 };
 
 export function parseLoadTestArgs(args: string[]): LoadTestOptions {
   const options = { ...DEFAULTS };
-  const names: Record<string, keyof LoadTestOptions> = {
+  const names: Record<string, "connections" | "rampSeconds" | "holdSeconds"> = {
     "--connections": "connections",
     "--ramp": "rampSeconds",
     "--hold": "holdSeconds",
@@ -41,6 +50,15 @@ export function parseLoadTestArgs(args: string[]): LoadTestOptions {
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--") continue;
+    if (arg === "--transport") {
+      const value = args[i + 1];
+      if (value !== "ws" && value !== "http") {
+        throw new Error(`--transport is ws or http, got: ${value}`);
+      }
+      options.transport = value;
+      i += 1;
+      continue;
+    }
     const key = names[arg];
     if (!key) throw new Error(`Unknown argument: ${arg}`);
     const value = Number(args[i + 1]);
@@ -74,7 +92,68 @@ type ConnectionResult = {
   failure: string | null;
 };
 
-async function runConnection(
+/** How many times `needle` occurs in `bytes`. */
+export function countOccurrences(bytes: Uint8Array, needle: Uint8Array) {
+  let count = 0;
+  for (let i = Buffer.from(bytes).indexOf(needle); i !== -1; ) {
+    count += 1;
+    i = Buffer.from(bytes).indexOf(needle, i + needle.length);
+  }
+  return count;
+}
+
+// The WebSocket stream carries BSON documents. They are not decoded here:
+// the element names are plain ASCII, which is enough to tell a finished
+// checkpoint and to count rows. A row's `op_id` is a BSON string (type 0x02);
+// a checkpoint's `last_op_id` does not match because of the type byte.
+const CHECKPOINT_COMPLETE = Buffer.from("checkpoint_complete\0", "latin1");
+const ROW_OP_ID = Buffer.from("\x02op_id\0", "latin1");
+
+async function runSocketConnection(
+  url: string,
+  token: string,
+  stop: AbortSignal,
+  result: ConnectionResult
+) {
+  const startedAt = Date.now();
+  try {
+    // The app's own client code (@powersync/common, re-exported by the web
+    // SDK), loaded here so the tests do not pay for it.
+    const { AbstractRemote, FetchStrategy } = await import("@powersync/web");
+    class LoadTestRemote extends AbstractRemote {}
+    const remote = new LoadTestRemote({
+      fetchCredentials: async () => ({ endpoint: url, token }),
+    });
+    const stream = await remote.socketStreamRaw({
+      path: "/sync/stream",
+      data: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true,
+        client_id: randomUUID(),
+      },
+      abortSignal: stop,
+      fetchStrategy: FetchStrategy.Buffered,
+    });
+    for (;;) {
+      const { done, value } = await stream.next();
+      if (done) break;
+      result.firstLineMs ??= Date.now() - startedAt;
+      result.rows += countOccurrences(value, ROW_OP_ID);
+      if (countOccurrences(value, CHECKPOINT_COMPLETE) > 0) {
+        result.syncedMs ??= Date.now() - startedAt;
+      }
+    }
+    if (!stop.aborted) result.failure = "closed by the server";
+  } catch (error) {
+    if (!stop.aborted) {
+      const message = (error as Error).message ?? String(error);
+      result.failure = /PSYNC_S\d+/.exec(message)?.[0] ?? message.slice(0, 120);
+    }
+  }
+}
+
+async function runHttpConnection(
   url: string,
   token: string,
   stop: AbortSignal,
@@ -169,7 +248,7 @@ async function main() {
   const token = await accessToken();
 
   console.log(
-    `Opening ${options.connections} connections to ${url} over ${options.rampSeconds}s, then holding ${options.holdSeconds}s.`
+    `Opening ${options.connections} ${options.transport} connections to ${url} over ${options.rampSeconds}s, then holding ${options.holdSeconds}s.`
   );
 
   const stop = new AbortController();
@@ -193,7 +272,14 @@ async function main() {
       failure: null,
     };
     results.push(result);
-    running.push(runConnection(url, token, stop.signal, result));
+    running.push(
+      (options.transport === "ws" ? runSocketConnection : runHttpConnection)(
+        url,
+        token,
+        stop.signal,
+        result
+      )
+    );
     if (gapMs > 0) await sleep(gapMs);
   }
   await sleep(options.holdSeconds * 1000);

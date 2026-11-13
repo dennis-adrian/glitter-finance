@@ -25,8 +25,9 @@ Supabase Postgres ──logical replication──▶ replication
 - **replication** reads every change from Supabase through the `powersync`
   publication, as `powersync_role`, and writes it into **storage**.
 - **api** containers serve devices from storage. Each takes up to 150
-  connections (`service.yaml`); a device that finds one full gets HTTP 429
-  and retries.
+  connections (`service.yaml`); a device that finds one full is refused
+  (`PSYNC_S2304`) and retries every few seconds. Its own writes still upload
+  meanwhile: only receiving other devices' changes waits.
 - **storage** holds only a copy. Losing it loses no data: the service
   replicates everything again from Supabase, and devices sync again.
 - Devices still upload straight to Supabase. Nothing here handles writes.
@@ -125,7 +126,9 @@ NEXT_PUBLIC_SUPABASE_URL=... NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=... \
 pnpm powersync:load-test -- --connections 300 --ramp 60 --hold 300
 ```
 
-It passes when every connection reaches sync and none fails. While it holds,
+The connections are WebSockets, as the app's are (`--transport http` opens
+HTTP streams, which the service counts separately). It passes when every
+connection reaches sync and none fails. While it holds,
 watch `docker stats` on the server: no container should sit near its memory
 limit. If the hosted project has captcha on, password sign-in from a script is
 refused; pass a `POWERSYNC_TOKEN` (an access token copied from a signed-in

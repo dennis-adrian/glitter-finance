@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseLoadTestArgs, percentile } from "../scripts/powersync-load-test";
+import {
+  countOccurrences,
+  parseLoadTestArgs,
+  percentile,
+} from "../scripts/powersync-load-test";
 
 const dir = "powersync/self-hosted";
 const compose = readFileSync(`${dir}/docker-compose.yaml`, "utf8");
@@ -62,10 +66,19 @@ test("parseLoadTestArgs reads the options and keeps the defaults", () => {
     connections: 100,
     rampSeconds: 30,
     holdSeconds: 60,
+    transport: "ws",
   });
   assert.deepEqual(
-    parseLoadTestArgs(["--", "--connections", "300", "--hold", "0"]),
-    { connections: 300, rampSeconds: 30, holdSeconds: 0 }
+    parseLoadTestArgs([
+      "--",
+      "--connections",
+      "300",
+      "--hold",
+      "0",
+      "--transport",
+      "http",
+    ]),
+    { connections: 300, rampSeconds: 30, holdSeconds: 0, transport: "http" }
   );
 });
 
@@ -74,6 +87,7 @@ test("parseLoadTestArgs rejects unknown and malformed options", () => {
   assert.throws(() => parseLoadTestArgs(["--connections", "many"]), /whole/);
   assert.throws(() => parseLoadTestArgs(["--connections", "0"]), />= 1/);
   assert.throws(() => parseLoadTestArgs(["--ramp"]), /whole/);
+  assert.throws(() => parseLoadTestArgs(["--transport", "tcp"]), /ws or http/);
 });
 
 test("percentile picks the nearest rank", () => {
@@ -81,4 +95,14 @@ test("percentile picks the nearest rank", () => {
   assert.equal(percentile([5], 95), 5);
   assert.equal(percentile([4, 1, 3, 2], 50), 2);
   assert.equal(percentile([4, 1, 3, 2], 100), 4);
+});
+
+test("countOccurrences counts row markers but not a checkpoint's last_op_id", () => {
+  const row = Buffer.from("\x02op_id\0", "latin1");
+  const frame = Buffer.from(
+    "\x02last_op_id\0..\x02op_id\0..\x02op_id\0..",
+    "latin1"
+  );
+  assert.equal(countOccurrences(frame, row), 2);
+  assert.equal(countOccurrences(Buffer.from("nothing"), row), 0);
 });
