@@ -179,6 +179,27 @@ redeploy. Keep the Cloud instance until you are sure you will not.
   `https://<PS_DOMAIN>/probes/liveness`, next to the one for `/api/health`
   (`docs/production-observability.md`).
 
+## On Railway instead of a server
+
+Railway runs the same images without a server to look after. It cannot mount
+files or run a compose file, so the pieces map like this:
+
+| Here                       | On Railway                                                                                                                                                                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `proxy` (Caddy)            | Not needed: Railway terminates HTTPS and balances the API replicas. Give the `api` service a public domain with target port `8080`.                                                                                                        |
+| `storage`                  | A service from `postgres:17-alpine` with a volume at `/var/lib/postgresql/data`, `PGDATA=/var/lib/postgresql/data/pgdata`, and `POSTGRES_USER`, `POSTGRES_DB` (`powersync`) and `POSTGRES_PASSWORD`. No public domain.                     |
+| `replication`, `api`       | Two services from `journeyapps/powersync-service:<version>`, told apart by `PS_RUNNER_TYPE` (`sync` and `api`); `api` with 3 replicas and health check path `/probes/liveness`. Turn on **outbound IPv6** on both (Settings → Networking). |
+| `service.yaml`, sync rules | `POWERSYNC_CONFIG_B64` and `POWERSYNC_SYNC_CONFIG_B64`: `base64 -w0 service.yaml` and `base64 -w0 ../sync-rules.yaml`. Update the variable and redeploy when either file changes.                                                          |
+| `PS_STORAGE_URI`           | `postgresql://powersync:${{storage.POSTGRES_PASSWORD}}@${{storage.RAILWAY_PRIVATE_DOMAIN}}:5432/powersync`                                                                                                                                 |
+| `PS_SOURCE_URI`            | A project **shared variable**, entered by hand in the dashboard (it holds the `powersync_role` password); both services read it as `${{shared.PS_SOURCE_URI}}`.                                                                            |
+| `migrate`                  | Not a separate service: each container migrates on start. With restart policy **On failure**, a container that loses the race on the very first start restarts and finds the tables there.                                                 |
+| Memory limits              | 0.75 GB per replica on every service, and `NODE_OPTIONS=--max-old-space-size=512` on the PowerSync ones, so the bill has a ceiling.                                                                                                        |
+
+`NEXT_PUBLIC_POWERSYNC_URL` is `https://<the api service's domain>`. Railway
+bills memory by use (about $10 per GB a month): expect roughly $9 to $10 a
+month for this stack. Keep it in its own project, apart from other services
+on the account, and mind that an account-wide spending limit stops those too.
+
 ## Upgrading
 
 The image is pinned in `docker-compose.yaml`. To upgrade, read the
