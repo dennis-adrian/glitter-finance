@@ -359,8 +359,9 @@ The Vender tile (`components/molecules/product-tile.tsx`):
 - Five destinations: **Vender**, **Ventas**, **Catálogo**, **Reportes**, **Más**
   (`components/organisms/nav-items.ts`). Más holds the account, puesto
   switching and creation, Ajustes, and sign-out. Ajustes holds only settings:
-  Equipo (members and invite link), Apariencia, and Soporte (Diagnósticos,
-  which also shows the records loaded on the device).
+  Equipo (members and invite link), Apariencia, Soporte (Diagnósticos,
+  which also shows the records loaded on the device, and the support email
+  and WhatsApp when configured) and Legal (the terms and privacy pages).
 - Phones (`components/organisms/bottom-nav.tsx`): about 60px plus the bottom
   safe area, with a top divider; 20px Lucide icons above the labels; hidden on
   sub-screens (detail, editor, checkout) that have a back button and while the

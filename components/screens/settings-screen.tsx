@@ -6,6 +6,10 @@ import { ScreenHeader } from "@/components/molecules/screen-header";
 import { Screen } from "@/components/templates/screen";
 import { InviteTeamCard } from "@/components/molecules/invite-team-card";
 import { SettingsItem } from "@/components/molecules/settings-item";
+import {
+  LegalSettingsItems,
+  SupportContactItems,
+} from "@/components/molecules/support-settings-items";
 import { ThemePicker } from "@/components/molecules/theme-picker";
 import type { UserTenantContext } from "@/lib/auth/tenant-context";
 import type { TenantInvitation, TenantMember } from "@/lib/types";
@@ -152,6 +156,11 @@ export function SettingsScreen({
           value="Sincronización, datos y dispositivo"
           onClick={openDiagnostics}
         />
+        <SupportContactItems />
+      </SettingsSection>
+
+      <SettingsSection id="settings-legal" title="Legal">
+        <LegalSettingsItems />
       </SettingsSection>
     </Screen>
   );

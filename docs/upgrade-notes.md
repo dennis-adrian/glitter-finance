@@ -21,6 +21,7 @@ README and empty this file for the release after.
 | Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                                                                                                                  |
 | Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                                                                                                                                                                     |
 | App screens           | A responsive layout for phones, tablets and desktops, a new order and checkout flow, and Reportes in the main navigation (see [What users may notice](#what-users-may-notice)). Nothing to configure.                                                                                                                                                                                                                                                                                |
+| Legal pages, support  | Public `/terminos` and `/privacidad` pages, linked from sign-up and **Ajustes › Legal**, whose operator details are placeholders to fill in first (step 1). Optional support email and WhatsApp in **Ajustes › Soporte**. The Google OAuth consent screen gets the two URLs (step 8).                                                                                                                                                                                                |
 | Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                                                                                                                                                                          |
 
 ## Once, before the first environment
@@ -88,6 +89,20 @@ staging, Production for production, and Development too if anyone runs
    `pnpm build`, whose `prebuild` step copies the PowerSync assets that the
    service worker precaches. After the deploy in step 5, open the deployment's
    build logs and check that the install step reports pnpm 11.21.0.
+
+4. **Before production:** the terms and privacy pages ship as a draft. Fill
+   in every placeholder in `lib/legal/operator.ts` (operator's legal name and
+   NIT, address, legal contact email, governing law and courts, retention
+   periods, Sentry retention, how to request deletion, pricing, minimum age,
+   date), have a lawyer review `app/terminos/page.tsx` and
+   `app/privacidad/page.tsx`, and merge that before the production deploy.
+   While a placeholder is left, both pages show a "Borrador" notice. Staging
+   can run with the draft.
+5. Optional: set `NEXT_PUBLIC_SUPPORT_EMAIL` (an email address) and/or
+   `NEXT_PUBLIC_SUPPORT_WHATSAPP` (a number with its country code, such as
+   `+591 70000000`) to show those channels in **Ajustes › Soporte**. They are
+   built into the browser bundle, so set them before the deploy of step 5, or
+   redeploy after changing them. Each channel stays hidden while unset.
 
 ### 2. Database pre-checks
 
@@ -530,6 +545,16 @@ configures the local stack):
    also needs the preview wildcard (see
    [Branch preview URLs](../README.md#branch-preview-urls-vercel)).
 
+4. **Google OAuth consent screen** (Google Cloud console of the OAuth
+   client the project's Google provider uses, **Google Auth Platform →
+   Branding**), once the app with the legal pages is deployed: set
+   **Application privacy policy link** to `<app-url>/privacidad` and
+   **Application terms of service link** to `<app-url>/terminos`, with the
+   production URL (`NEXT_PUBLIC_APP_URL`). If staging uses its own OAuth
+   client, give it staging's URLs. Google's brand verification also checks
+   that the app's home page links to the privacy policy: the sign-up screen
+   and **Ajustes** do, but a public landing page must too.
+
 ### 9. After the deploy
 
 1. **Headers:** `curl -I https://<app-url>/` shows
@@ -555,6 +580,9 @@ configures the local stack):
    `Cache-Control`; only new uploads get one year. No backfill is needed.
 5. **Icons:** glance over the screens. lucide-react moved to 1.x, which may
    redraw some glyphs slightly.
+6. **Legal pages:** in a private window (signed out), `/terminos` and
+   `/privacidad` load with no redirect to `/login`, and **Crear cuenta**
+   links to both. On production, neither shows the "Borrador" notice.
 
 ### 10. Acceptance (staging), then production
 
@@ -687,6 +715,11 @@ Right After Signing In** on installed production PWAs as well.
 - Turning stock tracking back on for a product asks for a count again. A
   count entered becomes the new starting point; left blank, the earlier count
   goes on, less everything sold since.
+
+- Sign-up shows "Al crear tu cuenta, con tu correo o con Google, aceptás los
+  Términos y condiciones y la Política de privacidad", and **Ajustes** has a
+  new **Legal** section with both pages. **Soporte** also lists the support
+  email or WhatsApp where configured.
 
 ## Later
 

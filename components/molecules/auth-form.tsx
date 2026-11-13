@@ -20,6 +20,7 @@ import {
   useNewPasswordConfirmation,
 } from "@/components/molecules/auth-form-fields";
 import { GoogleSubmitButton } from "@/components/molecules/google-sign-in-button";
+import { LegalConsentNotice } from "@/components/molecules/legal-consent-notice";
 import { Input } from "@/components/ui/input";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import { cn } from "@/lib/utils";
@@ -164,6 +165,7 @@ export function AuthForm({
         {isSignup ? (
           <div className="grid gap-4 pt-6">
             <SubmitButton mode={mode} />
+            <LegalConsentNotice />
             <p className="text-center text-sm text-foreground/70">
               ¿Ya tenés una cuenta?{" "}
               <Link href={alternateHref} className={authLinkClassName}>
