@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=https://unpkg.com/@powersync/service-schema@latest/json-schema/powersync-config.json
+#
+# PowerSync Service (Open Edition) for Billetera Ferial. The same file serves
+# every container in docker-compose.yaml. `!env` reads a variable from the
+# container's environment; the service only allows names that start with PS_,
+# and refuses to start when one is unset. See README.md in this directory.
+
+telemetry:
+  # Anonymous usage metrics to PowerSync. Off: nothing leaves the server.
+  disable_telemetry_sharing: true
+
+replication:
+  connections:
+    - type: postgresql
+      # The Supabase *direct* connection (db.<project-ref>.supabase.co:5432)
+      # as powersync_role. Logical replication does not work through the
+      # Supabase pooler, and `client_auth.supabase` below finds the project's
+      # signing keys from this hostname.
+      uri: !env PS_SOURCE_URI
+      # The image ships the Supabase root certificate, so the default
+      # (verify-full) works without a `cacert`.
+      sslmode: verify-full
+      # Replication slots are named after this prefix. It differs from the
+      # default (powersync_) so a PowerSync Cloud instance and this one never
+      # look at each other's slot on the same database.
+      slot_name_prefix: !env PS_SLOT_NAME_PREFIX
+
+# Where the service keeps its own copy of the synced rows (bucket storage):
+# the `storage` Postgres container, not Supabase.
+storage:
+  type: postgresql
+  uri: !env PS_STORAGE_URI
+  # A container on the private Docker network.
+  sslmode: disable
+
+port: 8080
+
+# powersync/sync-rules.yaml, mounted by docker-compose.yaml. The file is read
+# when a container starts: restart the stack after changing it.
+sync_config:
+  path: sync-config.yaml
+  # A sync config that does not parse stops the container instead of leaving
+  # devices on a stale one without anyone noticing.
+  exit_on_error: true
+
+client_auth:
+  # Verify device tokens with the Supabase project's JWT signing keys
+  # (https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json, derived
+  # from the replication hostname). A project still on the legacy shared JWT
+  # secret needs `supabase_jwt_secret` here instead: see README.md.
+  supabase: true
+  audience: ["authenticated"]
+
+api:
+  parameters:
+    # Per API container. The service's own default and upper bound is 200;
+    # PowerSync recommends planning for about 100. Past the limit a device
+    # gets PSYNC_S2304 and retries, by which time the proxy has usually
+    # picked a container with room.
+    max_concurrent_connections: 150
+
+system:
+  logging:
+    level: info
+    format: text

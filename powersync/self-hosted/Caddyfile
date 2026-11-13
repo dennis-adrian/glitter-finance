@@ -1,0 +1,21 @@
+# HTTPS front for the PowerSync API containers. Caddy gets and renews the
+# certificate for PS_DOMAIN by itself (ports 80 and 443 must be reachable).
+{$PS_DOMAIN} {
+	reverse_proxy {
+		# Every running `api` container, looked up in Docker's DNS, so
+		# changing PS_API_REPLICAS needs no edit here.
+		dynamic a {
+			name api
+			port 8080
+			refresh 5s
+		}
+		# Sync connections stay open for hours: send each new one to the
+		# container holding the fewest.
+		lb_policy least_conn
+		lb_try_duration 5s
+		# A container that refuses connections is skipped for a while.
+		fail_duration 10s
+		# Sync streams are long-lived responses: never buffer them.
+		flush_interval -1
+	}
+}

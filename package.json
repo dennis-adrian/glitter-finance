@@ -18,6 +18,7 @@
     "db:seed:buckets": "node scripts/run-supabase.mjs seed buckets",
     "db:seed:qa": "tsx scripts/seed-qa.ts",
     "db:invite:tenant-user": "tsx scripts/invite-tenant-user.ts",
+    "powersync:load-test": "tsx scripts/powersync-load-test.ts",
     "email:dev": "email dev --dir emails --port 3002",
     "email:export": "tsx scripts/render-auth-emails.tsx",
     "db:start": "node scripts/run-supabase.mjs start",

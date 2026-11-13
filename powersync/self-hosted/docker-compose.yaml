@@ -1,0 +1,119 @@
+# Self-hosted PowerSync for Billetera Ferial: one small server runs
+# everything. See README.md in this directory for setup and operations.
+name: glitter-powersync
+
+x-powersync:
+  &powersync # Pinned: upgrade on purpose (README.md, "Upgrading"), never by a restart.
+  image: journeyapps/powersync-service:1.28.3
+  restart: unless-stopped
+  environment: &powersync-env
+    POWERSYNC_CONFIG_PATH: /config/service.yaml
+    PS_SOURCE_URI: ${PS_SOURCE_URI:?set PS_SOURCE_URI in .env}
+    PS_STORAGE_URI: postgresql://powersync:${PS_STORAGE_PASSWORD:?set PS_STORAGE_PASSWORD in .env}@storage:5432/powersync
+    PS_SLOT_NAME_PREFIX: ${PS_SLOT_NAME_PREFIX:-glitter_selfhost_}
+  volumes:
+    - ./service.yaml:/config/service.yaml:ro
+    # The sync rules the whole repo uses; there is no second copy.
+    - ../sync-rules.yaml:/config/sync-config.yaml:ro
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  # Bucket storage: PowerSync's own copy of the synced rows. It can be
+  # rebuilt from Supabase (the service replicates everything again), so it
+  # needs no backup, only a disk that does not fill up.
+  storage:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: powersync
+      POSTGRES_DB: powersync
+      POSTGRES_PASSWORD: ${PS_STORAGE_PASSWORD:?set PS_STORAGE_PASSWORD in .env}
+    volumes:
+      - storage-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U powersync -d powersync"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 768m
+    logging: *logging
+
+  # Runs the storage migrations once, before anything else starts, so the
+  # replication and API containers never race to create the same tables.
+  migrate:
+    <<: *powersync
+    restart: "no"
+    command: ["migrate", "up"]
+    depends_on:
+      storage:
+        condition: service_healthy
+
+  # Reads changes from Supabase (logical replication) into bucket storage.
+  # Exactly one of these may run.
+  replication:
+    <<: *powersync
+    command: ["start", "-r", "sync"]
+    environment:
+      <<: *powersync-env
+      NODE_OPTIONS: --max-old-space-size=512
+    mem_limit: 768m
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Serves devices. Scale with PS_API_REPLICAS.
+  api:
+    <<: *powersync
+    command: ["start", "-r", "api"]
+    environment:
+      <<: *powersync-env
+      NODE_OPTIONS: --max-old-space-size=512
+    mem_limit: 768m
+    deploy:
+      replicas: ${PS_API_REPLICAS:-3}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:8080/probes/liveness').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      PS_DOMAIN: ${PS_DOMAIN:?set PS_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+    mem_limit: 256m
+    logging: *logging
+
+networks:
+  default:
+    # Supabase's direct database host is IPv6-only on the free plan, so the
+    # containers need IPv6 as well as the server (README.md, "Server").
+    enable_ipv6: true
+
+volumes:
+  storage-data:
+  caddy-data:
+  caddy-config:

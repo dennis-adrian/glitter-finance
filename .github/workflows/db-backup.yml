@@ -1,0 +1,79 @@
+name: Database backup
+
+# A nightly encrypted dump of the production database, kept as a workflow
+# artifact for 30 days. The Supabase free plan has no backups of its own.
+# The daily connection also counts as activity on the project.
+# Setup, restore and limits: README "Database backups".
+#
+# Scheduled workflows run from the default branch only, and GitHub turns
+# them off after 60 days without a commit to the repository.
+
+on:
+  schedule:
+    # 07:17 UTC = 03:17 in Bolivia.
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Dump, encrypt, upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - id: config
+        name: Check the secrets
+        run: |
+          if [ -z "$BACKUP_DATABASE_URL" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::warning::BACKUP_DATABASE_URL or BACKUP_PASSPHRASE is not set: no backup was made."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # pg_dump must be at least as new as the server.
+      - name: Install the PostgreSQL 17 client
+        if: steps.config.outputs.ready == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: Dump and encrypt
+        if: steps.config.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          stamp=$(date -u +%Y%m%dT%H%M%SZ)
+          file="glitter-finance-$stamp.dump"
+          # public: the app's data. auth: the users those rows point to.
+          # storage: the product photo records (not the files themselves).
+          /usr/lib/postgresql/17/bin/pg_dump "$BACKUP_DATABASE_URL" \
+            --format=custom --no-owner --no-privileges \
+            --schema=public --schema=auth --schema=storage \
+            --file="$file"
+          /usr/lib/postgresql/17/bin/pg_restore --list "$file" > /dev/null
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+            --passphrase-fd 3 --output "$file.gpg" "$file" 3<<<"$BACKUP_PASSPHRASE"
+          rm "$file"
+          ls -l "$file.gpg"
+          echo "BACKUP_FILE=$file.gpg" >> "$GITHUB_ENV"
+
+      - name: Upload
+        if: steps.config.outputs.ready == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.BACKUP_FILE }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 0
