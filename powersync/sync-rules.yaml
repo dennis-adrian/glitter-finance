@@ -16,8 +16,9 @@
 # - tenants: single row per tenant, loaded server-side.
 #
 # To deploy: paste into the PowerSync Cloud instance's Sync Streams editor,
-# click Validate, then Deploy. Redeploy in every environment whenever this
-# file changes.
+# click Validate, then Deploy. A self-hosted instance (powersync/self-hosted)
+# mounts this file: pull it on the server and recreate the containers.
+# Redeploy in every environment whenever this file changes.
 
 config:
   edition: 3

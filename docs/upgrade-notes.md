@@ -595,6 +595,29 @@ On staging, run on installed iPhone Safari and Android Chrome PWAs:
 When they pass, repeat steps 1–9 on production, then run **Offline Relaunch
 Right After Signing In** on installed production PWAs as well.
 
+### 11. Self-hosted PowerSync and database backups (when needed)
+
+Independent of the release above; do them when an environment needs them.
+
+1. **Database backups (production, now that it is on the Supabase free
+   plan):** add the `BACKUP_DATABASE_URL` and `BACKUP_PASSPHRASE` repository
+   secrets, run **Actions → Database backup** once by hand and check it
+   uploaded an artifact. See the README, **Database backups**. The schedule
+   only runs once the workflow is on the default branch.
+2. **Self-hosted PowerSync (an environment that needs more than 50
+   simultaneous connections):** follow
+   [`powersync/self-hosted/README.md`](../powersync/self-hosted/README.md),
+   staging first: create the server, start the stack against the
+   environment's Supabase project, run `pnpm powersync:load-test`, set
+   `NEXT_PUBLIC_POWERSYNC_URL` to the new host in Vercel and redeploy, check
+   two devices of one puesto, then delete the PowerSync Cloud instance and
+   confirm its replication slot is gone. An unread slot fills the 500 MB
+   free-plan database.
+3. From then on, a change to `powersync/sync-rules.yaml` is deployed to a
+   self-hosted environment by `git pull` and
+   `docker compose up -d --force-recreate replication api` on its server,
+   not in the PowerSync Cloud editor.
+
 ## What users may notice
 
 - A tab left open across the deploy calls server actions that changed or no

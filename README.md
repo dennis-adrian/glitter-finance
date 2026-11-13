@@ -157,7 +157,12 @@ instance URL for that environment (see [PowerSync setup](#powersync-setup) below
 Two Supabase cloud projects back this app:
 
 - **`glitter-finance-staging`** — free plan. Used for branch testing, schema experiments, and QA validation. Safe to wipe.
-- **`glitter-finance`** — Pro plan ($25/mo). Production. Migrations land here only after they pass on staging.
+- **`glitter-finance`** — free plan while the service has no income. Production. Migrations land here only after they pass on staging.
+
+The free plan has no backups, pauses a project after a week without activity,
+and caps the database at 500 MB and Storage at 1 GB. The nightly
+[database backup](#database-backups) covers the first two; watch the other
+two in the Supabase dashboard (**Reports → Database**).
 
 Only one project can be linked to the local checkout at a time. A developer relinks via the Supabase CLI when switching contexts:
 
@@ -489,6 +494,55 @@ Also pass `--no-seed` when resetting any cloud project — the `supabase/seed.sq
 supabase db reset --linked --no-seed
 ```
 
+### Self-hosted PowerSync
+
+PowerSync Cloud's free plan allows 50 simultaneous connections, one per
+device with the app open and online. An environment that needs more runs the
+same service on its own server:
+[`powersync/self-hosted/`](powersync/self-hosted/README.md) has the
+containers, the configuration and the runbook (server, first start, load
+test, switching an environment over, operations). It reads the same
+`powersync/sync-rules.yaml` and needs the same `powersync_role` and
+publication as above; the app only changes `NEXT_PUBLIC_POWERSYNC_URL`.
+`pnpm powersync:load-test` opens and holds a number of sync connections
+against an instance.
+
+### Database backups
+
+[`.github/workflows/db-backup.yml`](.github/workflows/db-backup.yml) dumps
+the production database every night (`public`, `auth` and `storage` schemas),
+encrypts the dump and keeps it for 30 days as an artifact of the workflow run
+(**Actions → Database backup**). Product photo files are not in it, only
+their records. It runs once the workflow is on the default branch and two
+repository secrets exist (**Settings → Secrets and variables → Actions**):
+
+- `BACKUP_DATABASE_URL`: the production **Session pooler** connection string
+  (port `5432` on the `pooler.supabase.com` host, user
+  `postgres.<project-ref>`). GitHub's runners have no IPv6, so the direct
+  host does not work there, and `pg_dump` does not work through the
+  transaction pooler (port `6543`).
+- `BACKUP_PASSPHRASE`: a long random string (`openssl rand -base64 32`),
+  also kept in a password manager. Without it a backup cannot be read.
+
+Run it once by hand (**Run workflow**) after adding the secrets, and check
+the run uploaded an artifact. Without the secrets the run only warns.
+GitHub turns scheduled workflows off after 60 days without a commit; the
+Actions tab shows a banner to turn it back on.
+
+To read a backup, download the artifact, unzip it, and:
+
+```bash
+gpg --decrypt --output backup.dump glitter-finance-<stamp>.dump.gpg
+pg_restore --list backup.dump                      # what is in it
+pg_restore --no-owner --no-privileges --data-only \
+  --schema=public --table=sales --dbname "$SCRATCH_DATABASE_URL" backup.dump
+```
+
+Restore into a scratch database first (the local stack after `pnpm db:reset`
+works) and copy the rows you need from there. Restoring a whole dump over a
+live project replaces its `auth` tables too; do that only on a fresh project.
+Try a restore once before relying on the backups.
+
 ### QA seed
 
 `pnpm db:seed:qa` creates (or refreshes) a stable QA account on the Supabase project the env vars point at — typically `glitter-finance-staging`. It provisions a dummy catalog (one product with stock tracking and its stock movements), completed sales, a voided sale, and a refunded sale, attached to a fixed tenant id so re-runs are idempotent. The auth user, the tenant and the QA user's membership are always preserved, and other members of the QA tenant are left alone; `--reset` only wipes the catalog, stock movements and sales, in one transaction.
@@ -558,7 +612,7 @@ Before running Stage B acceptance on staging:
 - PowerSync sync rules from `powersync/sync-rules.yaml` are validated, deployed, and scoped by the authenticated tenant.
 - `NEXT_PUBLIC_POWERSYNC_URL` points at the staging PowerSync instance.
 - Supabase Auth **Redirect URLs** include the staging deployment URL(s) and
-  `https://*-glitter-pos.vercel.app/**` if you test branch previews (see below).
+  `https://glitter-finance-*-glitter-8824d4b5.vercel.app/**` if you test branch previews (see below).
 - `NEXT_PUBLIC_APP_URL` is set only when staging uses a fixed custom domain;
   Vercel preview deployments resolve the URL from `VERCEL_BRANCH_URL` /
   `VERCEL_URL` automatically.
@@ -586,9 +640,9 @@ domain.
 **Supabase** (`glitter-finance-staging` → Authentication → URL configuration):
 
 1. **Site URL** — your main staging URL (fixed domain or primary
-   `*-glitter-pos.vercel.app` deployment).
+   `glitter-finance-*-glitter-8824d4b5.vercel.app` deployment).
 2. **Redirect URLs** — add each fixed URL plus a project-scoped wildcard for
-   previews, e.g. `https://*-glitter-pos.vercel.app/**` and
+   previews, e.g. `https://glitter-finance-*-glitter-8824d4b5.vercel.app/**` and
    `https://your-staging-domain.com/**`.
 
 Without the wildcard, sign-up email confirmation and OAuth callbacks fail on
