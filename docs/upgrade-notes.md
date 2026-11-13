@@ -360,6 +360,12 @@ None of these blocks the release:
      the photos and then the row; a failure stays queued and the next account
      deletion retries it. Rows that stay with a `last_error` are photos
      still in the bucket under `<tenant_id>/`.
+   - Then run
+     [`supabase/manual/20261113140000_membership_lock_order.sql`](../supabase/manual/20261113140000_membership_lock_order.sql).
+     It re-creates `remove_tenant_member` and `delete_account_data` so they
+     lock a puesto's invitations before the puesto, the order a redemption
+     uses; the other order let a redemption racing a removal or an account
+     deletion deadlock (`40P01`).
 
 ### 4. PowerSync Sync Streams
 

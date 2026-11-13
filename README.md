@@ -839,6 +839,10 @@ below:
     so its Storage photos are removed later even if the first attempt fails.
     Every environment, after file 15 and the `pnpm db:push` that creates the
     table, and before the app build that reads it.
+17. [`20261113140000_membership_lock_order.sql`](supabase/manual/20261113140000_membership_lock_order.sql):
+    `remove_tenant_member` and `delete_account_data` lock a puesto's
+    invitations before the puesto, the order an invitation redemption takes
+    them in, so the two never deadlock. Every environment, after file 16.
 
 To check an environment, run in its SQL editor:
 
@@ -940,7 +944,14 @@ SELECT
     ) LIKE '%tenant_storage_cleanups%', false)
     AND coalesce((SELECT relrowsecurity FROM pg_class
       WHERE oid = to_regclass('public.tenant_storage_cleanups')), false)
-    AS "20261113130000";
+    AS "20261113130000",
+  coalesce(pg_get_functiondef(
+      to_regprocedure('public.remove_tenant_member(uuid,uuid,uuid)')
+    ) LIKE '%FROM public.tenant_invitations%', false)
+    AND coalesce(pg_get_functiondef(
+      to_regprocedure('public.delete_account_data(uuid)')
+    ) LIKE '%FROM public.tenant_invitations i%', false)
+    AS "20261113140000";
 ```
 
 Confirm the publication with the queries under [PowerSync setup](#powersync-setup).

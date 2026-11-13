@@ -67,6 +67,24 @@ SELECT tests.throws(
 SELECT tests.as_owner();
 
 -- ---------------------------------------------------------------------------
+-- Lock order: invitations before the tenant, as a redemption takes them
+-- (20261113140000_membership_lock_order.sql). The other order deadlocks a
+-- redemption racing a removal or an account deletion; that race needs two
+-- sessions, so these pin the order in the function bodies.
+-- ---------------------------------------------------------------------------
+
+SELECT tests.ok(
+  strpos(pg_get_functiondef('public.remove_tenant_member(uuid,uuid,uuid)'::regprocedure), 'FROM public.tenant_invitations')
+    < strpos(pg_get_functiondef('public.remove_tenant_member(uuid,uuid,uuid)'::regprocedure), 'FROM public.tenants WHERE id = p_tenant_id FOR UPDATE'),
+  'a removal locks the invitations before the tenant'
+);
+SELECT tests.ok(
+  strpos(pg_get_functiondef('public.delete_account_data(uuid)'::regprocedure), 'FROM public.tenant_invitations i')
+    < strpos(pg_get_functiondef('public.delete_account_data(uuid)'::regprocedure), 'FROM public.tenants t'),
+  'an account deletion locks the invitations before the puestos'
+);
+
+-- ---------------------------------------------------------------------------
 -- Who may remove whom
 -- ---------------------------------------------------------------------------
 
