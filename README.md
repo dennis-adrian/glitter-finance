@@ -94,7 +94,8 @@ Storage; the PowerSync upload RPCs (idempotent retries, void and refund
 conflicts, member and tenant checks, device timestamps); and the triggers
 (void window, refunds of voided sales, last-write-wins product edits,
 revoke-only invitations). Run it after changing `lib/db/schema.ts`, a
-migration or a file in `supabase/manual/`. CI does not run it yet.
+migration or a file in `supabase/manual/`. CI runs it on every pull request
+as its own job ("Database tests"), with the PostgreSQL the runner image ships.
 
 It creates a throwaway PostgreSQL cluster in a new directory under `/tmp` that
 only your user can open, and deletes it afterwards. The cluster's superuser
