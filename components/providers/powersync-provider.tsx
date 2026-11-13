@@ -327,6 +327,7 @@ export function PowerSyncProvider({
         supabase,
         currentIdentity.tenantId,
         {
+          expectedUserId: currentIdentity.userId,
           // A connect that finds no session at all.
           // PowerSync retries every few seconds; after "Seguir registrando"
           // that must not bring the panel straight back.

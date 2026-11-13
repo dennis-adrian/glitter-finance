@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Loader2, Trash2 } from "lucide-react";
 import { getAccountDeletionPlan } from "@/app/account/actions";
@@ -54,16 +54,22 @@ export function DeleteAccountCard({
   const [open, setOpen] = useState(false);
   const [planState, setPlanState] = useState<PlanState>({ status: "loading" });
   const [confirmation, setConfirmation] = useState("");
+  // Only the latest request's answer counts: reopening the dialog or
+  // retrying must not show an older, stale plan.
+  const planRequestRef = useRef(0);
 
   async function loadPlan() {
+    const request = ++planRequestRef.current;
     setPlanState({ status: "loading" });
     try {
       const plan = await unwrapActionResult(
         () => getAccountDeletionPlan(),
         PLAN_FAILED_MESSAGE
       );
+      if (request !== planRequestRef.current) return;
       setPlanState({ status: "ready", plan });
     } catch (planError) {
+      if (request !== planRequestRef.current) return;
       setPlanState({
         status: "error",
         message:

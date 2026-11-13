@@ -83,9 +83,10 @@ export async function moveActiveTenantClaimAway(
     return;
   }
   const [next] = await loadAllMemberships(db, userId);
-  // Auth merges app_metadata on update, and a null value removes the key.
+  // Auth merges app_metadata on update, and a null value removes the key:
+  // send only the claim, so no other key is written back from the read above.
   const { error: updateError } = await admin.auth.admin.updateUserById(userId, {
-    app_metadata: { ...appMetadata, tenant_id: next?.tenantId ?? null },
+    app_metadata: { tenant_id: next?.tenantId ?? null },
   });
   if (updateError) {
     throw new Error("No se pudo actualizar el puesto activo.", {

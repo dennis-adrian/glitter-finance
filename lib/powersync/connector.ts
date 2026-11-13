@@ -299,6 +299,11 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     private readonly supabase: SupabaseClient,
     private readonly expectedTenantId: string | null,
     private readonly options: {
+      /**
+       * The user the local data belongs to. A session of another account
+       * (signed in from another tab) says nothing about their membership.
+       */
+      expectedUserId?: string;
       onAccessRemoved?: () => void;
       /** fetchCredentials found no session at all (lib/auth/session-end.ts). */
       onSessionMissing?: () => void;
@@ -318,6 +323,12 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     const { data, error } = await this.supabase.auth.getSession();
     const userId = data.session?.user?.id;
     if (error || !userId) return "unknown";
+    if (
+      this.options.expectedUserId !== undefined &&
+      userId !== this.options.expectedUserId
+    ) {
+      return "unknown";
+    }
     const membership = await this.supabase
       .from("tenant_users")
       .select("id")

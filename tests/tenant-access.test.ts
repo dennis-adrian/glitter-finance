@@ -312,6 +312,23 @@ test("the connector reads the user's own membership row", async () => {
   assert.equal(removed, 0);
 });
 
+test("another account's session says nothing about the membership", async () => {
+  const queries: string[] = [];
+  let removed = 0;
+  const connector = new SupabaseConnector(
+    supabaseWith({
+      token: accessToken("tenant-2"),
+      memberships: [],
+      queries,
+    }),
+    "tenant-1",
+    { expectedUserId: "user-0", onAccessRemoved: () => (removed += 1) }
+  );
+  assert.equal(await connector.verifyTenantAccess(), "unknown");
+  assert.deepEqual(queries, []);
+  assert.equal(removed, 0);
+});
+
 test("a confirmed removal is reported once and stops the sync for good", async () => {
   withPublicEnv();
   const queries: string[] = [];
