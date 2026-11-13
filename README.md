@@ -843,6 +843,12 @@ below:
     `remove_tenant_member` and `delete_account_data` lock a puesto's
     invitations before the puesto, the order an invitation redemption takes
     them in, so the two never deadlock. Every environment, after file 16.
+18. [`20261113150000_invitation_create_lock.sql`](supabase/manual/20261113150000_invitation_create_lock.sql):
+    `remove_tenant_member` and `delete_account_data` first take the
+    per-puesto advisory lock that invitation creation holds
+    (`getOrCreateActiveInvitation` rechecks the creator's membership under
+    it), so a member removed while generating a link gets none. Every
+    environment, after file 17.
 
 To check an environment, run in its SQL editor:
 
@@ -951,7 +957,14 @@ SELECT
     AND coalesce(pg_get_functiondef(
       to_regprocedure('public.delete_account_data(uuid)')
     ) LIKE '%FROM public.tenant_invitations i%', false)
-    AS "20261113140000";
+    AS "20261113140000",
+  coalesce(pg_get_functiondef(
+      to_regprocedure('public.remove_tenant_member(uuid,uuid,uuid)')
+    ) LIKE '%invitation_create:%', false)
+    AND coalesce(pg_get_functiondef(
+      to_regprocedure('public.delete_account_data(uuid)')
+    ) LIKE '%invitation_create:%', false)
+    AS "20261113150000";
 ```
 
 Confirm the publication with the queries under [PowerSync setup](#powersync-setup).

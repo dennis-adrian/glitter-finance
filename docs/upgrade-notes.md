@@ -366,6 +366,12 @@ None of these blocks the release:
      lock a puesto's invitations before the puesto, the order a redemption
      uses; the other order let a redemption racing a removal or an account
      deletion deadlock (`40P01`).
+   - Then run
+     [`supabase/manual/20261113150000_invitation_create_lock.sql`](../supabase/manual/20261113150000_invitation_create_lock.sql).
+     Removing a member and deleting an account now take the per-puesto lock
+     that creating an invitation link holds, and the app checks the
+     creator's membership again under it, so a member removed while
+     generating a link never ends up with a valid one.
 
 ### 4. PowerSync Sync Streams
 

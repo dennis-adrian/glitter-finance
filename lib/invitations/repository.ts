@@ -2,7 +2,8 @@ import "server-only";
 
 import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { UserFacingError } from "@/lib/action-result";
-import { ensureMembership } from "@/lib/auth/memberships";
+import { ensureMembership, hasMembership } from "@/lib/auth/memberships";
+import { TENANT_ACCESS_REMOVED_MESSAGE } from "@/lib/auth/tenant-context";
 import { db } from "@/lib/db";
 import { tenantInvitations, tenants } from "@/lib/db/schema";
 import {
@@ -157,7 +158,11 @@ export async function getActiveInvitationForTenant(
 // supplied candidate token/expiry) only if none exists. A per-tenant advisory
 // lock serializes concurrent generators so two requests can't each insert a
 // fresh valid link — they reuse the single active one instead. Mirrors the
-// bootstrap advisory-lock pattern in lib/auth/user-context.ts.
+// bootstrap advisory-lock pattern in lib/auth/user-context.ts. Removing a
+// member takes the same lock before it revokes the tenant's links
+// (remove_tenant_member, supabase/manual/20261113150000_invitation_create_lock.sql),
+// so the creator's membership is checked again once the lock is held: a
+// member removed meanwhile gets no link, old or new.
 export async function getOrCreateActiveInvitation(input: {
   tenantId: string;
   createdByUserId: string;
@@ -168,6 +173,15 @@ export async function getOrCreateActiveInvitation(input: {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtext(${"invitation_create:" + input.tenantId}))`
     );
+
+    if (
+      !(await hasMembership(tx, {
+        tenantId: input.tenantId,
+        userId: input.createdByUserId,
+      }))
+    ) {
+      throw new UserFacingError(TENANT_ACCESS_REMOVED_MESSAGE);
+    }
 
     const [existing] = await tx
       .select(invitationColumns)

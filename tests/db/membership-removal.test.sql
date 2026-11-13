@@ -84,6 +84,17 @@ SELECT tests.ok(
   'an account deletion locks the invitations before the puestos'
 );
 
+SELECT tests.ok(
+  strpos(pg_get_functiondef('public.remove_tenant_member(uuid,uuid,uuid)'::regprocedure), 'invitation_create:')
+    BETWEEN 1 AND strpos(pg_get_functiondef('public.remove_tenant_member(uuid,uuid,uuid)'::regprocedure), 'FROM public.tenant_invitations'),
+  'a removal takes the invitation creation lock before anything else'
+);
+SELECT tests.ok(
+  strpos(pg_get_functiondef('public.delete_account_data(uuid)'::regprocedure), 'invitation_create:')
+    BETWEEN 1 AND strpos(pg_get_functiondef('public.delete_account_data(uuid)'::regprocedure), 'FROM public.tenant_invitations i'),
+  'an account deletion takes the invitation creation locks before anything else'
+);
+
 -- ---------------------------------------------------------------------------
 -- Who may remove whom
 -- ---------------------------------------------------------------------------
