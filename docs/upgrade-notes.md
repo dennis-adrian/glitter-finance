@@ -251,6 +251,9 @@ None of these blocks the release:
      `former_tenant_members` table (who left a puesto, with the name their
      records keep) and its foreign key to `tenants`. The old app ignores it.
      Item 4 enables its RLS right after.
+   - `supabase/migrations/20261113174514_same_molly_hayes.sql`: the new,
+     empty, server-only `tenant_storage_cleanups` table (Storage cleanup
+     still owed for puestos deleted with an account). Item 4 locks it down.
 
    An environment that already runs a `develop` build has the first one, and
    `db:push` applies only the others. An environment still on v0.7.0 also
@@ -349,6 +352,14 @@ None of these blocks the release:
      fail with an error.
    - The old app is unaffected: it never deletes memberships, and the
      triggers do not touch inserts.
+   - Then run
+     [`supabase/manual/20261113130000_account_deletion_storage_cleanup.sql`](../supabase/manual/20261113130000_account_deletion_storage_cleanup.sql).
+     It enables RLS (no policies) on `tenant_storage_cleanups`, revokes it
+     from the API roles, and re-creates `delete_account_data` so each puesto
+     it deletes is recorded there in the same transaction. The app removes
+     the photos and then the row; a failure stays queued and the next account
+     deletion retries it. Rows that stay with a `last_error` are photos
+     still in the bucket under `<tenant_id>/`.
 
 ### 4. PowerSync Sync Streams
 
@@ -538,6 +549,14 @@ In the SQL editor:
      'authenticated', 'public.remove_tenant_member(uuid,uuid,uuid)', 'EXECUTE');
    SELECT has_function_privilege(
      'authenticated', 'public.delete_account_data(uuid)', 'EXECUTE');
+   ```
+
+   And for the photo cleanup queue, the first must return `false`, and the
+   second shows photos still owed (expect no rows long after a deletion):
+
+   ```sql
+   SELECT has_table_privilege('authenticated', 'public.tenant_storage_cleanups', 'SELECT');
+   SELECT tenant_id, requested_at, last_error FROM tenant_storage_cleanups;
    ```
 
 Then, in the dashboard's database settings, look at the connection pooler's

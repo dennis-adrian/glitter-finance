@@ -75,3 +75,47 @@ export async function removeTenantStorageObjects(
   }
   return removed;
 }
+
+/**
+ * The durable record of cleanup still owed (tenant_storage_cleanups, written
+ * by delete_account_data in the transaction that deletes the puesto).
+ */
+export type StorageCleanupQueue = {
+  /** Up to `limit` owed puestos, those in `first` ahead of older ones. */
+  pending(first: readonly string[], limit: number): Promise<string[]>;
+  /** The puesto's objects are gone: forget it. */
+  complete(tenantId: string): Promise<void>;
+  /** Keep it for the next run, with why this one failed. */
+  fail(tenantId: string, message: string): Promise<void>;
+};
+
+/** How many owed puestos one account deletion works through. */
+export const STORAGE_CLEANUP_BATCH = 20;
+
+/**
+ * Removes the objects of owed puestos, `first` (the ones just deleted) ahead
+ * of what earlier runs left behind, and forgets each one only once its
+ * objects are gone. A failure stays queued for the next run; nothing here
+ * throws for one puesto's failure.
+ */
+export async function drainTenantStorageCleanups(
+  client: StorageClientLike,
+  queue: StorageCleanupQueue,
+  first: readonly string[],
+  limit = STORAGE_CLEANUP_BATCH
+): Promise<{ completed: string[]; failed: string[] }> {
+  const completed: string[] = [];
+  const failed: string[] = [];
+  for (const tenantId of await queue.pending(first, limit)) {
+    try {
+      await removeTenantStorageObjects(client, [tenantId]);
+      await queue.complete(tenantId);
+      completed.push(tenantId);
+    } catch (error) {
+      failed.push(tenantId);
+      const message = error instanceof Error ? error.message : String(error);
+      await queue.fail(tenantId, message).catch(() => {});
+    }
+  }
+  return { completed, failed };
+}

@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  drainTenantStorageCleanups,
   removeTenantStorageObjects,
   type StorageBucketLike,
 } from "@/lib/tenant-storage-cleanup";
@@ -88,4 +89,58 @@ test("a Storage error is thrown for the caller to log", async () => {
   const storage = fakeStorage(["t1/products/p1/a.jpg"], { failRemove: true });
 
   await assert.rejects(removeTenantStorageObjects(storage.client, ["t1"]));
+});
+
+function fakeQueue(owed: string[]) {
+  const failures = new Map<string, string>();
+  const asked: { first: readonly string[]; limit: number }[] = [];
+  return {
+    owed,
+    failures,
+    asked,
+    queue: {
+      async pending(first: readonly string[], limit: number) {
+        asked.push({ first, limit });
+        return [
+          ...owed.filter((id) => first.includes(id)),
+          ...owed.filter((id) => !first.includes(id)),
+        ].slice(0, limit);
+      },
+      async complete(tenantId: string) {
+        owed.splice(owed.indexOf(tenantId), 1);
+      },
+      async fail(tenantId: string, message: string) {
+        failures.set(tenantId, message);
+      },
+    },
+  };
+}
+
+test("a puesto is forgotten only once its photos are gone, and a failure stays queued", async () => {
+  // t-old was left by an earlier run whose Storage call failed.
+  const queue = fakeQueue(["t-old", "t-new"]);
+  const storage = fakeStorage([
+    "t-old/products/p1/a.jpg",
+    "t-new/products/p2/b.jpg",
+  ]);
+
+  const result = await drainTenantStorageCleanups(
+    storage.client,
+    queue.queue,
+    ["t-new"],
+    5
+  );
+
+  assert.deepEqual(result, { completed: ["t-new", "t-old"], failed: [] });
+  assert.deepEqual(queue.asked, [{ first: ["t-new"], limit: 5 }]);
+  assert.deepEqual(queue.owed, []);
+
+  const failing = fakeQueue(["t1"]);
+  const down = fakeStorage(["t1/products/p1/a.jpg"], { failRemove: true });
+  assert.deepEqual(
+    await drainTenantStorageCleanups(down.client, failing.queue, ["t1"]),
+    { completed: [], failed: ["t1"] }
+  );
+  assert.deepEqual(failing.owed, ["t1"], "the next run retries it");
+  assert.equal(failing.failures.get("t1"), "denied");
 });

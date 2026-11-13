@@ -240,6 +240,18 @@ SELECT tests.is(
   'the user''s own puesto is gone'
 );
 SELECT tests.is(
+  (SELECT array_agg(tenant_id) FROM public.tenant_storage_cleanups),
+  ARRAY[:'own_only']::uuid[],
+  'the deleted puesto''s photo cleanup is recorded with the deletion'
+);
+SELECT tests.authenticate(:'owner');
+SELECT tests.throws(
+  'SELECT count(*) FROM public.tenant_storage_cleanups',
+  '42501',
+  'the API roles cannot read the photo cleanup queue'
+);
+SELECT tests.as_owner();
+SELECT tests.is(
   (SELECT count(*)::int FROM public.products WHERE tenant_id = :'own_only')
     + (SELECT count(*)::int FROM public.sales WHERE tenant_id = :'own_only')
     + (SELECT count(*)::int FROM public.refunds WHERE tenant_id = :'own_only')

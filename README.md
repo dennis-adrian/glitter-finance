@@ -562,7 +562,9 @@ offer what they allow (`lib/auth/tenant-owner.ts`).
   members.
 - **Delete account (Settings → Cuenta):** after a confirmation that lists what
   happens to each puesto and a typed `ELIMINAR`. Puestos where the user is the
-  only member are deleted with all their data and product photos; shared
+  only member are deleted with all their data and product photos (the photos
+  through a queue, `tenant_storage_cleanups`, that the next account deletion
+  retries if Storage fails); shared
   puestos are left, and the user's records stay there. It is refused while
   the user owns a puesto with other members. Like a sign-out, it waits until
   the device has nothing left to upload. Every session is revoked, and the
@@ -831,6 +833,12 @@ below:
     `pnpm db:push` that creates `former_tenant_members` and before the app
     build that calls them is deployed; redeploy `powersync/sync-rules.yaml`
     after it.
+16. [`20261113130000_account_deletion_storage_cleanup.sql`](supabase/manual/20261113130000_account_deletion_storage_cleanup.sql):
+    the server-only `tenant_storage_cleanups` queue (RLS with no policies)
+    and a `delete_account_data` that records each puesto it deletes there,
+    so its Storage photos are removed later even if the first attempt fails.
+    Every environment, after file 15 and the `pnpm db:push` that creates the
+    table, and before the app build that reads it.
 
 To check an environment, run in its SQL editor:
 
@@ -926,7 +934,13 @@ SELECT
     AND coalesce(NOT has_function_privilege('authenticated',
       to_regprocedure('public.remove_tenant_member(uuid,uuid,uuid)'),
       'EXECUTE'), false)
-    AS "20261113120000";
+    AS "20261113120000",
+  coalesce(pg_get_functiondef(
+      to_regprocedure('public.delete_account_data(uuid)')
+    ) LIKE '%tenant_storage_cleanups%', false)
+    AND coalesce((SELECT relrowsecurity FROM pg_class
+      WHERE oid = to_regclass('public.tenant_storage_cleanups')), false)
+    AS "20261113130000";
 ```
 
 Confirm the publication with the queries under [PowerSync setup](#powersync-setup).

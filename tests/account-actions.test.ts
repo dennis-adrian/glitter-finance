@@ -24,15 +24,20 @@ stubModule("@/lib/auth/membership-removal", {
     events.push(`plan:${userId}`);
     return { deletes: [], leaves: [], blockers: [] };
   },
+  storageCleanupQueue: { name: "queue" },
 });
 stubModule("@/lib/auth/user-context", {
   getAuthenticatedUser: async () => (signedIn ? { id: USER_ID } : null),
 });
 stubModule("@/lib/tenant-storage-cleanup", {
-  removeTenantStorageObjects: async (_client: unknown, tenantIds: string[]) => {
-    if (storageFails) throw new Error("Storage is down");
-    events.push(`storage:${tenantIds.join(",")}`);
-    return 1;
+  drainTenantStorageCleanups: async (
+    _client: unknown,
+    queue: { name: string },
+    first: string[]
+  ) => {
+    if (storageFails) throw new Error("The queue is unreachable");
+    events.push(`storage:${queue.name}:${first.join(",")}`);
+    return { completed: first, failed: [] };
   },
 });
 stubModule("@/lib/supabase/admin", {
@@ -84,7 +89,7 @@ test("deletes the data, then the photos, then every session, then the auth user"
   });
   assert.deepEqual(events, [
     `data:${USER_ID}`,
-    "storage:t1",
+    "storage:queue:t1",
     "sign-out:global",
     `delete-user:${USER_ID}:soft`,
   ]);

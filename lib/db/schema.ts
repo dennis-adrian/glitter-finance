@@ -167,6 +167,21 @@ export const formerTenantMembers = pgTable(
   ]
 );
 
+// Storage cleanup still owed for puestos that were deleted: their product
+// photos can only be removed through the Storage API, after the database
+// deletion committed. delete_account_data records each deleted puesto here in
+// the same transaction, and the app removes the row once the photos are gone
+// (lib/tenant-storage-cleanup.ts), so a failure is retried later instead of
+// leaving orphaned files nobody knows about. Server-only: never synced, RLS
+// with no policies. No FK: the tenant row no longer exists.
+export const tenantStorageCleanups = pgTable("tenant_storage_cleanups", {
+  tenantId: uuid("tenant_id").primaryKey(),
+  requestedAt: timestamp("requested_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  lastError: text("last_error"),
+});
+
 export const products = pgTable(
   "products",
   {

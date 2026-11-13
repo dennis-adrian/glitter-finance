@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth/tenant-owner";
 import { db } from "@/lib/db";
 import { postgresErrorCode } from "@/lib/db/errors";
+import type { StorageCleanupQueue } from "@/lib/tenant-storage-cleanup";
 
 // The trusted side of removing members, leaving and deleting an account. The
 // rules themselves live in Postgres (remove_tenant_member and
@@ -115,3 +116,31 @@ export async function deleteAccountData(userId: string): Promise<string[]> {
     throw error;
   }
 }
+
+/** tenant_storage_cleanups, on the trusted connection. */
+export const storageCleanupQueue: StorageCleanupQueue = {
+  async pending(first, limit) {
+    const rows = await db.execute<{ tenant_id: string }>(sql`
+      SELECT tenant_id::text AS tenant_id
+      FROM public.tenant_storage_cleanups
+      ORDER BY
+        tenant_id::text IN (
+          SELECT jsonb_array_elements_text(${JSON.stringify(first)}::jsonb)
+        ) DESC,
+        requested_at,
+        tenant_id
+      LIMIT ${limit}
+    `);
+    return rows.map((row) => row.tenant_id);
+  },
+  async complete(tenantId) {
+    await db.execute(
+      sql`DELETE FROM public.tenant_storage_cleanups WHERE tenant_id = ${tenantId}::uuid`
+    );
+  },
+  async fail(tenantId, message) {
+    await db.execute(
+      sql`UPDATE public.tenant_storage_cleanups SET last_error = left(${message}, 500) WHERE tenant_id = ${tenantId}::uuid`
+    );
+  },
+};

@@ -796,7 +796,9 @@ puesto with other members: ownership is never transferred implicitly. It runs
 the sign-out gate and teardown, then `delete_account_data` (a puesto where the
 user is the only member is deleted with all its data, including other
 people's past sales recorded there; shared puestos are left), removes the
-deleted puestos' Storage objects, revokes every session (`signOut({ scope:
+deleted puestos' Storage objects (recorded in `tenant_storage_cleanups` in
+the deletion's own transaction, and retried by the next account deletion if
+Storage fails), revokes every session (`signOut({ scope:
 "global" })`) and soft-deletes the auth user (`auth.admin.deleteUser(id,
 true)`): Supabase clears its email, password, identities and metadata while
 the row the kept sales reference stays. Every step is safe to repeat.

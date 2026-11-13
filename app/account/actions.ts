@@ -4,6 +4,7 @@ import { toActionResult, UserFacingError } from "@/lib/action-result";
 import {
   deleteAccountData,
   loadAccountDeletionPlan,
+  storageCleanupQueue,
 } from "@/lib/auth/membership-removal";
 import {
   ACCOUNT_DELETION_CONFIRMATION_WORD,
@@ -12,7 +13,7 @@ import {
 import { getAuthenticatedUser } from "@/lib/auth/user-context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { removeTenantStorageObjects } from "@/lib/tenant-storage-cleanup";
+import { drainTenantStorageCleanups } from "@/lib/tenant-storage-cleanup";
 
 const NOT_SIGNED_IN_MESSAGE = "No iniciaste sesión.";
 const DELETION_INCOMPLETE_MESSAGE =
@@ -43,7 +44,10 @@ export async function getAccountDeletionPlan() {
  *    their sales, refunds and stock counts kept under their name; a puesto
  *    where they are the only member is deleted with all its data. Refused
  *    while they own a puesto that has other members.
- * 2. The deleted puestos' product photos are removed from Storage.
+ * 2. The deleted puestos' product photos are removed from Storage. Step 1
+ *    recorded each one in tenant_storage_cleanups in its own transaction;
+ *    a row goes once its photos are gone, so a failure is retried by the
+ *    next account deletion, whoever asks for it, along with older leftovers.
  * 3. Every session of the user is revoked, on every device.
  * 4. The auth user is soft-deleted: Supabase clears its email, password,
  *    identities and metadata, so nobody can sign in to it again and the
@@ -65,12 +69,22 @@ export async function deleteAccount(confirmation: string) {
 
     const admin = createAdminClient();
     try {
-      await removeTenantStorageObjects(admin, deletedTenantIds);
+      const { failed } = await drainTenantStorageCleanups(
+        admin,
+        storageCleanupQueue,
+        deletedTenantIds
+      );
+      if (failed.length > 0) {
+        console.error("[account] some photo cleanups stay queued", {
+          userId: user.id,
+          tenantIds: failed,
+        });
+      }
     } catch (error) {
-      // The puestos are gone; their photos are only orphaned files now.
-      console.error("[account] removing deleted puestos' photos failed", {
+      // The cleanup rows are committed with the deletion, so the next run
+      // picks them up; the account deletion itself goes on.
+      console.error("[account] reading the photo cleanup queue failed", {
         userId: user.id,
-        tenantIds: deletedTenantIds,
         error,
       });
     }
