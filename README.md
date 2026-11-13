@@ -22,6 +22,7 @@ iPhone Safari and Android Chrome) and
 - PowerSync-backed local SQLite reads/writes for categories, products, sales, sale lines, refunds, inventory movements, and local-only draft carts, plus the synced team list.
 - Offline app shell through Serwist, with Supabase and PowerSync API responses kept network-only so synced data remains owned by PowerSync/local SQLite. Product photos from Supabase Storage are the one exception: the service worker caches them so Sell tiles keep their images offline.
 - Sync status visibility and a tester diagnostics surface for pending queue count, offline/reconnect state, errors, and last sync time.
+- A public landing page at `/bienvenida` (signed-out visitors to `/` land there; an installed app opened signed out goes on to `/login`), with `robots.txt`, a sitemap, noindex headers for sign-in, invitation, auth and API URLs, and link-preview metadata (`lib/public-site.ts`).
 
 ## Run locally
 

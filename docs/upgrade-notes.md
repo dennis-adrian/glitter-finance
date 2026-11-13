@@ -21,6 +21,7 @@ README and empty this file for the release after.
 | Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                                                                                                                  |
 | Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                                                                                                                                                                     |
 | App screens           | A responsive layout for phones, tablets and desktops, a new order and checkout flow, and Reportes in the main navigation (see [What users may notice](#what-users-may-notice)). Nothing to configure.                                                                                                                                                                                                                                                                                |
+| Public landing page   | Signed-out visitors to `/` now reach a public landing page at `/bienvenida` instead of `/login`; an installed app opened signed out still goes on to `/login`. New `robots.txt` and `sitemap.xml`, `X-Robots-Tag: noindex` on `/login`, `/join/*`, `/auth/*`, `/api/*` and `/~offline`, and link previews (Open Graph, Twitter) with `public/og-image.png`. A Vercel preview (staging) disallows every crawler.                                                                      |
 | Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                                                                                                                                                                          |
 
 ## Once, before the first environment
@@ -88,6 +89,13 @@ staging, Production for production, and Development too if anyone runs
    `pnpm build`, whose `prebuild` step copies the PowerSync assets that the
    service worker precaches. After the deploy in step 5, open the deployment's
    build logs and check that the install step reports pnpm 11.21.0.
+4. **Production only:** if the app is served from a custom domain, make sure
+   `NEXT_PUBLIC_APP_URL` is set to it (for example
+   `https://billeteraferial.example`) before the build. The link previews'
+   absolute URLs (`metadataBase`), the canonical URL of the landing page and
+   the sitemap are built from it, falling back to
+   `VERCEL_PROJECT_PRODUCTION_URL`, the `*.vercel.app` name, which search
+   engines would then index instead of the domain. Nothing to set on staging.
 
 ### 2. Database pre-checks
 
@@ -555,6 +563,23 @@ configures the local stack):
    `Cache-Control`; only new uploads get one year. No backfill is needed.
 5. **Icons:** glance over the screens. lucide-react moved to 1.x, which may
    redraw some glyphs slightly.
+6. **Landing page and search engines:**
+   - Signed out, in a browser tab, `https://<app-url>/` redirects to
+     `/bienvenida`, which shows the landing page in light and dark mode. Its
+     **Crear cuenta** and **Iniciar sesión** buttons open `/login`.
+   - An installed app opened signed out (log out, close it, open it again)
+     lands on `/login`, as before. Signed in, it opens Vender, online and in
+     airplane mode.
+   - `curl https://<app-url>/robots.txt` lists `Disallow: /api/` and a
+     `Sitemap:` line on the production domain; on staging it reads
+     `Disallow: /`. `curl https://<app-url>/sitemap.xml` lists
+     `/bienvenida` on production and nothing on staging.
+   - `curl -I https://<app-url>/join/anything` and `/login` show
+     `X-Robots-Tag: noindex, nofollow`; `/bienvenida` does not.
+   - Paste the production `/bienvenida` link into a chat app or a link
+     preview checker: it shows the title, description and the share image.
+   - Optional, production: add the domain to Google Search Console and submit
+     `/sitemap.xml`.
 
 ### 10. Acceptance (staging), then production
 

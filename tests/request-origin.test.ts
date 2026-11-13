@@ -174,3 +174,24 @@ test("malformed hosts and protocols are rejected", async () => {
     "http://localhost:3000"
   );
 });
+
+// The root layout's metadataBase: configuration only, never a request header.
+test("configuredPublicOrigin reads configuration and ignores headers", async () => {
+  requestHeaders = new Headers(spoofed);
+  const { configuredPublicOrigin } = await import("@/lib/request-origin");
+  const run = (env: Record<string, string>) =>
+    withEnv(ORIGIN_ENV, env, async () => configuredPublicOrigin());
+
+  assert.equal(
+    await run({ NEXT_PUBLIC_APP_URL: "https://pos.example.com/" }),
+    "https://pos.example.com"
+  );
+  assert.equal(
+    await run({
+      VERCEL_ENV: "preview",
+      VERCEL_BRANCH_URL: "glitter-pos-git-x.vercel.app",
+    }),
+    "https://glitter-pos-git-x.vercel.app"
+  );
+  assert.equal(await run({}), null);
+});

@@ -52,3 +52,18 @@ test("skips the service worker, PowerSync assets and other non-pages", () => {
     assert.equal(runsProxy(pathname), false, pathname);
   }
 });
+
+// The landing page is static and never reads the session; robots.txt, the
+// sitemap and the share image are for crawlers.
+test("skips the landing page and the files crawlers read", () => {
+  for (const pathname of [
+    "/bienvenida",
+    "/robots.txt",
+    "/sitemap.xml",
+    "/og-image.png",
+  ]) {
+    assert.equal(runsProxy(pathname), false, pathname);
+  }
+  // Only that exact page: anything else under the name is still a page.
+  assert.equal(runsProxy("/bienvenida-x"), true);
+});

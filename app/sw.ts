@@ -105,9 +105,10 @@ const runtimeCaching: RuntimeCaching[] = [
   },
   // The app shell. Every online navigation to "/" stores the page here, and
   // an offline launch (or a network slower than 3 s) opens Sell Mode from
-  // it. Only complete pages are kept: a redirect to /login (a lapsed
-  // session, or Auth failing to confirm one) must not replace the last
-  // working shell. There is no age limit, because a vendor may reach a fair
+  // it. Only complete pages are kept: a redirect to the landing page (a
+  // lapsed session, or Auth failing to confirm one) must not replace the last
+  // working shell. Other pages, the landing page among them, are stored under
+  // their own URL and never answer for "/". There is no age limit, because a vendor may reach a fair
   // offline days after last opening the app online; logout clears this
   // cache (clearUserDataCaches).
   {

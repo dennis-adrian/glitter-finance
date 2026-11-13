@@ -478,6 +478,28 @@ date presets, catalog status, and stock corrections.
 - Error notices have a `--secondary` edge on a 10% `--secondary` fill; status notices a `--primary` edge on `--muted`.
 - Three light colors have no token and stay as hex until the design is reconciled, each with a token in dark mode: the error notice text `#8A3329` (dark: `--destructive`), the status notice text `#005F58` (dark: `--foreground`) and the pending submit button's fill `#B4C2BF` (dark: `--muted`).
 
+### Landing page
+
+`/bienvenida` (`components/templates/landing-page.tsx`) is the public page for
+signed-out visitors, outside the app shell: a scrolling page, not the
+`Screen` template, with the layout gutters (16/24/32px) and a 1152px
+(`max-w-6xl`) content width.
+
+- Display headings in Bricolage Grotesque ExtraBold (34px phone, 48px from
+  `md` for the title; 26/32px for sections); body in Instrument Sans with
+  `text-foreground/70` supporting text, as on the sign-in screens.
+- One primary CTA (**Crear cuenta**) beside an outline **Iniciar sesión**,
+  full width on phones, with the 16px (`rounded-2xl`) radius of the sign-in
+  screens' buttons.
+- The hero picture of Vender is drawn from tokens and the product placeholder
+  tones, not a screenshot, so it follows the theme. It is `aria-hidden`.
+- Feature cards: `--card` with a `foreground/10` ring and a 20px radius; the
+  icon sits beside the text on phones and above it from `sm`. The offline
+  section is a `bg-muted` band, where icon badges take the `--card` fill.
+- Copy states only what the app does today; no prices and nothing from the
+  PRD's future features. The share image (`public/og-image.png`, 1200×630)
+  is rendered from `scripts/og-image.html` in the light theme.
+
 ## Icons and imagery
 
 - Use Lucide for interface icons; standard size is 24px, compact size 16–20px.

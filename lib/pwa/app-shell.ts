@@ -19,7 +19,7 @@ import { NEXT_PAGE_CACHE_NAME, PAGE_CACHE_NAME } from "./cache-names";
 type ShellCacheStorage = Pick<CacheStorage, "delete" | "has" | "open">;
 
 // A fresh page from the network with the session's cookies. A redirect is
-// returned as it is (opaqueredirect), never followed into /login's page.
+// returned as it is (opaqueredirect), never followed into the landing page.
 const pageFetchInit: RequestInit = {
   cache: "reload",
   credentials: "same-origin",
@@ -44,7 +44,8 @@ export function isCacheAppShellMessage(data: unknown): boolean {
  * - "store": a complete page, which replaces the cached one;
  * - "drop": 404 or 410, the page no longer exists, so it is removed;
  * - "retry": anything else, which fails the install and keeps the cached
- *   page. That includes a redirect: "/" redirects to /login whenever the
+ *   page. That includes a redirect: "/" redirects to the landing page
+ *   (LANDING_PATH in lib/public-site.ts) whenever the
  *   server cannot confirm the session, which an Auth outage or rate limit
  *   causes as well as a lapsed session, and a transient refusal such as 408
  *   or 429. Neither says the cached page is wrong, and dropping it would
@@ -91,7 +92,7 @@ export async function cacheAppShell(input: {
   }
 
   const response = await input.fetch(input.url, pageFetchInit);
-  // Anything but a complete page (a redirect to /login, an error) would not
+  // Anything but a complete page (a redirect to the landing page, an error) would not
   // start offline.
   if (shellRefreshOutcome(response) !== "store") return;
   if (!(await input.caches.has(PAGE_CACHE_NAME))) return;

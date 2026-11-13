@@ -28,6 +28,8 @@ export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
     globIgnores: [
       "**/node_modules/**/*",
       "public/serwist/**/*",
+      // The link preview image is for other sites' crawlers, never the app.
+      "public/og-image.png",
       ...powerSyncPrecache.ignore,
       ".next/cache/**/*",
       ".next/server/**/*",

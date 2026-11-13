@@ -18,6 +18,7 @@ Implemented now:
 - Several tenants per user, a tenant switcher, and invitation links.
 - Email and password or Google sign-in, and password reset.
 - A sync status pill and a tester Diagnostics screen.
+- A public landing page at `/bienvenida`. It is not `/`, which stays the PWA's start URL and the app shell the service worker caches: a landing page rendered at `/` for signed-out visitors would be stored as that shell, and the first offline launch after signing in would open it instead of Sell Mode. `/` redirects signed-out visitors there; the page is static (the proxy skips it) and sends an installed app (`display-mode: standalone`) on to `/login`. Search engines may index only the pages in `INDEXABLE_PATHS`; URLs that carry tokens (`/join/<token>`, `/login?next=…`, `/auth/*`) answer `X-Robots-Tag: noindex` rather than being disallowed in `robots.txt`, so a crawler can see the refusal instead of listing the bare URL (`lib/public-site.ts`).
 
 ## Backend Boundary
 
