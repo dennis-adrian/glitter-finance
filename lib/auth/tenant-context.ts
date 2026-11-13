@@ -172,10 +172,13 @@ export function requireExpectedTenant<T extends UserTenantContext>(
 ): T & { tenant: NonNullable<T["tenant"]> } {
   const expected = parseTenantId(expectedTenantId);
   const tenant = context?.tenant;
-  if (!context || !tenant) {
+  if (!context) {
     throw new UserFacingError(missingTenantMessage);
   }
-  if (tenant.id.toLowerCase() !== expected) {
+  if (!tenant || tenant.id.toLowerCase() !== expected) {
+    // A screen only sends the tenant it renders, so a user without that
+    // membership lost it, whether or not another puesto is left to fall
+    // back to (someone who joined by invitation has no other).
     const stillMember = context.tenants.some(
       (summary) => summary.id.toLowerCase() === expected
     );

@@ -458,7 +458,9 @@ export function PowerSyncProvider({
 
       connectorRef.current = connector;
       await instance.connect(connector);
-      if (currentIdentity.tenantId) {
+      // Cleanup has already run when this was cancelled meanwhile, so nothing
+      // would stop a watch started now.
+      if (currentIdentity.tenantId && !cancelled) {
         stopAccessWatch = watchTenantAccess(instance, {
           tenantId: currentIdentity.tenantId,
           userId: currentIdentity.userId,

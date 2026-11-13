@@ -326,6 +326,13 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
       .limit(1);
     if (membership.error) return "unknown";
     if ((membership.data ?? []).length > 0) return "member";
+    // A session that ended while the request was on its way makes it run as
+    // anon, which RLS shows no rows either (lib/auth/session-end.ts). Only a
+    // user who is still signed in was really asked about their membership.
+    const after = await this.supabase.auth.getSession();
+    if (after.error || after.data.session?.user?.id !== userId) {
+      return "unknown";
+    }
     if (!this.accessRemoved) {
       this.accessRemoved = true;
       this.options.onAccessRemoved?.();

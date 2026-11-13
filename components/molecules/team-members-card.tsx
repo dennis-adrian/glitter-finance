@@ -46,7 +46,12 @@ export function TeamMembersCard({
   teamSyncPending,
   onMemberRemoved,
 }: TeamMembersCardProps) {
-  const ownerId = resolveTenantOwnerId(createdByUserId, members);
+  // While the list is still replicating it may lack the creator's row, and
+  // the longest-standing-member fallback would then name someone else.
+  const ownerId =
+    teamSyncPending && createdByUserId
+      ? createdByUserId
+      : resolveTenantOwnerId(createdByUserId, members);
   const isOwner = ownerId === currentUserId;
   const canLeave =
     memberActionFor({

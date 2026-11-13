@@ -76,6 +76,42 @@ test("the server is asked at most once per interval", async () => {
   assert.equal(subject.calls.length, 2);
 });
 
+test("a change inside the interval is asked about once the interval has passed", async () => {
+  const answers: TenantAccess[] = ["member", "removed"];
+  const timers: { run: () => void; ms: number }[] = [];
+  let time = 0;
+  let removed = 0;
+  const check = createTenantAccessCheck({
+    verify: async () => answers.shift() ?? "member",
+    onRemoved: () => {
+      removed += 1;
+    },
+    minIntervalMs: 1000,
+    now: () => time,
+    schedule: (run, ms) => {
+      timers.push({ run, ms });
+      return () => {};
+    },
+  });
+
+  // Still a member; then the table changes again 400 ms later (the removal)
+  // and never after that, since the tenant stays empty.
+  await check(0);
+  time = 400;
+  await check(0);
+  await check(0);
+  assert.deepEqual(
+    timers.map((timer) => timer.ms),
+    [600],
+    "one check is scheduled for the rest of the interval"
+  );
+
+  time = 1000;
+  timers[0].run();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(removed, 1);
+});
+
 test("a failed check is not a removal", async () => {
   const warn = console.warn;
   console.warn = () => {};
@@ -295,6 +331,31 @@ test("a confirmed removal is reported once and stops the sync for good", async (
   assert.equal(removed, 1);
   assert.equal(queries.length, 1);
   await assert.rejects(connector.fetchCredentials(), TenantAccessRemovedError);
+});
+
+test("an empty answer after the session ended is not a removal", async () => {
+  const queries: string[] = [];
+  let removed = 0;
+  const supabase = supabaseWith({
+    token: accessToken("tenant-1"),
+    memberships: [],
+    queries,
+  });
+  // The session ends while the membership query is on its way: the query
+  // then ran as anon, which RLS shows no rows either.
+  const signedIn = supabase.auth.getSession;
+  let reads = 0;
+  supabase.auth.getSession = (async () => {
+    reads += 1;
+    return reads === 1 ? signedIn() : { data: { session: null }, error: null };
+  }) as typeof supabase.auth.getSession;
+  const connector = new SupabaseConnector(supabase, "tenant-1", {
+    onAccessRemoved: () => (removed += 1),
+  });
+
+  assert.equal(await connector.verifyTenantAccess(), "unknown");
+  assert.equal(removed, 0);
+  assert.equal(queries.length, 1);
 });
 
 test("a refreshed token that no longer claims the tenant is checked against the membership", async () => {

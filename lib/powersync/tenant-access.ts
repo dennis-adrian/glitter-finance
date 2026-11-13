@@ -33,9 +33,10 @@ export type TenantAccessCheck = ((count: number) => Promise<void>) & {
  * it reads. It asks the server when there is none, at most once per
  * `minIntervalMs` and never twice at once, and calls `onRemoved` once the
  * server confirms the membership is gone. When the server could not answer
- * (offline, an error), it asks again after `minIntervalMs` for as long as
- * the row stays missing: the watch only fires when the table changes, and a
- * dropped tenant stays empty.
+ * (offline, an error), or a change came too soon after the last answer to
+ * ask again, it asks once the interval has passed for as long as the row
+ * stays missing: the watch only fires when the table changes, and a dropped
+ * tenant stays empty.
  */
 export function createTenantAccessCheck(input: {
   verify: () => Promise<TenantAccess>;
@@ -61,6 +62,14 @@ export function createTenantAccessCheck(input: {
   let disposed = false;
   let cancelRetry: (() => void) | null = null;
 
+  function retryAfter(ms: number) {
+    if (cancelRetry) return;
+    cancelRetry = schedule(() => {
+      cancelRetry = null;
+      if (lastCount === 0) void onMembershipRows(0);
+    }, ms);
+  }
+
   async function onMembershipRows(count: number): Promise<void> {
     lastCount = count;
     if (count > 0) {
@@ -69,7 +78,12 @@ export function createTenantAccessCheck(input: {
     }
     if (count > 0 || removed || checking || disposed) return;
     const time = now();
-    if (lastCheckAt !== null && time - lastCheckAt < minIntervalMs) return;
+    if (lastCheckAt !== null && time - lastCheckAt < minIntervalMs) {
+      // Too soon after the last answer, which this change may have outdated:
+      // the watch will not fire again for a tenant that stays empty.
+      retryAfter(minIntervalMs - (time - lastCheckAt));
+      return;
+    }
     lastCheckAt = time;
     checking = true;
     let answer: TenantAccess = "unknown";
@@ -84,11 +98,8 @@ export function createTenantAccessCheck(input: {
     if (answer === "removed") {
       removed = true;
       input.onRemoved();
-    } else if (answer === "unknown" && !cancelRetry) {
-      cancelRetry = schedule(() => {
-        cancelRetry = null;
-        if (lastCount === 0) void onMembershipRows(0);
-      }, minIntervalMs);
+    } else if (answer === "unknown") {
+      retryAfter(minIntervalMs);
     }
   }
 

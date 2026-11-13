@@ -160,12 +160,7 @@ async function loadUserNamesForTenant(tenantId: string, userId?: string) {
       ),
   ]);
 
-  return new Map(
-    [...formerRows, ...memberRows].map((user) => [
-      user.userId,
-      user.displayName,
-    ])
-  );
+  return buildUserNameMap(memberRows, formerRows);
 }
 
 async function getSaleForTenant(tenantId: string, saleId: string) {

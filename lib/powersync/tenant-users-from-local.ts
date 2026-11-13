@@ -28,14 +28,23 @@ export function mapFormerTenantMemberRow(
   };
 }
 
+/** What a seller name needs of a member, current or former. */
+type NamedUser = Pick<
+  TenantMember | FormerTenantMember,
+  "userId" | "displayName"
+>;
+
 /**
  * Seller names by user id: the members', and the name a former member had
  * for the records they left behind. A member who rejoined goes by their
  * current name.
  */
-export function buildUserNameMap(
-  members: readonly TenantMember[],
-  formerMembers: readonly FormerTenantMember[] = []
+export function buildUserNameMap<
+  Member extends NamedUser,
+  Former extends NamedUser,
+>(
+  members: readonly Member[],
+  formerMembers: readonly Former[] = []
 ): Map<string, string> {
   return new Map(
     [...formerMembers, ...members].map((member) => [

@@ -108,12 +108,14 @@ test("an action for a tenant the user no longer belongs to says so", () => {
   });
 });
 
-test("an action without an active tenant or a valid tenant id is refused", () => {
+test("an action without a session or a valid tenant id is refused", () => {
   const empty = resolveUserTenantContextFor(user(), []);
 
+  // Removed from the only puesto they had: the same answer as with another
+  // puesto left, not the caller's "no active tenant" one.
   assert.throws(() => requireExpectedTenant(empty, TENANT_A, "Sin cuenta."), {
     name: "UserFacingError",
-    message: "Sin cuenta.",
+    message: TENANT_ACCESS_REMOVED_MESSAGE,
   });
   assert.throws(() => requireExpectedTenant(null, TENANT_A, "Sin cuenta."), {
     name: "UserFacingError",
