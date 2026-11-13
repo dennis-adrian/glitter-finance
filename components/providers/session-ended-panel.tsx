@@ -17,7 +17,7 @@ import { downloadJsonFile } from "@/lib/download-json";
 const EXPORT_FAILED_MESSAGE =
   "No se pudo descargar la copia. Intentalo de nuevo.";
 const DISCARD_FAILED_MESSAGE =
-  "No se pudieron descartar las operaciones. Recargá la app e intentalo de nuevo.";
+  "No se pudieron descartar las operaciones. Intentalo de nuevo; mientras tanto siguen en este dispositivo.";
 
 /** What the panel asks of the provider, which holds the local database. */
 export type SessionEndedControls = {
@@ -25,6 +25,12 @@ export type SessionEndedControls = {
   exportUnsyncedWork: () => Promise<string>;
   /** Clears the local data, unsynced work included. */
   discardUnsyncedWork: () => Promise<void>;
+  /**
+   * Goes back to the app without a session. What is recorded stays queued
+   * and uploads once the same account signs in again; the panel comes back
+   * at the next session check.
+   */
+  continueWithoutSession: () => void;
 };
 
 /**
@@ -92,6 +98,12 @@ export function SessionEndedPanel({
         <LocalDataPanelButton onClick={signIn}>
           Iniciar sesión
         </LocalDataPanelButton>
+        <LocalDataPanelButton
+          variant="secondary"
+          onClick={controls.continueWithoutSession}
+        >
+          Seguir registrando
+        </LocalDataPanelButton>
       </LocalDataPanel>
     );
   }
@@ -108,7 +120,7 @@ export function SessionEndedPanel({
             downloaded
               ? "Guardá la copia que descargaste para registrarlas de nuevo."
               : "Descargá una copia antes para poder registrarlas de nuevo."
-          } Si tu cuenta todavía existe, mejor iniciá sesión: se suben solas.`
+          } Si tu cuenta todavía existe, mejor iniciá sesión con ella y se suben.`
         }
       >
         <LocalDataPanelButton disabled={busy} onClick={handleDiscard}>
@@ -161,6 +173,13 @@ export function SessionEndedPanel({
         onClick={() => setConfirmingDiscard(true)}
       >
         Descartar…
+      </LocalDataPanelButton>
+      <LocalDataPanelButton
+        variant="secondary"
+        disabled={busy}
+        onClick={controls.continueWithoutSession}
+      >
+        Seguir registrando
       </LocalDataPanelButton>
     </LocalDataPanel>
   );

@@ -254,44 +254,75 @@ export function PowerSyncProvider({
 
       const db = instance;
       const supabase = createSupabaseClient();
+      // A session that ended on its own (lib/auth/session-end.ts) gives way
+      // to the session-ended panel, never during this page's own sign-out,
+      // account deletion or tenant change, which tear down first. Events and
+      // later checks only count while the app shows this database:
+      // preparation and recovery have panels of their own, and the check
+      // right before the app shows covers them.
+      const endSession = async (whileShown: boolean) => {
+        const ownTeardown = () =>
+          Boolean(teardownPromiseRef.current) ||
+          localDataWasJustClearedRef.current;
+        if (cancelled || ownTeardown()) return;
+        if (whileShown && exposedDbRef.current !== db) return;
+        const work = await readUnsyncedLocalWork(db).then(
+          (unsynced): SessionEndedWork => ({
+            pendingUploadCount: unsynced.pendingUploadCount,
+            unresolvedFailureCount: unsynced.unresolvedFailureCount,
+          }),
+          (error) => {
+            console.error("[PowerSync] unsynced work read failed", error);
+            return null;
+          }
+        );
+        if (!cancelled && !ownTeardown()) setSessionEnded({ work });
+      };
+      // No session, and no error: a failed refresh that keeps the session
+      // (offline, 502 to 504) reports an error instead.
+      const sessionIsGone = async () => {
+        try {
+          const { data, error } = await supabase.auth.getSession();
+          return !error && !data.session;
+        } catch {
+          return false;
+        }
+      };
+      const checkSession = () => {
+        void sessionIsGone().then((gone) => {
+          if (gone) void endSession(true);
+        });
+      };
       // The one browser client refreshes the session for the whole page, so
-      // its SIGNED_OUT is how a session revoked elsewhere shows up here.
+      // its SIGNED_OUT is how a session revoked elsewhere usually shows up.
       const {
         data: { subscription },
       } = supabase.auth.onAuthStateChange((event: AuthChangeEvent) => {
-        if (!isSessionEndEvent(event) || cancelled) return;
-        // Only while the app is shown: preparation and recovery have their
-        // own panels, and this page's own sign-out, account deletion or
-        // tenant change tears down first.
-        if (exposedDbRef.current !== db) return;
-        if (teardownPromiseRef.current || localDataWasJustClearedRef.current) {
-          return;
-        }
+        if (!isSessionEndEvent(event)) return;
         // Not inside the callback, which runs under the auth client's lock.
-        window.setTimeout(() => {
-          void readUnsyncedLocalWork(db)
-            .then(
-              (unsynced): SessionEndedWork => ({
-                pendingUploadCount: unsynced.pendingUploadCount,
-                unresolvedFailureCount: unsynced.unresolvedFailureCount,
-              }),
-              (error) => {
-                console.error("[PowerSync] unsynced work read failed", error);
-                return null;
-              }
-            )
-            .then((work) => {
-              if (!cancelled) setSessionEnded({ work });
-            });
-        }, 0);
+        window.setTimeout(() => void endSession(true), 0);
       });
-      stopSessionWatch = () => subscription.unsubscribe();
+      // The server can clear the session cookies with no event here.
+      const checkWhenVisible = () => {
+        if (document.visibilityState === "visible") checkSession();
+      };
+      window.addEventListener("focus", checkWhenVisible);
+      window.addEventListener("online", checkWhenVisible);
+      document.addEventListener("visibilitychange", checkWhenVisible);
+      stopSessionWatch = () => {
+        subscription.unsubscribe();
+        window.removeEventListener("focus", checkWhenVisible);
+        window.removeEventListener("online", checkWhenVisible);
+        document.removeEventListener("visibilitychange", checkWhenVisible);
+      };
       // Only hands PowerSync a token whose tenant claim is this identity's,
       // so another tenant's rows can never sync into this database.
       const connector = new SupabaseConnector(
         supabase,
         currentIdentity.tenantId,
         {
+          // A connect that finds no session at all.
+          onSessionMissing: () => window.setTimeout(checkSession, 0),
           onAccessRemoved: () => {
             // A recovery upload's denial says nothing new: the panel there
             // already offers the ways out.
@@ -453,11 +484,14 @@ export function PowerSyncProvider({
         },
       });
 
+      // A SIGNED_OUT while preparing or recovering was not acted on.
+      const sessionGoneBeforeShowing = await sessionIsGone();
       if (cancelled) {
         unsubscribe();
         await instance.close();
         return;
       }
+      if (sessionGoneBeforeShowing) await endSession(false);
 
       setDb(instance);
       localDataWasJustClearedRef.current = false;
@@ -653,13 +687,29 @@ export function PowerSyncProvider({
         await flushPendingSyncFailureTelemetry();
       }
       localDataWasJustClearedRef.current = true;
-      await teardownLocalUserData({
-        db: activeDb,
-        powerSyncRequired: isPowerSyncConfigured(),
-        refuseWhenUnsynced: false,
-        onDestructiveStart: () => setDb(null),
-      });
+      try {
+        await teardownLocalUserData({
+          db: activeDb,
+          powerSyncRequired: isPowerSyncConfigured(),
+          refuseWhenUnsynced: false,
+          onDestructiveStart: () => setDb(null),
+        });
+      } catch (error) {
+        if (
+          !(
+            error instanceof LocalDataTeardownError &&
+            error.stage === "post-destructive"
+          )
+        ) {
+          // Nothing was deleted: keep the database, so the copy can still be
+          // downloaded and the discard retried.
+          localDataWasJustClearedRef.current = false;
+          setDb((currentDb) => currentDb ?? activeDb);
+        }
+        throw error;
+      }
     },
+    continueWithoutSession: () => setSessionEnded(null),
   }));
 
   // Stable for the provider's lifetime, like `controls`: it reaches the

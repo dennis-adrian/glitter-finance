@@ -298,7 +298,11 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
   constructor(
     private readonly supabase: SupabaseClient,
     private readonly expectedTenantId: string | null,
-    private readonly options: { onAccessRemoved?: () => void } = {}
+    private readonly options: {
+      onAccessRemoved?: () => void;
+      /** fetchCredentials found no session at all (lib/auth/session-end.ts). */
+      onSessionMissing?: () => void;
+    } = {}
   ) {}
 
   /**
@@ -336,6 +340,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
       throw new Error("No se pudo obtener la sesión.");
     }
     if (!data.session) {
+      this.options.onSessionMissing?.();
       return null;
     }
     if (this.accessRemoved) {

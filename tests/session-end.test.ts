@@ -59,11 +59,22 @@ test("with work, it says what signing in again and a deleted account each mean",
   assert.match(pending.detail, /misma cuenta, se suben solas/);
   assert.match(pending.detail, /descargá una copia y descartalas/);
 
-  assert.match(
-    sessionEndedCopy({ pendingUploadCount: 0, unresolvedFailureCount: 1 })
-      .detail,
-    /la nube rechazó/
-  );
+  assert.match(pending.detail, /antes de iniciar sesión/);
+
+  // Rejected operations do not upload by signing in again.
+  const rejected = sessionEndedCopy({
+    pendingUploadCount: 0,
+    unresolvedFailureCount: 1,
+  }).detail;
+  assert.match(rejected, /la nube rechazó/);
+  assert.match(rejected, /se sube lo que la nube acepte/);
+  assert.doesNotMatch(rejected, /se suben solas/);
+  const mixed = sessionEndedCopy({
+    pendingUploadCount: 2,
+    unresolvedFailureCount: 1,
+  }).detail;
+  assert.match(mixed, /Algunas fueron rechazadas/);
+  assert.doesNotMatch(mixed, /se suben solas/);
   assert.match(sessionEndedCopy(null).detail, /No se pudo comprobar/);
 });
 

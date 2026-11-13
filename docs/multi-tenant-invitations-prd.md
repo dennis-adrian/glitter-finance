@@ -773,14 +773,18 @@ for a puesto the user no longer belongs to returns the same message.
 session, and so may a password change; sessions can also expire. A device
 whose session is gone cannot ask the server anything (a request without one
 runs as anon, and RLS shows it no rows), so it never reports that as a
-removal. With PowerSync, the browser auth client's `SIGNED_OUT` (emitted
-when a refresh is refused for good, not when it only lacked a connection)
-replaces the app with "Tu sesión terminó" (`lib/auth/session-end.ts`,
+removal. With PowerSync, the browser auth client's `SIGNED_OUT` (emitted when
+a refresh is refused for good, including on a 500 or 429, but not when it
+only lacked a connection), plus a session check before the app shows, on
+focus, on reconnect and when PowerSync finds no session (the server may
+clear the cookies without any browser event), replace the app with "Tu
+sesión terminó" (`lib/auth/session-end.ts`,
 `components/providers/session-ended-panel.tsx`). It says how much work was
-not uploaded and offers to sign in again (the same account uploads it), to
-download a copy, and, after a confirmation, to discard it: the way out when
-the account no longer exists, since another account's sign-in keeps that
-work on the device and never uploads it.
+not uploaded and offers to sign in again (the same account uploads what the
+server accepts), to download a copy, to discard it after a confirmation (the
+way out when the account no longer exists, and only from this panel, since
+another account's sign-in keeps that work on the device and never uploads
+it), or to keep recording until the next check, since the cause may pass.
 
 **Leaving** uses the switch path: the hard sync gate, the local teardown, the
 server action, a session refresh and a reload into the claimed puesto (or a

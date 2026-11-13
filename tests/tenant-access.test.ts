@@ -278,3 +278,20 @@ test("a tenant change on another device stays a tenant change while the user is 
     console.warn = warn;
   }
 });
+
+test("a connect without any session is reported, so the app can say the session ended", async () => {
+  withPublicEnv();
+  let missing = 0;
+  const connector = new SupabaseConnector(
+    {
+      auth: {
+        getSession: async () => ({ data: { session: null }, error: null }),
+      },
+    } as unknown as SupabaseClient,
+    "tenant-1",
+    { onSessionMissing: () => (missing += 1) }
+  );
+
+  assert.equal(await connector.fetchCredentials(), null);
+  assert.equal(missing, 1);
+});
