@@ -209,6 +209,28 @@ each hosted project's Authentication settings:
   covers sign-ups and password changes that call Supabase directly with the
   publishable key. Turn on leaked-password protection too if the plan offers
   it.
+- **Captcha: Cloudflare Turnstile** (**Authentication → Attack Protection**).
+  Sign-up is open to anyone, so password sign-up, password sign-in and
+  password reset requests carry a Turnstile token (`lib/auth/captcha.ts`).
+  The app renders the widget only when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is
+  set, and Supabase checks the token only once captcha is enabled with the
+  widget's secret key. **Order matters:** set the Vercel variable and deploy
+  first, check that the forms show the widget, and only then enable captcha
+  in Supabase. Enabled first, every password sign-in fails until the app
+  sends tokens. One Turnstile widget per environment, with its hostnames
+  (staging also needs the preview hostnames, or the widget fails there).
+  Google sign-in needs no token. Turning captcha off again is safe at any
+  time: Supabase ignores the token while it is off.
+
+  Captcha applies to every call to those three endpoints with the
+  publishable key, scripts included. The repository's scripts
+  (`pnpm db:seed:qa`, `pnpm db:invite:tenant-user`) only use the admin API
+  with the secret key, which captcha does not cover, so they keep working.
+  A script or test that signs in with a password against a project with
+  captcha on needs a real token; create the session with the admin API
+  instead (for example `auth.admin.generateLink`, then `verifyOtp`). The
+  service worker never caches Turnstile requests (`app/sw.ts`), and the
+  widget only loads on `/login`, so the offline app shell is unaffected.
 
 ### Auth email templates
 

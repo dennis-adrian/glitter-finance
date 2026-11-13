@@ -1,3 +1,5 @@
+import { CAPTCHA_FAILED_MESSAGE } from "@/lib/auth/captcha";
+
 type SignUpAuthError = {
   code?: string | null;
   name?: string | null;
@@ -35,8 +37,7 @@ const SIGN_UP_ERROR_MESSAGES: Readonly<Record<string, string>> = {
     "El registro con correo electrónico no está disponible en este momento.",
   provider_disabled:
     "El registro con correo electrónico no está disponible en este momento.",
-  captcha_failed:
-    "No se pudo completar la verificación de seguridad. Recargá la página e intentá de nuevo.",
+  captcha_failed: CAPTCHA_FAILED_MESSAGE,
   over_request_rate_limit: SIGN_UP_RATE_LIMIT_ERROR_MESSAGE,
   over_email_send_rate_limit: SIGN_UP_RATE_LIMIT_ERROR_MESSAGE,
   email_send_failed:

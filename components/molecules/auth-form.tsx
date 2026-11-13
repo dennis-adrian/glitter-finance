@@ -19,8 +19,13 @@ import {
   PasswordStrengthMeter,
   useNewPasswordConfirmation,
 } from "@/components/molecules/auth-form-fields";
+import {
+  CaptchaWidget,
+  useCaptcha,
+} from "@/components/molecules/captcha-field";
 import { GoogleSubmitButton } from "@/components/molecules/google-sign-in-button";
 import { Input } from "@/components/ui/input";
+import { CAPTCHA_ACTIONS } from "@/lib/auth/captcha";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import { cn } from "@/lib/utils";
 
@@ -65,12 +70,16 @@ export function AuthForm({
     changeConfirmPassword,
   } = useNewPasswordConfirmation();
   const isSignup = mode === "signup";
+  const captcha = useCaptcha(
+    isSignup ? CAPTCHA_ACTIONS.signup : CAPTCHA_ACTIONS.signin
+  );
   const formError = isSignup
-    ? (mismatchError ?? signUpState.error)
-    : signInState.error;
+    ? (mismatchError ?? captcha.error ?? signUpState.error)
+    : (captcha.error ?? signInState.error);
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     if (isSignup) checkBeforeSubmit(event);
+    captcha.checkBeforeSubmit(event);
   }
 
   return (
@@ -160,6 +169,8 @@ export function AuthForm({
             </Link>
           )}
         </div>
+
+        <CaptchaWidget captcha={captcha} className="pt-5" />
 
         {isSignup ? (
           <div className="grid gap-4 pt-6">
