@@ -9,6 +9,7 @@ import { getInventorySnapshotForTenant } from "@/lib/inventory/repository";
 import { getActiveInvitationForTenant } from "@/lib/invitations/repository";
 import { getProductsForTenant } from "@/lib/products/repository";
 import { getSalesForTenant } from "@/lib/sales/repository";
+import { LANDING_PATH } from "@/lib/public-site";
 import { getRequestOrigin } from "@/lib/request-origin";
 
 /**
@@ -69,8 +70,10 @@ async function loadTenantData(tenantId: string) {
 export default async function Home() {
   const context = await ensureUserTenantContext();
 
+  // Signed out: the landing page, which sends an installed app on to /login
+  // (lib/public-site.ts says why it is not rendered here).
   if (!context) {
-    redirect("/login");
+    redirect(LANDING_PATH);
   }
 
   const inviteOrigin = await getRequestOrigin();

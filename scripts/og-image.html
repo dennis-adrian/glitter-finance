@@ -1,0 +1,181 @@
+<!doctype html>
+<!--
+  Source of public/og-image.png, the 1200×630 link preview (SHARE_IMAGE in
+  lib/public-site.ts). To regenerate it, open this file (file://, so the
+  logo's relative path resolves) at a 1200×630 viewport with device scale
+  factor 1 in Chromium, wait for the fonts, and take a screenshot of the
+  viewport, e.g. with Playwright:
+
+    page.setViewportSize({ width: 1200, height: 630 })
+    page.goto(pathToFileURL("scripts/og-image.html").href)
+    page.evaluate(() => document.fonts.ready)
+    page.screenshot({ path: "public/og-image.png" })
+
+  Colors are the light theme's tokens from app/globals.css and DESIGN.md.
+-->
+<html lang="es-BO">
+  <head>
+    <meta charset="utf-8" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@800&family=Instrument+Sans:wght@400;600;700&display=block"
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: #fffdf8;
+        color: #1a2e2c;
+        font-family: "Instrument Sans", sans-serif;
+      }
+      .frame {
+        box-sizing: border-box;
+        display: grid;
+        grid-template-columns: 1fr 380px;
+        gap: 56px;
+        align-items: center;
+        height: 100%;
+        padding: 64px 72px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        font-family: "Bricolage Grotesque", sans-serif;
+        font-weight: 800;
+        font-size: 34px;
+      }
+      .brand img {
+        width: 64px;
+        height: 64px;
+      }
+      h1 {
+        margin: 40px 0 20px;
+        font-family: "Bricolage Grotesque", sans-serif;
+        font-weight: 800;
+        font-size: 72px;
+        line-height: 1.04;
+        letter-spacing: -0.5px;
+      }
+      p {
+        margin: 0;
+        font-size: 28px;
+        line-height: 1.35;
+        color: #5c5855;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 32px;
+        padding: 10px 20px;
+        border-radius: 100px;
+        background: #fde8e2;
+        color: #401714;
+        font-size: 22px;
+        font-weight: 600;
+      }
+      .card {
+        border-radius: 24px;
+        background: #fff;
+        box-shadow:
+          0 0 0 1px rgba(26, 46, 44, 0.1),
+          0 16px 32px rgba(45, 27, 20, 0.08);
+        padding: 20px;
+      }
+      .tiles {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .tile {
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 0 0 1px rgba(26, 46, 44, 0.1);
+      }
+      .tile.on {
+        box-shadow: 0 0 0 2px #00786f;
+      }
+      .art {
+        position: relative;
+        display: grid;
+        place-items: center;
+        aspect-ratio: 1.13;
+        background: color-mix(in oklab, var(--tone) 20%, #fff);
+        color: var(--tone);
+        font-size: 48px;
+        font-weight: 700;
+      }
+      .qty {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        padding: 3px 9px;
+        border-radius: 100px;
+        background: #00786f;
+        color: #fff;
+        font-size: 16px;
+      }
+      .meta {
+        padding: 8px 12px 10px;
+        font-size: 17px;
+      }
+      .meta b {
+        display: block;
+        color: #00786f;
+        font-size: 21px;
+      }
+      .cta {
+        margin-top: 16px;
+        border-radius: 100px;
+        background: #00786f;
+        color: #fff;
+        text-align: center;
+        font-size: 22px;
+        font-weight: 700;
+        padding: 15px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div>
+        <div class="brand">
+          <img src="../public/icons/billetera-ferial-logo.svg" alt="" />
+          Billetera Ferial
+        </div>
+        <h1>Tu punto de venta para cada feria</h1>
+        <p>Cobrá en efectivo o por QR, aunque la feria no tenga señal.</p>
+        <div class="pill">Funciona sin conexión</div>
+      </div>
+      <div class="card">
+        <div class="tiles">
+          <div class="tile on">
+            <div class="art" style="--tone: #c0397f">
+              S<span class="qty">2×</span>
+            </div>
+            <div class="meta">Sticker gato<b>15 Bs</b></div>
+          </div>
+          <div class="tile">
+            <div class="art" style="--tone: #8b46d8">P</div>
+            <div class="meta">Print A5<b>40 Bs</b></div>
+          </div>
+          <div class="tile on">
+            <div class="art" style="--tone: #ee6a40">
+              P<span class="qty">1×</span>
+            </div>
+            <div class="meta">Pin esmaltado<b>25 Bs</b></div>
+          </div>
+          <div class="tile">
+            <div class="art" style="--tone: #cf8a2c">L</div>
+            <div class="meta">Llavero<b>20 Bs</b></div>
+          </div>
+        </div>
+        <div class="cta">Cobrar · 55 Bs</div>
+      </div>
+    </div>
+  </body>
+</html>

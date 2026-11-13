@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { withSerwist } from "@serwist/turbopack";
 import { withSentryConfig } from "@sentry/nextjs";
+import { NOINDEX_SOURCES } from "./lib/public-site";
 
 // Defense-in-depth headers for every response. A full Content-Security-Policy
 // is deliberately left out until it has been tested against Supabase,
@@ -46,6 +47,11 @@ const nextConfig: NextConfig = {
           { key: "Accept-CH", value: "Sec-CH-Prefers-Color-Scheme" },
         ],
       },
+      // Out of search results, invitation tokens above all (lib/public-site.ts).
+      ...NOINDEX_SOURCES.map((source) => ({
+        source,
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      })),
     ];
   },
 };

@@ -36,7 +36,14 @@ export async function getRequestOrigin(): Promise<string> {
   return `${proto}://${parsed.hostWithPort}`;
 }
 
-function configuredPublicOrigin(): string | null {
+/**
+ * The public origin from configuration alone (the first half of
+ * getRequestOrigin), for places that run without a request or must not read
+ * one: the root layout's `metadataBase`, which a request-time API would turn
+ * every page dynamic, the precached offline page included. Null when nothing
+ * trusted is configured.
+ */
+export function configuredPublicOrigin(): string | null {
   if (process.env.VERCEL_ENV === "preview") {
     return (
       originFromEnvHost("VERCEL_BRANCH_URL") ??

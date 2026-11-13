@@ -4,6 +4,8 @@ import { SerwistClientProvider } from "@/components/providers/serwist-client-pro
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import "./globals.css";
 import { Bricolage_Grotesque, Instrument_Sans } from "next/font/google";
+import { shareMetadata, SITE_DESCRIPTION, SITE_NAME } from "@/lib/public-site";
+import { configuredPublicOrigin } from "@/lib/request-origin";
 import { SHELL_THEME_COLORS } from "@/lib/shell-theme-colors";
 import { cn } from "@/lib/utils";
 
@@ -19,10 +21,18 @@ const instrumentSans = Instrument_Sans({
   variable: "--font-instrument-sans",
 });
 
+const publicOrigin = configuredPublicOrigin();
+
 export const metadata: Metadata = {
-  title: "Billetera Ferial",
-  description:
-    "Punto de venta sin conexión para vendedores de ferias y convenciones.",
+  // Configuration only, never request headers: those would make every page
+  // dynamic, the precached offline page included. Unset, Next.js falls back
+  // to the Vercel URLs or localhost.
+  ...(publicOrigin ? { metadataBase: new URL(publicOrigin) } : {}),
+  title: SITE_NAME,
+  description: SITE_DESCRIPTION,
+  // Every page, invitation links included, previews as the app; no `url`,
+  // so a preview never repeats a link's token.
+  ...shareMetadata({ title: SITE_NAME, description: SITE_DESCRIPTION }),
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
