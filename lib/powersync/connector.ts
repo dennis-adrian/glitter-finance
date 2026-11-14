@@ -49,8 +49,10 @@ import {
   recordSyncFailure,
   resolveSyncFailure,
 } from "@/lib/powersync/sync-failures";
+import type { TenantAccess } from "@/lib/powersync/tenant-access";
 import {
   ActiveTenantChangedError,
+  TenantAccessRemovedError,
   TenantClaimMismatchError,
 } from "@/lib/powersync/tenant-claim";
 import {
@@ -282,16 +284,72 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
   // The transaction the server is deferring, and since when, by the monotonic
   // clock: the device clock may be corrected while the upload waits.
   private heldUpload: { transactionId?: number; since: number } | null = null;
+  // The server confirmed the user is no longer a member of the tenant. Kept
+  // for the page's lifetime: only a reload moves the device on.
+  private accessRemoved = false;
 
   /**
    * `expectedTenantId` is the tenant the local database belongs to. Null
    * when the user has no active tenant: the sync streams then match no rows
    * whatever the claim says, so there is nothing to compare.
+   * `onAccessRemoved` runs once when the user turns out to be no longer a
+   * member of it (see verifyTenantAccess).
    */
   constructor(
     private readonly supabase: SupabaseClient,
-    private readonly expectedTenantId: string | null
+    private readonly expectedTenantId: string | null,
+    private readonly options: {
+      /**
+       * The user the local data belongs to. A session of another account
+       * (signed in from another tab) says nothing about their membership.
+       */
+      expectedUserId?: string;
+      onAccessRemoved?: () => void;
+      /** fetchCredentials found no session at all (lib/auth/session-end.ts). */
+      onSessionMissing?: () => void;
+    } = {}
   ) {}
+
+  /**
+   * Asks the server whether the user still belongs to the local data's
+   * tenant: the owner may have removed them, or they left or deleted their
+   * account on another device. Reads the user's own tenant_users row, which
+   * RLS lets them read ("users can read their own memberships"). "unknown"
+   * when the server could not be asked.
+   */
+  async verifyTenantAccess(): Promise<TenantAccess> {
+    if (this.expectedTenantId === null) return "member";
+    if (this.accessRemoved) return "removed";
+    const { data, error } = await this.supabase.auth.getSession();
+    const userId = data.session?.user?.id;
+    if (error || !userId) return "unknown";
+    if (
+      this.options.expectedUserId !== undefined &&
+      userId !== this.options.expectedUserId
+    ) {
+      return "unknown";
+    }
+    const membership = await this.supabase
+      .from("tenant_users")
+      .select("id")
+      .eq("tenant_id", this.expectedTenantId)
+      .eq("user_id", userId)
+      .limit(1);
+    if (membership.error) return "unknown";
+    if ((membership.data ?? []).length > 0) return "member";
+    // A session that ended while the request was on its way makes it run as
+    // anon, which RLS shows no rows either (lib/auth/session-end.ts). Only a
+    // user who is still signed in was really asked about their membership.
+    const after = await this.supabase.auth.getSession();
+    if (after.error || after.data.session?.user?.id !== userId) {
+      return "unknown";
+    }
+    if (!this.accessRemoved) {
+      this.accessRemoved = true;
+      this.options.onAccessRemoved?.();
+    }
+    return "removed";
+  }
 
   async fetchCredentials(): Promise<PowerSyncCredentials | null> {
     const { data, error } = await this.supabase.auth.getSession();
@@ -300,7 +358,11 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
       throw new Error("No se pudo obtener la sesión.");
     }
     if (!data.session) {
+      this.options.onSessionMissing?.();
       return null;
+    }
+    if (this.accessRemoved) {
+      throw new TenantAccessRemovedError();
     }
     let session = data.session;
 
@@ -334,6 +396,11 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         console.warn(
           "[PowerSync] Supabase session claims another tenant than the local data"
         );
+        // Removing a member moves their claim away from the tenant, so this
+        // is where a device that was offline learns it.
+        if ((await this.verifyTenantAccess()) === "removed") {
+          throw new TenantAccessRemovedError();
+        }
         throw this.claimMismatchError();
       }
     }
@@ -492,6 +559,11 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
           // Without the marker the device is not shown as blocked, although
           // the transaction still is.
           reportClientFailure("powersync_sync_failure_record", recordingError);
+        }
+        if (errorCode(error) === "42501") {
+          // An RLS denial: the membership may be gone. The work stays queued
+          // either way; this only lets the device say so.
+          void this.verifyTenantAccess().catch(() => {});
         }
         try {
           reportPermanentSyncFailure({

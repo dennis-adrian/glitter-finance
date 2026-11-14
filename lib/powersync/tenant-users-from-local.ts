@@ -1,7 +1,12 @@
-import type { LocalRow, tenantUsers } from "@/lib/db/client-schema";
-import type { TenantMember } from "@/lib/types";
+import type {
+  formerTenantMembers,
+  LocalRow,
+  tenantUsers,
+} from "@/lib/db/client-schema";
+import type { FormerTenantMember, TenantMember } from "@/lib/types";
 
 export type LocalTenantUserRow = LocalRow<typeof tenantUsers>;
+export type LocalFormerTenantMemberRow = LocalRow<typeof formerTenantMembers>;
 
 export function mapTenantUserRow(row: LocalTenantUserRow): TenantMember {
   return {
@@ -12,8 +17,56 @@ export function mapTenantUserRow(row: LocalTenantUserRow): TenantMember {
   };
 }
 
-export function buildUserNameMap(members: TenantMember[]): Map<string, string> {
-  return new Map(members.map((member) => [member.userId, member.displayName]));
+export function mapFormerTenantMemberRow(
+  row: LocalFormerTenantMemberRow
+): FormerTenantMember {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    displayName: row.display_name,
+    removedAt: row.removed_at,
+  };
+}
+
+/** What a seller name needs of a member, current or former. */
+type NamedUser = Pick<
+  TenantMember | FormerTenantMember,
+  "userId" | "displayName"
+>;
+
+/**
+ * Seller names by user id: the members', and the name a former member had
+ * for the records they left behind. A member who rejoined goes by their
+ * current name.
+ */
+export function buildUserNameMap<
+  Member extends NamedUser,
+  Former extends NamedUser,
+>(
+  members: readonly Member[],
+  formerMembers: readonly Former[] = []
+): Map<string, string> {
+  return new Map(
+    [...formerMembers, ...members].map((member) => [
+      member.userId,
+      member.displayName,
+    ])
+  );
+}
+
+export function formerTenantMembersEqual(
+  left: readonly FormerTenantMember[],
+  right: readonly FormerTenantMember[]
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (member, index) =>
+        member.id === right[index].id &&
+        member.userId === right[index].userId &&
+        member.displayName === right[index].displayName
+    )
+  );
 }
 
 export function tenantMembersEqual(

@@ -73,3 +73,32 @@ export function pendingUploadsBlockerMessage(
       : "Conectate y esperá a que se sincronicen";
   return `${describePendingUploads(count)} ${wait} antes de ${action}.`;
 }
+
+/**
+ * Why an action that clears the local data must wait, for screens that do not
+ * word it themselves. `action` completes "antes de …", e.g. "salir del
+ * puesto".
+ */
+export function describeLocalDataChangeBlocker(
+  blocker: LocalDataChangeBlocker,
+  input: {
+    pendingCount: number;
+    uploadHold: Pick<UploadHold, "heldUntil"> | null;
+    action: string;
+  }
+) {
+  switch (blocker) {
+    case "sync-failures":
+      return `Hay operaciones que no llegaron a la nube. Abrí Diagnósticos, copiá el diagnóstico y resolvelas antes de ${input.action}.`;
+    case "tenant-changed":
+      return tenantChangedBlockerMessage(input.action);
+    case "pending-uploads":
+      return pendingUploadsBlockerMessage(
+        input.pendingCount,
+        input.action,
+        input.uploadHold
+      );
+    case "not-synced":
+      return `Esperá a que termine la sincronización antes de ${input.action}.`;
+  }
+}

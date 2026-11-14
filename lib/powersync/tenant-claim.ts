@@ -3,7 +3,10 @@
 // this device's local data belongs to. Kept apart from the connector so the
 // sync status can recognize the errors without loading it.
 
-import { ACTIVE_TENANT_CHANGED_MESSAGE } from "@/lib/auth/tenant-context";
+import {
+  ACTIVE_TENANT_CHANGED_MESSAGE,
+  TENANT_ACCESS_REMOVED_MESSAGE,
+} from "@/lib/auth/tenant-context";
 
 /**
  * The session's tenant claim is not the local data's tenant, and no refresh
@@ -44,4 +47,17 @@ export function isActiveTenantChangedError(
   error: { name?: unknown } | null | undefined
 ): boolean {
   return error?.name === ACTIVE_TENANT_CHANGED_ERROR_NAME;
+}
+
+/**
+ * The server confirmed that the user is no longer a member of the tenant the
+ * local data belongs to. Retrying cannot fix it; the device asks for a reload,
+ * which uploads or recovers what is left and moves to the user's other
+ * tenant (PowerSyncProvider).
+ */
+export class TenantAccessRemovedError extends TenantClaimMismatchError {
+  constructor() {
+    super(TENANT_ACCESS_REMOVED_MESSAGE);
+    this.name = "TenantAccessRemovedError";
+  }
 }

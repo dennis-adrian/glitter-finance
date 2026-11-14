@@ -49,7 +49,9 @@ CREATE TABLE auth.users (
   confirmation_token varchar(255),
   email_change varchar(255),
   email_change_token_new varchar(255),
-  recovery_token varchar(255)
+  recovery_token varchar(255),
+  -- Set by a soft delete (auth.admin.deleteUser(id, true)).
+  deleted_at timestamptz
 );
 
 CREATE TABLE auth.identities (

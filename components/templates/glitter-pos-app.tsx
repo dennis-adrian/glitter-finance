@@ -84,9 +84,12 @@ import {
 } from "@/lib/powersync/sales-from-local";
 import {
   buildUserNameMap,
+  formerTenantMembersEqual,
   isTeamReplicationConfirmed,
+  mapFormerTenantMemberRow,
   mapTenantUserRow,
   mergeTenantMembersFromWatch,
+  type LocalFormerTenantMemberRow,
   type LocalTenantUserRow,
 } from "@/lib/powersync/tenant-users-from-local";
 import {
@@ -100,6 +103,7 @@ import { useSalesRangeState } from "@/lib/use-sales-range";
 import type {
   Category,
   CartLine,
+  FormerTenantMember,
   Product,
   Sale,
   TenantInvitation,
@@ -215,6 +219,8 @@ type GlitterPosAppProps = {
    */
   initialSalesSince: string | null;
   initialTenantMembers: TenantMember[];
+  /** Who left the tenant or was removed: their records' seller names. */
+  initialFormerTenantMembers: FormerTenantMember[];
   /** Null without a tenant. */
   initialInventory: InventorySnapshot | null;
   activeInvitation: TenantInvitation | null;
@@ -228,6 +234,7 @@ export function GlitterPosApp({
   initialSales,
   initialSalesSince,
   initialTenantMembers,
+  initialFormerTenantMembers,
   initialInventory,
   activeInvitation,
   inviteOrigin,
@@ -300,6 +307,10 @@ export function GlitterPosApp({
   );
   const [tenantMembers, setTenantMembers] =
     useState<TenantMember[]>(initialTenantMembers);
+  const [formerTenantMembers, setFormerTenantMembers] = useState<
+    FormerTenantMember[]
+  >(initialFormerTenantMembers);
+  const initialFormerTenantMembersRef = useRef(initialFormerTenantMembers);
   const [inventoryMovements, setInventoryMovements] = useState<
     InventoryMovement[]
   >(() => initialInventory?.movements ?? []);
@@ -404,8 +415,8 @@ export function GlitterPosApp({
     [tenantMembers, initialTenantMembers]
   );
   const userNameById = useMemo(
-    () => buildUserNameMap(membersForNames),
-    [membersForNames]
+    () => buildUserNameMap(membersForNames, formerTenantMembers),
+    [membersForNames, formerTenantMembers]
   );
   // '/' sends the ledger up to a recent cutoff summed per product (the
   // opening), and the movements and sales after it as rows. Without
@@ -553,6 +564,11 @@ export function GlitterPosApp({
     setTeamSyncConfirmed(initialTenantMembers.length === 0);
   }, [initialTenantMembers]);
 
+  // Before the former members watch below re-runs over the new baseline.
+  useEffect(() => {
+    initialFormerTenantMembersRef.current = initialFormerTenantMembers;
+  }, [initialFormerTenantMembers]);
+
   // The store starts empty, and a passive effect runs after the browser has
   // painted: the first frame would show the empty catalog's first-product
   // prompt to a vendor with a full catalog. A layout effect installs the
@@ -575,6 +591,7 @@ export function GlitterPosApp({
 
   useEffect(() => {
     setTenantMembers(initialTenantMembers);
+    setFormerTenantMembers(initialFormerTenantMembers);
     // The first render already has them (the state's initial value).
     setCategories(sortCategories(initialCategories));
     setInventoryMovements(initialInventory?.movements ?? []);
@@ -599,6 +616,7 @@ export function GlitterPosApp({
     initialProducts,
     initialSales,
     initialTenantMembers,
+    initialFormerTenantMembers,
     initialInventory,
     activeTenantId,
     tenantContext.user.id,
@@ -826,6 +844,61 @@ export function GlitterPosApp({
       ),
     });
   }, [powerSyncDb, activeTenantId, tenantWork, tenantWorkGeneration]);
+
+  // Former members only ever name records, so the server's list stays under
+  // the local one: a device whose sync predates the table keeps the names.
+  useEffect(() => {
+    if (!powerSyncDb || !activeTenantId) return;
+
+    return watchTenantRows<LocalFormerTenantMemberRow>(powerSyncDb, {
+      sql: "SELECT * FROM former_tenant_members WHERE tenant_id = ? ORDER BY removed_at ASC, id ASC",
+      tenantId: activeTenantId,
+      isCurrent: tenantWork.captureGeneration(),
+      syncedOnly: true,
+      onRows: (rows) => {
+        const local = rows.map(mapFormerTenantMemberRow);
+        const localUserIds = new Set(local.map((member) => member.userId));
+        const merged = [
+          ...initialFormerTenantMembersRef.current.filter(
+            (member) => !localUserIds.has(member.userId)
+          ),
+          ...local,
+        ];
+        setFormerTenantMembers((previous) =>
+          formerTenantMembersEqual(previous, merged) ? previous : merged
+        );
+      },
+      onError: watchFailed(
+        "former_tenant_members watch error",
+        "powersync_former_tenant_members_watch"
+      ),
+    });
+    // initialFormerTenantMembers: re-reads the local rows over a new baseline.
+  }, [
+    powerSyncDb,
+    activeTenantId,
+    tenantWork,
+    tenantWorkGeneration,
+    initialFormerTenantMembers,
+  ]);
+
+  // The owner removed a member from Settings. The sync (or, without
+  // PowerSync, the next load) confirms it; until then the team list and the
+  // seller names follow at once.
+  function handleMemberRemoved(member: TenantMember) {
+    setTenantMembers((previous) =>
+      previous.filter((current) => current.userId !== member.userId)
+    );
+    setFormerTenantMembers((previous) => [
+      ...previous.filter((former) => former.userId !== member.userId),
+      {
+        id: member.id,
+        userId: member.userId,
+        displayName: member.displayName,
+        removedAt: new Date().toISOString(),
+      },
+    ]);
+  }
 
   // Subscribe to sales + sale_lines + refunds. PowerSync's onChange fires
   // whenever any of the three tables mutates; we requery all three and
@@ -1879,6 +1952,7 @@ export function GlitterPosApp({
         activeInvitation={activeInvitationState}
         inviteOrigin={inviteOrigin}
         onInvitationChange={setActiveInvitationState}
+        onMemberRemoved={handleMemberRemoved}
         openDiagnostics={() => navigate({ view: "diagnostics" })}
         back={() => back({ view: "more" })}
       />

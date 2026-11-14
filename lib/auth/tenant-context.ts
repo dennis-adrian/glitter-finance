@@ -50,6 +50,13 @@ export type TenantContextUser = {
 export const ACTIVE_TENANT_CHANGED_MESSAGE =
   "Tu puesto activo cambió en otro dispositivo. Recargá la app para continuar.";
 
+/**
+ * The tenant the screen renders is no longer one of the user's: they left it
+ * on another device, or its owner removed them.
+ */
+export const TENANT_ACCESS_REMOVED_MESSAGE =
+  "Ya no sos parte de este puesto. Recargá la app para continuar.";
+
 const INVALID_TENANT_ID_MESSAGE = "Identificador de puesto inválido.";
 
 export function parseTenantId(tenantId: unknown): string {
@@ -165,11 +172,21 @@ export function requireExpectedTenant<T extends UserTenantContext>(
 ): T & { tenant: NonNullable<T["tenant"]> } {
   const expected = parseTenantId(expectedTenantId);
   const tenant = context?.tenant;
-  if (!context || !tenant) {
+  if (!context) {
     throw new UserFacingError(missingTenantMessage);
   }
-  if (tenant.id.toLowerCase() !== expected) {
-    throw new UserFacingError(ACTIVE_TENANT_CHANGED_MESSAGE);
+  if (!tenant || tenant.id.toLowerCase() !== expected) {
+    // A screen only sends the tenant it renders, so a user without that
+    // membership lost it, whether or not another puesto is left to fall
+    // back to (someone who joined by invitation has no other).
+    const stillMember = context.tenants.some(
+      (summary) => summary.id.toLowerCase() === expected
+    );
+    throw new UserFacingError(
+      stillMember
+        ? ACTIVE_TENANT_CHANGED_MESSAGE
+        : TENANT_ACCESS_REMOVED_MESSAGE
+    );
   }
   return { ...context, tenant };
 }

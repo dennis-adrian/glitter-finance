@@ -138,6 +138,66 @@ export const tenantUsers = pgTable(
   ]
 );
 
+// The people who left a tenant or were removed from it, with the name they
+// had as members, so the sales, refunds and stock counts they recorded keep
+// a seller name. It grants nothing: a membership is a tenant_users row and
+// nothing else. Only the tenant_users delete trigger writes it
+// (supabase/manual/20261113120000_tenant_membership_removal.sql). No
+// auth.users FK: the name outlives the account.
+export const formerTenantMembers = pgTable(
+  "former_tenant_members",
+  {
+    // Single-column PK so PowerSync can replicate the rows to devices.
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull(),
+    displayName: text("display_name").notNull(),
+    removedAt: timestamp("removed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Also serves tenant_id-only lookups and the tenants FK.
+    unique("former_tenant_members_tenant_id_user_id_unique").on(
+      table.tenantId,
+      table.userId
+    ),
+  ]
+);
+
+// Storage cleanup still owed for puestos that were deleted: their product
+// photos can only be removed through the Storage API, after the database
+// deletion committed. delete_account_data records each deleted puesto here in
+// the same transaction, and the app removes the row once the photos are gone
+// (lib/tenant-storage-cleanup.ts), so a failure is retried later instead of
+// leaving orphaned files nobody knows about. Server-only: never synced, RLS
+// with no policies. No FK: the tenant row no longer exists.
+export const tenantStorageCleanups = pgTable("tenant_storage_cleanups", {
+  tenantId: uuid("tenant_id").primaryKey(),
+  requestedAt: timestamp("requested_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  lastError: text("last_error"),
+});
+
+// Accounts whose deletion committed (delete_account_data writes the row in
+// the transaction that deletes their data). The tenant_users insert trigger
+// refuses any new membership for them, and the app finishes the Auth side
+// (revoking the sessions, soft-deleting the auth user) after the commit,
+// recording it in auth_deleted_at; a step that failed is retried on the
+// user's next visit or by the next account deletion. Server-only: never
+// synced, RLS with no policies. No auth.users FK: the soft-deleted user row
+// stays, and the marker must outlive any later cleanup of it.
+export const deletedAccounts = pgTable("deleted_accounts", {
+  userId: uuid("user_id").primaryKey(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  authDeletedAt: timestamp("auth_deleted_at", { withTimezone: true }),
+});
+
 export const products = pgTable(
   "products",
   {

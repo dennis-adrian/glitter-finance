@@ -1,12 +1,33 @@
 // No `import "server-only"` here: scripts/seed-qa.ts imports ensureMembership
 // under plain tsx, where that marker throws (tests/server-only-marker.test.ts).
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
+import { UserFacingError } from "@/lib/action-result";
 import type { MembershipRow } from "@/lib/auth/tenant-context";
 import { db } from "@/lib/db";
+import { postgresErrorCode } from "@/lib/db/errors";
 import { tenantUsers, tenants } from "@/lib/db/schema";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type DbOrTx = typeof db | Tx;
+
+/** A deleted account (deleted_accounts) gets no new membership or puesto. */
+export const DELETED_ACCOUNT_MESSAGE =
+  "Esta cuenta se eliminó. Iniciá sesión con otra cuenta.";
+
+/**
+ * Runs a membership insert, turning the deleted-account refusal of
+ * tenant_users_refuse_deleted_account (BF410) into a message to show.
+ */
+async function refusingDeletedAccount<T>(insert: () => Promise<T>) {
+  try {
+    return await insert();
+  } catch (error) {
+    if (postgresErrorCode(error) === "BF410") {
+      throw new UserFacingError(DELETED_ACCOUNT_MESSAGE, { cause: error });
+    }
+    throw error;
+  }
+}
 
 export async function loadAllMemberships(
   client: DbOrTx,
@@ -53,17 +74,19 @@ export async function ensureMembership(
   // Single atomic insert: concurrent redemptions can't both pass a pre-check
   // and then collide on tenant_users_tenant_id_user_id_unique. ON CONFLICT DO
   // NOTHING returns no row when the membership already exists.
-  const inserted = await client
-    .insert(tenantUsers)
-    .values({
-      tenantId: input.tenantId,
-      userId: input.userId,
-      displayName: input.displayName,
-    })
-    .onConflictDoNothing({
-      target: [tenantUsers.tenantId, tenantUsers.userId],
-    })
-    .returning({ id: tenantUsers.id });
+  const inserted = await refusingDeletedAccount(() =>
+    client
+      .insert(tenantUsers)
+      .values({
+        tenantId: input.tenantId,
+        userId: input.userId,
+        displayName: input.displayName,
+      })
+      .onConflictDoNothing({
+        target: [tenantUsers.tenantId, tenantUsers.userId],
+      })
+      .returning({ id: tenantUsers.id })
+  );
 
   return { created: inserted.length > 0 };
 }
@@ -77,6 +100,13 @@ export async function createTenantWithOwner(
   tx: Tx,
   input: { name: string; userId: string; displayName: string }
 ): Promise<MembershipRow> {
+  // The account's lock before anything else, the order an account deletion
+  // takes it in; the membership insert below takes it again and refuses a
+  // deleted account (tenant_users_refuse_deleted_account).
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${"account:" + input.userId}))`
+  );
+
   const [tenant] = await tx
     .insert(tenants)
     .values({
@@ -89,14 +119,16 @@ export async function createTenantWithOwner(
     throw new Error("No se pudo crear el puesto.");
   }
 
-  const [membership] = await tx
-    .insert(tenantUsers)
-    .values({
-      tenantId: tenant.id,
-      userId: input.userId,
-      displayName: input.displayName,
-    })
-    .returning({ id: tenantUsers.id });
+  const [membership] = await refusingDeletedAccount(() =>
+    tx
+      .insert(tenantUsers)
+      .values({
+        tenantId: tenant.id,
+        userId: input.userId,
+        displayName: input.displayName,
+      })
+      .returning({ id: tenantUsers.id })
+  );
 
   if (!membership) {
     throw new Error("No se pudo crear el puesto.");

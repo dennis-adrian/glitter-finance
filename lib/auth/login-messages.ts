@@ -28,6 +28,8 @@ export const LOGIN_STATUS_MESSAGES = {
   // tell anyone which emails have an account.
   password_reset_requested:
     "Si existe una cuenta con ese correo, te enviamos un enlace para crear una contraseña nueva. Revisá también la carpeta de spam.",
+  account_deleted:
+    "Tu cuenta se eliminó. Si querés volver a usar Billetera Ferial, creá una cuenta nueva.",
 } as const;
 
 export type LoginErrorCode = keyof typeof LOGIN_ERROR_MESSAGES;

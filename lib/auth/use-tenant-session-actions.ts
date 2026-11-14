@@ -2,8 +2,13 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { deleteAccount as deleteAccountOnServer } from "@/app/account/actions";
 import { signOut as signOutOnServer } from "@/app/auth/actions";
-import { createTenant, switchTenant } from "@/app/tenants/actions";
+import {
+  createTenant,
+  leaveTenant as leaveTenantOnServer,
+  switchTenant,
+} from "@/app/tenants/actions";
 import { usePowerSyncControls } from "@/components/providers/powersync-provider";
 import { unwrapActionResult } from "@/lib/action-result";
 import {
@@ -21,12 +26,24 @@ export type TenantSessionCopy = {
   createFailed: string;
 };
 
-export type TenantSessionAction = "switch" | "create" | "sign-out";
+export type TenantSessionAction =
+  | "switch"
+  | "create"
+  | "sign-out"
+  | "leave"
+  | "delete-account";
+
+export const LEAVE_TENANT_FAILED_MESSAGE = "No se pudo salir del puesto.";
+export const DELETE_ACCOUNT_FAILED_MESSAGE = "No se pudo eliminar la cuenta.";
+
+/** Where the browser lands once the account is deleted. */
+export const ACCOUNT_DELETED_DESTINATION = "/login?message=account_deleted";
 
 /**
- * Switching, creating a tenant and signing out, shared by More and Settings.
- * All three clear the local data, so they share one gate and one order:
- * refuse while unsynced, tear down, run the server action, reload.
+ * Switching, creating or leaving a tenant, signing out and deleting the
+ * account, shared by More and Settings. All of them clear the local data, so
+ * they share one gate and one order: refuse while unsynced, tear down, run
+ * the server action, reload.
  */
 export function useTenantSessionActions({
   activeTenantId,
@@ -42,11 +59,18 @@ export function useTenantSessionActions({
   );
   const [creatingTenant, setCreatingTenant] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [leavingTenant, setLeavingTenant] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [error, setError] = useState<{
     action: TenantSessionAction;
     message: string;
   } | null>(null);
-  const busy = switchingTenantId !== null || creatingTenant || signingOut;
+  const busy =
+    switchingTenantId !== null ||
+    creatingTenant ||
+    signingOut ||
+    leavingTenant ||
+    deletingAccount;
 
   async function run(input: {
     action: TenantSessionAction;
@@ -61,7 +85,7 @@ export function useTenantSessionActions({
       }
       return await changeIdentityAfterLocalTeardown({
         teardown:
-          input.action === "sign-out"
+          input.action === "sign-out" || input.action === "delete-account"
             ? controls.teardownForLogout
             : controls.teardownForTenantChange,
         commit: input.commit,
@@ -144,15 +168,59 @@ export function useTenantSessionActions({
     if (!navigating) setSigningOut(false);
   }
 
+  /** Leaves the active tenant, then reloads into the one the claim names. */
+  async function leaveTenant() {
+    if (busy || !gate.canChange || !activeTenantId) return;
+    setLeavingTenant(true);
+    const tenantId = activeTenantId;
+    const navigating = await run({
+      action: "leave",
+      commit: async () => {
+        await unwrapActionResult(
+          () => leaveTenantOnServer(tenantId),
+          LEAVE_TENANT_FAILED_MESSAGE
+        );
+        await refreshSessionForActiveTenant();
+      },
+      destination: "/",
+      failureMessage: LEAVE_TENANT_FAILED_MESSAGE,
+    });
+    if (!navigating) setLeavingTenant(false);
+  }
+
+  /**
+   * Deletes the account once the user typed the confirmation word. The
+   * server revokes every session, so the browser goes to the login page.
+   */
+  async function deleteAccount(confirmation: string) {
+    if (busy || !gate.canChange) return;
+    setDeletingAccount(true);
+    const navigating = await run({
+      action: "delete-account",
+      commit: () =>
+        unwrapActionResult(
+          () => deleteAccountOnServer(confirmation),
+          DELETE_ACCOUNT_FAILED_MESSAGE
+        ),
+      destination: ACCOUNT_DELETED_DESTINATION,
+      failureMessage: DELETE_ACCOUNT_FAILED_MESSAGE,
+    });
+    if (!navigating) setDeletingAccount(false);
+  }
+
   return {
     gate,
     busy,
     switchingTenantId,
     creatingTenant,
     signingOut,
+    leavingTenant,
+    deletingAccount,
     error,
     switchTenant: switchTo,
     createTenant: create,
     signOut,
+    leaveTenant,
+    deleteAccount,
   };
 }

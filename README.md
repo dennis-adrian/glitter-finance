@@ -17,7 +17,7 @@ iPhone Safari and Android Chrome) and
 - Payment screen with sale-level discounts and cash/QR checkout.
 - Immutable local sales with snapshotted price/cost data, a sales list, voids, refunds, and date-range reports.
 - Email and password or Google sign-in, with email confirmation and password reset.
-- Several tenants per user, with a tenant switcher and invitation links for adding team members (Settings → Equipo).
+- Several tenants per user, with a tenant switcher and invitation links for adding team members, removing them and leaving a puesto (Settings → Equipo), and account deletion (Settings → Cuenta).
 - Optional stock tracking per product: initial count, restocks, adjustments, losses and gifts, with low-stock and oversold states.
 - PowerSync-backed local SQLite reads/writes for categories, products, sales, sale lines, refunds, inventory movements, and local-only draft carts, plus the synced team list.
 - Offline app shell through Serwist, with Supabase and PowerSync API responses kept network-only so synced data remains owned by PowerSync/local SQLite. Product photos from Supabase Storage are the one exception: the service worker caches them so Sell tiles keep their images offline.
@@ -94,7 +94,8 @@ Storage; the PowerSync upload RPCs (idempotent retries, void and refund
 conflicts, member and tenant checks, device timestamps); and the triggers
 (void window, refunds of voided sales, last-write-wins product edits,
 revoke-only invitations). Run it after changing `lib/db/schema.ts`, a
-migration or a file in `supabase/manual/`. CI does not run it yet.
+migration or a file in `supabase/manual/`. CI runs it on every pull request
+as its own job ("Database tests"), with the PostgreSQL the runner image ships.
 
 It creates a throwaway PostgreSQL cluster in a new directory under `/tmp` that
 only your user can open, and deletes it afterwards. The cluster's superuser
@@ -298,16 +299,17 @@ In the target project's Supabase dashboard, open the SQL editor and run:
 CREATE ROLE powersync_role WITH REPLICATION BYPASSRLS LOGIN PASSWORD '<per-env-secret>';
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO powersync_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO powersync_role;
-CREATE PUBLICATION powersync FOR TABLE categories, products, sales, sale_lines, refunds, tenant_users, inventory_movements;
+CREATE PUBLICATION powersync FOR TABLE categories, products, sales, sale_lines, refunds, tenant_users, former_tenant_members, inventory_movements;
 ```
 
 Notes:
 
 - Generate a fresh `<per-env-secret>` for each environment (e.g. `openssl rand -base64 32`) and store it in a password manager. Do not reuse across staging and prod.
 - The role has `REPLICATION BYPASSRLS` — it can read every row in every tenant, bypassing RLS. Treat the credential like a service-role key.
-- The publication is targeted at exactly the seven synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
+- The publication is targeted at exactly the eight synced tables. When adding a new synced table later, run `ALTER PUBLICATION powersync ADD TABLE <name>` against each environment.
 - **Existing environments (Stage D):** if `powersync` was created before `tenant_users` was added to the table list above, run [`supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql`](supabase/manual/20260626010600_powersync_add_tenant_users_to_publication.sql) in the SQL editor after `pnpm db:push`. It is idempotent and skips quietly when the publication is missing (e.g. local `db:reset` before bootstrap).
 - **Existing environments (inventory):** if `powersync` was created before `inventory_movements` was added, run [`supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql`](supabase/manual/20260626170100_powersync_add_inventory_movements_to_publication.sql) after `pnpm db:push`.
+- **Former members (every environment):** `former_tenant_members` keeps the names of people who left a puesto or were removed, so their past sales keep a seller name. File 15 under [Hand-written SQL](#hand-written-sql-supabasemanual) adds it to the publication (and grants `powersync_role` read access when the role exists); redeploy `powersync/sync-rules.yaml` after it.
 - **Categories (every environment):** products reference categories by id (`products.category_id`); `products.category` is the category's name, which the database derives from the id for older app versions and sale lines. `pnpm db:push` creates the table and the column; RLS, the publication, the triggers and the backfill are files 6, 8 and 14 under [Hand-written SQL](#hand-written-sql-supabasemanual), and [`docs/upgrade-notes.md`](docs/upgrade-notes.md) has the release order, pre-checks and verification. File 8 is only needed if `powersync` predates categories; redeploy `powersync/sync-rules.yaml` after it. The database tests run with `pnpm test:db -- categor`.
 - Verify: `SELECT pubname FROM pg_publication;` should list `powersync`. Confirm `tenant_users` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'tenant_users';`. Confirm `inventory_movements` is published: `SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync' AND tablename = 'inventory_movements';`. Confirm `categories` is published the same way, and that `powersync_role` can read it: `SELECT has_table_privilege('powersync_role', 'public.categories', 'SELECT');` (default privileges only cover tables created by the role that ran `ALTER DEFAULT PRIVILEGES`; if `false`, run `GRANT SELECT ON public.categories TO powersync_role;`). Once PowerSync Cloud connects, a row appears in `SELECT * FROM pg_replication_slots;`.
 
@@ -538,6 +540,70 @@ pnpm db:invite:tenant-user
 
 After inviting, have the user sign in on their device. Settings → Equipo should list every member; reports should attribute sales by display name once both devices have synced.
 
+#### Removing a member, leaving, deleting an account
+
+There are no roles, but a puesto has an **owner**: the member who created it
+(`tenants.created_by_user_id`), or, for a puesto from before that was
+recorded, its longest-standing member. Postgres enforces the rules
+(`remove_tenant_member`, `delete_account_data` and the `tenant_users` triggers
+in file 15 under [Hand-written SQL](#hand-written-sql-supabasemanual)); the
+server actions (`app/tenants/actions.ts`, `app/account/actions.ts`) call them
+on the trusted connection, with or without PowerSync, and the screens only
+offer what they allow (`lib/auth/tenant-owner.ts`).
+
+- **Remove (Settings → Equipo → Quitar):** only the owner removes others.
+  Removing someone also revokes the puesto's active invitation link, so the
+  link they joined with cannot bring them back; the owner generates a new one
+  for the next person.
+- **Leave (Settings → Equipo → Salir del puesto):** any member but the owner.
+  It clears the device's data like a puesto switch, so it waits until nothing
+  is left to upload, then reloads into the user's next puesto (or a new one of
+  their own, if none is left).
+- **The owner** can neither leave nor be removed while the puesto has other
+  members.
+- **Delete account (Settings → Cuenta):** after a confirmation that lists what
+  happens to each puesto and a typed `ELIMINAR`. Puestos where the user is the
+  only member are deleted with all their data and product photos (the photos
+  through a queue, `tenant_storage_cleanups`, that the next account deletion
+  retries if Storage fails); shared
+  puestos are left, and the user's records stay there. It is refused while
+  the user owns a puesto with other members. Like a sign-out, it waits until
+  the device has nothing left to upload. Every session is revoked, and the
+  Supabase auth user is soft-deleted, after the data deletion commits with a
+  `deleted_accounts` marker that refuses any later membership or puesto for
+  the account (a join racing it either goes with it or is refused, and an
+  Auth step that fails is retried on the user's next visit or by the next
+  account deletion): its email, password, identities and
+  metadata are cleared, so nobody can sign in to it and the email can sign up
+  again, while the row that kept sales point at remains.
+- **Records are never rewritten.** Sales, sale lines, refunds and stock
+  movements keep their `user_id`. The member's display name moves to
+  `former_tenant_members`, which syncs with the puesto, so reports and sale
+  details keep naming them.
+- **The removed member's devices** stop syncing the puesto at once (every
+  sync stream requires a membership). The removal also points their active
+  puesto claim elsewhere. A device notices on its next sync, or on its next
+  token refresh after an offline spell, checks with the server, and shows
+  "Ya no sos parte de este puesto" with a reload button
+  (`lib/powersync/tenant-access.ts`). The reload clears the puesto's local
+  data and cached photos; work that had not been uploaded is offered as a
+  download before it is discarded, the same recovery panel a switch uses.
+  Without PowerSync, the next server action answers with the same message.
+- **A device whose session ends** (account deleted or password changed on
+  another device, an expired session, or an Auth error supabase-js does not
+  retry) cannot tell which it was: without a session, the server shows it
+  nothing. With PowerSync, the app reads it from the browser auth client
+  (`SIGNED_OUT`, and a session check before the app shows, when it regains
+  focus or comes back online, and when PowerSync connects; a refresh that
+  only lacked a connection keeps the session) and gives way to "Tu sesión
+  terminó" (`lib/auth/session-end.ts`), which says how much work was not
+  uploaded. Signing in again with the same account uploads what the server
+  accepts. If the account no longer exists, the user downloads a copy and
+  discards it there, before signing in: another account signing in on the
+  device keeps it and never uploads it. "Seguir registrando" goes back to the
+  app; new sales queue for the same account, and the panel returns at the
+  next check. Without PowerSync, the next request goes to the login page.
+
 ### Stage B staging checklist
 
 Before running Stage B acceptance on staging:
@@ -674,10 +740,12 @@ below:
   policy, file 9 replaces file 5's upload RPCs and void trigger, file 12
   replaces file 7's category trigger functions, and file 14 replaces the
   category triggers of files 7, 12 and 13. The verification query below shows
-  all four. File 14 is the one file that may also run out of order: it works
+  all four. File 14 may also run out of order: it works
   without files 9 to 13, and an environment upgrading from v0.8.0 runs it
   right after `pnpm db:push` as well
-  ([`docs/upgrade-notes.md`](docs/upgrade-notes.md), steps 3 and 6).
+  ([`docs/upgrade-notes.md`](docs/upgrade-notes.md), steps 3 and 6). So may
+  file 15, which depends on no other hand-written file and replaces nothing they
+  install; that upgrade runs it right after `pnpm db:push` too (step 3).
 - **Local stack:** `pnpm db:reset` runs all of them after the migrations and
   before `seed.sql`.
 
@@ -759,6 +827,29 @@ below:
     file 13. It runs in one transaction with a 5 s `lock_timeout`: if
     another session holds `products` or `categories`, or any check fails, it
     rolls back; run it again.
+15. [`20261113120000_tenant_membership_removal.sql`](supabase/manual/20261113120000_tenant_membership_removal.sql):
+    removing members, leaving a puesto and deleting an account (see
+    [Removing a member, leaving, deleting an account](#removing-a-member-leaving-deleting-an-account)).
+    RLS on `former_tenant_members` and its place in the publication; the
+    owner rule (`tenant_owner_user_id`); the `tenant_users` delete triggers
+    that keep the owner's membership and record a departing member's name;
+    the server-only `tenant_storage_cleanups` queue (RLS with no policies),
+    where `delete_account_data` records each puesto it deletes so its
+    Storage photos are removed later even if the first attempt fails; and
+    the `remove_tenant_member` and `delete_account_data` functions, which
+    only the trusted server connection may call. Both take the per-puesto
+    advisory lock that invitation creation holds, then the puesto's
+    invitations, then the puesto: a member removed while generating a link
+    gets none, and a redemption never deadlocks with them. A `tenant_users`
+    insert trigger takes a per-account advisory lock, which
+    `delete_account_data` takes first, and refuses an account recorded in the
+    server-only `deleted_accounts` (`BF410`), which `delete_account_data`
+    writes in its own transaction: no membership or puesto is created for an
+    account while or after it is deleted. Every
+    environment, after the `pnpm db:push` that creates
+    `former_tenant_members`, `tenant_storage_cleanups` and `deleted_accounts` and before the app
+    build that calls them is deployed; redeploy `powersync/sync-rules.yaml`
+    after it.
 
 To check an environment, run in its SQL editor:
 
@@ -845,7 +936,38 @@ SELECT
     OR (SELECT installed FROM category_ids) AS "20260930130000",
   (SELECT installed FROM category_ids)
     AND NOT EXISTS (SELECT 1 FROM public.products WHERE category_id IS NULL)
-    AS "20261009120000";
+    AS "20261009120000",
+  (SELECT count(*) = 2 FROM pg_trigger
+    WHERE tgrelid = 'public.tenant_users'::regclass
+      AND tgname IN ('tenant_users_keep_owner',
+        'tenant_users_remember_former_member'))
+    AND to_regprocedure('public.delete_account_data(uuid)') IS NOT NULL
+    AND coalesce(NOT has_function_privilege('authenticated',
+      to_regprocedure('public.remove_tenant_member(uuid,uuid,uuid)'),
+      'EXECUTE'), false)
+    AND coalesce((SELECT relrowsecurity FROM pg_class
+      WHERE oid = to_regclass('public.tenant_storage_cleanups')), false)
+    AND coalesce(pg_get_functiondef(
+      to_regprocedure('public.delete_account_data(uuid)')
+    ) LIKE '%tenant_storage_cleanups%', false)
+    AND coalesce(pg_get_functiondef(
+      to_regprocedure('public.remove_tenant_member(uuid,uuid,uuid)')
+    ) LIKE '%invitation_create:%', false)
+    AND coalesce(pg_get_functiondef(
+      to_regprocedure('public.delete_account_data(uuid)')
+    ) LIKE '%invitation_create:%', false)
+    AND EXISTS (SELECT 1 FROM pg_trigger
+      WHERE tgname = 'tenant_users_refuse_deleted_account'
+        AND tgrelid = 'public.tenant_users'::regclass)
+    AND coalesce(pg_get_functiondef(
+      to_regprocedure('public.delete_account_data(uuid)')
+    ) LIKE '%account:%', false)
+    AND coalesce(pg_get_functiondef(
+      to_regprocedure('public.delete_account_data(uuid)')
+    ) LIKE '%deleted_accounts%', false)
+    AND coalesce((SELECT relrowsecurity FROM pg_class
+      WHERE oid = to_regclass('public.deleted_accounts')), false)
+    AS "20261113120000";
 ```
 
 Confirm the publication with the queries under [PowerSync setup](#powersync-setup).

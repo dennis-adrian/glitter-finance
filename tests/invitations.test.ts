@@ -106,11 +106,22 @@ function query(result: unknown): unknown {
 let storedInvitation: InvitationRow | undefined;
 let membershipExists = false;
 const insertedMemberships: unknown[] = [];
+// What the redemption's transaction did, in order.
+const redemptionSteps: string[] = [];
 
 const fakeDb = {
   transaction: async <T>(run: (tx: unknown) => Promise<T>) =>
     run({
-      select: () => query(storedInvitation ? [storedInvitation] : []),
+      execute: async (statement: { queryChunks?: unknown[] }) => {
+        const text = JSON.stringify(statement.queryChunks ?? "");
+        const account = /account:([\w-]+)/.exec(text);
+        redemptionSteps.push(account ? `lock:${account[1]}` : "execute");
+        return [];
+      },
+      select: () => {
+        redemptionSteps.push("invitation");
+        return query(storedInvitation ? [storedInvitation] : []);
+      },
       insert: () => ({
         values: (values: unknown) => {
           insertedMemberships.push(values);
@@ -123,6 +134,7 @@ const fakeDb = {
 async function redeem(row: InvitationRow | undefined, userId = "user-2") {
   storedInvitation = row;
   insertedMemberships.length = 0;
+  redemptionSteps.length = 0;
   // lib/db reads its Drizzle instance from this global when one is set.
   Object.assign(globalThis, { glitterDb: fakeDb, glitterPostgres: {} });
   Object.assign(process.env, {
@@ -149,6 +161,9 @@ test("redeeming a valid link adds the user to its tenant", async () => {
   assert.deepEqual(insertedMemberships, [
     { tenantId: TENANT_ID, userId: "user-2", displayName: "Ayudante" },
   ]);
+  // The joining account's lock comes before the invitation's, the order an
+  // account deletion takes them in.
+  assert.deepEqual(redemptionSteps, ["lock:user-2", "invitation"]);
 });
 
 test("a link admits several people, and a member again, until it ends", async () => {

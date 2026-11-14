@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   ACTIVE_TENANT_CHANGED_MESSAGE,
+  TENANT_ACCESS_REMOVED_MESSAGE,
   getDisplayName,
   parseTenantId,
   requireExpectedTenant,
@@ -94,12 +95,27 @@ test("an action runs only for the tenant its screen renders", () => {
   });
 });
 
-test("an action without an active tenant or a valid tenant id is refused", () => {
+test("an action for a tenant the user no longer belongs to says so", () => {
+  const context = resolveUserTenantContextFor(user(TENANT_A), [
+    membership(TENANT_A, "Puesto A"),
+  ]);
+
+  // Removed by the owner, or left on another device: switching back is no
+  // way out, so the message is not the active-tenant one.
+  assert.throws(() => requireExpectedTenant(context, TENANT_B, "Sin cuenta."), {
+    name: "UserFacingError",
+    message: TENANT_ACCESS_REMOVED_MESSAGE,
+  });
+});
+
+test("an action without a session or a valid tenant id is refused", () => {
   const empty = resolveUserTenantContextFor(user(), []);
 
+  // Removed from the only puesto they had: the same answer as with another
+  // puesto left, not the caller's "no active tenant" one.
   assert.throws(() => requireExpectedTenant(empty, TENANT_A, "Sin cuenta."), {
     name: "UserFacingError",
-    message: "Sin cuenta.",
+    message: TENANT_ACCESS_REMOVED_MESSAGE,
   });
   assert.throws(() => requireExpectedTenant(null, TENANT_A, "Sin cuenta."), {
     name: "UserFacingError",

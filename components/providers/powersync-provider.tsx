@@ -25,6 +25,7 @@ import {
   useState,
 } from "react";
 import type { AbstractPowerSyncDatabase } from "@powersync/web";
+import type { AuthChangeEvent } from "@supabase/supabase-js";
 import {
   LocalDataPanel,
   LocalDataPanelButton,
@@ -33,6 +34,7 @@ import {
   LocalDataRecoveryPanel,
   type LocalDataRecoveryControls,
 } from "@/components/providers/local-data-recovery-panel";
+import { loadDocument } from "@/lib/auth/identity-change";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { isPowerSyncConfigured } from "@/lib/env";
 import type { SupabaseConnector } from "@/lib/powersync/connector";
@@ -43,6 +45,15 @@ import {
   idleSyncStatusStore,
   syncErrorText,
 } from "@/lib/powersync/sync-status";
+import {
+  SessionEndedPanel,
+  type SessionEndedControls,
+} from "@/components/providers/session-ended-panel";
+import { watchTenantAccess } from "@/lib/powersync/tenant-access";
+import {
+  isSessionEndEvent,
+  type SessionEndedWork,
+} from "@/lib/auth/session-end";
 import { SyncStatusStoreProvider } from "@/lib/powersync/use-sync-status";
 import { reportClientFailure } from "@/lib/observability/report-client-failure";
 import {
@@ -148,6 +159,17 @@ export function PowerSyncProvider({
     null
   );
   const [recovery, setRecovery] = useState<LocalDataRecovery | null>(null);
+  // The server confirmed the user is no longer a member of the local data's
+  // tenant (lib/powersync/tenant-access.ts). Only a reload moves on.
+  const [accessRemoved, setAccessRemoved] = useState(false);
+  // The session ended on its own while the app was shown
+  // (lib/auth/session-end.ts), with the work the device still holds.
+  const [sessionEnded, setSessionEnded] = useState<{
+    work: SessionEndedWork;
+  } | null>(null);
+  const identityRef = useRef(identity);
+  // "Seguir registrando" was chosen; cleared when the user comes back.
+  const sessionEndDismissedRef = useRef(false);
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const connectorRef = useRef<SupabaseConnector | null>(null);
   const exposedDbRef = useRef<AbstractPowerSyncDatabase | null>(null);
@@ -167,12 +189,16 @@ export function PowerSyncProvider({
     let cancelled = false;
     let instance: AbstractPowerSyncDatabase | null = null;
     let recoveryControls: LocalDataRecoveryControls | null = null;
+    let stopAccessWatch: (() => void) | null = null;
+    let stopSessionWatch: (() => void) | null = null;
 
     async function init() {
       setLocalDataReadyIdentity(null);
       setLocalDataError(null);
       setIdentityChange(null);
       setRecovery(null);
+      setAccessRemoved(false);
+      setSessionEnded(null);
       setDb(null);
 
       const powerSyncConfigured = isPowerSyncConfigured();
@@ -230,11 +256,97 @@ export function PowerSyncProvider({
 
       const db = instance;
       const supabase = createSupabaseClient();
+      // A session that ended on its own (lib/auth/session-end.ts) gives way
+      // to the session-ended panel, never during this page's own sign-out,
+      // account deletion or tenant change, which tear down first. Events and
+      // later checks only count while the app shows this database:
+      // preparation and recovery have panels of their own, and the check
+      // right before the app shows covers them.
+      const endSession = async (whileShown: boolean) => {
+        const ownTeardown = () =>
+          Boolean(teardownPromiseRef.current) ||
+          localDataWasJustClearedRef.current;
+        if (cancelled || ownTeardown()) return;
+        if (whileShown && exposedDbRef.current !== db) return;
+        const work = await readUnsyncedLocalWork(db).then(
+          (unsynced): SessionEndedWork => ({
+            pendingUploadCount: unsynced.pendingUploadCount,
+            unresolvedFailureCount: unsynced.unresolvedFailureCount,
+          }),
+          (error) => {
+            console.error("[PowerSync] unsynced work read failed", error);
+            return null;
+          }
+        );
+        if (!cancelled && !ownTeardown()) setSessionEnded({ work });
+      };
+      // No session, and no error: a failed refresh that keeps the session
+      // (offline, 502 to 504) reports an error instead.
+      const sessionIsGone = async () => {
+        try {
+          const { data, error } = await supabase.auth.getSession();
+          return !error && !data.session;
+        } catch {
+          return false;
+        }
+      };
+      const checkSession = () => {
+        void sessionIsGone().then((gone) => {
+          if (gone) void endSession(true);
+        });
+      };
+      // The one browser client refreshes the session for the whole page, so
+      // its SIGNED_OUT is how a session revoked elsewhere usually shows up.
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((event: AuthChangeEvent) => {
+        if (!isSessionEndEvent(event)) return;
+        // Not inside the callback, which runs under the auth client's lock.
+        window.setTimeout(() => void endSession(true), 0);
+      });
+      // The server can clear the session cookies with no event here.
+      // The user coming back to the app (or the connection coming back)
+      // asks again, even after "Seguir registrando".
+      const checkWhenVisible = () => {
+        if (document.visibilityState !== "visible") return;
+        sessionEndDismissedRef.current = false;
+        checkSession();
+      };
+      window.addEventListener("focus", checkWhenVisible);
+      window.addEventListener("online", checkWhenVisible);
+      document.addEventListener("visibilitychange", checkWhenVisible);
+      stopSessionWatch = () => {
+        subscription.unsubscribe();
+        window.removeEventListener("focus", checkWhenVisible);
+        window.removeEventListener("online", checkWhenVisible);
+        document.removeEventListener("visibilitychange", checkWhenVisible);
+      };
       // Only hands PowerSync a token whose tenant claim is this identity's,
       // so another tenant's rows can never sync into this database.
       const connector = new SupabaseConnector(
         supabase,
-        currentIdentity.tenantId
+        currentIdentity.tenantId,
+        {
+          expectedUserId: currentIdentity.userId,
+          // A connect that finds no session at all.
+          // PowerSync retries every few seconds; after "Seguir registrando"
+          // that must not bring the panel straight back.
+          onSessionMissing: () => {
+            if (!sessionEndDismissedRef.current) {
+              window.setTimeout(checkSession, 0);
+            }
+          },
+          onAccessRemoved: () => {
+            // A recovery upload's denial says nothing new: the panel there
+            // already offers the ways out.
+            if (
+              !cancelled &&
+              localDataIdentityMatches(readLocalDataIdentity(), currentIdentity)
+            ) {
+              setAccessRemoved(true);
+            }
+          },
+        }
       );
 
       // A device database belongs to exactly one authenticated user + active
@@ -347,6 +459,17 @@ export function PowerSyncProvider({
 
       connectorRef.current = connector;
       await instance.connect(connector);
+      // Cleanup has already run when this was cancelled meanwhile, so nothing
+      // would stop a watch started now.
+      if (currentIdentity.tenantId && !cancelled) {
+        stopAccessWatch = watchTenantAccess(instance, {
+          tenantId: currentIdentity.tenantId,
+          userId: currentIdentity.userId,
+          verify: () => connector.verifyTenantAccess(),
+          // The connector reports it through onAccessRemoved.
+          onRemoved: () => {},
+        });
+      }
       try {
         await reconcileSyncFailures(instance);
       } catch (error) {
@@ -376,11 +499,14 @@ export function PowerSyncProvider({
         },
       });
 
+      // A SIGNED_OUT while preparing or recovering was not acted on.
+      const sessionGoneBeforeShowing = await sessionIsGone();
       if (cancelled) {
         unsubscribe();
         await instance.close();
         return;
       }
+      if (sessionGoneBeforeShowing) await endSession(false);
 
       setDb(instance);
       localDataWasJustClearedRef.current = false;
@@ -402,6 +528,8 @@ export function PowerSyncProvider({
 
     return () => {
       cancelled = true;
+      stopAccessWatch?.();
+      stopSessionWatch?.();
       if (recoveryControlsRef.current === recoveryControls) {
         recoveryControlsRef.current = null;
       }
@@ -436,7 +564,8 @@ export function PowerSyncProvider({
   // committed instance.
   useLayoutEffect(() => {
     exposedDbRef.current = exposedDb;
-  }, [exposedDb]);
+    identityRef.current = identity;
+  }, [exposedDb, identity]);
 
   // One object for the provider's lifetime, so the context value never
   // changes identity. Its members only read refs and call state setters.
@@ -548,6 +677,61 @@ export function PowerSyncProvider({
     };
   });
 
+  // Stable, like `controls`. Downloading keeps the work; discarding is the
+  // way out when the account it belongs to no longer exists.
+  const [sessionEndedControls] = useState<SessionEndedControls>(() => ({
+    exportUnsyncedWork: async () => {
+      const activeDb = exposedDbRef.current;
+      if (!activeDb) {
+        throw new Error("The local database is not open.");
+      }
+      const owner = identityRef.current;
+      return exportUnsyncedLocalWork(activeDb, { owner, session: owner });
+    },
+    discardUnsyncedWork: async () => {
+      const activeDb = exposedDbRef.current;
+      if (activeDb) {
+        const unsynced = await readUnsyncedLocalWork(activeDb).catch(
+          () => null
+        );
+        reportDiscardedUnsyncedWork({
+          reason: "session-ended",
+          pendingUploadCount: unsynced?.pendingUploadCount ?? 0,
+          unresolvedFailureCount: unsynced?.unresolvedFailureCount ?? 0,
+        });
+        await flushPendingSyncFailureTelemetry();
+      }
+      localDataWasJustClearedRef.current = true;
+      try {
+        await teardownLocalUserData({
+          db: activeDb,
+          powerSyncRequired: isPowerSyncConfigured(),
+          refuseWhenUnsynced: false,
+          onDestructiveStart: () => setDb(null),
+        });
+      } catch (error) {
+        if (
+          error instanceof LocalDataTeardownError &&
+          error.stage === "post-destructive"
+        ) {
+          // The work is already gone; only browser leftovers were not
+          // cleared, and the login page's next identity clears them.
+          console.error("[session-ended] discard left local leftovers", error);
+          return;
+        }
+        // Nothing was deleted: keep the database, so the copy can still be
+        // downloaded and the discard retried.
+        localDataWasJustClearedRef.current = false;
+        setDb((currentDb) => currentDb ?? activeDb);
+        throw error;
+      }
+    },
+    continueWithoutSession: () => {
+      sessionEndDismissedRef.current = true;
+      setSessionEnded(null);
+    },
+  }));
+
   // Stable for the provider's lifetime, like `controls`: it reaches the
   // current initialization's database through the ref when a button runs.
   const [recoveryPanelControls] = useState<LocalDataRecoveryControls>(() => ({
@@ -566,6 +750,31 @@ export function PowerSyncProvider({
   }));
 
   function renderLocalDataPanel() {
+    if (sessionEnded) {
+      return (
+        <SessionEndedPanel
+          layout={loadingLayout}
+          work={sessionEnded.work}
+          controls={sessionEndedControls}
+        />
+      );
+    }
+
+    if (accessRemoved) {
+      return (
+        <LocalDataPanel
+          layout={loadingLayout}
+          tone="alert"
+          message="Ya no sos parte de este puesto."
+          detail="Quien creó el puesto te quitó del equipo, o saliste o eliminaste tu cuenta desde otro dispositivo. Recargá la app para continuar; si quedó algo sin subir en este dispositivo, vas a poder descargar una copia."
+        >
+          <LocalDataPanelButton onClick={() => loadDocument("/")}>
+            Recargar la app
+          </LocalDataPanelButton>
+        </LocalDataPanel>
+      );
+    }
+
     if (localDataError) {
       return (
         <LocalDataPanel
@@ -630,7 +839,9 @@ export function PowerSyncProvider({
     <PowerSyncControlsContext.Provider value={controls}>
       <OptionalPowerSyncContext.Provider value={exposedDb}>
         <SyncStatusStoreProvider value={syncStatusStore}>
-          {localDataReady ? children : renderLocalDataPanel()}
+          {localDataReady && !accessRemoved && !sessionEnded
+            ? children
+            : renderLocalDataPanel()}
         </SyncStatusStoreProvider>
       </OptionalPowerSyncContext.Provider>
     </PowerSyncControlsContext.Provider>

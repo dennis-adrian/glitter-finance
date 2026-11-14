@@ -101,7 +101,11 @@ stubModule("@/lib/auth/user-context", {
       {
         user: { id: USER_ID, email: null, displayName: "Vendedora" },
         tenant: { id: TENANT_ID, name: "Puesto" },
-        tenants: [],
+        // Still a member of the other tenant: it only stopped being active.
+        tenants: [
+          { id: TENANT_ID, name: "Puesto" },
+          { id: OTHER_TENANT_ID, name: "Otro puesto" },
+        ],
       } as unknown as Parameters<typeof requireExpectedTenant>[0],
       expectedTenantId,
       missingTenantMessage

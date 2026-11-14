@@ -5,6 +5,10 @@ import { sql } from "drizzle-orm";
 import type { User } from "@supabase/supabase-js";
 import { UserFacingError } from "@/lib/action-result";
 import {
+  finishAccountAuthDeletion,
+  isAccountDeleted,
+} from "@/lib/auth/membership-removal";
+import {
   createTenantWithOwner,
   hasMembership,
   loadAllMemberships,
@@ -38,7 +42,9 @@ export const getAuthenticatedUser = cache(async (): Promise<User | null> => {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  return user;
+  // A deleted account (app/account/actions.ts) has its sessions revoked,
+  // so the Auth server already refuses its tokens; never act for one anyway.
+  return user && !user.deleted_at ? user : null;
 });
 
 // PowerSync's sync rules read tenant_id from the JWT via
@@ -58,6 +64,38 @@ export async function setActiveTenantClaim(user: User, tenantId: string) {
   });
   if (error) {
     throw new Error("No se pudo actualizar el puesto activo.");
+  }
+}
+
+/**
+ * After a membership ended: when the user's claim still names that tenant,
+ * points it at their oldest remaining membership, or clears it when none is
+ * left. Their devices then see a refreshed token that no longer claims the
+ * tenant (lib/powersync/connector.ts), and '/' resolves the same tenant.
+ */
+export async function moveActiveTenantClaimAway(
+  userId: string,
+  tenantId: string
+) {
+  const admin = createAdminClient();
+  const { data, error } = await admin.auth.admin.getUserById(userId);
+  if (error || !data.user) {
+    throw new Error("No se pudo leer el puesto activo.", { cause: error });
+  }
+  const appMetadata = data.user.app_metadata ?? {};
+  if (appMetadata.tenant_id !== tenantId) {
+    return;
+  }
+  const [next] = await loadAllMemberships(db, userId);
+  // Auth merges app_metadata on update, and a null value removes the key:
+  // send only the claim, so no other key is written back from the read above.
+  const { error: updateError } = await admin.auth.admin.updateUserById(userId, {
+    app_metadata: { tenant_id: next?.tenantId ?? null },
+  });
+  if (updateError) {
+    throw new Error("No se pudo actualizar el puesto activo.", {
+      cause: updateError,
+    });
   }
 }
 
@@ -116,6 +154,21 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
   const claimedTenantId = readClaimedTenantId(user);
   const memberships = await loadAllMemberships(db, user.id);
   const active = resolveActiveMembership(memberships, claimedTenantId);
+
+  // A deleted account has no membership left. Instead of a new puesto, it
+  // finishes the Auth side of the deletion if that failed, and gets no
+  // context, which sends it to the login page.
+  if (!active && (await isAccountDeleted(user.id))) {
+    await finishAccountAuthDeletion(createAdminClient(), user.id).catch(
+      (error) => {
+        console.error("[ensureUserTenantContext] finishing a deletion failed", {
+          userId: user.id,
+          error,
+        });
+      }
+    );
+    return null;
+  }
 
   // Bootstrap path: create the tenant and the membership row atomically. A
   // per-user advisory lock serializes concurrent first-time sign-ins (e.g. two
