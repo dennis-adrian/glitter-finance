@@ -15,22 +15,32 @@ let signOutError: { code?: string; status?: number } | null = null;
 let deleteError: { code?: string; status?: number } | null = null;
 
 stubModule("@/lib/auth/membership-removal", {
-  // One transaction: the data deletion, then `finishInAuth`, then the commit
-  // (or a rollback when it throws).
-  deleteAccountData: async (
-    userId: string,
-    finishInAuth: () => Promise<void>
-  ) => {
+  // Commits on its own, with the deleted_accounts marker.
+  deleteAccountData: async (userId: string) => {
     if (dataError) throw dataError;
     events.push(`data:${userId}`);
-    try {
-      await finishInAuth();
-    } catch (error) {
-      events.push("rollback");
-      throw error;
-    }
-    events.push("commit");
     return ["t1"];
+  },
+  // The real helper's contract: the soft delete, recorded only on success.
+  finishAccountAuthDeletion: async (
+    admin: {
+      auth: {
+        admin: {
+          deleteUser: (
+            id: string,
+            soft: boolean
+          ) => Promise<{ error: unknown }>;
+        };
+      };
+    },
+    userId: string
+  ) => {
+    const { error } = await admin.auth.admin.deleteUser(userId, true);
+    if (!error) events.push("auth-done");
+    return !error;
+  },
+  finishPendingAuthDeletions: async () => {
+    events.push("retry-older");
   },
   loadAccountDeletionPlan: async (userId: string) => {
     events.push(`plan:${userId}`);
@@ -92,7 +102,7 @@ function quietly<T>(run: () => Promise<T>) {
   });
 }
 
-test("deletes the data, revokes every session and the auth user, commits, then removes the photos", async () => {
+test("deletes the data, then revokes every session and the auth user, then cleans up", async () => {
   const { deleteAccount } = await import("@/app/account/actions");
 
   assert.deepEqual(await deleteAccount("eliminar"), {
@@ -103,7 +113,8 @@ test("deletes the data, revokes every session and the auth user, commits, then r
     `data:${USER_ID}`,
     "sign-out:global",
     `delete-user:${USER_ID}:soft`,
-    "commit",
+    "auth-done",
+    "retry-older",
     "storage:queue:t1",
   ]);
 });
@@ -147,36 +158,32 @@ test("photos that could not be removed do not stop the deletion", async () => {
     `data:${USER_ID}`,
     "sign-out:global",
     `delete-user:${USER_ID}:soft`,
-    "commit",
+    "auth-done",
+    "retry-older",
   ]);
 });
 
-test("the auth user and the data are kept while the sessions could not be revoked", async () => {
+test("a failed session revocation still soft-deletes the auth user", async () => {
   const { deleteAccount } = await import("@/app/account/actions");
   signOutError = { code: "unexpected_failure", status: 500 };
 
   const result = await quietly(() => deleteAccount("ELIMINAR"));
 
-  assert.equal(result.ok, false);
-  assert.match(!result.ok ? result.error : "", /no se borró nada/);
-  assert.deepEqual(events, [`data:${USER_ID}`, "sign-out:global", "rollback"]);
+  // The data and the marker are committed: the account is deleted for the
+  // app whatever Auth does.
+  assert.equal(result.ok, true);
+  assert.ok(events.includes(`delete-user:${USER_ID}:soft`));
 });
 
-test("a failed auth user deletion keeps the data and says to try again", async () => {
+test("a failed soft delete is left pending for a retry, and the deletion stands", async () => {
   const { deleteAccount } = await import("@/app/account/actions");
   deleteError = { code: "unexpected_failure", status: 500 };
 
   const result = await quietly(() => deleteAccount("ELIMINAR"));
 
-  assert.equal(result.ok, false);
-  assert.match(!result.ok ? result.error : "", /no se borró nada/);
-  // The data deletion is rolled back and no photo is touched.
-  assert.deepEqual(events, [
-    `data:${USER_ID}`,
-    "sign-out:global",
-    `delete-user:${USER_ID}:soft`,
-    "rollback",
-  ]);
+  assert.equal(result.ok, true);
+  assert.ok(!events.includes("auth-done"), "not recorded as finished");
+  assert.ok(events.includes("storage:queue:t1"));
 });
 
 test("the plan is read for the signed-in user", async () => {

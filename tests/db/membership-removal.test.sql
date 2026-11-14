@@ -247,6 +247,11 @@ SELECT tests.is(
   1,
   'a refused account deletion changes nothing'
 );
+SELECT tests.is(
+  (SELECT count(*)::int FROM public.deleted_accounts WHERE user_id = :'helper'),
+  0,
+  'a refused account deletion records no deleted account'
+);
 
 -- A user alone in their own puesto, also selling in the shared one.
 SELECT tests.create_tenant(:'own_only', :'solo');
@@ -274,6 +279,24 @@ SELECT tests.is(
   0,
   'the user''s own puesto is gone'
 );
+SELECT tests.is(
+  (SELECT count(*)::int FROM public.deleted_accounts WHERE user_id = :'solo' AND auth_deleted_at IS NULL),
+  1,
+  'the deletion records the account, with its Auth side still to finish'
+);
+-- Before Auth soft-deletes the user, the marker alone refuses new memberships.
+SELECT tests.throws(
+  format('INSERT INTO public.tenant_users (tenant_id, user_id, display_name) VALUES (%L, %L, %L)', :'shared', :'solo', 'Otra vez'),
+  'BF410',
+  'a deleted account cannot rejoin before its auth user is deleted'
+);
+SELECT tests.authenticate(:'owner');
+SELECT tests.throws(
+  'SELECT count(*) FROM public.deleted_accounts',
+  '42501',
+  'the API roles cannot read the deleted accounts'
+);
+SELECT tests.as_owner();
 SELECT tests.is(
   (SELECT array_agg(tenant_id) FROM public.tenant_storage_cleanups),
   ARRAY[:'own_only']::uuid[],

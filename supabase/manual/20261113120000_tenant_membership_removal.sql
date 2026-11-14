@@ -77,6 +77,12 @@ END $$;
 ALTER TABLE "tenant_storage_cleanups" ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.tenant_storage_cleanups FROM anon, authenticated;
 
+-- deleted_accounts: the accounts whose deletion committed. Written only by
+-- delete_account_data; the app records when the Auth side finished
+-- (auth_deleted_at). Server-only: RLS with no policies.
+ALTER TABLE "deleted_accounts" ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.deleted_accounts FROM anon, authenticated;
+
 -- ---------------------------------------------------------------------------
 -- The owner
 -- ---------------------------------------------------------------------------
@@ -182,11 +188,13 @@ CREATE TRIGGER tenant_users_remember_former_member
 
 -- Every new membership (joining a puesto, creating one, the first sign-in's
 -- bootstrap) takes the account's lock, the one delete_account_data takes
--- first, and is refused for a soft-deleted auth user. A join or a new
+-- first, and is refused for a deleted account. A join or a new
 -- puesto racing an account deletion either commits before the deletion
 -- reads the memberships, and goes with the rest, or waits and is refused:
--- the app soft-deletes the auth user before the deletion commits
--- (app/account/actions.ts).
+-- the deletion records the account in deleted_accounts in its own
+-- transaction, before the app revokes the sessions and soft-deletes the
+-- auth user (app/account/actions.ts). No transaction stays open across
+-- those Auth calls.
 CREATE OR REPLACE FUNCTION public.tenant_users_refuse_deleted_account()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -197,6 +205,8 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('account:' || NEW.user_id::text));
 
   IF EXISTS (
+    SELECT 1 FROM public.deleted_accounts WHERE user_id = NEW.user_id
+  ) OR EXISTS (
     SELECT 1 FROM auth.users
     WHERE id = NEW.user_id AND deleted_at IS NOT NULL
   ) THEN
@@ -377,6 +387,13 @@ BEGIN
     RAISE EXCEPTION 'The user owns a puesto that has other members'
       USING ERRCODE = 'BF409';
   END IF;
+
+  -- From the commit on, the account gets no new membership or puesto
+  -- (tenant_users_refuse_deleted_account), whatever happens to the Auth
+  -- steps that follow it.
+  INSERT INTO public.deleted_accounts (user_id)
+  VALUES (p_user_id)
+  ON CONFLICT (user_id) DO NOTHING;
 
   FOR v_tenant_id IN
     SELECT tenant_id FROM public.tenant_users

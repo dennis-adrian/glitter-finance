@@ -90,33 +90,15 @@ test("a removal runs remove_tenant_member", async () => {
   assert.match(statements[0], /public\.remove_tenant_member/);
 });
 
-test("the account's data deletion resolves to the deleted puestos", async () => {
+test("the account's data deletion is one statement, outside any open transaction", async () => {
   const { deleteAccountData } = await import("@/lib/auth/membership-removal");
   nextRows = [{ tenant_id: "t1" }, { tenant_id: "t2" }];
 
-  const order: string[] = [];
-  const result = await deleteAccountData("u", async () => {
-    order.push(`auth:${transactions.join(",")}`);
-  });
-
-  assert.deepEqual(result, ["t1", "t2"]);
+  assert.deepEqual(await deleteAccountData("u"), ["t1", "t2"]);
+  assert.equal(statements.length, 1);
   assert.match(statements[0], /public\.delete_account_data/);
-  // The Auth steps run before the data deletion commits.
-  assert.deepEqual(order, ["auth:begin"]);
-  assert.deepEqual(transactions, ["begin", "commit"]);
-});
-
-test("a failed Auth step rolls the data deletion back", async () => {
-  const { deleteAccountData } = await import("@/lib/auth/membership-removal");
-  nextRows = [{ tenant_id: "t1" }];
-
-  await assert.rejects(
-    deleteAccountData("u", async () => {
-      throw new Error("Auth is down");
-    }),
-    /Auth is down/
-  );
-  assert.deepEqual(transactions, ["begin", "rollback"]);
+  // No transaction is held open while the Auth steps run afterwards.
+  assert.deepEqual(transactions, []);
 });
 
 test("an owner of a shared puesto is told to remove its members first", async () => {
@@ -124,15 +106,77 @@ test("an owner of a shared puesto is told to remove its members first", async ()
     await import("@/lib/auth/membership-removal");
   nextError = pgError("BF409");
 
-  await assert.rejects(
-    deleteAccountData("u", async () => {
-      throw new Error("never reached");
-    }),
-    {
-      name: "UserFacingError",
-      message: ACCOUNT_DELETION_BLOCKED_MESSAGE,
-    }
+  await assert.rejects(deleteAccountData("u"), {
+    name: "UserFacingError",
+    message: ACCOUNT_DELETION_BLOCKED_MESSAGE,
+  });
+});
+
+function fakeAdmin(error: { code?: string; status?: number } | null) {
+  const calls: [string, boolean | undefined][] = [];
+  return {
+    calls,
+    admin: {
+      auth: {
+        admin: {
+          deleteUser: async (id: string, soft?: boolean) => {
+            calls.push([id, soft]);
+            return { error };
+          },
+        },
+      },
+    },
+  };
+}
+
+test("the Auth side is recorded as finished only once the soft delete went through", async () => {
+  const { finishAccountAuthDeletion } =
+    await import("@/lib/auth/membership-removal");
+
+  const ok = fakeAdmin(null);
+  assert.equal(await finishAccountAuthDeletion(ok.admin, "u"), true);
+  assert.deepEqual(ok.calls, [["u", true]]);
+  assert.match(statements.at(-1) ?? "", /auth_deleted_at = now\(\)/);
+
+  statements.length = 0;
+  const logged = console.error;
+  console.error = () => {};
+  try {
+    const down = fakeAdmin({ code: "unexpected_failure", status: 500 });
+    assert.equal(await finishAccountAuthDeletion(down.admin, "u"), false);
+  } finally {
+    console.error = logged;
+  }
+  assert.deepEqual(statements, [], "a failure stays pending for a retry");
+
+  // An auth user that is already gone counts as done.
+  const gone = fakeAdmin({ code: "user_not_found", status: 404 });
+  assert.equal(await finishAccountAuthDeletion(gone.admin, "u"), true);
+});
+
+test("older unfinished Auth deletions are retried, oldest first", async () => {
+  const { finishPendingAuthDeletions } =
+    await import("@/lib/auth/membership-removal");
+  nextRows = [{ user_id: "old-1" }, { user_id: "old-2" }];
+  const auth = fakeAdmin(null);
+
+  await finishPendingAuthDeletions(auth.admin, 5);
+
+  assert.match(statements[0], /auth_deleted_at IS NULL/);
+  assert.match(statements[0], /ORDER BY deleted_at/);
+  assert.deepEqual(
+    auth.calls.map(([id]) => id),
+    ["old-1", "old-2"]
   );
+});
+
+test("a deleted account is recognized by its marker", async () => {
+  const { isAccountDeleted } = await import("@/lib/auth/membership-removal");
+  nextRows = [{ deleted: true }];
+  assert.equal(await isAccountDeleted("u"), true);
+  nextRows = [{ deleted: false }];
+  assert.equal(await isAccountDeleted("u"), false);
+  assert.match(statements[0], /public\.deleted_accounts/);
 });
 
 test("the deletion plan sorts the puestos by what happens to them", async () => {

@@ -3,6 +3,8 @@
 import { toActionResult, UserFacingError } from "@/lib/action-result";
 import {
   deleteAccountData,
+  finishAccountAuthDeletion,
+  finishPendingAuthDeletions,
   loadAccountDeletionPlan,
   storageCleanupQueue,
 } from "@/lib/auth/membership-removal";
@@ -16,8 +18,6 @@ import { createClient } from "@/lib/supabase/server";
 import { drainTenantStorageCleanups } from "@/lib/tenant-storage-cleanup";
 
 const NOT_SIGNED_IN_MESSAGE = "No iniciaste sesión.";
-const DELETION_FAILED_MESSAGE =
-  "No se pudo eliminar la cuenta y no se borró nada. Iniciá sesión de nuevo y volvé a intentarlo.";
 
 async function requireUser() {
   const user = await getAuthenticatedUser();
@@ -40,24 +40,25 @@ export async function getAccountDeletionPlan() {
  * this device's local data, which it refuses to do while anything is
  * unsynced, exactly as for a sign-out.
  *
- * In one database transaction, holding the account's lock:
- * 1. Postgres ends every membership: a puesto the user shares is left, with
- *    their sales, refunds and stock counts kept under their name; a puesto
- *    where they are the only member is deleted with all its data and
- *    recorded in tenant_storage_cleanups. Refused while they own a puesto
- *    that has other members.
+ * 1. In one short transaction under the account's lock, Postgres ends every
+ *    membership (a puesto the user shares is left, with their sales, refunds
+ *    and stock counts kept under their name; a puesto where they are the
+ *    only member is deleted with all its data and queued for photo cleanup)
+ *    and records the account in deleted_accounts. Refused while they own a
+ *    puesto that has other members. From the commit on, the account gets
+ *    no new membership or puesto: a join racing this either went in first
+ *    and is deleted with the rest, or is refused.
  * 2. Every session of the user is revoked, on every device.
  * 3. The auth user is soft-deleted: Supabase clears its email, password,
  *    identities and metadata, so nobody can sign in to it again and the
  *    email can sign up anew, while the row the kept sales point at stays.
- * Then the transaction commits. A join or new puesto racing this waits for
- * the lock and is refused (the auth user is deleted by then); a failure in
- * 2 or 3 rolls 1 back, so nothing is half deleted and a retry starts over.
+ * 4. Older deletions whose Auth side did not finish are retried.
+ * 5. The deleted puestos' photos are removed from Storage (queued, retried
+ *    by the next account deletion if this fails).
  *
- * 4. After the commit, the deleted puestos' photos are removed from
- *    Storage. A row of tenant_storage_cleanups goes once its photos are
- *    gone, so a failure is retried by the next account deletion, whoever
- *    asks for it, along with older leftovers.
+ * No transaction stays open across the Auth calls. If 2 or 3 fail, the
+ * account is already deleted for the app: its next visit finishes 3
+ * (ensureUserTenantContext), and so does the next account deletion (4).
  */
 export async function deleteAccount(confirmation: string) {
   return toActionResult(async () => {
@@ -67,34 +68,36 @@ export async function deleteAccount(confirmation: string) {
       );
     }
     const user = await requireUser();
+
+    const deletedTenantIds = await deleteAccountData(user.id);
+
     const supabase = await createClient();
     const admin = createAdminClient();
-
-    const deletedTenantIds = await deleteAccountData(user.id, async () => {
-      const { error: signOutError } = await supabase.auth.signOut({
-        scope: "global",
+    const { error: signOutError } = await supabase.auth.signOut({
+      scope: "global",
+    });
+    if (signOutError) {
+      // The soft delete below ends what it can; the app refuses the account
+      // either way (deleted_accounts).
+      console.error("[account] revoking the sessions failed", {
+        userId: user.id,
+        code: signOutError.code ?? null,
+        status: signOutError.status ?? null,
       });
-      if (signOutError) {
-        console.error("[account] revoking the sessions failed", {
-          userId: user.id,
-          code: signOutError.code ?? null,
-          status: signOutError.status ?? null,
-        });
-        throw new UserFacingError(DELETION_FAILED_MESSAGE);
-      }
+    }
 
-      const { error: deleteError } = await admin.auth.admin.deleteUser(
-        user.id,
-        true
-      );
-      if (deleteError) {
-        console.error("[account] deleting the auth user failed", {
-          userId: user.id,
-          code: deleteError.code ?? null,
-          status: deleteError.status ?? null,
-        });
-        throw new UserFacingError(DELETION_FAILED_MESSAGE);
-      }
+    await finishAccountAuthDeletion(admin, user.id).catch((error) => {
+      console.error("[account] deleting the auth user failed", {
+        userId: user.id,
+        error,
+      });
+    });
+
+    // Best effort, like the photos: nothing above may wait for them.
+    await finishPendingAuthDeletions(admin).catch((error) => {
+      console.error("[account] retrying older Auth deletions failed", {
+        error,
+      });
     });
 
     try {
@@ -111,7 +114,7 @@ export async function deleteAccount(confirmation: string) {
       }
     } catch (error) {
       // The cleanup rows are committed with the deletion, so the next run
-      // picks them up; the account is already gone.
+      // picks them up; the account is already deleted.
       console.error("[account] reading the photo cleanup queue failed", {
         userId: user.id,
         error,

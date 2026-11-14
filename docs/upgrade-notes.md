@@ -254,6 +254,9 @@ None of these blocks the release:
    - `supabase/migrations/20261113174514_same_molly_hayes.sql`: the new,
      empty, server-only `tenant_storage_cleanups` table (Storage cleanup
      still owed for puestos deleted with an account). Item 4 locks it down.
+   - `supabase/migrations/20261114001107_late_talos.sql`: the new, empty,
+     server-only `deleted_accounts` table (accounts whose deletion
+     committed). Item 4 locks it down.
 
    An environment that already runs a `develop` build has the first one, and
    `db:push` applies only the others. An environment still on v0.7.0 also
@@ -363,14 +366,16 @@ None of these blocks the release:
      a member removed while generating a link never ends up with a valid
      one), then the puesto's invitations, then the puesto: the order a
      redemption uses, so the two never deadlock (`40P01`).
-   - Every new membership (joining, creating a puesto, the first sign-in)
-     takes a per-account lock and is refused (`BF410`) for a soft-deleted
-     auth user, and `delete_account_data` takes that lock first. The new app
-     keeps the deletion's transaction open while it revokes the sessions and
-     soft-deletes the auth user, and commits after: an Auth failure deletes
-     nothing, and a join racing the deletion either goes with it or is
-     refused. The old app never deletes accounts, and its joins and puestos
-     are unaffected.
+   - It enables RLS (no policies) on the new `deleted_accounts` and revokes
+     it from the API roles. Every new membership (joining, creating a puesto,
+     the first sign-in) takes a per-account lock and is refused (`BF410`)
+     for an account recorded there, and `delete_account_data` takes that
+     lock first and writes the record in its own transaction. The app then
+     revokes the sessions and soft-deletes the auth user, with no
+     transaction open; a failure there is retried on the user's next visit
+     and by the next account deletion. Rows with an empty `auth_deleted_at`
+     long after a deletion are auth users still to soft-delete. The old app
+     never deletes accounts, and its joins and puestos are unaffected.
 
 ### 4. PowerSync Sync Streams
 

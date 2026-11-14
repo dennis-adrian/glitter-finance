@@ -182,6 +182,22 @@ export const tenantStorageCleanups = pgTable("tenant_storage_cleanups", {
   lastError: text("last_error"),
 });
 
+// Accounts whose deletion committed (delete_account_data writes the row in
+// the transaction that deletes their data). The tenant_users insert trigger
+// refuses any new membership for them, and the app finishes the Auth side
+// (revoking the sessions, soft-deleting the auth user) after the commit,
+// recording it in auth_deleted_at; a step that failed is retried on the
+// user's next visit or by the next account deletion. Server-only: never
+// synced, RLS with no policies. No auth.users FK: the soft-deleted user row
+// stays, and the marker must outlive any later cleanup of it.
+export const deletedAccounts = pgTable("deleted_accounts", {
+  userId: uuid("user_id").primaryKey(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  authDeletedAt: timestamp("auth_deleted_at", { withTimezone: true }),
+});
+
 export const products = pgTable(
   "products",
   {

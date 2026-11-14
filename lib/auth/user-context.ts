@@ -5,6 +5,10 @@ import { sql } from "drizzle-orm";
 import type { User } from "@supabase/supabase-js";
 import { UserFacingError } from "@/lib/action-result";
 import {
+  finishAccountAuthDeletion,
+  isAccountDeleted,
+} from "@/lib/auth/membership-removal";
+import {
   createTenantWithOwner,
   hasMembership,
   loadAllMemberships,
@@ -150,6 +154,21 @@ export async function ensureUserTenantContext(): Promise<UserTenantContext | nul
   const claimedTenantId = readClaimedTenantId(user);
   const memberships = await loadAllMemberships(db, user.id);
   const active = resolveActiveMembership(memberships, claimedTenantId);
+
+  // A deleted account has no membership left. Instead of a new puesto, it
+  // finishes the Auth side of the deletion if that failed, and gets no
+  // context, which sends it to the login page.
+  if (!active && (await isAccountDeleted(user.id))) {
+    await finishAccountAuthDeletion(createAdminClient(), user.id).catch(
+      (error) => {
+        console.error("[ensureUserTenantContext] finishing a deletion failed", {
+          userId: user.id,
+          error,
+        });
+      }
+    );
+    return null;
+  }
 
   // Bootstrap path: create the tenant and the membership row atomically. A
   // per-user advisory lock serializes concurrent first-time sign-ins (e.g. two

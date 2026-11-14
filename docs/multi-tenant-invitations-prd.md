@@ -799,11 +799,13 @@ people's past sales recorded there; shared puestos are left), revokes every
 session (`signOut({ scope: "global" })`) and soft-deletes the auth user
 (`auth.admin.deleteUser(id, true)`): Supabase clears its email, password,
 identities and metadata while the row the kept sales reference stays. The
-data deletion's transaction stays open through the session revocation and the
-soft delete and commits after them, so an Auth failure deletes nothing; it
-holds a per-account lock that every new membership takes too, and a
-soft-deleted account gets no new membership or puesto (`BF410`), so a join or
-a new puesto racing the deletion either goes with it or is refused. Last, it
+data deletion is one short transaction: it holds a per-account lock that every
+new membership takes too, and records the account in `deleted_accounts`, which
+refuses any later membership or puesto for it (`BF410`); a join or a new
+puesto racing the deletion either goes with it or is refused. The Auth steps
+run after the commit, with no transaction open; one that fails is retried on
+the user's next visit (`/` finishes it instead of creating a puesto) and by
+the next account deletion. Last, it
 removes the deleted puestos' Storage objects (recorded in
 `tenant_storage_cleanups` in the deletion's own transaction, and retried by
 the next account deletion if Storage fails), so a slow or failing cleanup

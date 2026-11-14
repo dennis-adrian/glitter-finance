@@ -569,9 +569,11 @@ offer what they allow (`lib/auth/tenant-owner.ts`).
   puestos are left, and the user's records stay there. It is refused while
   the user owns a puesto with other members. Like a sign-out, it waits until
   the device has nothing left to upload. Every session is revoked, and the
-  Supabase auth user is soft-deleted, before the data deletion commits (an
-  Auth failure deletes nothing, and a join or new puesto racing it is
-  refused): its email, password, identities and
+  Supabase auth user is soft-deleted, after the data deletion commits with a
+  `deleted_accounts` marker that refuses any later membership or puesto for
+  the account (a join racing it either goes with it or is refused, and an
+  Auth step that fails is retried on the user's next visit or by the next
+  account deletion): its email, password, identities and
   metadata are cleared, so nobody can sign in to it and the email can sign up
   again, while the row that kept sales point at remains.
 - **Records are never rewritten.** Sales, sale lines, refunds and stock
@@ -840,11 +842,12 @@ below:
     invitations, then the puesto: a member removed while generating a link
     gets none, and a redemption never deadlocks with them. A `tenant_users`
     insert trigger takes a per-account advisory lock, which
-    `delete_account_data` takes first, and refuses a soft-deleted auth user
-    (`BF410`), so no membership or puesto is created for an account while or
-    after it is deleted. Every
+    `delete_account_data` takes first, and refuses an account recorded in the
+    server-only `deleted_accounts` (`BF410`), which `delete_account_data`
+    writes in its own transaction: no membership or puesto is created for an
+    account while or after it is deleted. Every
     environment, after the `pnpm db:push` that creates
-    `former_tenant_members` and `tenant_storage_cleanups` and before the app
+    `former_tenant_members`, `tenant_storage_cleanups` and `deleted_accounts` and before the app
     build that calls them is deployed; redeploy `powersync/sync-rules.yaml`
     after it.
 
@@ -959,6 +962,11 @@ SELECT
     AND coalesce(pg_get_functiondef(
       to_regprocedure('public.delete_account_data(uuid)')
     ) LIKE '%account:%', false)
+    AND coalesce(pg_get_functiondef(
+      to_regprocedure('public.delete_account_data(uuid)')
+    ) LIKE '%deleted_accounts%', false)
+    AND coalesce((SELECT relrowsecurity FROM pg_class
+      WHERE oid = to_regclass('public.deleted_accounts')), false)
     AS "20261113120000";
 ```
 

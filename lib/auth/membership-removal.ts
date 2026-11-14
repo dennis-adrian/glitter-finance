@@ -98,28 +98,19 @@ export async function loadAccountDeletionPlan(
 
 /**
  * Ends every membership of the user, deleting the puestos where they are the
- * only member with all their data, and resolves to the deleted puestos' ids.
- *
- * `finishInAuth` (revoking the sessions, soft-deleting the auth user) runs
- * inside the same transaction, which commits only once it resolved. The
- * transaction holds the account's lock throughout
- * (supabase/manual/20261113160000_account_deletion_guard.sql), so a join or
- * a new puesto racing the deletion either lands before it and goes with the
- * rest, or waits and is refused because the auth user is deleted by then. If
- * `finishInAuth` throws, nothing is deleted and the user can try again.
+ * only member with all their data, and records the account in
+ * deleted_accounts, all in one short transaction under the account's lock
+ * (supabase/manual/20261113120000_tenant_membership_removal.sql). From then
+ * on no membership or puesto can be created for the account, whatever
+ * happens to the Auth steps that follow. Resolves to the deleted puestos'
+ * ids. Safe to run again: a user without memberships deletes nothing.
  */
-export async function deleteAccountData(
-  userId: string,
-  finishInAuth: () => Promise<void>
-): Promise<string[]> {
+export async function deleteAccountData(userId: string): Promise<string[]> {
   try {
-    return await db.transaction(async (tx) => {
-      const rows = await tx.execute<{ tenant_id: string }>(
-        sql`SELECT unnest(public.delete_account_data(${userId}::uuid))::text AS tenant_id`
-      );
-      await finishInAuth();
-      return rows.map((row) => row.tenant_id);
-    });
+    const rows = await db.execute<{ tenant_id: string }>(
+      sql`SELECT unnest(public.delete_account_data(${userId}::uuid))::text AS tenant_id`
+    );
+    return rows.map((row) => row.tenant_id);
   } catch (error) {
     if (postgresErrorCode(error) === "BF409") {
       throw new UserFacingError(ACCOUNT_DELETION_BLOCKED_MESSAGE, {
@@ -127,6 +118,77 @@ export async function deleteAccountData(
       });
     }
     throw error;
+  }
+}
+
+/** Whether the account's deletion committed (deleted_accounts). */
+export async function isAccountDeleted(userId: string): Promise<boolean> {
+  const rows = await db.execute<{ deleted: boolean }>(
+    sql`SELECT EXISTS (SELECT 1 FROM public.deleted_accounts WHERE user_id = ${userId}::uuid) AS deleted`
+  );
+  return Boolean(rows[0]?.deleted);
+}
+
+/** The part of the Auth admin API the Auth side of a deletion needs. */
+export type AuthAdminLike = {
+  auth: {
+    admin: {
+      deleteUser(
+        id: string,
+        shouldSoftDelete?: boolean
+      ): Promise<{ error: { code?: string; status?: number } | null }>;
+    };
+  };
+};
+
+/**
+ * Soft-deletes the auth user of a deleted account and records it, so it is
+ * not tried again. An auth user that is already gone counts as done. Returns
+ * whether it is done; a failure is logged and left for a later retry.
+ */
+export async function finishAccountAuthDeletion(
+  admin: AuthAdminLike,
+  userId: string
+): Promise<boolean> {
+  const { error } = await admin.auth.admin.deleteUser(userId, true);
+  if (error && error.code !== "user_not_found" && error.status !== 404) {
+    console.error("[account] deleting the auth user failed", {
+      userId,
+      code: error.code ?? null,
+      status: error.status ?? null,
+    });
+    return false;
+  }
+  await db.execute(
+    sql`UPDATE public.deleted_accounts SET auth_deleted_at = now() WHERE user_id = ${userId}::uuid AND auth_deleted_at IS NULL`
+  );
+  return true;
+}
+
+/**
+ * Retries the Auth side of older deletions that did not finish (a failed
+ * request, a function stopped after the data was deleted), oldest first.
+ */
+export async function finishPendingAuthDeletions(
+  admin: AuthAdminLike,
+  limit = 10
+): Promise<void> {
+  const rows = await db.execute<{ user_id: string }>(sql`
+    SELECT user_id::text AS user_id
+    FROM public.deleted_accounts
+    WHERE auth_deleted_at IS NULL
+    ORDER BY deleted_at, user_id
+    LIMIT ${limit}
+  `);
+  for (const row of rows) {
+    try {
+      await finishAccountAuthDeletion(admin, row.user_id);
+    } catch (error) {
+      console.error("[account] retrying an Auth deletion failed", {
+        userId: row.user_id,
+        error,
+      });
+    }
   }
 }
 
