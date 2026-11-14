@@ -86,6 +86,14 @@ export async function redeemInvitation(
 ): Promise<{ tenantId: string }> {
   const tokenHash = hashInvitationToken(token);
   return db.transaction(async (tx) => {
+    // The joining account's lock before the invitation's, the order an
+    // account deletion takes them in; the membership insert below takes it
+    // again (tenant_users_refuse_deleted_account in
+    // supabase/manual/20261113120000_tenant_membership_removal.sql), which
+    // refuses an account deleted meanwhile.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${"account:" + userId}))`
+    );
     const [row] = await tx
       .select({
         tenantId: tenantInvitations.tenantId,

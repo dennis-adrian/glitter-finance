@@ -180,6 +180,40 @@ CREATE TRIGGER tenant_users_remember_former_member
   FOR EACH ROW
   EXECUTE FUNCTION public.tenant_users_remember_former_member();
 
+-- Every new membership (joining a puesto, creating one, the first sign-in's
+-- bootstrap) takes the account's lock, the one delete_account_data takes
+-- first, and is refused for a soft-deleted auth user. A join or a new
+-- puesto racing an account deletion either commits before the deletion
+-- reads the memberships, and goes with the rest, or waits and is refused:
+-- the app soft-deletes the auth user before the deletion commits
+-- (app/account/actions.ts).
+CREATE OR REPLACE FUNCTION public.tenant_users_refuse_deleted_account()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('account:' || NEW.user_id::text));
+
+  IF EXISTS (
+    SELECT 1 FROM auth.users
+    WHERE id = NEW.user_id AND deleted_at IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'The account was deleted'
+      USING ERRCODE = 'BF410';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS tenant_users_refuse_deleted_account ON public.tenant_users;
+CREATE TRIGGER tenant_users_refuse_deleted_account
+  BEFORE INSERT ON public.tenant_users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.tenant_users_refuse_deleted_account();
+
 -- ---------------------------------------------------------------------------
 -- Removing a member, and leaving
 -- ---------------------------------------------------------------------------
@@ -297,8 +331,12 @@ DECLARE
   v_tenant_id uuid;
   v_deleted uuid[] := ARRAY[]::uuid[];
 BEGIN
-  -- First the invitation creation lock of each of their puestos, in one
-  -- order, as remove_tenant_member takes it.
+  -- First the account's own lock, which every new membership of this user
+  -- takes too (tenant_users_refuse_deleted_account), then the invitation
+  -- creation lock of each of their puestos, in one order, as
+  -- remove_tenant_member takes it.
+  PERFORM pg_advisory_xact_lock(hashtext('account:' || p_user_id::text));
+
   PERFORM pg_advisory_xact_lock(hashtext('invitation_create:' || tenant_id::text))
   FROM (
     SELECT tenant_id FROM public.tenant_users
@@ -379,5 +417,6 @@ $$;
 REVOKE ALL ON FUNCTION public.tenant_owner_user_id(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.tenant_users_keep_owner() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.tenant_users_remember_former_member() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.tenant_users_refuse_deleted_account() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.remove_tenant_member(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.delete_account_data(uuid) FROM PUBLIC, anon, authenticated;

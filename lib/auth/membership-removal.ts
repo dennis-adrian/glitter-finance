@@ -98,15 +98,28 @@ export async function loadAccountDeletionPlan(
 
 /**
  * Ends every membership of the user, deleting the puestos where they are the
- * only member with all their data. Resolves to the deleted puestos' ids.
- * Safe to run again: a user without memberships deletes nothing.
+ * only member with all their data, and resolves to the deleted puestos' ids.
+ *
+ * `finishInAuth` (revoking the sessions, soft-deleting the auth user) runs
+ * inside the same transaction, which commits only once it resolved. The
+ * transaction holds the account's lock throughout
+ * (supabase/manual/20261113160000_account_deletion_guard.sql), so a join or
+ * a new puesto racing the deletion either lands before it and goes with the
+ * rest, or waits and is refused because the auth user is deleted by then. If
+ * `finishInAuth` throws, nothing is deleted and the user can try again.
  */
-export async function deleteAccountData(userId: string): Promise<string[]> {
+export async function deleteAccountData(
+  userId: string,
+  finishInAuth: () => Promise<void>
+): Promise<string[]> {
   try {
-    const rows = await db.execute<{ tenant_id: string }>(
-      sql`SELECT unnest(public.delete_account_data(${userId}::uuid))::text AS tenant_id`
-    );
-    return rows.map((row) => row.tenant_id);
+    return await db.transaction(async (tx) => {
+      const rows = await tx.execute<{ tenant_id: string }>(
+        sql`SELECT unnest(public.delete_account_data(${userId}::uuid))::text AS tenant_id`
+      );
+      await finishInAuth();
+      return rows.map((row) => row.tenant_id);
+    });
   } catch (error) {
     if (postgresErrorCode(error) === "BF409") {
       throw new UserFacingError(ACCOUNT_DELETION_BLOCKED_MESSAGE, {

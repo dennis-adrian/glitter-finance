@@ -19,20 +19,37 @@ function pgError(code: string) {
 }
 
 stubModule("server-only", {});
-stubModule("@/lib/db", {
-  db: {
-    execute: async (query: { queryChunks?: unknown[] }) => {
-      statements.push(JSON.stringify(query.queryChunks ?? query));
-      if (nextError) throw nextError;
-      return nextRows;
-    },
+const transactions: string[] = [];
+type FakeDb = {
+  execute: (query: { queryChunks?: unknown[] }) => Promise<unknown[]>;
+  transaction: <T>(run: (tx: FakeDb) => Promise<T>) => Promise<T>;
+};
+const fakeDb: FakeDb = {
+  execute: async (query: { queryChunks?: unknown[] }) => {
+    statements.push(JSON.stringify(query.queryChunks ?? query));
+    if (nextError) throw nextError;
+    return nextRows;
   },
-});
+  // Commits when `run` resolves, rolls back when it throws.
+  transaction: async (run) => {
+    transactions.push("begin");
+    try {
+      const result = await run(fakeDb);
+      transactions.push("commit");
+      return result;
+    } catch (error) {
+      transactions.push("rollback");
+      throw error;
+    }
+  },
+};
+stubModule("@/lib/db", { db: fakeDb });
 
 test.beforeEach(() => {
   nextError = null;
   nextRows = [];
   statements.length = 0;
+  transactions.length = 0;
 });
 
 test("each refusal of remove_tenant_member becomes its own message", async () => {
@@ -77,8 +94,29 @@ test("the account's data deletion resolves to the deleted puestos", async () => 
   const { deleteAccountData } = await import("@/lib/auth/membership-removal");
   nextRows = [{ tenant_id: "t1" }, { tenant_id: "t2" }];
 
-  assert.deepEqual(await deleteAccountData("u"), ["t1", "t2"]);
+  const order: string[] = [];
+  const result = await deleteAccountData("u", async () => {
+    order.push(`auth:${transactions.join(",")}`);
+  });
+
+  assert.deepEqual(result, ["t1", "t2"]);
   assert.match(statements[0], /public\.delete_account_data/);
+  // The Auth steps run before the data deletion commits.
+  assert.deepEqual(order, ["auth:begin"]);
+  assert.deepEqual(transactions, ["begin", "commit"]);
+});
+
+test("a failed Auth step rolls the data deletion back", async () => {
+  const { deleteAccountData } = await import("@/lib/auth/membership-removal");
+  nextRows = [{ tenant_id: "t1" }];
+
+  await assert.rejects(
+    deleteAccountData("u", async () => {
+      throw new Error("Auth is down");
+    }),
+    /Auth is down/
+  );
+  assert.deepEqual(transactions, ["begin", "rollback"]);
 });
 
 test("an owner of a shared puesto is told to remove its members first", async () => {
@@ -86,10 +124,15 @@ test("an owner of a shared puesto is told to remove its members first", async ()
     await import("@/lib/auth/membership-removal");
   nextError = pgError("BF409");
 
-  await assert.rejects(deleteAccountData("u"), {
-    name: "UserFacingError",
-    message: ACCOUNT_DELETION_BLOCKED_MESSAGE,
-  });
+  await assert.rejects(
+    deleteAccountData("u", async () => {
+      throw new Error("never reached");
+    }),
+    {
+      name: "UserFacingError",
+      message: ACCOUNT_DELETION_BLOCKED_MESSAGE,
+    }
+  );
 });
 
 test("the deletion plan sorts the puestos by what happens to them", async () => {

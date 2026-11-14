@@ -363,6 +363,14 @@ None of these blocks the release:
      a member removed while generating a link never ends up with a valid
      one), then the puesto's invitations, then the puesto: the order a
      redemption uses, so the two never deadlock (`40P01`).
+   - Every new membership (joining, creating a puesto, the first sign-in)
+     takes a per-account lock and is refused (`BF410`) for a soft-deleted
+     auth user, and `delete_account_data` takes that lock first. The new app
+     keeps the deletion's transaction open while it revokes the sessions and
+     soft-deletes the auth user, and commits after: an Auth failure deletes
+     nothing, and a join racing the deletion either goes with it or is
+     refused. The old app never deletes accounts, and its joins and puestos
+     are unaffected.
 
 ### 4. PowerSync Sync Streams
 

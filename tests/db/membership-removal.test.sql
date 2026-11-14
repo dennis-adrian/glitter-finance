@@ -92,7 +92,13 @@ SELECT tests.ok(
 SELECT tests.ok(
   strpos(pg_get_functiondef('public.delete_account_data(uuid)'::regprocedure), 'invitation_create:')
     BETWEEN 1 AND strpos(pg_get_functiondef('public.delete_account_data(uuid)'::regprocedure), 'FROM public.tenant_invitations i'),
-  'an account deletion takes the invitation creation locks before anything else'
+  'an account deletion takes the invitation creation locks before the invitations'
+);
+
+SELECT tests.ok(
+  strpos(pg_get_functiondef('public.delete_account_data(uuid)'::regprocedure), 'account:')
+    BETWEEN 1 AND strpos(pg_get_functiondef('public.delete_account_data(uuid)'::regprocedure), 'invitation_create:'),
+  'an account deletion takes the account''s lock before anything else'
 );
 
 -- ---------------------------------------------------------------------------
@@ -310,6 +316,21 @@ SELECT tests.is(
   public.delete_account_data(:'solo'),
   ARRAY[]::uuid[],
   'deleting the data again is a no-op, for a retried deletion'
+);
+
+-- A soft-deleted account gets no new membership and no new puesto.
+SELECT tests.create_user('a0000000-0000-4000-8000-0000000000a6', 'soft@example.com');
+UPDATE auth.users SET deleted_at = now()
+WHERE id = 'a0000000-0000-4000-8000-0000000000a6';
+SELECT tests.throws(
+  format('INSERT INTO public.tenant_users (tenant_id, user_id, display_name) VALUES (%L, %L, %L)', :'shared', 'a0000000-0000-4000-8000-0000000000a6', 'Fantasma'),
+  'BF410',
+  'a deleted account cannot join a puesto'
+);
+SELECT tests.throws(
+  format('SELECT tests.create_tenant(%L, %L)', 'a1000000-0000-4000-8000-0000000000a6', 'a0000000-0000-4000-8000-0000000000a6'),
+  'BF410',
+  'a deleted account cannot create a puesto'
 );
 
 -- An auth user deleted outright (the Supabase dashboard) still cascades.
