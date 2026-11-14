@@ -36,7 +36,9 @@ export type TenantAccessCheck = ((count: number) => Promise<void>) & {
  * (offline, an error), or a change came too soon after the last answer to
  * ask again, it asks once the interval has passed for as long as the row
  * stays missing: the watch only fires when the table changes, and a dropped
- * tenant stays empty.
+ * tenant stays empty. So does a "member" answer when the rows changed while
+ * it was being asked and the row is still missing: the server may have read
+ * the membership just before it was deleted.
  */
 export function createTenantAccessCheck(input: {
   verify: () => Promise<TenantAccess>;
@@ -58,6 +60,9 @@ export function createTenantAccessCheck(input: {
   let lastCheckAt: number | null = null;
   let lastCount: number | null = null;
   let checking = false;
+  // A change arrived while the server was being asked, so its answer may be
+  // older than what the device now holds.
+  let changedWhileChecking = false;
   let removed = false;
   let disposed = false;
   let cancelRetry: (() => void) | null = null;
@@ -76,6 +81,7 @@ export function createTenantAccessCheck(input: {
       cancelRetry?.();
       cancelRetry = null;
     }
+    if (checking) changedWhileChecking = true;
     if (count > 0 || removed || checking || disposed) return;
     const time = now();
     if (lastCheckAt !== null && time - lastCheckAt < minIntervalMs) {
@@ -86,6 +92,7 @@ export function createTenantAccessCheck(input: {
     }
     lastCheckAt = time;
     checking = true;
+    changedWhileChecking = false;
     let answer: TenantAccess = "unknown";
     try {
       answer = await input.verify();
@@ -98,7 +105,10 @@ export function createTenantAccessCheck(input: {
     if (answer === "removed") {
       removed = true;
       input.onRemoved();
-    } else if (answer === "unknown") {
+    } else if (
+      answer === "unknown" ||
+      (changedWhileChecking && lastCount === 0)
+    ) {
       retryAfter(minIntervalMs);
     }
   }

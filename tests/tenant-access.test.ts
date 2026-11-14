@@ -215,6 +215,92 @@ test("a row that comes back, or a cleanup, stops the scheduled check", async () 
   assert.equal(verified, 2);
 });
 
+test("a missing row that arrives while a check is answering 'member' is checked again", async () => {
+  const timers: { run: () => void; ms: number }[] = [];
+  const verifications: ((access: TenantAccess) => void)[] = [];
+  let removed = 0;
+  let time = 0;
+  const check = createTenantAccessCheck({
+    // Deferred: each check waits until the test answers it.
+    verify: () =>
+      new Promise<TenantAccess>((resolve) => verifications.push(resolve)),
+    onRemoved: () => {
+      removed += 1;
+    },
+    minIntervalMs: 1000,
+    now: () => time,
+    schedule: (run, ms) => {
+      timers.push({ run, ms });
+      return () => {};
+    },
+  });
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+  // The row goes missing and the server is asked; it reads the membership
+  // just before the owner deletes it.
+  const first = check(0);
+  await flush();
+  assert.equal(verifications.length, 1);
+  // The sync then drops the tenant: another missing-row notification while
+  // the check is still answering.
+  void check(0);
+  verifications[0]("member");
+  await first;
+
+  assert.equal(removed, 0);
+  assert.deepEqual(
+    timers.map(({ ms }) => ms),
+    [1000],
+    "the outdated 'member' answer leads to another check"
+  );
+
+  time += 1000;
+  timers[0].run();
+  await flush();
+  assert.equal(verifications.length, 2);
+  verifications[1]("removed");
+  await flush();
+  assert.equal(removed, 1);
+});
+
+test("a 'member' answer with nothing changed meanwhile, or with the row back, schedules nothing", async () => {
+  const timers: (() => void)[] = [];
+  const verifications: ((access: TenantAccess) => void)[] = [];
+  const check = createTenantAccessCheck({
+    verify: () =>
+      new Promise<TenantAccess>((resolve) => verifications.push(resolve)),
+    onRemoved: () => {},
+    minIntervalMs: 1000,
+    now: () => 0,
+    schedule: (run) => {
+      timers.push(run);
+      return () => {};
+    },
+  });
+
+  const quiet = check(0);
+  verifications[0]("member");
+  await quiet;
+  assert.equal(timers.length, 0, "a legacy database without the row");
+
+  const restored = createTenantAccessCheck({
+    verify: () =>
+      new Promise<TenantAccess>((resolve) => verifications.push(resolve)),
+    onRemoved: () => {},
+    minIntervalMs: 1000,
+    now: () => 0,
+    schedule: (run) => {
+      timers.push(run);
+      return () => {};
+    },
+  });
+  const pending = restored(0);
+  void restored(1);
+  verifications[1]("member");
+  await pending;
+  assert.equal(timers.length, 0, "the row came back while it was asked");
+});
+
 // --- SupabaseConnector ------------------------------------------------------
 
 function accessToken(tenantId: string | null) {
