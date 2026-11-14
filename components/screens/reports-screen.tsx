@@ -7,6 +7,7 @@ import { Screen } from "@/components/templates/screen";
 import { BarRow } from "@/components/atoms/bar-row";
 import { MetricCard } from "@/components/atoms/metric-card";
 import { DateRangePicker } from "@/components/molecules/date-range-picker";
+import { ExportSalesButton } from "@/components/molecules/export-sales-button";
 import { SalesTrendChart } from "@/components/molecules/sales-trend-chart";
 import { Button } from "@/components/ui/button";
 import { filterSalesByBounds, resolveSalesRange } from "@/lib/dates";
@@ -63,6 +64,8 @@ type ReportsScreenProps = {
    * comparison that reaches before it is hidden rather than undercounted.
    */
   salesHistoryStart: number | null;
+  /** The active puesto's name, for the export's filename. */
+  tenantName: string;
   /** Saved when a seller's sales open, given back on return to Por vendedor. */
   scrollMemory: ScrollMemory;
   /**
@@ -179,6 +182,7 @@ export function ReportsScreen({
   stockByProduct,
   inventoryStockReady,
   salesHistoryStart,
+  tenantName,
   scrollMemory,
   showAllProducts,
   setShowAllProducts,
@@ -270,8 +274,35 @@ export function ReportsScreen({
     };
   }, [sales, salesInRange, range, start, end, now, salesHistoryStart]);
 
+  // The export lists every sale of the range, so unlike the comparison it
+  // is refused, not hidden, while the loaded history starts after the range.
+  const exportIncompleteReason =
+    start !== undefined &&
+    salesHistoryStart !== null &&
+    start < salesHistoryStart
+      ? "Este dispositivo todavía no tiene todas las ventas de este período. Esperá a que termine la sincronización para exportarlo."
+      : null;
+
   return (
-    <Screen header={<ScreenHeader title="Reportes" />} scrollRef={scrollRef}>
+    <Screen
+      header={
+        <ScreenHeader
+          title="Reportes"
+          actions={
+            <ExportSalesButton
+              sales={salesInRange}
+              allSales={sales}
+              bounds={
+                start !== undefined && end !== undefined ? { start, end } : null
+              }
+              tenantName={tenantName}
+              incompleteReason={exportIncompleteReason}
+            />
+          }
+        />
+      }
+      scrollRef={scrollRef}
+    >
       <DateRangePicker
         range={range}
         customStart={customStart}

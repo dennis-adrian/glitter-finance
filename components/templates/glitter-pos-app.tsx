@@ -1825,6 +1825,7 @@ export function GlitterPosApp({
         stockByProduct={stockByProduct}
         inventoryStockReady={inventoryStockReady}
         salesHistoryStart={salesHistoryStart}
+        tenantName={tenantContext.tenant?.name ?? ""}
         scrollMemory={reportsScrollMemory}
         showAllProducts={reportsShowAllProducts}
         setShowAllProducts={setReportsShowAllProducts}
