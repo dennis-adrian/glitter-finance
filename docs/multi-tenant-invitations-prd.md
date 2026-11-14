@@ -589,11 +589,17 @@ writer) so the actions and the existing bootstrap share one implementation.
   authorized by membership). Reloading B re-resolves the active tenant (§5.3);
   its unsynced work is uploaded first (see above).
 - **Creator's auth user deleted** (outright, from the Supabase dashboard) →
-  `created_by_user_id` / invitation `created_by_user_id` go `NULL` (SET NULL);
-  their membership cascades away and the longest-standing member becomes the
-  owner (§15). Tenant invitations are removed only when the **tenant** is
-  deleted (cascade). Account deletion from the app soft-deletes the auth user
-  instead (§15), so these columns keep the id.
+  this only succeeds for a user who recorded nothing: `sales.user_id`,
+  `sales.voided_by_user_id`, `refunds.user_id` and
+  `inventory_movements.user_id` reference `auth.users` with `ON DELETE
+RESTRICT`. For such a user, `created_by_user_id` / invitation
+  `created_by_user_id` go `NULL` (SET NULL), their membership cascades away
+  and the longest-standing member becomes the owner (§15). For a user with any
+  of those records, the hard delete is refused and rolls back whole: the
+  membership stays and ownership does not change. Delete such an account
+  through the app instead (Settings → Cuenta, §15), which soft-deletes the auth
+  user, so these columns keep the id. Tenant invitations are removed only when
+  the **tenant** is deleted (cascade).
 - **Invite-only user abandons join, lands on `/`** → bootstraps a personal
   tenant (§5.6). Acceptable; they can still redeem later.
 - **Two booths, same product catalog** → tenants are fully isolated; catalogs do
