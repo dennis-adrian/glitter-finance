@@ -76,3 +76,20 @@ export function sentryInitOptions(vercelEnv: string | undefined) {
     beforeBreadcrumb: sanitizeSentryBreadcrumb,
   } satisfies SharedSentryOptions;
 }
+
+/**
+ * Browser transport options for the `/monitoring` tunnel. Since
+ * @sentry/nextjs 10.77 the SDK sends tunnel requests with
+ * `credentials: "omit"`. Vercel Preview deployments (staging) sit behind
+ * Deployment Protection, which answers 401 without its cookie, so previews
+ * send same-origin credentials again. Elsewhere the default stays: the
+ * tunnel is a rewrite that would pass the Supabase session cookie on to
+ * Sentry.
+ */
+export function sentryTunnelTransportOptions(
+  vercelEnv: string | undefined
+): { fetchOptions: RequestInit } | undefined {
+  return vercelEnv?.trim() === "preview"
+    ? { fetchOptions: { credentials: "same-origin" } }
+    : undefined;
+}

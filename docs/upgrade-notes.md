@@ -21,7 +21,7 @@ README and empty this file for the release after.
 | Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                                                                                                                  |
 | Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                                                                                                                                                                     |
 | App screens           | A responsive layout for phones, tablets and desktops, a new order and checkout flow, and Reportes in the main navigation (see [What users may notice](#what-users-may-notice)). Nothing to configure.                                                                                                                                                                                                                                                                                |
-| Dependencies          | Security upgrades: Next.js 16.4.6, `@sentry/nextjs` 10.78.0 and Serwist 9.5.13, plus patched transitive packages. Browser Sentry events now reach the `/monitoring` tunnel without cookies (see [After the deploy](#9-after-the-deploy)). Nothing to configure.                                                                                                                                                                                                                      |
+| Dependencies          | Security upgrades: Next.js 16.4.6, `@sentry/nextjs` 10.78.0 and Serwist 9.5.13, plus patched transitive packages. Browser Sentry events now reach the `/monitoring` tunnel without cookies outside Vercel Preview (see [After the deploy](#9-after-the-deploy)). Nothing to configure.                                                                                                                                                                                               |
 | Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                                                                                                                                                                          |
 
 ## Once, before the first environment
@@ -549,15 +549,13 @@ configures the local stack):
    events are now queued offline and sent on reconnect.
 
    Since `@sentry/nextjs` 10.77 the browser sends events to the `/monitoring`
-   tunnel without cookies. If this environment's deployments are behind
-   Vercel **Deployment Protection** (often the case for Preview, which serves
-   staging), throw a test error in the browser (open the app, then run
+   tunnel without cookies, except on Vercel Preview deployments, which still
+   send them so that Deployment Protection lets the events through. On
+   staging, throw a test error in the browser (open the app, then run
    `setTimeout(() => { throw new Error("sentry tunnel check") })` in the
-   console) and confirm it reaches Sentry. If it does not, `/monitoring`
-   answers 401 because the protection cookie is no longer sent: either exempt
-   the deployment from Deployment Protection, or ask for a change that sets
-   `transportOptions: { fetchOptions: { credentials: "same-origin" } }` in
-   `instrumentation-client.ts`.
+   console) and confirm it reaches Sentry. If production sits behind
+   Deployment Protection too (it normally does not on its own domain), check
+   it the same way: there `/monitoring` would answer 401.
 
 3. **Installed PWA:** it stays the same app (the manifest `id` is `/`, which
    Chrome derived before), and Android launchers show the new maskable icon.
