@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 import { withSerwist } from "@serwist/turbopack";
-import { withSentryConfig } from "@sentry/nextjs";
+// Since @sentry/nextjs 10.73 the config wrapper lives in its own entry point
+// (where v11 keeps it); importing it from "@sentry/nextjs" logs a warning.
+import { withSentryConfig } from "@sentry/nextjs/config";
 
 // Defense-in-depth headers for every response. A full Content-Security-Policy
 // is deliberately left out until it has been tested against Supabase,

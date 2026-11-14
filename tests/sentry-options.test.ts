@@ -51,3 +51,7 @@ test("collects no user data category, whatever the SDK defaults", () => {
     stackFrameVariables: false,
   });
 });
+
+test("keeps Sentry Logs off, whatever the SDK default", () => {
+  assert.equal(sentryInitOptions(undefined).enableLogs, false);
+});

@@ -41,7 +41,9 @@ export function offlinePageRevision(input: {
 export function readOfflinePageSources(root = process.cwd()) {
   return OFFLINE_PAGE_SOURCES.flatMap((file) => {
     try {
-      return [readFileSync(path.join(root, file))];
+      // turbopackIgnore: a build-time read in a prerendered route. Without
+      // it Next 16.4 traces the whole project into the route's server output.
+      return [readFileSync(path.join(/* turbopackIgnore: true */ root, file))];
     } catch {
       return [];
     }
