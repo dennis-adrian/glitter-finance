@@ -110,7 +110,10 @@ export function planPowerSyncPrecache(
 
 /** Reads the copied PowerSync assets; empty when they were not copied. */
 export function readPowerSyncAssets(
-  directory = path.join(process.cwd(), POWERSYNC_ASSET_DIR)
+  directory = path.join(
+    /* turbopackIgnore: true */ process.cwd(),
+    POWERSYNC_ASSET_DIR
+  )
 ): PowerSyncAssets {
   let files: string[];
   try {

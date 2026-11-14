@@ -36,6 +36,7 @@ test("refreshes the session on pages and auth routes", () => {
 test("skips the service worker, PowerSync assets and other non-pages", () => {
   for (const pathname of [
     "/monitoring",
+    "/sentry-tunnel",
     "/_next/static/chunks/app.js",
     "/_next/image",
     "/favicon.ico",

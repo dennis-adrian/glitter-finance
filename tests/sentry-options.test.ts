@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   resolveSentryTarget,
   sentryInitOptions,
-  sentryTunnelTransportOptions,
 } from "@/lib/observability/sentry-options";
 
 test("Vercel production and preview report under their own environment", () => {
@@ -55,13 +54,4 @@ test("collects no user data category, whatever the SDK defaults", () => {
 
 test("keeps Sentry Logs off, whatever the SDK default", () => {
   assert.equal(sentryInitOptions(undefined).enableLogs, false);
-});
-
-test("previews send the Deployment Protection cookie to the tunnel", () => {
-  assert.deepEqual(sentryTunnelTransportOptions("preview"), {
-    fetchOptions: { credentials: "same-origin" },
-  });
-  for (const vercelEnv of ["production", "development", "", undefined]) {
-    assert.equal(sentryTunnelTransportOptions(vercelEnv), undefined);
-  }
 });

@@ -21,7 +21,7 @@ README and empty this file for the release after.
 | Supabase Auth         | Minimum password length 8, and new confirmation and password recovery email templates that link to `/auth/confirm`.                                                                                                                                                                                                                                                                                                                                                                  |
 | Response headers, PWA | App-wide security headers, a manifest with a stable `id` and maskable icons, product photos cached offline, and an offline page.                                                                                                                                                                                                                                                                                                                                                     |
 | App screens           | A responsive layout for phones, tablets and desktops, a new order and checkout flow, and Reportes in the main navigation (see [What users may notice](#what-users-may-notice)). Nothing to configure.                                                                                                                                                                                                                                                                                |
-| Dependencies          | Security upgrades: Next.js 16.4.6, `@sentry/nextjs` 10.78.0 and Serwist 9.5.13, plus patched transitive packages. Browser Sentry events now reach the `/monitoring` tunnel without cookies outside Vercel Preview (see [After the deploy](#9-after-the-deploy)). Nothing to configure.                                                                                                                                                                                               |
+| Dependencies          | Security upgrades: Next.js 16.4.6, `@sentry/nextjs` 10.78.0 and Serwist 9.5.13, plus patched transitive packages. Browser Sentry events now go through a `/sentry-tunnel` route handler that forwards only the event payload, so cookies never reach Sentry (see [After the deploy](#9-after-the-deploy)). Nothing to configure.                                                                                                                                                     |
 | Tooling (developers)  | A pnpm catalog, TypeScript 6.0 (the newest typescript-eslint supports), Supabase CLI 2.115.0 or later, and CI checks on every pull request.                                                                                                                                                                                                                                                                                                                                          |
 
 ## Once, before the first environment
@@ -548,14 +548,18 @@ configures the local stack):
    transaction a device clock ahead has held back for 10 minutes. Browser
    events are now queued offline and sent on reconnect.
 
-   Since `@sentry/nextjs` 10.77 the browser sends events to the `/monitoring`
-   tunnel without cookies, except on Vercel Preview deployments, which still
-   send them so that Deployment Protection lets the events through. On
-   staging, throw a test error in the browser (open the app, then run
-   `setTimeout(() => { throw new Error("sentry tunnel check") })` in the
-   console) and confirm it reaches Sentry. If production sits behind
-   Deployment Protection too (it normally does not on its own domain), check
-   it the same way: there `/monitoring` would answer 401.
+   Browser events still go to `/monitoring`, which now rewrites to the
+   `/sentry-tunnel` route handler instead of straight to Sentry. The handler
+   forwards only the event payload, so the browser's cookies (the Supabase
+   session, the Vercel Deployment Protection cookie) no longer reach Sentry,
+   and each browser event is now one function invocation on Vercel. The
+   handler accepts only the DSN the server SDK uses: on a deployment outside
+   Vercel that sets `NEXT_PUBLIC_SENTRY_DSN`, the browser uses the same one.
+   On staging, and then on production, open the app, throw a test error from
+   the browser console (`setTimeout(() => { throw new Error("sentry tunnel check") })`)
+   and confirm it reaches Sentry. If it does not, check the deployment's
+   function logs for `/sentry-tunnel`: a 403 means the DSN was rejected, a
+   500 that the request to Sentry failed.
 
 3. **Installed PWA:** it stays the same app (the manifest `id` is `/`, which
    Chrome derived before), and Android launchers show the new maskable icon.
